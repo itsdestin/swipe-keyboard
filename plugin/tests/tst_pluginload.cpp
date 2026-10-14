@@ -31,10 +31,10 @@ private slots:
         QQmlComponent c(&engine, QStringLiteral("SwipeKeyboard"), QStringLiteral("SwipeCapture"));
         QVERIFY2(c.status() == QQmlComponent::Ready, qPrintable(c.errorString()));
     }
-    // The guess bar must stay pinned while ANY swipe layer exists, and the user's own value come back once
-    // the last one is gone. WHY two layers, old deleted first: when Qt rebuilds the layout the new layer can
-    // appear before the old one is destroyed; the old one's cleanup must not unpin the bar under the new one.
-    void guessBarPinnedWhileCaptureExists()
+    // The guess bar must be pinned once a swipe layer exists and STAY pinned after the layer is destroyed.
+    // WHY: the layer is destroyed on "?123", but the swipe input method and its guess bar stay active on the
+    // symbols page; unpinning there would make the keyboard height jump on every ?123/ABC toggle.
+    void guessBarStaysPinnedAfterCaptureDestroyed()
     {
         QQmlEngine engine;
         engine.addImportPath(qmlDir());
@@ -52,15 +52,11 @@ private slots:
         QVERIFY2(c.status() == QQmlComponent::Ready, qPrintable(c.errorString()));
         QQuickItem dummy;
         const QVariantMap props{{"layoutItem", QVariant::fromValue(&dummy)}, {"touchArea", QVariant::fromValue(&dummy)}};
-        std::unique_ptr<QObject> oldLayer(c.createWithInitialProperties(props));
-        QVERIFY2(oldLayer, qPrintable(c.errorString()));
+        std::unique_ptr<QObject> layer(c.createWithInitialProperties(props));
+        QVERIFY2(layer, qPrintable(c.errorString()));
         QCOMPARE(probe->property("pinned").toBool(), true);
-        std::unique_ptr<QObject> newLayer(c.createWithInitialProperties(props));
-        QVERIFY(newLayer);
-        oldLayer.reset();
-        QCOMPARE(probe->property("pinned").toBool(), true); // still pinned under the new layer
-        newLayer.reset();
-        QCOMPARE(probe->property("pinned").toBool(), false); // user's value restored
+        layer.reset(); // like switching to the symbols page
+        QCOMPARE(probe->property("pinned").toBool(), true);
     }
 };
 

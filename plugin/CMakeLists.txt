@@ -18,7 +18,7 @@ qt_add_qml_module(swipekeyboard
     URI SwipeKeyboard
     VERSION 1.0
     OUTPUT_DIRECTORY ${SWIPEKB_QML_DIR}/SwipeKeyboard
-    QML_FILES SwipeCapture.qml candidatebar.js
+    QML_FILES SwipeCapture.qml
     SOURCES swipeinputmethod.h swipeinputmethod.cpp
 )
 target_link_libraries(swipekeyboard PRIVATE Qt6::Quick Qt6::VirtualKeyboard swipekb_session swipekb_engine)

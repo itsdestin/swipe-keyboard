@@ -1,7 +1,6 @@
 import QtQuick
 import QtQuick.VirtualKeyboard
 import QtQuick.VirtualKeyboard.Settings
-import "candidatebar.js" as CandidateBar
 
 // SwipeCapture — swipe-keyboard's finger listener and trail.
 // WHY a separate layer: Qt's keyboard records paths only in handwriting boxes, never across keys.
@@ -32,11 +31,13 @@ Canvas {
     property bool popupSeen: false
 
     // WHY: keep the guess bar always shown so the keyboard stays one height instead of growing on each swipe
-    // (see candidatebar.js). Qt only applies this while the active input method has a guess bar
-    // (Keyboard.qml alwaysVisibleCondition requires wordCandidateListVisibleHint), so the numbers/symbols
-    // pages and the stock keyboard keep their normal height. Undone when this layer goes away.
-    Component.onCompleted: CandidateBar.pin(VirtualKeyboardSettings)
-    Component.onDestruction: CandidateBar.unpin(VirtualKeyboardSettings)
+    // and making the app above jump. Set once and never undone: this layer is destroyed on "?123", but the
+    // swipe input method (and its guess bar) stays active on the symbols page, so undoing it there would
+    // bring the jump back on every ?123/ABC toggle. Safe to leave on: Qt only applies it while the active
+    // input method has a guess bar (Keyboard.qml alwaysVisibleCondition requires
+    // wordCandidateListVisibleHint), so pages and keyboards without one (numbers, digits, dialpad, stock
+    // keyboard) keep their normal height. It lives in memory only, and --uninstall restarts the keyboard.
+    Component.onCompleted: VirtualKeyboardSettings.wordCandidateList.alwaysVisible = true
 
     // The Keyboard item that owns the touch area (it exposes alternativeKeys and pressAndHoldDelay).
     function keyboardItem() {
