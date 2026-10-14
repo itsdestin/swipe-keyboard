@@ -27,7 +27,8 @@ static QList<Key> qwerty()
 
 // One line in the recorder's format (see plugin/swiperecorder.h): straight lines between letter centers,
 // 12 points per segment, 8 ms apart.
-static QByteArray swipeLine(const QString &word, const QList<Key> &keys)
+// `type` empty = an older recording without the "type" field.
+static QByteArray swipeLine(const QString &word, const QList<Key> &keys, const QString &type = {})
 {
     auto center = [&](QChar c) {
         for (const Key &k : keys)
@@ -49,8 +50,10 @@ static QByteArray swipeLine(const QString &word, const QList<Key> &keys)
     QJsonArray keyArr;
     for (const Key &k : keys)
         keyArr.append(QJsonObject{{"letter", QString(QChar(k.letter))}, {"x", k.x}, {"y", k.y}, {"w", k.w}, {"h", k.h}});
-    const QJsonObject o{{"ts", 1}, {"points", points}, {"keys", keyArr}, {"context", QJsonArray()},
-                        {"candidates", QJsonArray{word}}, {"typed", word}};
+    QJsonObject o{{"ts", 1}, {"points", points}, {"keys", keyArr}, {"context", QJsonArray()},
+                  {"candidates", QJsonArray{word}}, {"typed", word}};
+    if (!type.isEmpty())
+        o.insert("type", type);
     return QJsonDocument(o).toJson(QJsonDocument::Compact) + '\n';
 }
 
@@ -79,8 +82,12 @@ private slots:
         {
             QFile f(dir.filePath("swipes.jsonl"));
             QVERIFY(f.open(QIODevice::WriteOnly));
-            for (const QString &w : swiped)
-                f.write(swipeLine(w, keys));
+            for (int i = 0; i < swiped.size(); ++i) {
+                f.write(swipeLine(swiped[i], keys, i == 0 ? QString() : QStringLiteral("swipe")));
+                // WHY: a guess-bar pick line between swipes must be skipped, not counted as a swipe.
+                if (i == 1)
+                    f.write(R"({"ts":2,"type":"pick","swipe_ts":1,"word":"thy"})" "\n");
+            }
             QFile e(dir.filePath("words.txt"));
             QVERIFY(e.open(QIODevice::WriteOnly));
             e.write(expect.join('\n').toUtf8() + '\n');

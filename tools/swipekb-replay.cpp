@@ -112,6 +112,12 @@ bool readSwipes(const std::string &path, std::vector<Swipe> &out)
                          qPrintable(err.errorString()));
             return false;
         }
+        // WHY skip: the file also holds guess-bar "pick" lines (corrections, see plugin/swiperecorder.h). They are
+        // not swipes, so counting them would shift every later swipe against the expected-words list. Older
+        // recordings have no "type" at all; those lines are swipes.
+        const QString type = o.value("type").toString(QStringLiteral("swipe"));
+        if (type != QStringLiteral("swipe"))
+            continue;
         Swipe s;
         for (const QJsonValue &v : o.value("points").toArray()) {
             const QJsonObject p = v.toObject();

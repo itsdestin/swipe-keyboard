@@ -49,5 +49,9 @@ private:
     // means the user went elsewhere and the flag no longer applies.
     int m_afterSwipeCursorBefore = -1;
     int m_afterSwipeCursorAfter = -1;
+    // Timestamp of the last swipe the recorder wrote, 0 if it was not recorded. WHY: a guess-bar pick is
+    // recorded as a correction of that swipe, so it must point at the right line; a pick for a swipe that
+    // was never recorded (recording off, password field) is not written at all.
+    qint64 m_lastRecordedSwipeTs = 0;
     QVirtualKeyboardInputEngine::TextCase m_textCase = QVirtualKeyboardInputEngine::TextCase::Lower;
 };

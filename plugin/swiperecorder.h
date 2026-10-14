@@ -1,6 +1,8 @@
 // SwipeRecorder — opt-in recording of real swipes, so recognition can be measured and tuned offline
 // (tools/swipekb-replay replays the recordings). Off unless the owner creates the file
-// <swipe-keyboard data folder>/record; then each swipe adds one line to traces/swipes.jsonl.
+// <swipe-keyboard data folder>/record; then each swipe adds one line to traces/swipes.jsonl
+// ({"type":"swipe", ...}), and each guess-bar pick that swaps a swiped word adds a "pick" line naming the
+// swipe it corrects ({"type":"pick","swipe_ts":...,"word":...}).
 // No keyboard here, so it is unit-tested on its own (tests/tst_swiperecorder.cpp).
 #pragma once
 
@@ -29,5 +31,13 @@ struct Entry {
 // Returns true when a line was written. WHY check every time: it is a cheap file check, and it lets the
 // owner switch recording on and off by creating or deleting a file, without restarting the keyboard.
 bool appendIfEnabled(const QString &dir, const Entry &e);
+
+// Appends a "pick" line: at time `ts` the owner tapped `word` in the guess bar, replacing the word typed for
+// the swipe recorded with timestamp `swipeTs`. Same on/off switch as appendIfEnabled. If the owner picks
+// again for the same swipe, a new line is added; the last pick for a swipe is the word that stayed.
+// WHY a separate line (not editing the swipe line): the file is only ever appended to, so a crash can never
+// damage earlier lines; and a picked word is the owner saying which word they meant, the most trustworthy
+// label there is for later training and scoring.
+bool appendPickIfEnabled(const QString &dir, qint64 ts, qint64 swipeTs, const QString &word);
 
 } // namespace SwipeRecorder

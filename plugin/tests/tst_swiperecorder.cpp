@@ -72,6 +72,53 @@ private slots:
         QCOMPARE(o.value("candidates").toArray().size(), 2);
         QCOMPARE(o.value("candidates").toArray()[0].toString(), QStringLiteral("hello"));
         QCOMPARE(o.value("typed").toString(), QStringLiteral("hello"));
+        QCOMPARE(o.value("type").toString(), QStringLiteral("swipe"));
+    }
+
+    // A guess-bar pick adds its own line pointing at the swipe it corrects; the swipe line is left as it was.
+    void pickAddsALineNamingTheSwipe()
+    {
+        QTemporaryDir dir;
+        touch(dir.path() + "/record");
+        QVERIFY(SwipeRecorder::appendIfEnabled(dir.path(), sample()));
+        QVERIFY(SwipeRecorder::appendPickIfEnabled(dir.path(), 1760000000999, 1760000000123, "jello"));
+        const auto ls = lines(dir.path());
+        QCOMPARE(ls.size(), 2);
+        QCOMPARE(QJsonDocument::fromJson(ls[0]).object().value("typed").toString(), QStringLiteral("hello"));
+        QJsonParseError err;
+        const QJsonObject o = QJsonDocument::fromJson(ls[1], &err).object();
+        QCOMPARE(err.error, QJsonParseError::NoError);
+        QCOMPARE(o.value("type").toString(), QStringLiteral("pick"));
+        QCOMPARE(o.value("ts").toInteger(), 1760000000999);
+        QCOMPARE(o.value("swipe_ts").toInteger(), 1760000000123);
+        QCOMPARE(o.value("word").toString(), QStringLiteral("jello"));
+        QCOMPARE(o.keys().size(), 4); // nothing else: no text from the app rides along
+    }
+
+    void pickWritesNothingWhenSwitchedOff()
+    {
+        QTemporaryDir dir;
+        QVERIFY(!SwipeRecorder::appendPickIfEnabled(dir.path(), 2, 1, "jello"));
+        QVERIFY(!QFile::exists(dir.path() + "/traces"));
+    }
+
+    // WHY: recordings can hold private text, so only the owner's account may read them.
+    void recordingsAreOwnerOnly()
+    {
+        QTemporaryDir dir;
+        touch(dir.path() + "/record");
+        QVERIFY(SwipeRecorder::appendIfEnabled(dir.path(), sample()));
+        const auto owner = QFileDevice::ReadOwner | QFileDevice::WriteOwner;
+        const auto others = QFileDevice::ReadGroup | QFileDevice::WriteGroup | QFileDevice::ExeGroup
+            | QFileDevice::ReadOther | QFileDevice::WriteOther | QFileDevice::ExeOther;
+        const auto filePerms = QFile::permissions(dir.path() + "/traces/swipes.jsonl");
+        QCOMPARE(filePerms & (owner | others | QFileDevice::ExeOwner), owner);
+        const auto dirPerms = QFile::permissions(dir.path() + "/traces");
+        QCOMPARE(dirPerms & (owner | others | QFileDevice::ExeOwner), owner | QFileDevice::ExeOwner);
+        // A file left readable by an older version is tightened on the next write.
+        QFile::setPermissions(dir.path() + "/traces/swipes.jsonl", owner | QFileDevice::ReadGroup | QFileDevice::ReadOther);
+        QVERIFY(SwipeRecorder::appendPickIfEnabled(dir.path(), 2, 1, "jello"));
+        QCOMPARE(QFile::permissions(dir.path() + "/traces/swipes.jsonl") & (owner | others), owner);
     }
 
     void switchingOffStopsRecording()

@@ -106,8 +106,13 @@ void SwipeInputMethod::selectionListItemSelected(Type type, int index)
         return;
     }
     const CommitPlan plan = m_session.swapToAlternative(index);
-    if (!plan.isEmpty())
+    if (!plan.isEmpty()) {
         ic->commit(plan.text, plan.replaceFrom, plan.replaceLength);
+        // Opt-in recording: the word the owner picked is the word they meant for that swipe (see swiperecorder.h).
+        if (m_lastRecordedSwipeTs)
+            SwipeRecorder::appendPickIfEnabled(SwipeRecorder::dataDir(), QDateTime::currentMSecsSinceEpoch(),
+                                               m_lastRecordedSwipeTs, plan.text);
+    }
     refreshGuessBar();
 }
 
@@ -203,11 +208,12 @@ void SwipeInputMethod::finishSwipe(const QVariantList &points, const QVariantLis
     // are never recorded. `typed` is the word without its auto-space.
     // Belt and braces: never record in a password field even if a swipe somehow got through.
     const bool secret = ic->inputMethodHints() & (Qt::ImhSensitiveData | Qt::ImhHiddenText);
-    if (!secret)
-        SwipeRecorder::appendIfEnabled(SwipeRecorder::dataDir(),
-                                       {.ts = QDateTime::currentMSecsSinceEpoch(), .points = points, .keys = keys,
-                                        .context = contextWords, .candidates = candidates,
-                                        .typed = plan.text.trimmed()});
+    const qint64 ts = QDateTime::currentMSecsSinceEpoch();
+    const bool recorded = !secret
+        && SwipeRecorder::appendIfEnabled(SwipeRecorder::dataDir(),
+                                          {.ts = ts, .points = points, .keys = keys, .context = contextWords,
+                                           .candidates = candidates, .typed = plan.text.trimmed()});
+    m_lastRecordedSwipeTs = recorded ? ts : 0;
     qCInfo(lcSwipe) << "swipe" << trace.size() << "points ->" << candidates << "in" << timer.elapsed() << "ms";
 }
 
