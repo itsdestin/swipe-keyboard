@@ -1,0 +1,2 @@
+date	commit	label	n	top1	top3	avg_us
+2026-10-14	3c52c51	baseline: stock FUTO Swipe (encoder+decoder+context LM)	2000	92.4974	95.4265	7763.0
