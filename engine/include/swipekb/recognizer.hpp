@@ -45,7 +45,9 @@ struct ModelPaths {
                 dir + "/models/magic_macaw/model_fp32.pte",
                 dir + "/models/hungry_jellyfish/context_lm.pte",
                 dir + "/models/hungry_jellyfish/vocab.txt",
-                dir + "/dict/en_US_wordlist.combined"};
+                // WHY en_swipe: AOSP's word list plus wordfreq words (scripts/dict/build-en-swipe.sh); it scored
+                // higher than AOSP alone on the scoreboard.
+                dir + "/dict/en_swipe.combined"};
     }
 };
 

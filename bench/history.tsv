@@ -1,2 +1,13 @@
 date	commit	label	n	top1	top3	avg_us
 2026-10-14	3c52c51	baseline: stock FUTO Swipe (encoder+decoder+context LM)	2000	92.4974	95.4265	7763.0
+2026-10-14	71bb72e	dict: (a) AOSP en_US (current)	2000	92.4974	95.4265	6135.8
+2026-10-14	71bb72e	dict: (b) FUTO en_w2 (dl.keyboard.futo.org)	2000	92.5488	95.4779	5360.9
+2026-10-14	71bb72e	dict: (a2) AOSP en generic (US+GB)	2000	92.5488	95.4779	3975.5
+2026-10-14	71bb72e	dict: (c) wordfreq 150k	2000	93.0113	96.4029	4465.6
+2026-10-14	71bb72e	dict: (c) wordfreq 250k	2000	93.1655	96.6084	5085.6
+2026-10-14	71bb72e	dict: (d) AOSP en_US + wordfreq to 250k	2000	93.1655	96.557	4239.0
+2026-10-14	71bb72e	dict: (c) wordfreq 300k	2000	93.1141	96.6084	6484.4
+2026-10-14	71bb72e	dict: (c) wordfreq, typo filter x20 (198k)	2000	90.4419	92.7544	4019.6
+2026-10-14	71bb72e	dict: (d) AOSP en_US + wordfreq, typo filter x20 (250k)	2000	93.3196	96.557	4409.9
+2026-10-14	71bb72e	dict: (d) AOSP en_US + wordfreq, typo filter x20 (200k)	2000	93.2169	96.3515	4132.3
+2026-10-14	71bb72e	dict: (d) AOSP en_US + wordfreq, typo filter x20 (300k)	2000	93.3196	96.557	5070.3

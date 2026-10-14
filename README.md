@@ -5,7 +5,10 @@ Design: `docs/superpowers/specs/2026-10-14-swipe-typing-design.md`.
 
 **Powered by FUTO Swipe.** Swipe recognition uses the FUTO Swipe models (FUTO Model Weights License 1.0,
 shipped next to the models as `FUTO-MODEL-LICENSE.md`) and FUTO's GPL-3.0 `swipe-library`. The scoreboard
-uses FUTO's MIT-licensed swipe dataset. The English word list comes from AOSP (Apache-2.0).
+uses FUTO's MIT-licensed swipe dataset. The English dictionary (`en_swipe.combined`, built by
+`scripts/dict/build-en-swipe.sh`) combines AOSP's US English word list (Apache-2.0) with word frequencies from
+the [wordfreq](https://github.com/rspeer/wordfreq) package by Robyn Speer, whose data is CC-BY-SA 4.0; the
+built dictionary file is therefore CC-BY-SA 4.0 too (it is built on install, not stored in this repo).
 
 ## Install / uninstall
 

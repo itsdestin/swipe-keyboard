@@ -37,3 +37,12 @@ SH
   run "$ROOT/bench/score.sh"
   [ "$status" -eq 1 ]; [ ! -f "$BENCH_HISTORY" ]
 }
+@test "SWIPEKB_DICT picks the dictionary handed to infer_jsonl" {
+  # WHY: the dictionary experiment relies on this override; the fake engine logs its arguments.
+  printf '#!/usr/bin/env bash\necho "$@" > "%s/args"\nprintf "  top-1: 1 / 1 = 50%%%%\\n  top-4: 1 / 1 = 60%%%%\\n"\n' "$BATS_TEST_TMPDIR" > "$INFER_JSONL"
+  SWIPEKB_DICT=/some/other.combined run "$ROOT/bench/score.sh" --label other
+  [ "$status" -eq 0 ]
+  grep -q -- "--vocab /some/other.combined" "$BATS_TEST_TMPDIR/args"
+  run "$ROOT/bench/score.sh" --label default
+  grep -q -- "--vocab $SWIPEKB_ASSETS/dict/en_swipe.combined" "$BATS_TEST_TMPDIR/args"
+}

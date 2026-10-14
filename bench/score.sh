@@ -4,11 +4,15 @@
 # Usage: bench/score.sh [--label TEXT] [--check]
 #   --check  exit 1 if either score is below the best earlier row with the same slice size — the design's
 #            rule that no change may lower the score.
-# Env: INFER_JSONL, SWIPEKB_ASSETS (assets/), BENCH_N (2000), BENCH_HISTORY (bench/history.tsv)
+# Env: INFER_JSONL, SWIPEKB_ASSETS (assets/), SWIPEKB_DICT (assets/dict/en_swipe.combined), BENCH_N (2000),
+#      BENCH_HISTORY (bench/history.tsv)
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 A="${SWIPEKB_ASSETS:-$ROOT/assets}"
 N="${BENCH_N:-2000}"
+# WHY SWIPEKB_DICT: lets the scoreboard compare candidate dictionaries (scripts/dict/) without moving files;
+# label each such run so history.tsv says which dictionary produced the score.
+DICT="${SWIPEKB_DICT:-$A/dict/en_swipe.combined}"
 INFER="${INFER_JSONL:-$ROOT/third_party/swipe-library/build/infer_jsonl}"
 HIST="${BENCH_HISTORY:-$ROOT/bench/history.tsv}"
 label=manual check=0
@@ -26,7 +30,7 @@ slice="$A/eval/bench-$N.jsonl"
 out=$("$INFER" --encoder "$A/models/honorable_sturgeon/model_fp32.pte" \
         --decoder "$A/models/magic_macaw/model_fp32.pte" \
         --lm-model "$A/models/hungry_jellyfish/context_lm.pte" --lm-vocab "$A/models/hungry_jellyfish/vocab.txt" \
-        --vocab "$A/dict/en_US_wordlist.combined" \
+        --vocab "$DICT" \
         --layout "$ROOT/third_party/swipe-library/models/layouts/en_qwerty.json" \
         --jsonl "$slice" --top-k 3 --beam-width 100 --expansion 2>&1) || true
 top1=$(awk '/^  top-1:/ { gsub("%", "", $NF); print $NF }' <<<"$out")
