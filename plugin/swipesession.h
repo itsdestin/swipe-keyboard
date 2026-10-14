@@ -17,15 +17,29 @@ struct CommitPlan {
 
 enum class CaseMode { AsIs, Capitalize, AllCaps };
 
+// What the auto-space rule needs to know beyond the text before the cursor.
+// WHY a struct (not loose bools): both facts travel together from the input method to the rule, and named
+// fields keep call sites readable ({.afterSwipe = true} instead of a bare "true, false").
+struct SpaceContext {
+    // The last thing typed was a swiped word and no key was tapped since. WHY: some apps (XWayland/Steam,
+    // some Chrome setups) never report their text, so the rule sees "" and would glue two swiped words
+    // together ("helloworld"). This flag lets the second word still get its space.
+    bool afterSwipe = false;
+    // The field is a web address or email field. WHY: there "." "@" "/" are part of the address
+    // ("example.com", "me@mail"), so a swiped word after them must not get a space.
+    bool urlOrEmailField = false;
+};
+
 class SwipeSession {
 public:
     // Last `max` words of the current sentence, oldest first, punctuation trimmed (context for the guesses).
     static QStringList contextWords(const QString &textBeforeCursor, int max = 3);
     // True when the swiped word must be preceded by a space (Gboard-style auto-space).
-    static bool needsSpaceBefore(const QString &textBeforeCursor);
+    static bool needsSpaceBefore(const QString &textBeforeCursor, SpaceContext ctx = {});
 
     // Starts a new session from the engine's best-first guesses. Empty plan if there are none.
-    CommitPlan commitSwipe(const QString &textBeforeCursor, const QStringList &candidates, CaseMode mode);
+    CommitPlan commitSwipe(const QString &textBeforeCursor, const QStringList &candidates, CaseMode mode,
+                           SpaceContext ctx = {});
     // Replaces the typed word with alternatives()[index]. Empty plan if inactive or out of range.
     CommitPlan swapToAlternative(int index);
     // The guesses not currently typed, best first, with the session's capitalization.

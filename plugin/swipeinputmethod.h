@@ -37,6 +37,17 @@ private:
     void clearSession();
     void refreshGuessBar();
 
+    void clearAfterSwipe();
+
     SwipeSession m_session;
+    // True while the last thing typed was a swiped word and nothing was tapped since. WHY: apps that hide
+    // their text (XWayland/Steam, some Chrome setups) report "" before the cursor, which looks like the
+    // start of the field; this flag is how the next swiped word still gets its space.
+    bool m_afterSwipe = false;
+    // Where the cursor sat just before and just after that swiped word was typed. WHY: update() runs on any
+    // text or cursor change, including the app echoing our own word back; only a move somewhere else
+    // means the user went elsewhere and the flag no longer applies.
+    int m_afterSwipeCursorBefore = -1;
+    int m_afterSwipeCursorAfter = -1;
     QVirtualKeyboardInputEngine::TextCase m_textCase = QVirtualKeyboardInputEngine::TextCase::Lower;
 };

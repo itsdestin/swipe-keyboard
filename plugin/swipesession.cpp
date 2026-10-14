@@ -23,14 +23,31 @@ QStringList SwipeSession::contextWords(const QString &textBeforeCursor, int max)
     return words.mid(std::max<qsizetype>(0, words.size() - max));
 }
 
-bool SwipeSession::needsSpaceBefore(const QString &textBeforeCursor)
+bool SwipeSession::needsSpaceBefore(const QString &textBeforeCursor, SpaceContext ctx)
 {
+    // WHY: empty normally means "start of the field" (no space). But right after a swiped word it means
+    // the app hides its text from the keyboard, and the word we just typed is really there.
     if (textBeforeCursor.isEmpty())
-        return false;
+        return ctx.afterSwipe;
     const QChar c = textBeforeCursor.back();
-    // WHY: right after an opening bracket/quote, a hyphen, slash, @ or # the word belongs glued on.
-    static const QString glue = QStringLiteral("([{\"'“‘-/@#");
-    return !c.isSpace() && !glue.contains(c);
+    if (c.isSpace())
+        return false;
+    // WHY: in a web address or email field, "." "@" "/" join the parts of the address, so no space.
+    if (ctx.urlOrEmailField && (c == u'.' || c == u'@' || c == u'/'))
+        return false;
+    // WHY straight quotes are special: the same " or ' both opens and closes a quote. It opens one (glue the
+    // word on) only at the start of the text, after a space, or after an opening bracket: `say "` or `('`.
+    // After a letter it closes one (`say "hello"`, `students'`), so the next word needs its space.
+    if (c == u'"' || c == u'\'') {
+        if (textBeforeCursor.size() == 1)
+            return false;
+        const QChar prev = textBeforeCursor.at(textBeforeCursor.size() - 2);
+        return !(prev.isSpace() || prev == u'(' || prev == u'[' || prev == u'{');
+    }
+    // WHY: right after an opening bracket, a curly opening quote, a hyphen, slash, @ or # the word belongs
+    // glued on. Curly opening quotes are unambiguous, so they always glue.
+    static const QString glue = QStringLiteral("([{“‘-/@#");
+    return !glue.contains(c);
 }
 
 QString SwipeSession::applyCase(const QString &word, CaseMode mode)
@@ -46,7 +63,8 @@ QString SwipeSession::applyCase(const QString &word, CaseMode mode)
     return word;
 }
 
-CommitPlan SwipeSession::commitSwipe(const QString &textBeforeCursor, const QStringList &candidates, CaseMode mode)
+CommitPlan SwipeSession::commitSwipe(const QString &textBeforeCursor, const QStringList &candidates, CaseMode mode,
+                                     SpaceContext ctx)
 {
     clear();
     if (candidates.isEmpty())
@@ -55,7 +73,7 @@ CommitPlan SwipeSession::commitSwipe(const QString &textBeforeCursor, const QStr
     m_current = 0;
     m_mode = mode;
     m_typedWord = applyCase(candidates.front(), mode);
-    return {(needsSpaceBefore(textBeforeCursor) ? QStringLiteral(" ") : QString()) + m_typedWord, 0, 0};
+    return {(needsSpaceBefore(textBeforeCursor, ctx) ? QStringLiteral(" ") : QString()) + m_typedWord, 0, 0};
 }
 
 QStringList SwipeSession::alternatives() const

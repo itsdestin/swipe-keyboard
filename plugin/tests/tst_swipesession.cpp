@@ -40,12 +40,54 @@ private slots:
         QTest::newRow("after hyphen") << QStringLiteral("well-") << false;
         QTest::newRow("after slash") << QStringLiteral("and/") << false;
         QTest::newRow("after at") << QStringLiteral("@") << false;
+        // Straight quotes: opening (glue) only at the start, after a space or an opening bracket.
+        QTest::newRow("after closing double quote") << QStringLiteral("say \"hello\"") << true;
+        QTest::newRow("after closing apostrophe") << QStringLiteral("students'") << true;
+        QTest::newRow("after bracket then quote") << QStringLiteral("('") << false;
+        QTest::newRow("quote at start") << QStringLiteral("\"") << false;
+        QTest::newRow("after curly open quote") << QStringLiteral("say \u201c") << false;
+        QTest::newRow("after curly open single") << QStringLiteral("say \u2018") << false;
     }
     void needsSpaceBefore()
     {
         QFETCH(QString, before);
         QFETCH(bool, expected);
         QCOMPARE(SwipeSession::needsSpaceBefore(before), expected);
+    }
+
+    // SpaceContext: facts the text alone can't show (app hides its text; web-address/email field).
+    void spaceContext_data()
+    {
+        QTest::addColumn<QString>("before");
+        QTest::addColumn<bool>("afterSwipe");
+        QTest::addColumn<bool>("urlField");
+        QTest::addColumn<bool>("expected");
+        QTest::newRow("hidden text after swipe") << QString() << true << false << true;
+        QTest::newRow("hidden text, no swipe") << QString() << false << false << false;
+        QTest::newRow("known text wins over flag") << QStringLiteral("I said ") << true << false << false;
+        QTest::newRow("url: after dot") << QStringLiteral("www.") << false << true << false;
+        QTest::newRow("url: after at") << QStringLiteral("me@") << false << true << false;
+        QTest::newRow("url: after slash") << QStringLiteral("example.com/") << false << true << false;
+        QTest::newRow("url: after letter") << QStringLiteral("www") << false << true << true;
+        QTest::newRow("normal field: after dot") << QStringLiteral("end.") << false << false << true;
+    }
+    void spaceContext()
+    {
+        QFETCH(QString, before);
+        QFETCH(bool, afterSwipe);
+        QFETCH(bool, urlField);
+        QFETCH(bool, expected);
+        QCOMPARE(SwipeSession::needsSpaceBefore(before, {.afterSwipe = afterSwipe, .urlOrEmailField = urlField}),
+                 expected);
+    }
+    void commitPassesSpaceContext()
+    {
+        SwipeSession s;
+        // App reports no text, but we just swiped "hello": the next word still gets its space.
+        QCOMPARE(s.commitSwipe(QString(), {"world"}, CaseMode::AsIs, {.afterSwipe = true}).text,
+                 QStringLiteral(" world"));
+        QCOMPARE(s.commitSwipe(QStringLiteral("www."), {"example"}, CaseMode::AsIs, {.urlOrEmailField = true}).text,
+                 QStringLiteral("example"));
     }
 
     void commitAtStartHasNoSpace()
