@@ -14,6 +14,11 @@ uses FUTO's MIT-licensed swipe dataset. The English word list comes from AOSP (A
 
 Needs touch-profile's keyboard layout (it loads this module when present).
 
+- The hook that loads this module is only in touch-profile's wide-space layout (`TP_KBD_WIDE_SPACE=1`,
+  the default). With `TP_KBD_WIDE_SPACE=0` the keyboard never loads swipe typing.
+- `--uninstall` leaves touch-profile's hook in its generated layout. That is harmless: the hook looks for
+  this module and, when it's gone, the keyboard behaves exactly as before.
+
 ## Scoreboard
 
     bench/score.sh --label "what changed" --check

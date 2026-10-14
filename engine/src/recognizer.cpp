@@ -71,6 +71,12 @@ bool Recognizer::init(const ModelPaths &p)
         std::fprintf(stderr, "swipekb: init failed: %s\n", e.what());
         impl_ = std::make_unique<Impl>();
         return false;
+    } catch (...) {
+        // WHY: the model library could throw something that isn't a std::exception; an escaped throw would
+        // crash the whole on-screen keyboard. Fail the same way: swiping off, tapping unaffected.
+        std::fprintf(stderr, "swipekb: init failed: unknown error\n");
+        impl_ = std::make_unique<Impl>();
+        return false;
     }
 }
 
@@ -102,6 +108,10 @@ std::vector<Candidate> Recognizer::recognize(const std::vector<TracePoint> &trac
         return out;
     } catch (const std::exception &e) {
         std::fprintf(stderr, "swipekb: recognize failed: %s\n", e.what());
+        return {};
+    } catch (...) {
+        // WHY: same as init: a non-standard throw must cost this one swipe (no guess), never the keyboard.
+        std::fprintf(stderr, "swipekb: recognize failed: unknown error\n");
         return {};
     }
 }
