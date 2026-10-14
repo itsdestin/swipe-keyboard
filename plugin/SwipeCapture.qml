@@ -26,6 +26,35 @@ Canvas {
     property real startTime: 0
     property Item startKey: null
     property bool swiping: false
+    // WHY: once the hold-for-accents popup has opened for this touch, sliding must pick an accent, never swipe.
+    property bool popupSeen: false
+
+    // The Keyboard item that owns the touch area (it exposes alternativeKeys and pressAndHoldDelay).
+    function keyboardItem() {
+        var it = root.touchArea
+        while (it && it.alternativeKeys === undefined)
+            it = it.parent
+        return it
+    }
+
+    // WHY alternativeKeys.active (not touchArea.initialKey): Qt also nulls initialKey when a finger drifts
+    // off its key (releaseInaccuracyTimer), which is exactly what a swipe does, so it can't tell "popup
+    // opened" from "started swiping". The popup's own active flag is the real signal. We latch it, so
+    // once seen it stays seen for the rest of the touch even though reset()/close() clear it.
+    // Fallback if the Keyboard item can't be found: a hold longer than pressAndHoldDelay (500ms default)
+    // counts as a hold, the same moment Qt's own timer fires.
+    function popupOpenedForThisTouch() {
+        if (root.popupSeen)
+            return true
+        var kb = root.keyboardItem()
+        if (kb) {
+            if (kb.alternativeKeys.active || (kb.functionPopupList && kb.functionPopupList.active))
+                root.popupSeen = true
+        } else if (Date.now() - root.startTime >= 500) {
+            root.popupSeen = true
+        }
+        return root.popupSeen
+    }
 
     function isLetterKey(item) {
         return !!item && item.key !== undefined && item.key >= Qt.Key_A && item.key <= Qt.Key_Z
@@ -61,6 +90,7 @@ Canvas {
         trackedId = -1
         points = []
         swiping = false
+        popupSeen = false
         startKey = null
         requestPaint()
     }
@@ -78,10 +108,15 @@ Canvas {
             if (!im || typeof im.finishSwipe !== "function" || !im.isReady())
                 return
             var tp = touchPoints[0]
+            // WHY: a drag from a non-letter key can never become a swipe, so don't collect points for it.
+            var key = root.touchArea.keyOnPoint(tp.x, tp.y)
+            if (!root.isLetterKey(key))
+                return
             root.trackedId = tp.pointId
             root.startTime = Date.now()
+            root.popupSeen = false
             root.points = [{ x: tp.x, y: tp.y, t: 0 }]
-            root.startKey = root.touchArea.keyOnPoint(tp.x, tp.y)
+            root.startKey = key
         }
 
         function onUpdated(touchPoints) {
@@ -89,7 +124,8 @@ Canvas {
             if (!tp)
                 return
             root.points.push({ x: tp.x, y: tp.y, t: Date.now() - root.startTime })
-            if (!root.swiping && root.isLetterKey(root.startKey)) {
+            // WHY popup check: a swipe may only start before the press-and-hold popup opens.
+            if (!root.swiping && root.isLetterKey(root.startKey) && !root.popupOpenedForThisTouch()) {
                 var dx = tp.x - root.points[0].x, dy = tp.y - root.points[0].y
                 if (Math.sqrt(dx * dx + dy * dy) > root.startKey.width * root.thresholdKeys) {
                     root.swiping = true
@@ -107,7 +143,10 @@ Canvas {
                 return
             if (root.swiping) {
                 root.points.push({ x: tp.x, y: tp.y, t: Date.now() - root.startTime })
-                InputContext.inputEngine.inputMethod.finishSwipe(root.points, root.letterKeys())
+                // WHY re-check: the input method can be swapped mid-swipe; same guard as onPressed.
+                var im = InputContext.inputEngine.inputMethod
+                if (im && typeof im.finishSwipe === "function")
+                    im.finishSwipe(root.points, root.letterKeys())
             }
             root.stop()
         }

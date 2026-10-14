@@ -33,7 +33,12 @@ static swipekb::Recognizer &recognizer()
     return r;
 }
 
-SwipeInputMethod::SwipeInputMethod(QObject *parent) : QVirtualKeyboardAbstractInputMethod(parent) {}
+SwipeInputMethod::SwipeInputMethod(QObject *parent) : QVirtualKeyboardAbstractInputMethod(parent)
+{
+    // WHY: the models load on first use; doing it here makes the brief pause happen when the keyboard
+    // layout loads, not mid-typing at the first key press.
+    recognizer();
+}
 
 QList<QVirtualKeyboardInputEngine::InputMode> SwipeInputMethod::inputModes(const QString &)
 {
