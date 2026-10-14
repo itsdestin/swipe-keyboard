@@ -11,7 +11,11 @@ private slots:
         QTest::addColumn<QStringList>("expected");
         QTest::newRow("empty") << QString() << QStringList();
         QTest::newRow("three") << QStringLiteral("I am going") << QStringList{"I", "am", "going"};
-        QTest::newRow("last three only") << QStringLiteral("so I am going to") << QStringList{"am", "going", "to"};
+        // WHY: the whole sentence so far is context (FUTO's model was tested that way), not just 3 words.
+        QTest::newRow("whole sentence") << QStringLiteral("so I am going to the shop with my sister and her two dogs")
+                                        << QString("so I am going to the shop with my sister and her two dogs").split(' ');
+        QTest::newRow("last twenty only") << QStringLiteral("w1 w2 w3 w4 w5 w6 w7 w8 w9 w10 w11 w12 w13 w14 w15 w16 w17 w18 w19 w20 w21 w22")
+                                          << QString("w3 w4 w5 w6 w7 w8 w9 w10 w11 w12 w13 w14 w15 w16 w17 w18 w19 w20 w21 w22").split(' ');
         QTest::newRow("trailing space") << QStringLiteral("going to ") << QStringList{"going", "to"};
         QTest::newRow("punctuation trimmed") << QStringLiteral("well, \"really\"") << QStringList{"well", "really"};
         QTest::newRow("new sentence resets") << QStringLiteral("Done. I am") << QStringList{"I", "am"};
