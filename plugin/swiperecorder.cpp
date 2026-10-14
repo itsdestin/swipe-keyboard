@@ -82,4 +82,10 @@ bool appendPickIfEnabled(const QString &dir, qint64 ts, qint64 swipeTs, const QS
                                        {"word", word}});
 }
 
+bool appendOutcomeIfEnabled(const QString &dir, qint64 ts, const QString &type, qint64 swipeTs)
+{
+    // WHY no word/context: outcomes are counts only; the swipe line already holds what was typed.
+    return appendLine(dir, QJsonObject{{"ts", ts}, {"type", type}, {"swipe_ts", swipeTs}});
+}
+
 } // namespace SwipeRecorder

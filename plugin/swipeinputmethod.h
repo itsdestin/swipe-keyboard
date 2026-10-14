@@ -6,6 +6,7 @@
 #include <QtQml/qqmlregistration.h>
 #include <QtVirtualKeyboard/QVirtualKeyboardAbstractInputMethod>
 
+#include "swipeoutcome.h"
 #include "swipesession.h"
 
 class SwipeInputMethod : public QVirtualKeyboardAbstractInputMethod {
@@ -40,6 +41,9 @@ private:
     void clearAfterSwipe();
 
     SwipeSession m_session;
+    // Decides erase/keep for the last swiped word (see swipeoutcome.h). WHY: measures how often swipes need fixing.
+    SwipeOutcomeTracker m_outcome;
+    void writeOutcome(const SwipeOutcomeTracker::Outcome &o);
     // True while the last thing typed was a swiped word and nothing was tapped since. WHY: apps that hide
     // their text (XWayland/Steam, some Chrome setups) report "" before the cursor, which looks like the
     // start of the field; this flag is how the next swiped word still gets its space.

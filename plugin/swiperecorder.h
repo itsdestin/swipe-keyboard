@@ -40,4 +40,9 @@ bool appendIfEnabled(const QString &dir, const Entry &e);
 // label there is for later training and scoring.
 bool appendPickIfEnabled(const QString &dir, qint64 ts, qint64 swipeTs, const QString &word);
 
+// Appends an outcome line: {"ts", "type":"erase"|"keep", "swipe_ts"}. Same on/off switch.
+// WHY: "erase" (owner backspaced the swiped word) and "keep" (owner moved on without fixing it) let
+// tools/swipe-stats count how often a swipe needed fixing. Only call with type "erase" or "keep".
+bool appendOutcomeIfEnabled(const QString &dir, qint64 ts, const QString &type, qint64 swipeTs);
+
 } // namespace SwipeRecorder

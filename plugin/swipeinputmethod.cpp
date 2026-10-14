@@ -48,6 +48,7 @@ QList<QVirtualKeyboardInputEngine::InputMode> SwipeInputMethod::inputModes(const
 
 bool SwipeInputMethod::setInputMode(const QString &, QVirtualKeyboardInputEngine::InputMode)
 {
+    m_outcome.abandon();
     clearSession();
     // WHY: a mode change means keys may have been typed elsewhere (e.g. on the symbols page), so we can no
     // longer be sure the last thing typed was our swiped word. Missing one space is safer than adding one.
@@ -61,8 +62,23 @@ bool SwipeInputMethod::setTextCase(QVirtualKeyboardInputEngine::TextCase textCas
     return true;
 }
 
-bool SwipeInputMethod::keyEvent(Qt::Key, const QString &, Qt::KeyboardModifiers)
+void SwipeInputMethod::writeOutcome(const SwipeOutcomeTracker::Outcome &o)
 {
+    // WHY the tracker only holds recorded swipes: an outcome always points at a swipe line that exists.
+    if (o)
+        SwipeRecorder::appendOutcomeIfEnabled(SwipeRecorder::dataDir(), QDateTime::currentMSecsSinceEpoch(),
+                                              o.kind == SwipeOutcomeTracker::Kind::Erase ? "erase" : "keep",
+                                              o.swipeTs);
+}
+
+bool SwipeInputMethod::keyEvent(Qt::Key key, const QString &text, Qt::KeyboardModifiers)
+{
+    // WHY before clearSession: the outcome only counts while the cursor is still right after the swiped word.
+    // Backspace itself is untouched (returns false below, so Qt deletes one character as before).
+    if (m_session.isActive())
+        writeOutcome(m_outcome.keyTapped(key == Qt::Key_Backspace, text));
+    else
+        m_outcome.abandon();
     // Any tapped key ends the swiped word's session (the guess bar no longer applies); false = Qt types it.
     clearSession();
     // WHY: after a tapped key the last thing typed is no longer a swiped word, so the "hidden text" space
@@ -102,12 +118,14 @@ void SwipeInputMethod::selectionListItemSelected(Type type, int index)
     // its text, or the cursor moved), the delete would hit nothing or the wrong text and the guess would just
     // be appended ("helloyellow"). Doing nothing is safer; the guess bar closes.
     if (!m_session.cursorStillAfterWord(textBeforeCursor())) {
+        m_outcome.abandon();
         clearSession();
         return;
     }
     const CommitPlan plan = m_session.swapToAlternative(index);
     if (!plan.isEmpty()) {
         ic->commit(plan.text, plan.replaceFrom, plan.replaceLength);
+        m_outcome.picked();   // WHY: a pick is this swipe's one outcome; no erase/keep line may follow
         // Opt-in recording: the word the owner picked is the word they meant for that swipe (see swiperecorder.h).
         if (m_lastRecordedSwipeTs)
             SwipeRecorder::appendPickIfEnabled(SwipeRecorder::dataDir(), QDateTime::currentMSecsSinceEpoch(),
@@ -118,6 +136,7 @@ void SwipeInputMethod::selectionListItemSelected(Type type, int index)
 
 void SwipeInputMethod::reset()
 {
+    m_outcome.abandon();   // WHY: focus moved; the swipe's fate is unknown
     clearSession();
     // WHY: Qt resets on focus moves and field-type changes; whatever was typed before belongs to another field.
     clearAfterSwipe();
@@ -129,8 +148,10 @@ void SwipeInputMethod::update()
     // a word we just committed: the echo arrives later, asynchronously, not during our commit. Keep the
     // guess bar only while the cursor still sits right after the swiped word.
     const QString before = textBeforeCursor();
-    if (m_session.isActive() && !m_session.cursorStillAfterWord(before))
+    if (m_session.isActive() && !m_session.cursorStillAfterWord(before)) {
+        m_outcome.abandon();   // WHY: cursor moved away; we can't tell if the word was right, so no outcome
         clearSession();
+    }
     // WHY: the after-swipe space flag only matters when the app hides its text. Once the app reports real
     // text, that text decides. If it reports nothing but the cursor landed somewhere other than just before
     // or just after our word, the user moved elsewhere, so stop assuming a word sits before the cursor.
@@ -214,6 +235,9 @@ void SwipeInputMethod::finishSwipe(const QVariantList &points, const QVariantLis
                                           {.ts = ts, .points = points, .keys = keys, .context = contextWords,
                                            .candidates = candidates, .typed = plan.text.trimmed()});
     m_lastRecordedSwipeTs = recorded ? ts : 0;
+    // WHY after the new swipe is written: swiping again means the previous word was accepted ("keep"), and
+    // the new swipe becomes the one waiting for its outcome (only if it was recorded, or it has no line).
+    writeOutcome(m_outcome.beginSwipe(m_lastRecordedSwipeTs));
     qCInfo(lcSwipe) << "swipe" << trace.size() << "points ->" << candidates << "in" << timer.elapsed() << "ms";
 }
 

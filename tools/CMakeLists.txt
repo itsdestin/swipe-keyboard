@@ -14,3 +14,9 @@ target_compile_definitions(tst_replay PRIVATE SWIPEKB_REPLAY_EXE="$<TARGET_FILE:
 add_dependencies(tst_replay swipekb-replay)
 add_test(NAME tools_replay COMMAND tst_replay)
 set_tests_properties(tools_replay PROPERTIES ENVIRONMENT "SWIPEKB_ASSETS=${SWIPEKB_ASSETS}")
+
+# swipe-stats: daily "how often did a swipe need fixing" counts from the recordings (Python, stdlib only).
+find_package(Python3 COMPONENTS Interpreter)
+if(Python3_FOUND)
+    add_test(NAME tools_swipe_stats COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_swipe_stats.py)
+endif()

@@ -1,0 +1,99 @@
+#!/usr/bin/env python3
+"""swipe-stats: how often do swiped words need fixing? Counts only; never prints words or context.
+
+Usage: python3 -I tools/swipe-stats [--json] [--days N] [path/to/swipes.jsonl]
+Default file: ~/.local/share/swipe-keyboard/traces/swipes.jsonl
+
+Per local day and for the last 7 days: swipes, fixes (= picks + erases), fixes per 100 swipes,
+keeps, unknown (swipes with no pick/erase/keep line).
+"""
+import argparse
+import json
+import os
+import sys
+from datetime import datetime, timedelta
+
+# WHY a fixed field list: only these numbers are ever output, so no word or sentence can leak into a report.
+FIELDS = ("swipes", "picks", "erases", "fixes", "fixes_per_100", "keeps", "unknown")
+
+
+def day_of(ts_ms):
+    return datetime.fromtimestamp(ts_ms / 1000).strftime("%Y-%m-%d")
+
+
+def load(path):
+    """Returns (swipe_ts -> day, swipe_ts -> outcome). Bad lines are skipped, never fatal."""
+    swipes, outcomes = {}, {}
+    with open(path, encoding="utf-8", errors="replace") as f:
+        for line in f:
+            try:
+                o = json.loads(line)
+                t = o.get("type", "swipe")
+                ts = int(o["ts"])
+                if t == "swipe":
+                    swipes[ts] = day_of(ts)
+                elif t in ("pick", "erase", "keep"):
+                    # WHY first outcome wins by priority: a pick/erase is a fix even if a keep also exists.
+                    st = int(o["swipe_ts"])
+                    prev = outcomes.get(st)
+                    if prev is None or (prev == "keep" and t != "keep"):
+                        outcomes[st] = t
+            except (ValueError, KeyError, TypeError, AttributeError):
+                continue
+    return swipes, outcomes
+
+
+def tally(swipe_list, outcomes):
+    r = dict.fromkeys(FIELDS, 0)
+    for ts in swipe_list:
+        r["swipes"] += 1
+        o = outcomes.get(ts)
+        if o == "pick":
+            r["picks"] += 1
+        elif o == "erase":
+            r["erases"] += 1
+        elif o == "keep":
+            r["keeps"] += 1
+        else:
+            r["unknown"] += 1
+    r["fixes"] = r["picks"] + r["erases"]
+    r["fixes_per_100"] = round(100.0 * r["fixes"] / r["swipes"], 1) if r["swipes"] else 0.0
+    return r
+
+
+def build(path, today=None, days=7):
+    swipes, outcomes = load(path)
+    today = today or datetime.now().date()
+    cutoff = (today - timedelta(days=days - 1)).strftime("%Y-%m-%d")
+    by_day = {}
+    for ts, d in swipes.items():
+        by_day.setdefault(d, []).append(ts)
+    per_day = {d: tally(v, outcomes) for d, v in sorted(by_day.items())}
+    recent = [ts for ts, d in swipes.items() if d >= cutoff]
+    return {"days": per_day, "last_%d_days" % days: tally(recent, outcomes)}
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    ap.add_argument("path", nargs="?", default=os.path.expanduser("~/.local/share/swipe-keyboard/traces/swipes.jsonl"))
+    ap.add_argument("--json", action="store_true", help="machine-readable output")
+    ap.add_argument("--days", type=int, default=7)
+    a = ap.parse_args(argv)
+    try:
+        res = build(a.path, days=a.days)
+    except OSError as e:
+        print("swipe-stats: cannot read %s: %s" % (a.path, e.strerror), file=sys.stderr)
+        return 1
+    if a.json:
+        print(json.dumps(res, indent=2))
+        return 0
+    hdr = "%-12s %7s %6s %9s %6s %8s" % ("day", "swipes", "fixes", "fix/100", "keeps", "unknown")
+    print(hdr)
+    rows = list(res["days"].items()) + [("last %d days" % a.days, res["last_%d_days" % a.days])]
+    for name, r in rows:
+        print("%-12s %7d %6d %9.1f %6d %8d" % (name, r["swipes"], r["fixes"], r["fixes_per_100"], r["keeps"], r["unknown"]))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

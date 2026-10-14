@@ -95,6 +95,24 @@ private slots:
         QCOMPARE(o.keys().size(), 4); // nothing else: no text from the app rides along
     }
 
+    // Erase/keep lines name their swipe and carry no text (counts only), and respect the on/off switch.
+    void outcomeLinesNameTheSwipeAndCarryNoText()
+    {
+        QTemporaryDir dir;
+        QVERIFY(!SwipeRecorder::appendOutcomeIfEnabled(dir.path(), 5, "erase", 1));
+        QVERIFY(!QFile::exists(dir.path() + "/traces"));
+        touch(dir.path() + "/record");
+        QVERIFY(SwipeRecorder::appendOutcomeIfEnabled(dir.path(), 5, "erase", 1));
+        QVERIFY(SwipeRecorder::appendOutcomeIfEnabled(dir.path(), 6, "keep", 2));
+        const auto ls = lines(dir.path());
+        QCOMPARE(ls.size(), 2);
+        const QJsonObject a = QJsonDocument::fromJson(ls[0]).object();
+        QCOMPARE(a.value("type").toString(), QStringLiteral("erase"));
+        QCOMPARE(a.value("swipe_ts").toInteger(), 1);
+        QCOMPARE(a.keys().size(), 3);
+        QCOMPARE(QJsonDocument::fromJson(ls[1]).object().value("type").toString(), QStringLiteral("keep"));
+    }
+
     void pickWritesNothingWhenSwitchedOff()
     {
         QTemporaryDir dir;
