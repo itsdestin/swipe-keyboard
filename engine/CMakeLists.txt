@@ -1,4 +1,4 @@
-add_library(swipekb_engine SHARED src/normalize.cpp src/recognizer.cpp)
+add_library(swipekb_engine SHARED src/normalize.cpp src/context.cpp src/recognizer.cpp)
 target_include_directories(swipekb_engine PUBLIC include)
 # WHY PRIVATE: FUTO's library forces -fno-rtti on whatever compiles against it. Keeping it private
 # confines that to this .so, so the Qt plugin (which needs RTTI) is unaffected.
@@ -14,3 +14,7 @@ add_executable(test_recognizer tests/test_recognizer.cpp)
 target_link_libraries(test_recognizer PRIVATE swipekb_engine GTest::gtest_main)
 add_test(NAME engine_recognizer COMMAND test_recognizer)
 set_tests_properties(engine_recognizer PROPERTIES ENVIRONMENT "SWIPEKB_ASSETS=${SWIPEKB_ASSETS}")
+
+add_executable(test_context tests/test_context.cpp)
+target_link_libraries(test_context PRIVATE swipekb_engine GTest::gtest_main)
+add_test(NAME engine_context COMMAND test_context)

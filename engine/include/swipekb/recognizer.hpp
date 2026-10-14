@@ -36,6 +36,13 @@ struct NormalizedInput {
 // nullopt unless all 26 letters are present and the trace has at least 2 points.
 std::optional<NormalizedInput> normalize(const std::vector<TracePoint> &trace, const std::vector<KeyRect> &keys);
 
+// The words before the cursor that the context model should see: only the current sentence (a . ! or ?
+// starts a fresh one), split on whitespace, punctuation trimmed off both ends of each word, last `max` kept,
+// oldest first. Input and output are UTF-8.
+// WHY here and not in the plugin: the live keyboard and the scoreboard (tools/swipekb-bench) must build
+// context with the very same rules, or the scoreboard stops measuring what ships.
+std::vector<std::string> contextWords(const std::string &textBeforeCursor, int max = 20);
+
 struct ModelPaths {
     std::string encoder, decoder, lm_model, lm_vocab, dictionary;
     // Standard layout of assets/ and of the installed ~/.local/share/swipe-keyboard.

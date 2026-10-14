@@ -12,3 +12,4 @@ date	commit	label	n	top1	top3	avg_us
 2026-10-14	71bb72e	dict: (d) AOSP en_US + wordfreq, typo filter x20 (200k)	2000	93.2169	96.3515	4132.3
 2026-10-14	71bb72e	dict: (d) AOSP en_US + wordfreq, typo filter x20 (300k)	2000	93.3196	96.557	5070.3
 2026-10-14	76a0a77	shipped: en_swipe (AOSP en_US + wordfreq, typo filter, 250k)	2000	93.3196	96.557	3629.0
+2026-10-14	4816479	[recognizer] parity: our Recognizer, shipped dict+decoder+LM	2000	93.3196	96.5057	3005.7

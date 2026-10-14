@@ -46,3 +46,26 @@ SH
   run "$ROOT/bench/score.sh" --label default
   grep -q -- "--vocab $SWIPEKB_ASSETS/dict/en_swipe.combined" "$BATS_TEST_TMPDIR/args"
 }
+@test "--runner recognizer calls swipekb-bench, labels the row, and keeps futo's best separate" {
+  # WHY: fake swipekb-bench logs its arguments and prints infer_jsonl-format output plus the extra lines.
+  export SWIPEKB_BENCH="$BATS_TEST_TMPDIR/bench"
+  cat > "$SWIPEKB_BENCH" <<'SH'
+#!/usr/bin/env bash
+echo "$@" > "$BATS_TEST_TMPDIR/bargs"
+printf '  top-1:  1 / 2 = 50%%\n  top-4:  2 / 2 = 80.5%%\n\nExtras:\n  recall@50:  2 / 2 = 99%%\n  first-word top-1:  1 / 2 = 70%%\nTimings (avg µs per sample):\n  total:    42.5\n'
+SH
+  chmod +x "$SWIPEKB_BENCH"
+  SWIPEKB_DICT=/some/other.combined run "$ROOT/bench/score.sh" --runner recognizer --label rec
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"first guess right: 50%"* ]]; [[ "$output" == *"recall@50"* ]]; [[ "$output" == *"first-word"* ]]
+  grep -q -- "--data $SWIPEKB_ASSETS --dict /some/other.combined --jsonl $SWIPEKB_ASSETS/eval/bench-4.jsonl" "$BATS_TEST_TMPDIR/bargs"
+  tail -1 "$BENCH_HISTORY" | grep -q $'\t\\[recognizer\\] rec\t4\t50\t80.5\t42.5$'
+  # The futo runner's best (90.5) must not make a lower recognizer row fail --check, and vice versa.
+  "$ROOT/bench/score.sh" --label futo-base
+  run "$ROOT/bench/score.sh" --runner recognizer --label again --check
+  [ "$status" -eq 0 ]
+}
+@test "--runner rejects unknown names" {
+  run "$ROOT/bench/score.sh" --runner nope
+  [ "$status" -eq 2 ]
+}

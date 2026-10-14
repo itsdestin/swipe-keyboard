@@ -1,26 +1,17 @@
 #include "swipesession.h"
 
-#include <QRegularExpression>
 #include <algorithm>
+
+#include "swipekb/recognizer.hpp"
 
 QStringList SwipeSession::contextWords(const QString &textBeforeCursor, int max)
 {
-    // Only the current sentence counts: after . ! ? the next word starts fresh, like Gboard.
-    QString sentence = textBeforeCursor;
-    const qsizetype end = std::max({sentence.lastIndexOf(u'.'), sentence.lastIndexOf(u'!'), sentence.lastIndexOf(u'?')});
-    if (end >= 0)
-        sentence = sentence.mid(end + 1);
-
-    QStringList words;
-    for (QString w : sentence.split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts)) {
-        while (!w.isEmpty() && w.front().isPunct())
-            w.remove(0, 1);
-        while (!w.isEmpty() && w.back().isPunct())
-            w.chop(1);
-        if (!w.isEmpty())
-            words << w;
-    }
-    return words.mid(std::max<qsizetype>(0, words.size() - max));
+    // WHY forwarded: the rules live in the engine (swipekb::contextWords) so the scoreboard
+    // (tools/swipekb-bench) builds context exactly the way the live keyboard does.
+    QStringList out;
+    for (const std::string &w : swipekb::contextWords(textBeforeCursor.toStdString(), max))
+        out << QString::fromStdString(w);
+    return out;
 }
 
 bool SwipeSession::needsSpaceBefore(const QString &textBeforeCursor, SpaceContext ctx)
