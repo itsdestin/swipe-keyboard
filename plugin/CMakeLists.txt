@@ -10,6 +10,15 @@ qt_add_executable(tst_swipesession tests/tst_swipesession.cpp)
 target_link_libraries(tst_swipesession PRIVATE swipekb_session Qt6::Test)
 add_test(NAME plugin_session COMMAND tst_swipesession)
 
+# Opt-in swipe recorder (writes swipes.jsonl for offline tuning). Separate so it is tested without a keyboard.
+add_library(swipekb_recorder STATIC swiperecorder.cpp)
+target_include_directories(swipekb_recorder PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(swipekb_recorder PUBLIC Qt6::Core)
+
+qt_add_executable(tst_swiperecorder tests/tst_swiperecorder.cpp)
+target_link_libraries(tst_swiperecorder PRIVATE swipekb_recorder Qt6::Test)
+add_test(NAME plugin_recorder COMMAND tst_swiperecorder)
+
 # The QML module Plasma Keyboard loads. The module folder holds qmldir, the plugin .so, the backing .so
 # (libswipekeyboard) and the engine .so (libswipekb_engine), all found through $ORIGIN.
 # WHY the backing library is SHARED: a static one makes Qt build a static plugin, which can't be loaded at runtime.
@@ -21,7 +30,7 @@ qt_add_qml_module(swipekeyboard
     QML_FILES SwipeCapture.qml
     SOURCES swipeinputmethod.h swipeinputmethod.cpp
 )
-target_link_libraries(swipekeyboard PRIVATE Qt6::Quick Qt6::VirtualKeyboard swipekb_session swipekb_engine)
+target_link_libraries(swipekeyboard PRIVATE Qt6::Quick Qt6::VirtualKeyboard swipekb_session swipekb_recorder swipekb_engine)
 # WHY SHARED + same output folder: a STATIC backing library makes the plugin static too, which Qt cannot load.
 # The three .so files (plugin, backing library, engine) sit side by side so the module folder is
 # self-contained and relocatable.

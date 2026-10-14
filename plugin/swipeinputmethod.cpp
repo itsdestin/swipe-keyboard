@@ -1,11 +1,12 @@
 #include "swipeinputmethod.h"
 
+#include <QDateTime>
 #include <QElapsedTimer>
 #include <QLoggingCategory>
-#include <QStandardPaths>
 #include <QtVirtualKeyboard/QVirtualKeyboardInputContext>
 
 #include "swipekb/recognizer.hpp"
+#include "swiperecorder.h"
 
 // Enable with QT_LOGGING_RULES="swipekb.info=true" to see each swipe's guesses and timing.
 Q_LOGGING_CATEGORY(lcSwipe, "swipekb", QtWarningMsg)
@@ -18,9 +19,9 @@ static swipekb::Recognizer &recognizer()
 {
     static swipekb::Recognizer r;
     static const bool loaded = [] {
-        QString dir = qEnvironmentVariable("SWIPEKB_DATA");
-        if (dir.isEmpty())
-            dir = QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation) + QStringLiteral("/swipe-keyboard");
+        // WHY SwipeRecorder::dataDir(): one definition of the data folder, so the recorder's switch file
+        // and recordings always sit next to the models the engine actually loaded.
+        const QString dir = SwipeRecorder::dataDir();
         swipekb::ModelPaths paths = swipekb::ModelPaths::fromDir(dir.toStdString());
         if (qEnvironmentVariableIntValue("SWIPEKB_NO_DECODER"))
             paths.decoder.clear();
@@ -169,8 +170,9 @@ void SwipeInputMethod::finishSwipe(const QVariantList &points, const QVariantLis
     }
 
     const QString before = textBeforeCursor();
+    const QStringList contextWords = SwipeSession::contextWords(before);
     std::vector<std::string> context;
-    for (const QString &w : SwipeSession::contextWords(before))
+    for (const QString &w : contextWords)
         context.push_back(w.toStdString());
 
     QStringList candidates;
@@ -196,6 +198,16 @@ void SwipeInputMethod::finishSwipe(const QVariantList &points, const QVariantLis
         m_afterSwipeCursorAfter = cursorBefore + static_cast<int>(plan.text.size());
     }
     refreshGuessBar();
+    // Opt-in recording for offline tuning (only when the owner created <data>/record; see swiperecorder.h).
+    // WHY here: only swipes SwipeCapture accepted reach this function, so password fields (refused there)
+    // are never recorded. `typed` is the word without its auto-space.
+    // Belt and braces: never record in a password field even if a swipe somehow got through.
+    const bool secret = ic->inputMethodHints() & (Qt::ImhSensitiveData | Qt::ImhHiddenText);
+    if (!secret)
+        SwipeRecorder::appendIfEnabled(SwipeRecorder::dataDir(),
+                                       {.ts = QDateTime::currentMSecsSinceEpoch(), .points = points, .keys = keys,
+                                        .context = contextWords, .candidates = candidates,
+                                        .typed = plan.text.trimmed()});
     qCInfo(lcSwipe) << "swipe" << trace.size() << "points ->" << candidates << "in" << timer.elapsed() << "ms";
 }
 
