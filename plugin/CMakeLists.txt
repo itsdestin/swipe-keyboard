@@ -18,12 +18,13 @@ qt_add_qml_module(swipekeyboard
     URI SwipeKeyboard
     VERSION 1.0
     OUTPUT_DIRECTORY ${SWIPEKB_QML_DIR}/SwipeKeyboard
-    QML_FILES SwipeCapture.qml
+    QML_FILES SwipeCapture.qml candidatebar.js
     SOURCES swipeinputmethod.h swipeinputmethod.cpp
 )
 target_link_libraries(swipekeyboard PRIVATE Qt6::Quick Qt6::VirtualKeyboard swipekb_session swipekb_engine)
 # WHY SHARED + same output folder: a STATIC backing library makes the plugin static too, which Qt cannot load.
-# The two .so files sit side by side so the module folder is self-contained and relocatable.
+# The three .so files (plugin, backing library, engine) sit side by side so the module folder is
+# self-contained and relocatable.
 set_target_properties(swipekeyboard PROPERTIES LIBRARY_OUTPUT_DIRECTORY ${SWIPEKB_QML_DIR}/SwipeKeyboard)
 # WHY BUILD_WITH_INSTALL_RPATH: the default build RUNPATH also lists the build dir, so an incomplete installed
 # copy would silently load libs from there. Forcing "$ORIGIN" only makes a missing sibling lib fail loudly.

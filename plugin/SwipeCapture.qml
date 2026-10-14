@@ -1,5 +1,7 @@
 import QtQuick
 import QtQuick.VirtualKeyboard
+import QtQuick.VirtualKeyboard.Settings
+import "candidatebar.js" as CandidateBar
 
 // SwipeCapture — swipe-keyboard's finger listener and trail.
 // WHY a separate layer: Qt's keyboard records paths only in handwriting boxes, never across keys.
@@ -29,6 +31,13 @@ Canvas {
     // WHY: once the hold-for-accents popup has opened for this touch, sliding must pick an accent, never swipe.
     property bool popupSeen: false
 
+    // WHY: keep the guess bar always shown so the keyboard stays one height instead of growing on each swipe
+    // (see candidatebar.js). Qt only applies this while the active input method has a guess bar
+    // (Keyboard.qml alwaysVisibleCondition requires wordCandidateListVisibleHint), so the numbers/symbols
+    // pages and the stock keyboard keep their normal height. Undone when this layer goes away.
+    Component.onCompleted: CandidateBar.pin(VirtualKeyboardSettings)
+    Component.onDestruction: CandidateBar.unpin(VirtualKeyboardSettings)
+
     // The Keyboard item that owns the touch area (it exposes alternativeKeys and pressAndHoldDelay).
     function keyboardItem() {
         var it = root.touchArea
@@ -48,7 +57,9 @@ Canvas {
             return true
         var kb = root.keyboardItem()
         if (kb) {
-            if (kb.alternativeKeys.active || (kb.functionPopupList && kb.functionPopupList.active))
+            // WHY only alternativeKeys: Qt's function-key popup (functionPopupList) is private to Keyboard.qml,
+            // so it can't be read from here, and it only opens from the settings key, never a letter.
+            if (kb.alternativeKeys.active)
                 root.popupSeen = true
         } else if (Date.now() - root.startTime >= 500) {
             root.popupSeen = true
@@ -107,6 +118,11 @@ Canvas {
             var im = InputContext.inputEngine.inputMethod
             if (!im || typeof im.finishSwipe !== "function" || !im.isReady())
                 return
+            // WHY: no swiping in password fields: the trail would show the password's shape on screen and
+            // the guess bar would show the guessed word. Plain tapping still works. (Not ImhNoPredictiveText:
+            // Plasma Keyboard sets that on every field.)
+            if (InputContext.inputMethodHints & (Qt.ImhSensitiveData | Qt.ImhHiddenText))
+                return
             var tp = touchPoints[0]
             // WHY: a drag from a non-letter key can never become a swipe, so don't collect points for it.
             var key = root.touchArea.keyOnPoint(tp.x, tp.y)
@@ -129,7 +145,12 @@ Canvas {
                 var dx = tp.x - root.points[0].x, dy = tp.y - root.points[0].y
                 if (Math.sqrt(dx * dx + dy * dy) > root.startKey.width * root.thresholdKeys) {
                     root.swiping = true
-                    // Cancels Qt's pending key press so lifting the finger types no letter.
+                    // WHY virtualKeyCancel first: Qt already told the input engine "this key is down". Without
+                    // cancelling, the engine keeps it down: the next tap is refused ("key already active") and a
+                    // held Space/Backspace keeps auto-repeating. This is how Qt itself drops a press when the
+                    // accent popup opens (Keyboard.qml pressAndHoldTimer). It also stops the repeat timer.
+                    InputContext.inputEngine.virtualKeyCancel()
+                    // Then clear the touch area's own state so lifting the finger types no letter.
                     root.touchArea.reset()
                 }
             }
