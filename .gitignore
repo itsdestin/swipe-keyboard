@@ -1,0 +1,3 @@
+# Downloaded models, dictionary and swipe data: large, and not ours to commit (scripts/fetch-assets.sh).
+/assets/
+/build/
