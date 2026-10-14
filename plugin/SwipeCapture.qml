@@ -8,7 +8,14 @@ import QtQuick.VirtualKeyboard.Settings
 // started on a letter drags past `threshold`, it cancels that key press, draws the trail, and on lift
 // hands the path to SwipeInputMethod. It must never sit inside the layout: Qt finds the key under a
 // finger with childAt() on the layout, and an overlay there would swallow every tap.
-Canvas {
+//
+// WHY the listener and the drawing are two items: the layout hook creates this item inside Qt's touch
+// area, and in Keyboard.qml that touch area is a child of the layout Loader. The Loader adds the loaded
+// layout (the keys) as a later child, so the keys paint ON TOP of the touch area and everything inside it,
+// whatever z we use in here (z only orders siblings). That is why the trail used to draw behind the keys.
+// So this item stays where it is and only listens; the trail (`trail` below) is moved up to the Keyboard
+// root item, beside the whole key area, with a z above every other child there.
+Item {
     id: root
 
     required property Item layoutItem   // the KeyboardLayout (to find the letter keys)
@@ -16,13 +23,16 @@ Canvas {
 
     anchors.fill: parent
     enabled: false                      // never takes input itself
-    z: 1000
 
     property color trailColor: "#3daee9" // Breeze highlight blue
     // Drag distance (fraction of a key width) before a touch counts as a swipe. Tuned in M1.
     property real thresholdKeys: 0.5
 
     property var points: []
+    // The same points mapped into the trail's own coordinates (see `trail`), filled as the finger moves.
+    // WHY a second list: `points` must stay in the touch area's coordinates for the engine, and mapping
+    // each point once on arrival is cheaper than remapping the whole path on every repaint.
+    property var trailPoints: []
     property int trackedId: -1
     property real startTime: 0
     property Item startKey: null
@@ -101,10 +111,11 @@ Canvas {
     function stop() {
         trackedId = -1
         points = []
+        trailPoints = []
         swiping = false
         popupSeen = false
         startKey = null
-        requestPaint()
+        trail.requestPaint()
     }
 
     Connections {
@@ -133,6 +144,7 @@ Canvas {
             root.startTime = Date.now()
             root.popupSeen = false
             root.points = [{ x: tp.x, y: tp.y, t: 0 }]
+            root.trailPoints = [root.toTrail(tp.x, tp.y)]
             root.startKey = key
         }
 
@@ -141,6 +153,7 @@ Canvas {
             if (!tp)
                 return
             root.points.push({ x: tp.x, y: tp.y, t: Date.now() - root.startTime })
+            root.trailPoints.push(root.toTrail(tp.x, tp.y))
             // WHY popup check: a swipe may only start before the press-and-hold popup opens.
             if (!root.swiping && root.isLetterKey(root.startKey) && !root.popupOpenedForThisTouch()) {
                 var dx = tp.x - root.points[0].x, dy = tp.y - root.points[0].y
@@ -156,7 +169,7 @@ Canvas {
                 }
             }
             if (root.swiping)
-                root.requestPaint()
+                trail.requestPaint()
         }
 
         function onReleased(touchPoints) {
@@ -179,20 +192,45 @@ Canvas {
         }
     }
 
-    onPaint: {
-        var ctx = getContext("2d")
-        ctx.reset()
-        if (!swiping || points.length < 2)
-            return
-        ctx.lineWidth = 8
-        ctx.lineCap = "round"
-        ctx.lineJoin = "round"
-        ctx.globalAlpha = 0.8
-        ctx.strokeStyle = trailColor
-        ctx.beginPath()
-        ctx.moveTo(points[0].x, points[0].y)
-        for (var i = 1; i < points.length; ++i)
-            ctx.lineTo(points[i].x, points[i].y)
-        ctx.stroke()
+    // Touch-area point -> trail point. WHY mapToItem (not a fixed offset): the trail lives on a different
+    // item (the Keyboard root), and Qt does the exact conversion whatever margins the style adds.
+    function toTrail(x, y) {
+        var p = root.touchArea.mapToItem(trail, x, y)
+        return { x: p.x, y: p.y }
+    }
+
+    // The visible trail. Declared here so it is created and destroyed together with this item (it stays
+    // this item's child for memory purposes), but drawn as a child of the Keyboard root (see the top comment).
+    Canvas {
+        id: trail
+        objectName: "swipeTrail"        // lets tests find it
+        // WHY the Keyboard root: it holds the key area, the guess bar and the popups as siblings, so a big
+        // z there puts the trail over the keys. Qt's own highest z among them is 2 (navigation highlight),
+        // so 10000 is safely above. It is NOT inside the layout Loader, so Qt's childAt() key lookup never
+        // sees it. Fallback (Keyboard not found, e.g. in tests): draw on this item, the old behaviour.
+        parent: root.keyboardItem() || root
+        anchors.fill: parent
+        z: 10000
+        enabled: false                  // WHY: the trail is only paint; it must never catch a touch
+        // WHY: the trail and the path it draws are only meaningful while the swipe layer is alive.
+        visible: root.visible
+
+        onPaint: {
+            var ctx = getContext("2d")
+            ctx.reset()
+            var pts = root.trailPoints
+            if (!root.swiping || pts.length < 2)
+                return
+            ctx.lineWidth = 8
+            ctx.lineCap = "round"
+            ctx.lineJoin = "round"
+            ctx.globalAlpha = 0.8
+            ctx.strokeStyle = root.trailColor
+            ctx.beginPath()
+            ctx.moveTo(pts[0].x, pts[0].y)
+            for (var i = 1; i < pts.length; ++i)
+                ctx.lineTo(pts[i].x, pts[i].y)
+            ctx.stroke()
+        }
     }
 }
