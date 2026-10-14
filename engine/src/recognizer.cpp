@@ -36,7 +36,7 @@ static bool sameGeometry(const swipe_decoder::KeyboardLayout &l, const Normalize
 Recognizer::Recognizer() : impl_(std::make_unique<Impl>()) {}
 Recognizer::~Recognizer() = default;
 
-bool Recognizer::init(const ModelPaths &p)
+bool Recognizer::init(const ModelPaths &p, const RecognizerOptions &options)
 {
     impl_ = std::make_unique<Impl>();
     try {
@@ -51,6 +51,9 @@ bool Recognizer::init(const ModelPaths &p)
         }
         swipe_decoder::SwipeEngine::Config cfg;
         cfg.encoder_path = p.encoder;
+        // WHY only when set: 0 keeps FUTO's tuned default, so the live keyboard is unchanged.
+        if (options.beam_width > 0)
+            cfg.beam_width = options.beam_width;
         if (fileExists(p.decoder))
             cfg.decoder_path = p.decoder;
         if (fileExists(p.lm_model) && fileExists(p.lm_vocab)) {

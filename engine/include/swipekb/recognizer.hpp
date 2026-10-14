@@ -49,6 +49,12 @@ struct ModelPaths {
     }
 };
 
+// Tuning knobs. WHY a struct: the replay tool (tools/swipekb-replay) compares settings on recorded swipes;
+// the keyboard itself uses the defaults.
+struct RecognizerOptions {
+    int beam_width = 0;   // how many partial words the search keeps alive; 0 = FUTO's default (100)
+};
+
 class Recognizer {
 public:
     Recognizer();
@@ -58,7 +64,7 @@ public:
 
     // Loads models + dictionary. Encoder and dictionary are required; decoder and context LM are used
     // when their files exist. Returns false (and stays not-ready) on any failure.
-    bool init(const ModelPaths &paths);
+    bool init(const ModelPaths &paths, const RecognizerOptions &options = {});
     bool ready() const;
 
     // Best-first guesses, at most top_k. Empty when not ready, input invalid, or anything fails.
