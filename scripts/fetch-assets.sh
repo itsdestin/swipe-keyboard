@@ -4,6 +4,8 @@
 #   the English dictionary (AOSP word list, Apache-2.0, plus wordfreq words, CC-BY-SA 4.0; built by
 #   scripts/dict/build-en-swipe.sh), and FUTO's real-swipe test split (MIT) for the scoreboard.
 # Re-running skips files already present. Usage: scripts/fetch-assets.sh
+# The optional n-gram model (assets/lm/en_ngram.bin, FineWeb, ODC-BY 1.0) is a separate, much larger build:
+# scripts/lm/build-lm.sh (install.sh runs it when the model is missing).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 A="${SWIPEKB_ASSETS:-$ROOT/assets}"

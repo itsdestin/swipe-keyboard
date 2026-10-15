@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # install.sh — build swipe-keyboard, run its tests, and install it where Plasma Keyboard loads it:
-#   ~/.local/share/swipe-keyboard/{qml/SwipeKeyboard, models, dict}. touch-profile's layout + wrapper pick it up
+#   ~/.local/share/swipe-keyboard/{qml/SwipeKeyboard, models, dict, lm}. touch-profile's layout + wrapper pick it up
 #   (their hook does nothing when this folder is missing), then the on-screen keyboard is restarted.
 # Usage: ./install.sh              build + test + install + restart
 #        ./install.sh --no-restart  same, but leave the running keyboard alone (for testing, or installing
 #                                   without disturbing a keyboard you are typing on)
-#        ./install.sh --uninstall   remove qml/models/dict (personal data like traces/ is kept) + restart
+#        ./install.sh --uninstall   remove qml/models/dict/lm (personal data like traces/ is kept) + restart
+# The n-gram ranking (lm/) is off unless ~/.local/share/swipe-keyboard/use-ngram exists (then restart the keyboard).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 DEST="${XDG_DATA_HOME:-$HOME/.local/share}/swipe-keyboard"
@@ -31,7 +32,8 @@ restart_keyboard() {
 
 case "${1:-}" in
     --uninstall)
-        rm -rf "$DEST/qml" "$DEST/models" "$DEST/dict" "$DEST/.qml.new" "$DEST/.models.new" "$DEST/.dict.new"
+        rm -rf "$DEST/qml" "$DEST/models" "$DEST/dict" "$DEST/lm" "$DEST/.qml.new" "$DEST/.models.new" "$DEST/.dict.new" \
+               "$DEST/.lm.new"
         restart_keyboard
         echo "swipe typing removed (keyboard back to plain tapping)"
         exit 0 ;;
@@ -40,6 +42,12 @@ case "${1:-}" in
 esac
 
 "$ROOT/scripts/fetch-assets.sh"
+# WHY only when missing, and never fatal: the n-gram model is a ~15-minute, ~13 GB-download build, and the
+# keyboard works without it (it then ranks guesses the old way, with FUTO's context model).
+if [ ! -s "$ROOT/assets/lm/en_ngram.bin" ] && [ "${SWIPEKB_SKIP_LM:-0}" != 1 ]; then
+    echo "building the n-gram model (scripts/lm/build-lm.sh; skip with SWIPEKB_SKIP_LM=1)..."
+    "$ROOT/scripts/lm/build-lm.sh" || echo "warning: n-gram model not built; the keyboard keeps its old ranking" >&2
+fi
 [ -f "$ROOT/third_party/swipe-library/third_party/executorch/cmake-out-host/libexecutorch.a" ] || "$ROOT/scripts/build-futo.sh"
 cmake -S "$ROOT" -B "$ROOT/build" -DCMAKE_BUILD_TYPE=Release
 cmake --build "$ROOT/build" -j"$(nproc)"
@@ -48,10 +56,20 @@ cmake --build "$ROOT/build" -j"$(nproc)"
 mkdir -p "$DEST"
 # WHY: a failed copy must never leave a half-installed keyboard (e.g. new qml but no models). So copy all three
 # into staging dirs first; only when every copy has succeeded (set -e stops us otherwise) swap them in back to back.
-rm -rf "$DEST/.qml.new" "$DEST/.models.new" "$DEST/.dict.new"
+rm -rf "$DEST/.qml.new" "$DEST/.models.new" "$DEST/.dict.new" "$DEST/.lm.new"
 cp -r "$ROOT/build/qml" "$DEST/.qml.new"
 cp -r "$ROOT/assets/models" "$DEST/.models.new"
 cp -r "$ROOT/assets/dict" "$DEST/.dict.new"
-for d in qml models dict; do rm -rf "$DEST/$d" && mv "$DEST/.$d.new" "$DEST/$d"; done
+# The n-gram model is optional: copied when built; when it isn't, any older copy is removed so the installed
+# model always matches the installed dictionary (a stale one would still load and rank with old word lists).
+dirs="qml models dict"
+if [ -s "$ROOT/assets/lm/en_ngram.bin" ]; then
+    mkdir -p "$DEST/.lm.new"
+    cp "$ROOT/assets/lm/en_ngram.bin" "$DEST/.lm.new/"
+    dirs="$dirs lm"
+else
+    rm -rf "$DEST/lm"
+fi
+for d in $dirs; do rm -rf "$DEST/$d" && mv "$DEST/.$d.new" "$DEST/$d"; done
 echo "installed to $DEST"
 [ "${1:-}" = --no-restart ] || restart_keyboard
