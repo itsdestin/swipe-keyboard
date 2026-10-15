@@ -69,6 +69,22 @@ private slots:
         QVERIFY(p.readAllStandardError().contains("usage"));
     }
 
+    // Regression: `o="--use-ngram --use-nlm"; swipekb-replay ... $o 2>/dev/null` in zsh printed nothing and
+    // looked like a crash. zsh passed both options as ONE argument; the tool refused it with only the usage
+    // text on stderr. It must now name the refused argument and explain the space.
+    void joinedOptionsAreNamedNotSilent()
+    {
+        QProcess p;
+        p.start(QStringLiteral(SWIPEKB_REPLAY_EXE),
+                {"--data", "d", "--swipes", "s", "--expect", "e", "--use-ngram --use-nlm"});
+        QVERIFY(p.waitForFinished(30000));
+        QCOMPARE(p.exitStatus(), QProcess::NormalExit); // a clean refusal, not a crash
+        QCOMPARE(p.exitCode(), 2);
+        const QByteArray err = p.readAllStandardError();
+        QVERIFY2(err.contains("unknown option '--use-ngram --use-nlm'"), err.constData());
+        QVERIFY2(err.contains("contains a space"), err.constData());
+    }
+
     void replaysAndCountsAddUp()
     {
         if (!QFile::exists(assets() + "/models/honorable_sturgeon/model_fp32.pte"))

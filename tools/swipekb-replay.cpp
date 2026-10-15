@@ -121,10 +121,24 @@ bool parseArgs(int argc, char **argv, Args &a)
         } else if (s == "--no-lm") {
             a.noLm = true;
         } else {
+            // WHY name the argument: an unknown option used to print only the usage text, on stderr. A run that
+            // hides stderr (2>/dev/null) then showed nothing at all and looked like a crash. That happened with
+            // o="--use-ngram --use-nlm"; $R ... $o in zsh, which (unlike bash) passes $o as ONE argument with
+            // a space inside, so no option matched. Saying exactly which argument was refused, and why it
+            // might have happened, turns that silent "crash" into a one-line explanation.
+            std::fprintf(stderr, "swipekb-replay: unknown option '%s'\n", s.c_str());
+            if (s.find(' ') != std::string::npos)
+                std::fprintf(stderr, "  (it contains a space: several options were passed as one argument. In zsh an "
+                                     "unquoted $var is not split; write ${=var} or list the options separately.)\n");
             return false;
         }
     }
-    return !a.data.empty() && !a.swipes.empty() && !a.expect.empty();
+    if (a.data.empty() || a.swipes.empty() || a.expect.empty()) {
+        // WHY: same reason as above, say what is missing instead of only reprinting the usage text.
+        std::fprintf(stderr, "swipekb-replay: --data, --swipes and --expect are all required\n");
+        return false;
+    }
+    return true;
 }
 
 // One recorded swipe, converted to what the engine takes.
