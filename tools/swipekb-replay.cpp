@@ -7,7 +7,8 @@
 //
 // Usage:
 //   swipekb-replay --data DIR --swipes swipes.jsonl --expect words.txt
-//                  [--no-decoder] [--no-lm] [--beam N] [--dict PATH]
+//                  [--no-decoder] [--no-lm] [--beam N] [--dict PATH] [--use-ngram] [--no-ngram] [--ngram PATH]
+//                  [--alpha X]
 // words.txt: one expected word per line, in the same order as the swipes; "-" (or a blank line) = skip.
 
 #include <QByteArray>
@@ -30,9 +31,10 @@
 namespace {
 
 struct Args {
-    std::string data, swipes, expect, dict;
-    bool noDecoder = false, noLm = false;
+    std::string data, swipes, expect, dict, ngram;
+    bool noDecoder = false, noLm = false, noNgram = false, useNgram = false;
     int beam = 0;
+    swipekb::RerankWeights weights;
 };
 
 void usage()
@@ -40,13 +42,18 @@ void usage()
     std::fprintf(stderr,
                  "usage: swipekb-replay --data DIR --swipes swipes.jsonl --expect words.txt\n"
                  "                      [--no-decoder] [--no-lm] [--beam N] [--dict PATH]\n"
+                 "                      [--use-ngram] [--no-ngram] [--ngram PATH] [--alpha X]\n"
                  "  --data DIR      folder with models/ and dict/ (e.g. ~/.local/share/swipe-keyboard)\n"
                  "  --swipes FILE   recorded swipes, one JSON line each (traces/swipes.jsonl)\n"
                  "  --expect FILE   intended word per swipe, one per line, same order; '-' skips a swipe\n"
                  "  --no-decoder    encoder only (drop the second model)\n"
                  "  --no-lm         drop the context language model\n"
                  "  --beam N        beam width (default: engine default, 100)\n"
-                 "  --dict PATH     use another dictionary file\n");
+                 "  --dict PATH     use another dictionary file\n"
+                 "  --use-ngram     rank with the n-gram model (lm/en_ngram.bin) even if the keyboard default is off\n"
+                 "  --no-ngram      rank with FUTO's context model (the old way)\n"
+                 "  --ngram PATH    rank with this n-gram model file\n"
+                 "  --alpha X       weight of the n-gram model in the ranking\n");
 }
 
 bool parseArgs(int argc, char **argv, Args &a)
@@ -72,6 +79,17 @@ bool parseArgs(int argc, char **argv, Args &a)
             if (!value(n)) return false;
             a.beam = std::atoi(n.c_str());
             if (a.beam <= 0) return false;
+        } else if (s == "--ngram") {
+            if (!value(a.ngram)) return false;
+            a.useNgram = true;
+        } else if (s == "--use-ngram") {
+            a.useNgram = true;
+        } else if (s == "--alpha") {
+            std::string n;
+            if (!value(n)) return false;
+            a.weights.alpha = std::strtof(n.c_str(), nullptr);
+        } else if (s == "--no-ngram") {
+            a.noNgram = true;
         } else if (s == "--no-decoder") {
             a.noDecoder = true;
         } else if (s == "--no-lm") {
@@ -185,6 +203,8 @@ int main(int argc, char **argv)
     }
     if (!a.dict.empty())
         paths.dictionary = a.dict;
+    if (!a.ngram.empty())
+        paths.ngram = a.ngram;
 
     std::vector<Swipe> swipes;
     QStringList expected;
@@ -196,13 +216,17 @@ int main(int argc, char **argv)
                      static_cast<long long>(std::min<qsizetype>(swipes.size(), expected.size())));
 
     swipekb::Recognizer r;
-    if (!r.init(paths, {.beam_width = a.beam})) {
+    // WHY the keyboard's default unless a flag says otherwise: by default the tool measures what ships.
+    const bool ngram = !a.noNgram && (a.useNgram || swipekb::RecognizerOptions{}.ngram);
+    if (!r.init(paths, {.beam_width = a.beam, .ngram = ngram, .weights = a.weights})) {
         std::fprintf(stderr, "engine failed to load from %s\n", a.data.c_str());
         return 1;
     }
 
-    std::printf("settings: decoder=%s lm=%s beam=%s dict=%s\n", a.noDecoder ? "off" : "on", a.noLm ? "off" : "on",
-                a.beam ? std::to_string(a.beam).c_str() : "default", paths.dictionary.c_str());
+    // WHY "ranking": a missing n-gram file silently falls back to FUTO's ranking; the output must say which ran.
+    std::printf("settings: decoder=%s lm=%s beam=%s dict=%s ranking=%s\n", a.noDecoder ? "off" : "on",
+                a.noLm ? "off" : "on", a.beam ? std::to_string(a.beam).c_str() : "default", paths.dictionary.c_str(),
+                r.usingNgram() ? "ngram" : "futo");
     std::printf("%-4s %s%s%s%s%s%s\n", "#", cell("expected", 14).c_str(), cell("guess1", 14).c_str(),
                 cell("guess2", 14).c_str(), cell("guess3", 14).c_str(), cell("result", 8).c_str(), "live-typed");
 

@@ -5,6 +5,11 @@
 // Usage:
 //   swipekb-bench --data DIR --jsonl FILE [--top-k 3] [--beam N] [--no-decoder] [--no-lm] [--dict PATH]
 //                 [--limit N] [--recall-k 50] [--skip-oov] [--layout PATH]
+//                 [--use-ngram] [--no-ngram] [--ngram PATH] [--alpha X] [--gamma X] [--beta X] [--lambda X] [--dump FILE]
+// Ranking follows the keyboard's default (RecognizerOptions::ngram); --use-ngram forces our n-gram model on,
+// --no-ngram forces FUTO's context model (the old way); --ngram FILE uses another model file (and turns it on);
+// --alpha/--gamma/--beta/--lambda override the re-ranking weights (RerankWeights); --dump writes every
+// candidate's raw scores per swipe (JSON lines) for bench/tune-rerank.py.
 //
 // Output copies infer_jsonl's format (good/ok/bad lines, "Results:" block with "top-1:" and "top-4:" lines,
 // "Timings" block) so bench/score.sh parses it unchanged, then adds an "Extras:" block.
@@ -35,16 +40,19 @@
 namespace {
 
 struct Args {
-    std::string data, jsonl, dict, layout;
+    std::string data, jsonl, dict, layout, ngram, dump;
     int topK = 3, beam = 0, limit = 0, recallK = 50;
-    bool noDecoder = false, noLm = false, skipOov = false;
+    bool noDecoder = false, noLm = false, skipOov = false, noNgram = false, useNgram = false;
+    swipekb::RerankWeights weights;
 };
 
 void usage()
 {
     std::fprintf(stderr,
                  "usage: swipekb-bench --data DIR --jsonl FILE [--top-k 3] [--beam N] [--no-decoder] [--no-lm]\n"
-                 "                     [--dict PATH] [--limit N] [--recall-k 50] [--skip-oov] [--layout PATH]\n");
+                 "                     [--dict PATH] [--limit N] [--recall-k 50] [--skip-oov] [--layout PATH]\n"
+                 "                     [--use-ngram] [--no-ngram] [--ngram PATH] [--alpha X] [--gamma X] [--beta X] [--lambda X]\n"
+                 "                     [--dump FILE]\n");
 }
 
 bool parseArgs(int argc, char **argv, Args &a)
@@ -58,8 +66,22 @@ bool parseArgs(int argc, char **argv, Args &a)
             out = std::atoi(v.c_str());
             return out > 0;
         };
+        auto real = [&](float &out) {
+            std::string v;
+            if (!str(v)) return false;
+            out = std::strtof(v.c_str(), nullptr);
+            return true;
+        };
         bool ok = true;
         if (s == "--data") ok = str(a.data);
+        else if (s == "--ngram") { ok = str(a.ngram); a.useNgram = true; }
+        else if (s == "--use-ngram") a.useNgram = true;
+        else if (s == "--dump") ok = str(a.dump);
+        else if (s == "--no-ngram") a.noNgram = true;
+        else if (s == "--alpha") ok = real(a.weights.alpha);
+        else if (s == "--gamma") ok = real(a.weights.gamma);
+        else if (s == "--beta") ok = real(a.weights.beta);
+        else if (s == "--lambda") ok = real(a.weights.lambda);
         else if (s == "--jsonl") ok = str(a.jsonl);
         else if (s == "--dict") ok = str(a.dict);
         else if (s == "--layout") ok = str(a.layout);
@@ -117,6 +139,7 @@ int main(int argc, char **argv)
     if (a.noDecoder) paths.decoder.clear();
     if (a.noLm) { paths.lm_model.clear(); paths.lm_vocab.clear(); }
     if (!a.dict.empty()) paths.dictionary = a.dict;
+    if (!a.ngram.empty()) paths.ngram = a.ngram;
 
     // Layout file: same FUTO file infer_jsonl is given. Default is the copy inside the repo's submodule.
     const std::string layoutPath = !a.layout.empty() ? a.layout
@@ -130,8 +153,18 @@ int main(int argc, char **argv)
     const std::vector<swipekb::KeyRect> keys = benchlayout::toRects(layout, kScale);
 
     swipekb::Recognizer r;
-    if (!r.init(paths, {.beam_width = a.beam})) {
+    // WHY the keyboard's default unless a flag says otherwise: by default the tool measures what ships.
+    const bool ngram = !a.noNgram && (a.useNgram || swipekb::RecognizerOptions{}.ngram);
+    if (!r.init(paths, {.beam_width = a.beam, .ngram = ngram, .weights = a.weights})) {
         std::fprintf(stderr, "engine failed to load from %s\n", a.data.c_str());
+        return 1;
+    }
+    // WHY printed: a missing model file silently falls back to the old ranking; the run must say which it used.
+    std::cerr << "ranking: " << (r.usingNgram() ? "n-gram model " + paths.ngram : std::string("FUTO context model"))
+              << "\n";
+    QFile dump(QString::fromStdString(a.dump));
+    if (!a.dump.empty() && !dump.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        std::fprintf(stderr, "cannot write %s\n", a.dump.c_str());
         return 1;
     }
     std::unordered_set<std::string> dictWords;
@@ -142,9 +175,9 @@ int main(int argc, char **argv)
         std::fprintf(stderr, "cannot read %s\n", a.jsonl.c_str());
         return 1;
     }
-    // WHY the engine is asked for max(top-k, recall-k) once: with the context model on, FUTO's search always
-    // keeps 200 candidates and only truncates at the end, so the first top-k entries of a longer list equal what a
-    // top-k call returns. One call gives both the scored top-k and the beam-recall number.
+    // WHY two calls: the scored list must be exactly what the keyboard shows (a top-k call). A longer list is
+    // NOT the same at its start: the "best raw shape" guard puts that word in the LAST slot, which is slot 3 in
+    // a top-3 call but slot 50 in a top-50 call. The second, untimed call only measures beam recall.
     const int askK = std::max(a.topK, a.recallK);
 
     int good = 0, ok = 0, bad = 0, recallHit = 0, firstN = 0, firstGood = 0, lineNo = 0, skipped = 0;
@@ -185,18 +218,26 @@ int main(int argc, char **argv)
         }
 
         const auto t1 = std::chrono::steady_clock::now();
-        const auto results = r.recognize(trace, keys, context, askK);
+        const auto results = r.recognize(trace, keys, context, a.topK);
         totalUs += std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - t1).count();
+        const auto longList = r.recognize(trace, keys, context, askK);
 
-        int recallIdx = INT_MAX;
-        for (size_t i = 0; i < results.size(); ++i)
-            if (normalizeWord(QString::fromStdString(results[i].word)) == tgt) {
-                recallIdx = int(i);
-                break;
-            }
-        // The scored list is the first top-k entries only (what the keyboard would show).
-        const int idx = recallIdx < a.topK ? recallIdx : INT_MAX;
-        if (recallIdx < askK) ++recallHit;
+        auto rankOf = [&](const std::vector<swipekb::Candidate> &list) {
+            for (size_t i = 0; i < list.size(); ++i)
+                if (normalizeWord(QString::fromStdString(list[i].word)) == tgt) return int(i);
+            return INT_MAX;
+        };
+        const int idx = rankOf(results);
+        if (rankOf(longList) < askK) ++recallHit;
+        if (dump.isOpen()) {
+            // One line per swipe: target, whether it starts a sentence, and every candidate's raw scores.
+            QJsonArray cands;
+            for (const auto &c : r.recognizeDetailed(trace, keys, context))
+                cands.append(QJsonArray{QString::fromStdString(c.word), c.ctc, c.length, c.freq, c.lm, c.futo_lm});
+            QJsonObject rec{{"id", o.value("id")}, {"target", QString::fromStdString(tgt)},
+                            {"first", context.empty()}, {"c", cands}};
+            dump.write(QJsonDocument(rec).toJson(QJsonDocument::Compact) + "\n");
+        }
         if (idx == 0) { std::cout << "good"; ++good; }
         else if (idx <= 3) { std::cout << "ok"; ++ok; }
         else { std::cout << "bad"; ++bad; }
@@ -231,6 +272,16 @@ int main(int argc, char **argv)
     std::cout << "  recall@" << askK << ":  " << recallHit << " / " << total << " = " << (recallHit * 100.0f) / total << "%\n";
     std::cout << "  first-word top-1:  " << firstGood << " / " << firstN << " = " << (firstN ? (firstGood * 100.0f) / firstN : 0.0f) << "%\n";
     if (skipped) std::cout << "  skipped (two-hand format):  " << skipped << "\n";
+    // WHY: memory is part of the cost of a ranking change (the n-gram model is a 150 MB file mapped in); the
+    // kernel's own counters say how much of it really ended up in RAM. Linux only; silently absent elsewhere.
+    {
+        QFile st(QStringLiteral("/proc/self/status"));
+        if (st.open(QIODevice::ReadOnly))
+            for (const QByteArray &l : st.readAll().split('\n'))
+                if (l.startsWith("VmHWM:") || l.startsWith("VmRSS:"))
+                    std::cout << "  " << (l.startsWith("VmHWM") ? "peak memory" : "memory now") << ":  "
+                              << l.mid(6).simplified().toStdString() << "\n";
+    }
     std::cout << "\nTimings (avg µs per sample):\n" << std::fixed << std::setprecision(1);
     std::cout << "  total:    " << totalUs / total << "\n";
     return 0;

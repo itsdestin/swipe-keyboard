@@ -2,6 +2,7 @@
 
 #include <QDateTime>
 #include <QElapsedTimer>
+#include <QFileInfo>
 #include <QLoggingCategory>
 #include <QtVirtualKeyboard/QVirtualKeyboardInputContext>
 
@@ -25,7 +26,14 @@ static swipekb::Recognizer &recognizer()
         swipekb::ModelPaths paths = swipekb::ModelPaths::fromDir(dir.toStdString());
         if (qEnvironmentVariableIntValue("SWIPEKB_NO_DECODER"))
             paths.decoder.clear();
-        const bool ok = r.init(paths);
+        // WHY a switch file (like `record`): the n-gram ranking is off by default until the owner has tried
+        // it; creating <data>/use-ngram turns it on at the next keyboard start, deleting it turns it off.
+        // If the model file is missing the engine quietly keeps the old ranking either way.
+        swipekb::RecognizerOptions options;
+        options.ngram = QFileInfo::exists(dir + QStringLiteral("/use-ngram"));
+        const bool ok = r.init(paths, options);
+        if (ok)
+            qCInfo(lcSwipe) << "ranking guesses with" << (r.usingNgram() ? "the n-gram model" : "FUTO's context model");
         if (!ok)
             qCWarning(lcSwipe) << "swipe engine not loaded from" << dir << "- swiping disabled, tapping unaffected";
         return ok;

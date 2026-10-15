@@ -97,3 +97,73 @@ TEST(Recognizer, DifferentKeyboardSizeAndPositionStillWorks)
     EXPECT_TRUE(inTop(r.recognize(traceThrough("hello", small), small, {}, 3), "hello"));
     EXPECT_TRUE(inTop(r.recognize(traceThrough("hello", big), big, {}, 3), "hello"));
 }
+
+// ---- the n-gram ranking and its fallbacks ----
+
+static RecognizerOptions withNgram()
+{
+    RecognizerOptions o;
+    o.ngram = true;
+    return o;
+}
+
+TEST(Recognizer, NgramOffByDefault)
+{
+    // WHY a test: the ship decision (bench/history.tsv, step 1) left it off; flipping the default must be a
+    // deliberate, visible change.
+    EXPECT_FALSE(RecognizerOptions{}.ngram);
+}
+
+TEST(Recognizer, MissingNgramModelFallsBackToTheOldRanking)
+{
+    if (!haveAssets()) GTEST_SKIP() << "run scripts/fetch-assets.sh";
+    ModelPaths p = ModelPaths::fromDir(assets());
+    p.ngram = "/nonexistent/en_ngram.bin";
+    Recognizer r;
+    ASSERT_TRUE(r.init(p, withNgram()));
+    EXPECT_FALSE(r.usingNgram());
+    Recognizer old;
+    ASSERT_TRUE(old.init(ModelPaths::fromDir(assets()), {}));
+    auto keys = qwertyRects(0, 0, 1);
+    const std::vector<std::string> ctx = {"I", "would", "like"};
+    const auto a = r.recognize(traceThrough("hello", keys), keys, ctx, 3);
+    const auto b = old.recognize(traceThrough("hello", keys), keys, ctx, 3);
+    ASSERT_EQ(a.size(), b.size());
+    for (size_t i = 0; i < a.size(); ++i)
+        EXPECT_EQ(a[i].word, b[i].word);
+}
+
+TEST(Recognizer, DamagedNgramModelFallsBackToTheOldRanking)
+{
+    if (!haveAssets()) GTEST_SKIP() << "run scripts/fetch-assets.sh";
+    const std::string junk = testing::TempDir() + "/damaged.ngram";
+    std::ofstream(junk) << std::string(4096, 'x');
+    ModelPaths p = ModelPaths::fromDir(assets());
+    p.ngram = junk;
+    Recognizer r;
+    ASSERT_TRUE(r.init(p, withNgram()));
+    EXPECT_FALSE(r.usingNgram());
+    auto keys = qwertyRects(0, 0, 1);
+    EXPECT_TRUE(inTop(r.recognize(traceThrough("hello", keys), keys, {}, 3), "hello"));
+}
+
+TEST(Recognizer, NgramRankingFindsCleanSwipes)
+{
+    if (!haveAssets()) GTEST_SKIP() << "run scripts/fetch-assets.sh";
+    const ModelPaths p = ModelPaths::fromDir(assets());
+    if (!std::ifstream(p.ngram).good()) GTEST_SKIP() << "run scripts/lm/build-lm.sh";
+    Recognizer r;
+    ASSERT_TRUE(r.init(p, withNgram()));
+    EXPECT_TRUE(r.usingNgram());
+    auto keys = qwertyRects(0, 0, 1);
+    for (const std::string w : {"hello", "the", "keyboard", "swipe", "world"}) {
+        const auto c = r.recognize(traceThrough(w, keys), keys, {"this", "is", "a"}, 3);
+        ASSERT_FALSE(c.empty()) << w;
+        EXPECT_LE(c.size(), 3u);
+        EXPECT_TRUE(inTop(c, w)) << w << " -> first guess " << c[0].word;
+    }
+    // The tuning aid returns the whole unranked pool with the model's scores filled in.
+    const auto pool = r.recognizeDetailed(traceThrough("hello", keys), keys, {"say"});
+    EXPECT_GT(pool.size(), 3u);
+    EXPECT_TRUE(std::any_of(pool.begin(), pool.end(), [](const RawCandidate &c) { return c.lm < 0; }));
+}

@@ -45,6 +45,9 @@ std::vector<std::string> contextWords(const std::string &textBeforeCursor, int m
 
 struct ModelPaths {
     std::string encoder, decoder, lm_model, lm_vocab, dictionary;
+    // Our word-sequence model (scripts/lm/build-lm.sh). Optional: when the file is missing or unreadable the
+    // engine ranks guesses the old way, with FUTO's context model.
+    std::string ngram;
     // Standard layout of assets/ and of the installed ~/.local/share/swipe-keyboard.
     static ModelPaths fromDir(const std::string &dir)
     {
@@ -54,14 +57,49 @@ struct ModelPaths {
                 dir + "/models/hungry_jellyfish/vocab.txt",
                 // WHY en_swipe: AOSP's word list plus wordfreq words (scripts/dict/build-en-swipe.sh); it scored
                 // higher than AOSP alone on the scoreboard.
-                dir + "/dict/en_swipe.combined"};
+                dir + "/dict/en_swipe.combined",
+                dir + "/lm/en_ngram.bin"};
     }
 };
+
+// One guess straight out of FUTO's search, before ranking. WHY public: the re-ranking below is a plain
+// function of these numbers, so it can be tested with made-up guesses and tuned offline (tools/swipekb-bench
+// --dump writes these).
+struct RawCandidate {
+    std::string word;      // letters-only, lower case (the form FUTO's dictionary returns)
+    float ctc = 0;         // how well the finger path matches the word's letters (log probability, <= 0)
+    float length = 0;      // number of letters
+    float freq = 0;        // the dictionary's 0..255 frequency score
+    float lm = 0;          // our n-gram model: log10 P(word | previous words)
+    float futo_lm = 0;     // FUTO's context model score; 0 unless that model is loaded (n-gram ranking off)
+};
+
+// How the scores are combined:  shape / length^gamma + beta * length + lambda * freq + alpha * lm.
+// The first three terms are FUTO's own "how well does the path fit" score; alpha weighs the n-gram model.
+// WHY gamma/beta/lambda are FUTO's own numbers (its scoring.json row for "with a context model"): letting a
+// search re-tune all four weights on 2,000 swipes over-fitted (+1.2 points there, -0.1 on the scoreboard); on
+// 10,000 swipes it beat these fixed numbers by only 0.09. So only alpha is ours: tuned on FUTO's validation
+// split (bench/tune-rerank.py --pin lm), never on the scoreboard's test slice; best at 1.75, and anywhere in
+// 1.5-2.25 is within 0.15 points.
+struct RerankWeights {
+    float gamma = 0.1126f, beta = 2.2138f, lambda = 0.0060f, alpha = 1.75f;
+};
+
+// Ranks `pool` best-first and keeps `top_k`. The best raw path match (highest ctc) always stays in the list
+// (in the last slot if it wasn't already shown), so a clearly swiped rare word can never be hidden by the
+// word model. Ties keep FUTO's order.
+std::vector<Candidate> rerankCandidates(const std::vector<RawCandidate> &pool, const RerankWeights &w, int top_k);
 
 // Tuning knobs. WHY a struct: the replay tool (tools/swipekb-replay) compares settings on recorded swipes;
 // the keyboard itself uses the defaults.
 struct RecognizerOptions {
     int beam_width = 0;   // how many partial words the search keeps alive; 0 = FUTO's default (100)
+    // Rank guesses with our n-gram model (when ModelPaths::ngram loads) instead of FUTO's context model.
+    // WHY off by default: the ship rule is "+0.5 points on the scoreboard's test slice"; it measured +0.10
+    // there (93.42 vs 93.32), although +0.51 on 10,000 other test swipes and +0.89 on held-out validation
+    // swipes. The owner decides; the keyboard turns it on with the `use-ngram` switch file (plugin).
+    bool ngram = false;
+    RerankWeights weights;
 };
 
 class Recognizer {
@@ -80,6 +118,14 @@ public:
     // `context` = up to the last few words before the cursor, oldest first.
     std::vector<Candidate> recognize(const std::vector<TracePoint> &trace, const std::vector<KeyRect> &keys,
                                      const std::vector<std::string> &context, int top_k);
+
+    // True when guesses are ranked by the n-gram model (option on and the model file loaded).
+    bool usingNgram() const;
+
+    // Tuning aid: every word FUTO's search kept (not cut to a top-k), with the raw scores, the n-gram score
+    // (when loaded) and FUTO's context-model score (when loaded). Unranked. Empty when not ready or invalid.
+    std::vector<RawCandidate> recognizeDetailed(const std::vector<TracePoint> &trace, const std::vector<KeyRect> &keys,
+                                                const std::vector<std::string> &context);
 
 private:
     struct Impl;

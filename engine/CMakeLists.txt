@@ -1,4 +1,4 @@
-add_library(swipekb_engine SHARED src/normalize.cpp src/context.cpp src/recognizer.cpp)
+add_library(swipekb_engine SHARED src/normalize.cpp src/context.cpp src/ngram.cpp src/recognizer.cpp)
 target_include_directories(swipekb_engine PUBLIC include)
 # WHY PRIVATE: FUTO's library forces -fno-rtti on whatever compiles against it. Keeping it private
 # confines that to this .so, so the Qt plugin (which needs RTTI) is unaffected.
@@ -18,3 +18,8 @@ set_tests_properties(engine_recognizer PROPERTIES ENVIRONMENT "SWIPEKB_ASSETS=${
 add_executable(test_context tests/test_context.cpp)
 target_link_libraries(test_context PRIVATE swipekb_engine GTest::gtest_main)
 add_test(NAME engine_context COMMAND test_context)
+
+# The n-gram model file + lookups and the re-ranking, on a tiny hand-made model (no downloaded assets needed).
+add_executable(test_ngram tests/test_ngram.cpp)
+target_link_libraries(test_ngram PRIVATE swipekb_engine GTest::gtest_main)
+add_test(NAME engine_ngram COMMAND test_ngram)
