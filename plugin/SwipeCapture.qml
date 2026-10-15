@@ -47,7 +47,56 @@ Item {
     // input method has a guess bar (Keyboard.qml alwaysVisibleCondition requires
     // wordCandidateListVisibleHint), so pages and keyboards without one (numbers, digits, dialpad, stock
     // keyboard) keep their normal height. It lives in memory only, and --uninstall restarts the keyboard.
-    Component.onCompleted: VirtualKeyboardSettings.wordCandidateList.alwaysVisible = true
+    Component.onCompleted: {
+        VirtualKeyboardSettings.wordCandidateList.alwaysVisible = true
+        root.candidateView = root.findCandidateView()
+    }
+    // WHY: give the guess bar back its stock left alignment when this layer goes away (the "?123" page, or
+    // swipe-keyboard uninstalled while running). The Binding below stops with us, but the last value it wrote
+    // would otherwise stay. A new swipe layer re-centers at once.
+    Component.onDestruction: {
+        if (root.candidateView)
+            root.candidateView.leftMargin = 0
+    }
+
+    // Qt's guess bar (Keyboard.qml's ListView "wordCandidateView"), found once, or null.
+    property ListView candidateView: null
+
+    // Finds the guess bar under the Keyboard root by its objectName. WHY search (not a fixed path): it is a
+    // direct child in Qt 6.12, but a search a few levels deep survives Qt moving it into a wrapper item.
+    function findCandidateView() {
+        function walk(item, depth) {
+            if (!item || depth > 3)
+                return null
+            for (var i = 0; i < item.children.length; ++i) {
+                var c = item.children[i]
+                if (c.objectName === "wordCandidateView" && c.contentWidth !== undefined)
+                    return c
+                var found = walk(c, depth + 1)
+                if (found)
+                    return found
+            }
+            return null
+        }
+        return walk(root.keyboardItem(), 0)
+    }
+
+    // Centers the guesses in the guess bar (the owner's request; Qt puts them at the left edge).
+    // HOW: the bar is a horizontal ListView, and its leftMargin is empty space before the first guess. Making
+    // it half of the unused width centers the guesses. WHY leftMargin and not moving or resizing the bar: the
+    // bar's background is drawn by the ListView itself and must keep spanning the whole keyboard; leftMargin
+    // only shifts the guesses, and the ListView re-positions itself whenever the margin changes (Flickable
+    // "fixup"), so nothing fights it. It re-centers by itself because it depends on contentWidth, which Qt
+    // updates every time the guesses change. With more guesses than fit, the margin is 0, which is exactly
+    // the stock behaviour, so scrolling a long list is unaffected.
+    // Without the swipe layer (stock keyboard, symbols page) none of this exists, so nothing changes.
+    Binding {
+        target: root.candidateView
+        property: "leftMargin"
+        when: root.candidateView !== null
+        value: root.candidateView ? Math.max(0, Math.floor((root.candidateView.width - root.candidateView.contentWidth) / 2)) : 0
+        restoreMode: Binding.RestoreValue
+    }
 
     // The Keyboard item that owns the touch area (it exposes alternativeKeys and pressAndHoldDelay).
     function keyboardItem() {

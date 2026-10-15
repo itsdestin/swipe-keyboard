@@ -2,6 +2,7 @@
 #include <QQmlComponent>
 #include <QQmlEngine>
 #include <QQuickItem>
+#include <QQuickWindow>
 
 // Loads the built module the way Plasma Keyboard will: by import path, then by type name.
 // SWIPEKB_QML_DIR (env) lets install.sh's check point this at the installed copy instead of the build.
@@ -108,6 +109,73 @@ private slots:
 
         layer.reset(); // like switching to the symbols page
         QCOMPARE(kb->childItems().size(), childrenBefore);
+    }
+    // The guess bar's words must sit centered (the owner's request), re-center when the words change, fall
+    // back to Qt's left alignment when they overflow, and go back to stock when the swipe layer is destroyed.
+    // WHY a real ListView in a real (offscreen) window: the centering relies on how Qt's ListView positions
+    // its content when leftMargin changes, so the test must run Qt's own ListView code, not a mock.
+    void guessBarIsCentered()
+    {
+        QQmlEngine engine;
+        engine.addImportPath(qmlDir());
+        // Stand-in for Qt's Keyboard root: `alternativeKeys` (how SwipeCapture finds it) and the guess bar as a
+        // direct child with Keyboard.qml's own settings (objectName, horizontal, snap, anchors left/right).
+        // Words are 100 px wide each, the bar 600 px.
+        QQmlComponent kbC(&engine);
+        kbC.setData("import QtQuick\n"
+                    "Item { width: 600; height: 300; property var alternativeKeys: ({ active: false })\n"
+                    "  property alias touchArea: ta; property alias bar: wcv\n"
+                    "  function setWords(n) { words.clear(); for (var i = 0; i < n; ++i) words.append({ w: 'w' + i }) }\n"
+                    "  function firstX() { wcv.forceLayout(); var it = wcv.itemAtIndex(0); return it ? it.mapToItem(wcv, 0, 0).x : -1 }\n"
+                    "  ListModel { id: words }\n"
+                    "  ListView { id: wcv; objectName: 'wordCandidateView'; clip: true; height: 40\n"
+                    "    anchors.left: parent.left; anchors.right: parent.right; spacing: 0\n"
+                    "    orientation: ListView.Horizontal; snapMode: ListView.SnapToItem; model: words\n"
+                    "    delegate: Item { width: 100; height: 40 } }\n"
+                    "  Item { y: 40; width: 600; height: 260; MultiPointTouchArea { id: ta; anchors.fill: parent } } }\n",
+                    QUrl());
+        std::unique_ptr<QObject> kbObj(kbC.create());
+        QVERIFY2(kbObj, qPrintable(kbC.errorString()));
+        auto *kb = qobject_cast<QQuickItem *>(kbObj.get());
+        QQuickWindow window;
+        window.resize(600, 300);
+        kb->setParentItem(window.contentItem());
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+        auto *bar = kb->property("bar").value<QQuickItem *>();
+        auto *ta = kb->property("touchArea").value<QQuickItem *>();
+        auto firstX = [&] {
+            QVariant x;
+            QMetaObject::invokeMethod(kb, "firstX", Q_RETURN_ARG(QVariant, x));
+            return x.toDouble();
+        };
+        auto setWords = [&](int n) { QMetaObject::invokeMethod(kb, "setWords", Q_ARG(QVariant, n)); };
+
+        setWords(2);
+        QCOMPARE(firstX(), 0.0);   // stock: left-aligned before the swipe layer exists
+
+        QQmlComponent c(&engine, QStringLiteral("SwipeKeyboard"), QStringLiteral("SwipeCapture"));
+        QVERIFY2(c.status() == QQmlComponent::Ready, qPrintable(c.errorString()));
+        const QVariantMap props{{"layoutItem", QVariant::fromValue(ta)}, {"touchArea", QVariant::fromValue(ta)},
+                                {"parent", QVariant::fromValue(ta)}};
+        std::unique_ptr<QObject> layer(c.createWithInitialProperties(props));
+        QVERIFY2(layer, qPrintable(c.errorString()));
+
+        QTRY_COMPARE(firstX(), 200.0);   // 2 words (200 px) in 600 px: 200 px empty on each side
+        setWords(3);
+        QTRY_COMPARE(firstX(), 150.0);   // re-centers when the words change
+        setWords(0);
+        setWords(1);
+        QTRY_COMPARE(firstX(), 250.0);   // empty, then one word (after each swipe the list is rebuilt)
+        setWords(9);
+        QTRY_COMPARE(firstX(), 0.0);     // more words than fit: stock left alignment, normal scrolling
+        QCOMPARE(bar->property("leftMargin").toDouble(), 0.0);
+        setWords(2);
+        QTRY_COMPARE(firstX(), 200.0);
+
+        layer.reset();                   // swipe layer gone ("?123" page): stock left alignment again
+        QCOMPARE(bar->property("leftMargin").toDouble(), 0.0);
+        QTRY_COMPARE(firstX(), 0.0);
     }
 };
 
