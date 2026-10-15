@@ -20,3 +20,6 @@ date	commit	label	n	top1	top3	avg_us
 2026-10-14	370d6f5	[recognizer] step 1 (final): 3-gram FineWeb LM re-rank, 153 MB; FUTO with-context shape weights, alpha 1.75 (dev-tuned)	2000	93.4224	96.6598	3425.1
 2026-10-14	370d6f5	[recognizer] ablation: 2-gram FineWeb LM (142 MB, t2=10), same pinned weights + alpha 1.75 (dev-10k: 93.37 vs 3-gram 93.61)	2000	93.2682	96.6598	3361.0
 2026-10-14	370d6f5	[recognizer] step 1: keyboard default (n-gram off) = FUTO context-model ranking	2000	93.3196	96.557	3736.7
+2026-10-14	e9ba0ee	[recognizer] step 1b: 3-gram ranking + neural re-rank (SmolLM2-135M Q8, same dev-tuned weights); timing under machine load	2000	94.5015	96.7112	132608.9
+2026-10-14	e9ba0ee	[recognizer] step 1b: FUTO ranking + neural re-rank (SmolLM2-135M Q8, top 5, weight 0.4 per token + word end; dev-tuned); timing under machine load ~40-100	2000	93.8849	96.5057	128956.9
+2026-10-14	e9ba0ee	[recognizer] step 1b try: FUTO ranking + neural re-rank with SmolLM2-360M Q8 (same weights)	2000	93.9363	96.557	195007.3
