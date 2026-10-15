@@ -34,7 +34,10 @@ Item {
     property QtObject themeProbe: null
     function makeThemeProbe(importLine) {
         try {
-            return Qt.createQmlObject(importLine + "\nItem { visible: false; Kirigami.Theme.inherit: false; "
+            // WHY no `visible: false`: Kirigami only resolves theme colours for visible items, so a hidden probe
+            // reported #000000 and the trail drew black (seen live 2026-10-14). A zero-size item draws nothing
+            // and takes no input, so leaving it visible is harmless.
+            return Qt.createQmlObject(importLine + "\nItem { width: 0; height: 0; Kirigami.Theme.inherit: false; "
                                       + "Kirigami.Theme.colorSet: Kirigami.Theme.Window; "
                                       + "readonly property color accent: Kirigami.Theme.highlightColor }", root, "swipe-theme")
         } catch (e) {
