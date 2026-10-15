@@ -1,11 +1,22 @@
 #include "windowblur.h"
 
 #include <KWindowEffects>
+#include <KWindowSystem>
+#include <QEvent>
+#include <QLoggingCategory>
 #include <QMetaProperty>
+#include <QPlatformSurfaceEvent>
+#include <QQmlComponent>
+#include <QQmlEngine>
 #include <QQuickWindow>
 #include <QTimer>
 #include <algorithm>
 #include <cmath>
+
+// WHY a logging category with info ON by default: the blur cannot be tested without KWin, so the journal is the
+// only way to see, on the device, which area was asked for and whether the window was ready. Turn it down with
+// QT_LOGGING_RULES="swipekb.blur.info=false" once the blur is confirmed working.
+Q_LOGGING_CATEGORY(lcBlur, "swipekb.blur", QtInfoMsg)
 
 namespace swipekb {
 QRegion roundedRegion(const QRect &rect, int topLeft, int topRight, int bottomRight, int bottomLeft)
@@ -66,12 +77,30 @@ void WindowBlur::attach()
         return;
     m_tracker = PanelBlurTracker::forWindow(m_target->window(), m_target);
     connect(m_tracker, &PanelBlurTracker::regionChanged, this, &WindowBlur::blurBoundsChanged);
+    if (m_edgeHighlight > 0)
+        m_tracker->setEdgeHighlight(m_edgeHighlight);
     emit blurBoundsChanged();
 }
 
 QRect WindowBlur::blurBounds() const
 {
     return m_tracker ? m_tracker->region().boundingRect() : QRect();
+}
+
+QRect WindowBlur::requestBounds() const
+{
+    return m_tracker ? m_tracker->requestRegion().boundingRect() : QRect();
+}
+
+void WindowBlur::setEdgeHighlight(qreal opacity)
+{
+    opacity = std::clamp<qreal>(opacity, 0, 1);
+    if (qFuzzyCompare(opacity, m_edgeHighlight))
+        return;
+    m_edgeHighlight = opacity;
+    emit edgeHighlightChanged();
+    if (m_tracker)
+        m_tracker->setEdgeHighlight(m_edgeHighlight);
 }
 
 // ---- PanelBlurTracker (one per window, keeps the blur matched to the panel) ----
@@ -114,15 +143,73 @@ PanelBlurTracker::PanelBlurTracker(QQuickWindow *window, QQuickItem *panel)
             connect(corners, corners->metaObject()->method(changedIdx), this,
                     metaObject()->method(metaObject()->indexOfSlot("scheduleUpdate()")));
     }
-    // WHY re-apply when shown: the keyboard window is hidden and shown again constantly; a shown window can get a
-    // fresh surface from the compositor, and the request must be on it.
+    // WHY re-apply when shown: the keyboard window is hidden and shown again constantly, and each show gets a fresh
+    // surface. KWindowSystem itself re-sends the stored blur when the window is exposed again; re-computing here
+    // as well catches a panel that changed size while hidden, and logs every show so the journal tells the story.
     connect(window, &QWindow::visibleChanged, this, [this](bool visible) {
+        qCInfo(lcBlur) << "keyboard window" << (visible ? "shown" : "hidden");
         if (visible) {
-            m_region = QRegion();   // force the next update to send the request again
+            m_request = QRegion();   // force the next update to send (and log) the request again
             scheduleUpdate();
         }
     });
+    // WHY the mask: Plasma Keyboard's window is screen-tall, and it marks only the panel as touchable (its
+    // "interactiveRegion", which becomes the window mask). KWin treats that touchable part as the window itself,
+    // and our blur area must be measured from its corner (see update()). Re-sent whenever it changes.
+    const int regionSig = window->metaObject()->indexOfSignal("interactiveRegionChanged()");
+    if (regionSig >= 0)
+        connect(window, window->metaObject()->method(regionSig), this,
+                metaObject()->method(metaObject()->indexOfSlot("scheduleUpdate()")));
+    window->installEventFilter(this);
+    qCInfo(lcBlur) << "blur tracker on" << window << "panel" << panel << "wayland:" << KWindowSystem::isPlatformWayland()
+                   << "blur available:" << KWindowEffects::isEffectAvailable(KWindowEffects::BlurBehind);
     update();
+}
+
+bool PanelBlurTracker::eventFilter(QObject *watched, QEvent *event)
+{
+    if (watched == m_window) {
+        if (event->type() == QEvent::Expose && m_window->isExposed()) {
+            // Exposed = the window has a live surface on screen; KWindowSystem re-sends the blur at this moment.
+            m_request = QRegion();
+            scheduleUpdate();
+        } else if (event->type() == QEvent::PlatformSurface) {
+            const auto type = static_cast<QPlatformSurfaceEvent *>(event)->surfaceEventType();
+            qCInfo(lcBlur) << "keyboard window surface"
+                           << (type == QPlatformSurfaceEvent::SurfaceCreated ? "created" : "about to be destroyed");
+        }
+    }
+    return QObject::eventFilter(watched, event);
+}
+
+void PanelBlurTracker::setEdgeHighlight(qreal opacity)
+{
+    if (!m_panel)
+        return;
+    // WHY a 1 px white line: Plasma's panel (his LiquidGlass theme) has a faint white rim (18% white) that makes the
+    // glass edge catch the light; the keyboard gets the same along its top edge. A child of the panel, so it moves
+    // and resizes with it; created once per window, like the blur itself.
+    if (!m_edge && opacity > 0) {
+        QQmlEngine *engine = qmlEngine(m_panel);
+        if (!engine)
+            return;
+        QQmlComponent c(engine);
+        c.setData("import QtQuick\nRectangle { objectName: \"swipekbEdgeHighlight\"; height: 1; z: 1000; color: \"white\" }",
+                  QUrl());
+        m_edge = qobject_cast<QQuickItem *>(c.create());
+        if (!m_edge)
+            return;
+        m_edge->setParent(m_panel);
+        m_edge->setParentItem(m_panel);
+        // Follow the panel's width (top corners: the full-width keyboard has square ones, so a straight line fits).
+        auto fit = [this] { if (m_edge && m_panel) m_edge->setWidth(m_panel->width()); };
+        connect(m_panel, &QQuickItem::widthChanged, m_edge, fit);
+        fit();
+    }
+    if (m_edge) {
+        m_edge->setOpacity(opacity);
+        m_edge->setVisible(opacity > 0);
+    }
 }
 
 void PanelBlurTracker::scheduleUpdate()
@@ -154,13 +241,29 @@ void PanelBlurTracker::update()
         region = swipekb::roundedRegion(rect, corner("topLeftRadius"), corner("topRightRadius"),
                                         corner("bottomRightRadius"), corner("bottomLeftRadius"));
     }
-    if (region == m_region)
+    // WHY move the area: KWin (6.7, src/inputpanelv1window.cpp resetPosition) uses the touchable part of an input
+    // panel (the window mask = the panel) as the window's frame, while the blur plugin (src/plugins/blur/blur.cpp,
+    // blurRegion) reads our area as measured from that frame's corner and cuts away anything outside it. Measured
+    // from the screen-tall window's top instead, the panel's area lies below the frame and is cut away entirely:
+    // the keyboard was see-through but never blurred. So the area is shifted by the mask's top-left corner.
+    // (If a future KWin starts measuring from the surface instead, the blur would vanish again: remove the shift.)
+    const QRect mask = m_window->mask().boundingRect();
+    const QPoint frameOrigin = mask.isEmpty() ? QPoint() : mask.topLeft();
+    const QRegion request = region.translated(-frameOrigin);
+    if (region == m_region && request == m_request)
         return;
     m_region = region;
+    m_request = request;
+    qCInfo(lcBlur).nospace() << "blur " << (request.isEmpty() ? "OFF" : "ON") << ": window " << m_window
+                             << " platformWindow=" << (m_window->handle() != nullptr) << " exposed=" << m_window->isExposed()
+                             << " panel(window coords)=" << region.boundingRect() << " mask=" << mask
+                             << " sent(frame coords)=" << request.boundingRect() << " rects=" << request.rectCount()
+                             << " wayland=" << KWindowSystem::isPlatformWayland()
+                             << " blurAvailable=" << KWindowEffects::isEffectAvailable(KWindowEffects::BlurBehind);
     // WHY blur only (no enableBackgroundContrast): the owner's Plasma theme (LiquidGlass) turns the contrast
     // effect off and blur on ([ContrastEffect] enabled=false, [BlurBehindEffect] enabled=true), and Plasma's
     // panels follow the theme, so blur alone is what makes the keyboard look like his panels.
     // An empty region switches the blur off (panel hidden); a null region would mean "whole window", never sent.
-    KWindowEffects::enableBlurBehind(m_window, !region.isEmpty(), region);
+    KWindowEffects::enableBlurBehind(m_window, !request.isEmpty(), request);
     emit regionChanged();
 }

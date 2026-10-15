@@ -31,6 +31,12 @@ class WindowBlur : public QObject {
     Q_PROPERTY(QQuickItem *target READ target WRITE setTarget NOTIFY targetChanged)
     // The area currently blurred, in window coordinates (bounding box). For tests and debugging only.
     Q_PROPERTY(QRect blurBounds READ blurBounds NOTIFY blurBoundsChanged)
+    // The same area as actually sent to KWin (bounding box), i.e. moved to KWin's idea of where the window starts
+    // (see PanelBlurTracker::update). For tests and debugging only.
+    Q_PROPERTY(QRect requestBounds READ requestBounds NOTIFY blurBoundsChanged)
+    // Opacity (0..1) of a thin white line along the panel's top edge, like the bright rim of Plasma's panels.
+    // 0 (default) = no line. Set once per window: the first WindowBlur with a value > 0 decides.
+    Q_PROPERTY(qreal edgeHighlight READ edgeHighlight WRITE setEdgeHighlight NOTIFY edgeHighlightChanged)
 
 public:
     explicit WindowBlur(QObject *parent = nullptr);
@@ -38,10 +44,14 @@ public:
     QQuickItem *target() const { return m_target; }
     void setTarget(QQuickItem *target);
     QRect blurBounds() const;
+    QRect requestBounds() const;
+    qreal edgeHighlight() const { return m_edgeHighlight; }
+    void setEdgeHighlight(qreal opacity);
 
 signals:
     void targetChanged();
     void blurBoundsChanged();
+    void edgeHighlightChanged();
 
 private:
     void attach();
@@ -49,6 +59,7 @@ private:
     QPointer<QQuickItem> m_target;
     QPointer<PanelBlurTracker> m_tracker;
     QMetaObject::Connection m_windowConn;
+    qreal m_edgeHighlight = 0;
 };
 
 // The per-window helper. Lives as a child of the window, so it lasts as long as the keyboard window does.
@@ -60,9 +71,16 @@ public:
     static PanelBlurTracker *forWindow(QQuickWindow *window, QQuickItem *anyItemInPanel);
 
     QRegion region() const { return m_region; }
+    QRegion requestRegion() const { return m_request; }
+    void setEdgeHighlight(qreal opacity);
 
 signals:
     void regionChanged();
+
+protected:
+    // WHY watch the window's events: the keyboard window gets a new on-screen surface each time it is shown, and
+    // only an exposed window can carry the blur. Logged and re-checked here so the journal shows every step.
+    bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
     PanelBlurTracker(QQuickWindow *window, QQuickItem *panel);
@@ -71,6 +89,8 @@ private:
 
     QPointer<QQuickWindow> m_window;
     QPointer<QQuickItem> m_panel;
-    QRegion m_region;
+    QPointer<QQuickItem> m_edge;    // the optional highlight line (a child of the panel)
+    QRegion m_region;               // the panel's shape in window coordinates
+    QRegion m_request;              // the same shape as sent to KWin (see update())
     bool m_pending = false;
 };

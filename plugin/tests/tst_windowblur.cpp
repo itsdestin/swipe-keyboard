@@ -71,6 +71,49 @@ private slots:
         panel->setVisible(false);
         QTRY_VERIFY(again.blurBounds().isEmpty());   // hidden panel: blur switched off
     }
+
+    // The bug seen on the device: KWin takes an input panel's touchable part (the window mask, which Plasma
+    // Keyboard sets to the panel) as the window, and reads the blur area from that corner. The area sent must
+    // therefore start at 0,0 when the mask is the panel, or KWin cuts all of it away (no blur at all).
+    void requestIsMeasuredFromTheMask()
+    {
+        QQmlEngine engine;
+        QQmlComponent c(&engine);
+        c.setData("import QtQuick\nRectangle { x: 0; y: 700; width: 400; height: 100; Item { anchors.fill: parent } }\n", QUrl());
+        std::unique_ptr<QObject> obj(c.create());
+        QVERIFY2(obj, qPrintable(c.errorString()));
+        auto *panel = qobject_cast<QQuickItem *>(obj.get());
+        QQuickWindow window;
+        window.resize(400, 800);
+        window.setMask(QRegion(0, 700, 400, 100));   // what Plasma Keyboard's interactiveRegion does
+        panel->setParentItem(window.contentItem());
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+
+        WindowBlur blur;
+        blur.setTarget(panel->childItems().first());
+        QCOMPARE(blur.blurBounds(), QRect(0, 700, 400, 100));      // where the panel is in the window
+        QCOMPARE(blur.requestBounds(), QRect(0, 0, 400, 100));     // what KWin is told
+
+        // Guess bar appears: panel and mask grow upwards together; the request still starts at the frame corner.
+        panel->setY(650);
+        panel->setHeight(150);
+        window.setMask(QRegion(0, 650, 400, 150));
+        QTRY_COMPARE(blur.requestBounds(), QRect(0, 0, 400, 150));
+
+        // No mask (a normal window): KWin's frame is the whole window, nothing is shifted.
+        window.setMask(QRegion());
+        panel->setHeight(149);
+        QTRY_COMPARE(blur.requestBounds(), QRect(0, 650, 400, 149));
+
+        // The optional highlight line: one 1 px line on the panel's top edge, as wide as the panel.
+        blur.setEdgeHighlight(0.18);
+        const auto lines = panel->findChildren<QQuickItem *>("swipekbEdgeHighlight");
+        QCOMPARE(lines.size(), 1);
+        QCOMPARE(lines.first()->height(), 1.0);
+        QCOMPARE(lines.first()->width(), 400.0);
+        QCOMPARE(lines.first()->opacity(), 0.18);
+    }
 };
 
 QTEST_MAIN(TstWindowBlur)
