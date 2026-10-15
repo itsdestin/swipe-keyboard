@@ -1,4 +1,7 @@
 find_package(Qt6 6.8 REQUIRED COMPONENTS Core Gui Qml Quick VirtualKeyboard Test)
+# WHY KWindowSystem: WindowBlur asks KWin to blur behind the keyboard (KWindowEffects), the same call Plasma's
+# panels use. It ships with Plasma, so it is always there wherever Plasma Keyboard runs.
+find_package(KF6WindowSystem REQUIRED)
 qt_standard_project_setup(REQUIRES 6.8)
 
 # Pure text logic, no keyboard or engine: unit-tested on its own.
@@ -33,9 +36,9 @@ qt_add_qml_module(swipekeyboard
     VERSION 1.0
     OUTPUT_DIRECTORY ${SWIPEKB_QML_DIR}/SwipeKeyboard
     QML_FILES SwipeCapture.qml
-    SOURCES swipeinputmethod.h swipeinputmethod.cpp
+    SOURCES swipeinputmethod.h swipeinputmethod.cpp windowblur.h windowblur.cpp
 )
-target_link_libraries(swipekeyboard PRIVATE Qt6::Quick Qt6::VirtualKeyboard swipekb_session swipekb_recorder swipekb_engine)
+target_link_libraries(swipekeyboard PRIVATE Qt6::Quick Qt6::VirtualKeyboard KF6::WindowSystem swipekb_session swipekb_recorder swipekb_engine)
 # WHY SHARED + same output folder: a STATIC backing library makes the plugin static too, which Qt cannot load.
 # The three .so files (plugin, backing library, engine) sit side by side so the module folder is
 # self-contained and relocatable.
@@ -44,6 +47,13 @@ set_target_properties(swipekeyboard PROPERTIES LIBRARY_OUTPUT_DIRECTORY ${SWIPEK
 # copy would silently load libs from there. Forcing "$ORIGIN" only makes a missing sibling lib fail loudly.
 set_target_properties(swipekeyboard swipekeyboardplugin swipekb_engine PROPERTIES
     BUILD_WITH_INSTALL_RPATH TRUE INSTALL_RPATH "\$ORIGIN")
+
+# The blur shape (rounded corners as strips) is checked on its own, without a compositor.
+qt_add_executable(tst_windowblur tests/tst_windowblur.cpp windowblur.cpp)
+target_include_directories(tst_windowblur PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(tst_windowblur PRIVATE Qt6::Quick Qt6::Test KF6::WindowSystem)
+add_test(NAME plugin_windowblur COMMAND tst_windowblur)
+set_tests_properties(plugin_windowblur PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
 qt_add_executable(tst_pluginload tests/tst_pluginload.cpp)
 target_link_libraries(tst_pluginload PRIVATE Qt6::Qml Qt6::Quick Qt6::Test)

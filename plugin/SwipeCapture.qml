@@ -24,7 +24,23 @@ Item {
     anchors.fill: parent
     enabled: false                      // never takes input itself
 
-    property color trailColor: "#3daee9" // Breeze highlight blue
+    // The trail follows the system accent colour (the owner's request), live: changing the accent in System
+    // Settings recolours the next swipe without restarting the keyboard. Same colour group (Window) as the
+    // keyboard's own style, so it matches the accent Plasma Keyboard uses for its highlights.
+    // WHY through `themeProbe` (not `import org.kde.kirigami` at the top): a top-level import that fails would
+    // make this whole file fail to load, i.e. no swipe typing at all. Plasma Keyboard itself imports Kirigami,
+    // so it is always there in practice; if it ever is not, the trail falls back to Breeze blue.
+    property color trailColor: themeProbe ? themeProbe.accent : "#3daee9"
+    property QtObject themeProbe: null
+    function makeThemeProbe(importLine) {
+        try {
+            return Qt.createQmlObject(importLine + "\nItem { visible: false; Kirigami.Theme.inherit: false; "
+                                      + "Kirigami.Theme.colorSet: Kirigami.Theme.Window; "
+                                      + "readonly property color accent: Kirigami.Theme.highlightColor }", root, "swipe-theme")
+        } catch (e) {
+            return null
+        }
+    }
     // Drag distance (fraction of a key width) before a touch counts as a swipe. Tuned in M1.
     property real thresholdKeys: 0.5
 
@@ -48,6 +64,7 @@ Item {
     // wordCandidateListVisibleHint), so pages and keyboards without one (numbers, digits, dialpad, stock
     // keyboard) keep their normal height. It lives in memory only, and --uninstall restarts the keyboard.
     Component.onCompleted: {
+        root.themeProbe = root.makeThemeProbe("import QtQuick; import org.kde.kirigami as Kirigami")
         VirtualKeyboardSettings.wordCandidateList.alwaysVisible = true
         root.candidateView = root.findCandidateView()
     }

@@ -32,6 +32,48 @@ private slots:
         QQmlComponent c(&engine, QStringLiteral("SwipeKeyboard"), QStringLiteral("SwipeCapture"));
         QVERIFY2(c.status() == QQmlComponent::Ready, qPrintable(c.errorString()));
     }
+    // The trail uses the system accent colour (Kirigami's highlight, Window colours, like the keyboard style),
+    // and falls back to Breeze blue when Kirigami cannot be loaded instead of breaking the swipe layer.
+    void trailFollowsSystemAccent()
+    {
+        QQmlEngine engine;
+        engine.addImportPath(qmlDir());
+        QQmlComponent probeC(&engine);
+        probeC.setData("import QtQuick\nimport org.kde.kirigami as Kirigami\n"
+                       "Item { Kirigami.Theme.inherit: false; Kirigami.Theme.colorSet: Kirigami.Theme.Window\n"
+                       "       readonly property color accent: Kirigami.Theme.highlightColor }\n",
+                       QUrl());
+        std::unique_ptr<QObject> probe(probeC.create());
+        QVERIFY2(probe, qPrintable(probeC.errorString()));
+
+        QQmlComponent c(&engine, QStringLiteral("SwipeKeyboard"), QStringLiteral("SwipeCapture"));
+        QVERIFY2(c.status() == QQmlComponent::Ready, qPrintable(c.errorString()));
+        QQuickItem dummy;
+        const QVariantMap props{{"layoutItem", QVariant::fromValue(&dummy)}, {"touchArea", QVariant::fromValue(&dummy)}};
+        std::unique_ptr<QObject> layer(c.createWithInitialProperties(props));
+        QVERIFY2(layer, qPrintable(c.errorString()));
+        QVERIFY(layer->property("themeProbe").value<QObject *>());
+        QCOMPARE(layer->property("trailColor").value<QColor>(), probe->property("accent").value<QColor>());
+
+        // Kirigami missing: no probe, Breeze blue, no error thrown into the layer.
+        QVariant none;
+        QVERIFY(QMetaObject::invokeMethod(layer.get(), "makeThemeProbe", Q_RETURN_ARG(QVariant, none),
+                                          Q_ARG(QVariant, QStringLiteral("import QtQuick; import NoSuchKirigami as Kirigami"))));
+        QVERIFY(none.value<QObject *>() == nullptr);
+        layer->setProperty("themeProbe", QVariant::fromValue<QObject *>(nullptr));
+        QCOMPARE(layer->property("trailColor").value<QColor>(), QColor("#3daee9"));
+    }
+    // WindowBlur (the glass keyboard's blur request) is part of the module, so the layout can create it by name.
+    void windowBlurTypeLoads()
+    {
+        QQmlEngine engine;
+        engine.addImportPath(qmlDir());
+        QQmlComponent c(&engine, QStringLiteral("SwipeKeyboard"), QStringLiteral("WindowBlur"));
+        QVERIFY2(c.status() == QQmlComponent::Ready, qPrintable(c.errorString()));
+        std::unique_ptr<QObject> blur(c.create());
+        QVERIFY2(blur, qPrintable(c.errorString()));
+        QVERIFY(blur->property("blurBounds").toRect().isEmpty());   // no target yet: asks for nothing
+    }
     // The guess bar must be pinned once a swipe layer exists and STAY pinned after the layer is destroyed.
     // WHY: the layer is destroyed on "?123", but the swipe input method and its guess bar stay active on the
     // symbols page; unpinning there would make the keyboard height jump on every ?123/ABC toggle.
