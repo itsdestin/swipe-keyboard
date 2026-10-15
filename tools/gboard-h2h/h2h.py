@@ -370,11 +370,36 @@ def device_connected():
     return ok, other
 
 
+_DISPLAY = []
+
+
+def display_id():
+    """WHY: a Fold has two screens; screencap needs the id of the one that is on, or it prints a
+    warning into the image data and may capture the wrong screen."""
+    if not _DISPLAY:
+        d = sh("dumpsys display", check=False, timeout=30)
+        on = None
+        for m in re.finditer(r"mBaseDisplayInfo=DisplayInfo\{.*?state (\w+),.*?uniqueId \"local:(\d+)\"", d):
+            if m.group(1) == "ON" and on is None:
+                on = m.group(2)
+        _DISPLAY.append(on)
+    return _DISPLAY[0]
+
+
+def screencap_args(png):
+    a = ["exec-out", "screencap"]
+    if display_id():
+        a += ["-d", display_id()]
+    return a + (["-p"] if png else [])
+
+
 def screenshot(tag):
     os.makedirs(WORK, exist_ok=True)
     path = os.path.join(WORK, "shot-%s-%s.png" % (tag, time.strftime("%H%M%S")))
+    data = adb(*screencap_args(True), binary=True)
+    i = data.find(b"\x89PNG")
     with open(path, "wb") as f:
-        f.write(adb("exec-out", "screencap", "-p", binary=True))
+        f.write(data[i if i > 0 else 0:])
     return path
 
 
@@ -389,12 +414,9 @@ def phone_state():
     locked = bool(re.search(r"(mDreamingLockscreen=true|isKeyguardShowing=true|"
                             r"mShowingLockscreen=true|KeyguardShowing=true)", w))
     awake = sh("dumpsys power | grep -m1 mWakefulness=", check=False).strip()
-    ime_shown = bool(re.search(r"mInputShown=true|isInputViewShown=true|mIsInputViewShown=true",
-                               im))
-    cur_ime = ""
-    m = re.search(r"mCurMethodId=(\S+)", im)
-    if m:
-        cur_ime = m.group(1)
+    # WHY not mIsInputViewShown: on One UI it stays true after the keyboard hides.
+    ime_shown = bool(re.search(r"mInputShown=true|mImeWindowVis=[1-9]", im))
+    cur_ime = sh("settings get secure default_input_method", check=False).strip()
     return {"focus": focus, "locked": locked, "wake": awake, "ime_shown": ime_shown,
             "ime": cur_ime}
 
@@ -496,7 +518,7 @@ def field_text(xml, pkg):
 
 def raw_screencap():
     """`screencap` without -p: a small header then RGBA pixels. Avoids decoding PNG in Python."""
-    data = adb("exec-out", "screencap", binary=True, timeout=60)
+    data = adb(*screencap_args(False), binary=True, timeout=60)
     w, h, fmt = struct.unpack("<III", data[:12])
     hdr = len(data) - w * h * 4
     if hdr not in (12, 16) or fmt not in (1, 2):
