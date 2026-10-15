@@ -5,6 +5,9 @@
 # WHY this mix: on the scoreboard it raised first-guess from 92.50% to 93.32% and top-3 from 95.43% to 96.56%
 # (most misses were words AOSP simply does not have), without changing any result on the owner's own swipes.
 # See .superpowers/sdd/dict-experiment-report.md for every candidate that was measured.
+# Also (quick-fix round): AOSP's "not a word" lines ("im", "alot") are dropped, and in apostrophe pairs the
+# spelling AOSP prefers gets the higher frequency ("let's" over "lets", "its" over "it's"); see
+# order_apostrophe_twins in wordfreq_combined.py. To rebuild, delete the old OUT file first (it is skipped if present).
 # Usage: scripts/dict/build-en-swipe.sh [ASSETS_DIR]   (skips the build if the output already exists)
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"

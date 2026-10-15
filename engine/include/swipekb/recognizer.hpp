@@ -6,6 +6,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "swipekb/nlm.hpp"
@@ -144,6 +145,31 @@ struct RecognizerOptions {
     int nlm_threads = 4;
 };
 
+// Puts apostrophes (and hyphens) back into guesses. WHY: FUTO's search works on letters only, so it returns
+// "lets", "im", "dont" even though the dictionary spells them "let's", "I'm", "don't". Without this the
+// keyboard typed "im" and "lets". Built from the same dictionary file the search uses.
+// Capital letters are never added ("I'm" comes out as "i'm"): the keyboard's own capitalization decides them,
+// and the owner chose not to auto-capitalize a lone "i".
+class Spellings {
+public:
+    // Reads a `.combined` dictionary. Words marked not-a-word (f=0, "nonword", "not_a_word") are ignored, as
+    // are spellings with anything but letters and inner ' or - ("us$", "states'").
+    static Spellings fromCombinedFile(const std::string &path);
+    static Spellings fromCombinedText(const std::string &text);   // the same, from text (tests)
+
+    // The usual spelling of a letters-only guess: its most frequent spelling ("lets" -> "let's",
+    // "its" -> "its"); the guess itself when the dictionary knows no other.
+    std::string spell(const std::string &letters) const;
+    // The same swipe's other real spellings worth offering in the guess bar, most frequent first ("its" ->
+    // {"it's"}, "let's" -> {"lets"}). Excludes `word` itself; empty for most words.
+    std::vector<std::string> others(const std::string &word) const;
+    bool empty() const { return byLetters_.empty(); }
+
+private:
+    // letters-only, lower case -> real spellings, most frequent first (only where some spelling differs).
+    std::unordered_map<std::string, std::vector<std::string>> byLetters_;
+};
+
 class Recognizer {
 public:
     Recognizer();
@@ -161,6 +187,9 @@ public:
     std::vector<Candidate> recognize(const std::vector<TracePoint> &trace, const std::vector<KeyRect> &keys,
                                      const std::vector<std::string> &context, int top_k);
 
+    // The same swipe's other spellings for the guess bar (Spellings::others); empty when not ready.
+    std::vector<std::string> otherSpellings(const std::string &word) const;
+
     // True when guesses are ranked by the n-gram model (option on and the model file loaded).
     bool usingNgram() const;
     // True when the neural model re-orders the best guesses (option on, model and library loaded).
@@ -174,6 +203,9 @@ public:
                                                 const std::vector<std::string> &context);
 
 private:
+    // recognize() before the apostrophes go back in: FUTO's letters-only words.
+    std::vector<Candidate> recognizeLetters(const std::vector<TracePoint> &trace, const std::vector<KeyRect> &keys,
+                                            const std::vector<std::string> &context, int top_k);
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };

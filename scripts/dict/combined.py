@@ -9,6 +9,9 @@ import time
 _WORD = re.compile(r"^ word=([^,]+),f=(\d+)(?:,flags=([^,]*))?")
 
 
+_SHORTCUT = re.compile(r"^  shortcut=([^,]+),f=whitelist")
+
+
 def read(path):
     """Returns [(word, freq, flags)] in file order. Shortcut/whitelist lines are dropped."""
     out = []
@@ -17,6 +20,41 @@ def read(path):
             m = _WORD.match(line)
             if m:
                 out.append((m.group(1), int(m.group(2)), m.group(3) or ""))
+    return out
+
+
+def not_words(path):
+    """The words AOSP marks `not_a_word=true` ("im", "alot", "teh"-style typos, f=0).
+
+    WHY a separate reader: read() keeps only the word, frequency and flags, so it used to turn these lines into
+    ordinary f=0 words ("im" became a real word). AOSP lists them only so its autocorrect can replace them
+    ("im" -> "I'm"); they are not words a swipe should ever type.
+    """
+    out = set()
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            m = _WORD.match(line)
+            if m and "not_a_word=true" in line:
+                out.add(m.group(1))
+    return out
+
+
+def whitelist(path):
+    """AOSP's "always replace" pairs: {typed word: replacement}, e.g. "lets" -> "let's", "ill" -> "I'll".
+
+    WHY: a whitelist line follows the word it replaces. AOSP's own keyboard uses these to prefer "let's" over
+    "lets", but NOT "it's" over "its"; that is exactly the apostrophe preference the swipe dictionary needs.
+    """
+    out, last = {}, None
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            m = _WORD.match(line)
+            if m:
+                last = m.group(1)
+                continue
+            s = _SHORTCUT.match(line)
+            if s and last is not None:
+                out[last] = s.group(1)
     return out
 
 

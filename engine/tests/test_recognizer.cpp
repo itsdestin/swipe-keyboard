@@ -87,6 +87,22 @@ TEST(Recognizer, CleanSwipesOfCommonWordsLandInTopThree)
     }
 }
 
+// Regression: FUTO's search returns letters only, so the keyboard typed "im" and "lets" (owner's sentence test).
+TEST(Recognizer, GuessesKeepTheirApostrophes)
+{
+    if (!haveAssets()) GTEST_SKIP() << "run scripts/fetch-assets.sh";
+    Recognizer r;
+    ASSERT_TRUE(r.init(ModelPaths::fromDir(assets())));
+    auto keys = qwertyRects(0, 0, 1);
+    for (const auto &[swiped, typed] : std::vector<std::pair<std::string, std::string>>{
+             {"dont", "don't"}, {"lets", "let's"}, {"im", "i'm"}}) {
+        auto c = r.recognize(traceThrough(swiped, keys), keys, {}, 3);
+        EXPECT_TRUE(inTop(c, typed)) << swiped << " -> first guess " << (c.empty() ? "" : c[0].word);
+        EXPECT_FALSE(inTop(c, swiped)) << swiped;   // never both spellings, never the bare letters
+    }
+    EXPECT_EQ(r.otherSpellings("let's"), std::vector<std::string>{"lets"});
+}
+
 TEST(Recognizer, DifferentKeyboardSizeAndPositionStillWorks)
 {
     if (!haveAssets()) GTEST_SKIP() << "run scripts/fetch-assets.sh";

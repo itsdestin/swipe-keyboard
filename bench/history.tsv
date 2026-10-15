@@ -23,3 +23,6 @@ date	commit	label	n	top1	top3	avg_us
 2026-10-14	e9ba0ee	[recognizer] step 1b: 3-gram ranking + neural re-rank (SmolLM2-135M Q8, same dev-tuned weights); timing under machine load	2000	94.5015	96.7112	132608.9
 2026-10-14	e9ba0ee	[recognizer] step 1b: FUTO ranking + neural re-rank (SmolLM2-135M Q8, top 5, weight 0.4 per token + word end; dev-tuned); timing under machine load ~40-100	2000	93.8849	96.5057	128956.9
 2026-10-14	e9ba0ee	[recognizer] step 1b try: FUTO ranking + neural re-rank with SmolLM2-360M Q8 (same weights)	2000	93.9363	96.557	195007.3
+2026-10-14	e51519e	[recognizer] quickfix before: shipped dict (apostrophes restored on output; scoreboard compares letters only)	2000	93.3196	96.557	3045.7
+2026-10-14	e51519e	[recognizer] quickfix: dict drops AOSP not-a-word entries + apostrophe-twin order (AOSP whitelist)	2000	93.3196	96.557	3114.7
+2026-10-14	e51519e	[recognizer] quickfix: new dict, 3-gram + neural re-rank (opt-in modes)	2000	94.5015	96.7112	33487.3

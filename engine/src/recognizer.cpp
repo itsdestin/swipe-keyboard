@@ -26,6 +26,8 @@ struct Recognizer::Impl {
     // "bach" -> "Bach"). WHY: FUTO's search returns the letters-only form, but the neural model reads real
     // text; "bach" mid-sentence looks wrong to it, "Bach" does not.
     std::unordered_map<std::string, std::string> spelling;
+    // Apostrophes back into the typed guesses ("lets" -> "let's", "im" -> "i'm"). See Spellings.
+    Spellings spellings;
     RecognizerOptions options;
     bool ready = false;
 };
@@ -215,6 +217,9 @@ bool Recognizer::init(const ModelPaths &p, const RecognizerOptions &options)
                 impl_->spelling = readSpellings(p.dictionary);
         }
         impl_->dict = swipe_decoder::load_trie_simple(p.dictionary);
+        // WHY always (not an option): FUTO's search drops apostrophes, so without this every contraction was
+        // typed wrong ("im", "dont", "lets"). Costs one more read of the dictionary file at start-up.
+        impl_->spellings = Spellings::fromCombinedFile(p.dictionary);
         if (!impl_->dict) {
             std::fprintf(stderr, "swipekb: could not read dictionary %s\n", p.dictionary.c_str());
             return false;
@@ -260,8 +265,26 @@ bool Recognizer::usingNgram() const { return impl_->ready && impl_->ngram.loaded
 bool Recognizer::usingNlm() const { return impl_->ready && impl_->nlm != nullptr; }
 void Recognizer::setWordScorerForTesting(std::unique_ptr<WordScorer> scorer) { impl_->nlm = std::move(scorer); }
 
+std::vector<std::string> Recognizer::otherSpellings(const std::string &word) const
+{
+    return impl_->ready ? impl_->spellings.others(word) : std::vector<std::string>{};
+}
+
 std::vector<Candidate> Recognizer::recognize(const std::vector<TracePoint> &trace, const std::vector<KeyRect> &keys,
                                              const std::vector<std::string> &context, int top_k)
+{
+    // WHY spelled last: every ranking step (n-gram, neural, the raw-shape guard) works on FUTO's letters-only
+    // words; only what leaves the engine gets its apostrophes back. Two guesses can never end up spelled the
+    // same, because each letters-only word has exactly one usual spelling.
+    std::vector<Candidate> out = recognizeLetters(trace, keys, context, top_k);
+    for (Candidate &c : out)
+        c.word = impl_->spellings.spell(c.word);
+    return out;
+}
+
+std::vector<Candidate> Recognizer::recognizeLetters(const std::vector<TracePoint> &trace,
+                                                    const std::vector<KeyRect> &keys,
+                                                    const std::vector<std::string> &context, int top_k)
 {
     if (!impl_->ready || top_k <= 0)
         return {};

@@ -1,4 +1,4 @@
-add_library(swipekb_engine SHARED src/normalize.cpp src/context.cpp src/ngram.cpp src/recognizer.cpp src/nlm_loader.cpp)
+add_library(swipekb_engine SHARED src/normalize.cpp src/context.cpp src/ngram.cpp src/recognizer.cpp src/spelling.cpp src/nlm_loader.cpp)
 target_include_directories(swipekb_engine PUBLIC include)
 # WHY PRIVATE: FUTO's library forces -fno-rtti on whatever compiles against it. Keeping it private
 # confines that to this .so, so the Qt plugin (which needs RTTI) is unaffected.
@@ -49,3 +49,8 @@ add_executable(test_nlm tests/test_nlm.cpp)
 target_link_libraries(test_nlm PRIVATE swipekb_engine GTest::gtest_main)
 add_test(NAME engine_nlm COMMAND test_nlm)
 set_tests_properties(engine_nlm PROPERTIES ENVIRONMENT "SWIPEKB_ASSETS=${SWIPEKB_ASSETS}")
+
+# Apostrophes back into guesses ("lets" -> "let's"), on a tiny hand-made dictionary (no downloaded assets needed).
+add_executable(test_spelling tests/test_spelling.cpp)
+target_link_libraries(test_spelling PRIVATE swipekb_engine GTest::gtest_main)
+add_test(NAME engine_spelling COMMAND test_spelling)
