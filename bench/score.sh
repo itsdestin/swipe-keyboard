@@ -7,7 +7,9 @@
 #   --check  exit 1 if either score is below the best earlier row with the same slice size — the design's
 #            rule that no change may lower the score.
 # Env: INFER_JSONL, SWIPEKB_ASSETS (assets/), SWIPEKB_DICT (assets/dict/en_swipe.combined), BENCH_N (2000),
-#      BENCH_HISTORY (bench/history.tsv), SWIPEKB_BENCH (build/tools/swipekb-bench)
+#      BENCH_HISTORY (bench/history.tsv), SWIPEKB_BENCH (build/tools/swipekb-bench),
+#      SWIPEKB_BENCH_FLAGS (extra swipekb-bench flags, recognizer runner only, e.g. "--no-ngram" or
+#      "--ngram FILE --alpha 2"; WHY: before/after and ablation rows without editing code; say so in the label)
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 A="${SWIPEKB_ASSETS:-$ROOT/assets}"
@@ -36,7 +38,8 @@ slice="$A/eval/bench-$N.jsonl"
 if [ "$runner" = recognizer ]; then
     # WHY: our Recognizer reads the standard assets layout (models/ + dict/) itself; --dict hands it the
     # SWIPEKB_DICT override. --top-k 3 and the default beam match the futo runner's settings, so rows compare.
-    out=$("$SWIPEKB_BENCH" --data "$A" --dict "$DICT" --jsonl "$slice" --top-k 3 2>&1) || true
+    # shellcheck disable=SC2086  # WHY unquoted: SWIPEKB_BENCH_FLAGS holds several flags.
+    out=$("$SWIPEKB_BENCH" --data "$A" --dict "$DICT" --jsonl "$slice" --top-k 3 ${SWIPEKB_BENCH_FLAGS:-} 2>&1) || true
 else
     out=$("$INFER" --encoder "$A/models/honorable_sturgeon/model_fp32.pte" \
             --decoder "$A/models/magic_macaw/model_fp32.pte" \
@@ -65,7 +68,7 @@ commit=$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo none)
 printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(date +%F)" "$commit" "$label" "$N" "$top1" "$top3" "${us:-?}" >> "$HIST"
 echo "first guess right: $top1%   right word in top 3: $top3%   ($N real swipes, avg ${us:-?} µs)"
 # Extra lines only the recognizer runner prints (beam recall, first-word-of-sentence accuracy).
-[ "$runner" = recognizer ] && grep -E '^  (recall@|first-word)' <<<"$out" || true
+[ "$runner" = recognizer ] && grep -E '^(  (recall@|first-word)|ranking:)' <<<"$out" || true
 
 if [ "$check" = 1 ] && awk -v a="$top1" -v b="$best1" -v c="$top3" -v d="$best3" 'BEGIN { exit !(a < b || c < d) }'; then
     echo "FAIL: below the best so far (first guess $best1%, top 3 $best3%)"

@@ -13,3 +13,10 @@ date	commit	label	n	top1	top3	avg_us
 2026-10-14	71bb72e	dict: (d) AOSP en_US + wordfreq, typo filter x20 (300k)	2000	93.3196	96.557	5070.3
 2026-10-14	76a0a77	shipped: en_swipe (AOSP en_US + wordfreq, typo filter, 250k)	2000	93.3196	96.557	3629.0
 2026-10-14	4816479	[recognizer] parity: our Recognizer, shipped dict+decoder+LM	2000	93.3196	96.5057	3005.7
+2026-10-14	370d6f5	[recognizer] before step 1: FUTO context-model ranking (top-3 now from a real top-3 call)	2000	93.3196	96.557	2028.1
+2026-10-14	370d6f5	[recognizer] step 1 try: 3-gram FineWeb LM (153 MB), all 4 weights tuned on dev-2k (gamma .3 beta 2.6 lambda 0 alpha 1.75): over-fitted	2000	93.2169	96.7112	1980.7
+2026-10-14	370d6f5	[recognizer] step 1 try: 2-gram FineWeb LM (142 MB), its own 4 weights tuned on dev-2k (.2, 2.4, .0025, 2.0)	2000	93.4738	96.7626	1822.7
+2026-10-14	370d6f5	[recognizer] step 1 try: 3-gram (153 MB) with that 2-gram weight set (.2, 2.4, .0025, 2.0)	2000	93.7307	96.7112	7233.1
+2026-10-14	370d6f5	[recognizer] step 1 (final): 3-gram FineWeb LM re-rank, 153 MB; FUTO with-context shape weights, alpha 1.75 (dev-tuned)	2000	93.4224	96.6598	3425.1
+2026-10-14	370d6f5	[recognizer] ablation: 2-gram FineWeb LM (142 MB, t2=10), same pinned weights + alpha 1.75 (dev-10k: 93.37 vs 3-gram 93.61)	2000	93.2682	96.6598	3361.0
+2026-10-14	370d6f5	[recognizer] step 1: keyboard default (n-gram off) = FUTO context-model ranking	2000	93.3196	96.557	3736.7

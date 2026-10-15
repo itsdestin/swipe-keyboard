@@ -69,3 +69,12 @@ SH
   run "$ROOT/bench/score.sh" --runner nope
   [ "$status" -eq 2 ]
 }
+@test "SWIPEKB_BENCH_FLAGS reaches swipekb-bench (recognizer runner)" {
+  # WHY: before/after and ablation rows (e.g. --no-ngram, --use-ngram) are made with this; the fake logs its args.
+  export SWIPEKB_BENCH="$BATS_TEST_TMPDIR/bench"
+  printf '#!/usr/bin/env bash\necho "$@" > "%s/bargs"\nprintf "  top-1: 1 / 1 = 50%%%%\\n  top-4: 1 / 1 = 60%%%%\\n"\n' "$BATS_TEST_TMPDIR" > "$SWIPEKB_BENCH"
+  chmod +x "$SWIPEKB_BENCH"
+  SWIPEKB_BENCH_FLAGS="--use-ngram --alpha 2" run "$ROOT/bench/score.sh" --runner recognizer --label flags
+  [ "$status" -eq 0 ]
+  grep -q -- "--top-k 3 --use-ngram --alpha 2" "$BATS_TEST_TMPDIR/bargs"
+}
