@@ -94,6 +94,49 @@ private slots:
                  QStringLiteral("example"));
     }
 
+    // Tapping a key right after a swiped word: "write" + tap "a" must give "write a", not "writea".
+    void spaceBeforeTappedKey_data()
+    {
+        QTest::addColumn<QString>("key");
+        QTest::addColumn<bool>("afterSwipedWord");
+        QTest::addColumn<bool>("urlField");
+        QTest::addColumn<bool>("expected");
+        QTest::newRow("letter") << QStringLiteral("a") << true << false << true;
+        QTest::newRow("capital letter") << QStringLiteral("A") << true << false << true;
+        QTest::newRow("digit") << QStringLiteral("5") << true << false << true;
+        QTest::newRow("accented letter") << QStringLiteral("\u00e9") << true << false << true;
+        QTest::newRow("not after a swipe") << QStringLiteral("a") << false << false << false;
+        QTest::newRow("url field") << QStringLiteral("a") << true << true << false;
+        for (const char *p : {".", ",", "!", "?", ";", ":", "'", "\"", "\u201d", "\u2019", ")", "-"})
+            QTest::newRow(qPrintable(QStringLiteral("punctuation ") + QString::fromUtf8(p)))
+                << QString::fromUtf8(p) << true << false << false;
+        QTest::newRow("space") << QStringLiteral(" ") << true << false << false;
+        QTest::newRow("enter") << QStringLiteral("\n") << true << false << false;
+        QTest::newRow("backspace / shift (no text)") << QString() << true << false << false;
+    }
+    void spaceBeforeTappedKey()
+    {
+        QFETCH(QString, key);
+        QFETCH(bool, afterSwipedWord);
+        QFETCH(bool, urlField);
+        QFETCH(bool, expected);
+        QCOMPARE(SwipeSession::spaceBeforeTappedKey(key, afterSwipedWord, urlField), expected);
+    }
+
+    void otherSpellingGoesFirstInTheGuessBar()
+    {
+        QCOMPARE(SwipeSession::withOtherSpelling({"its", "ita", "itd"}, "it's"), (QStringList{"its", "it's", "ita", "itd"}));
+        QCOMPARE(SwipeSession::withOtherSpelling({"its"}, "it's"), (QStringList{"its", "it's"}));
+        QCOMPARE(SwipeSession::withOtherSpelling({"its", "it's"}, "it's"), (QStringList{"its", "it's"})); // no duplicate
+        QCOMPARE(SwipeSession::withOtherSpelling({"hello", "hells"}, QString()), (QStringList{"hello", "hells"}));
+        QCOMPARE(SwipeSession::withOtherSpelling({}, "it's"), QStringList());
+        // The typed word stays the best guess; the other spelling is the first alternative.
+        SwipeSession s;
+        QCOMPARE(s.commitSwipe(QString(), SwipeSession::withOtherSpelling({"its", "ita"}, "it's"), CaseMode::AsIs).text,
+                 QStringLiteral("its"));
+        QCOMPARE(s.alternatives(), (QStringList{"it's", "ita"}));
+    }
+
     void commitAtStartHasNoSpace()
     {
         SwipeSession s;

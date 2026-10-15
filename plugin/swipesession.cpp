@@ -41,6 +41,27 @@ bool SwipeSession::needsSpaceBefore(const QString &textBeforeCursor, SpaceContex
     return !glue.contains(c);
 }
 
+bool SwipeSession::spaceBeforeTappedKey(const QString &keyText, bool rightAfterSwipedWord, bool urlOrEmailField)
+{
+    // WHY letters and digits only: they start a new word. Punctuation (. , ! ? ; : ' " and closing quotes)
+    // belongs glued to the word ("write."), and Backspace/Space/Enter must behave exactly as before.
+    // WHY not in web-address/email fields: there a tapped letter usually continues the address
+    // ("example" + tap "s"), and a stray space would break it; same rule as the swipe auto-space.
+    if (!rightAfterSwipedWord || urlOrEmailField || keyText.size() != 1)
+        return false;
+    return keyText.front().isLetterOrNumber();
+}
+
+QStringList SwipeSession::withOtherSpelling(const QStringList &candidates, const QString &otherSpelling)
+{
+    if (candidates.isEmpty() || otherSpelling.isEmpty()
+        || candidates.contains(otherSpelling, Qt::CaseInsensitive))
+        return candidates;
+    QStringList out = candidates;
+    out.insert(1, otherSpelling);
+    return out;
+}
+
 QString SwipeSession::applyCase(const QString &word, CaseMode mode)
 {
     switch (mode) {

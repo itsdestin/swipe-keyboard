@@ -40,6 +40,16 @@ public:
     // True when the swiped word must be preceded by a space (Gboard-style auto-space).
     static bool needsSpaceBefore(const QString &textBeforeCursor, SpaceContext ctx = {});
 
+    // True when a tapped key must get a space typed before it: Gboard-style, tapping a letter or digit right
+    // after a swiped word starts a new word ("write" + tap "a" = "write a", not "writea").
+    // `rightAfterSwipedWord`: the cursor still sits right after the swiped word (or the app hides its text and
+    // the swiped word was the last thing typed). Punctuation, quotes, Backspace, Space and Enter never get one.
+    static bool spaceBeforeTappedKey(const QString &keyText, bool rightAfterSwipedWord, bool urlOrEmailField);
+    // The guesses with the best guess's other spelling (from the dictionary, e.g. "it's" for "its") inserted
+    // right after it, so it is the first guess-bar choice. WHY: one swipe shape is both words; the shape
+    // cannot tell them apart, so the other one must be one tap away. Nothing is dropped.
+    static QStringList withOtherSpelling(const QStringList &candidates, const QString &otherSpelling);
+
     // Starts a new session from the engine's best-first guesses. Empty plan if there are none.
     CommitPlan commitSwipe(const QString &textBeforeCursor, const QStringList &candidates, CaseMode mode,
                            SpaceContext ctx = {});

@@ -86,6 +86,18 @@ void SwipeInputMethod::writeOutcome(const SwipeOutcomeTracker::Outcome &o)
 
 bool SwipeInputMethod::keyEvent(Qt::Key key, const QString &text, Qt::KeyboardModifiers)
 {
+    // Gboard-style: tapping a letter or digit right after a swiped word starts a new word, so type the space
+    // first ("write" + tap "a" = "write a"). WHY checked before anything is cleared: "right after the swiped
+    // word" is exactly the session (cursor still behind the word) or, in apps that hide their text, the
+    // after-swipe flag. The rule itself (which keys, URL/email fields) is SwipeSession::spaceBeforeTappedKey.
+    // The key itself is still typed by Qt (we return false below), right after our space.
+    if (QVirtualKeyboardInputContext *ic = inputContext()) {
+        const bool rightAfterWord = (m_session.isActive() && m_session.cursorStillAfterWord(textBeforeCursor()))
+            || m_afterSwipe;
+        const bool urlOrEmail = ic->inputMethodHints() & (Qt::ImhUrlCharactersOnly | Qt::ImhEmailCharactersOnly);
+        if (key != Qt::Key_Backspace && SwipeSession::spaceBeforeTappedKey(text, rightAfterWord, urlOrEmail))
+            ic->commit(QStringLiteral(" "));
+    }
     // WHY before clearSession: the outcome only counts while the cursor is still right after the swiped word.
     // Backspace itself is untouched (returns false below, so Qt deletes one character as before).
     if (m_session.isActive())
@@ -219,6 +231,14 @@ void SwipeInputMethod::finishSwipe(const QVariantList &points, const QVariantLis
         // WHY skip empty: an empty guess would type nothing yet still open a session and a blank guess-bar entry.
         if (!c.word.empty())
             candidates << QString::fromStdString(c.word);
+    }
+
+    // WHY: the swipe shape of "its" is also "it's" (apostrophes are not swiped); put the dictionary's other
+    // spelling of the best guess first in the guess bar so switching is one tap.
+    if (!candidates.isEmpty()) {
+        const auto others = recognizer().otherSpellings(candidates.front().toStdString());
+        if (!others.empty())
+            candidates = SwipeSession::withOtherSpelling(candidates, QString::fromStdString(others.front()));
     }
 
     const CaseMode mode = ic->isCapsLockActive() ? CaseMode::AllCaps
