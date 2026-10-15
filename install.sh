@@ -7,6 +7,7 @@
 #                                   without disturbing a keyboard you are typing on)
 #        ./install.sh --uninstall   remove qml/models/dict/lm (personal data like traces/ is kept) + restart
 # The n-gram ranking (lm/) is off unless ~/.local/share/swipe-keyboard/use-ngram exists (then restart the keyboard).
+# The neural re-ranking (nlm/) is off unless ~/.local/share/swipe-keyboard/use-nlm exists (same).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 DEST="${XDG_DATA_HOME:-$HOME/.local/share}/swipe-keyboard"
@@ -32,8 +33,8 @@ restart_keyboard() {
 
 case "${1:-}" in
     --uninstall)
-        rm -rf "$DEST/qml" "$DEST/models" "$DEST/dict" "$DEST/lm" "$DEST/.qml.new" "$DEST/.models.new" "$DEST/.dict.new" \
-               "$DEST/.lm.new"
+        rm -rf "$DEST/qml" "$DEST/models" "$DEST/dict" "$DEST/lm" "$DEST/nlm" "$DEST/.qml.new" "$DEST/.models.new" \
+               "$DEST/.dict.new" "$DEST/.lm.new" "$DEST/.nlm.new"
         restart_keyboard
         echo "swipe typing removed (keyboard back to plain tapping)"
         exit 0 ;;
@@ -56,7 +57,7 @@ cmake --build "$ROOT/build" -j"$(nproc)"
 mkdir -p "$DEST"
 # WHY: a failed copy must never leave a half-installed keyboard (e.g. new qml but no models). So copy all three
 # into staging dirs first; only when every copy has succeeded (set -e stops us otherwise) swap them in back to back.
-rm -rf "$DEST/.qml.new" "$DEST/.models.new" "$DEST/.dict.new" "$DEST/.lm.new"
+rm -rf "$DEST/.qml.new" "$DEST/.models.new" "$DEST/.dict.new" "$DEST/.lm.new" "$DEST/.nlm.new"
 cp -r "$ROOT/build/qml" "$DEST/.qml.new"
 cp -r "$ROOT/assets/models" "$DEST/.models.new"
 cp -r "$ROOT/assets/dict" "$DEST/.dict.new"
@@ -69,6 +70,15 @@ if [ -s "$ROOT/assets/lm/en_ngram.bin" ]; then
     dirs="$dirs lm"
 else
     rm -rf "$DEST/lm"
+fi
+# The neural word model is optional too (fetch-assets.sh downloads it). WHY -L: assets/nlm/en_nlm.gguf may be
+# a link to one of several downloaded models; the installed copy must be the file itself.
+if [ -s "$ROOT/assets/nlm/en_nlm.gguf" ]; then
+    mkdir -p "$DEST/.nlm.new"
+    cp -L "$ROOT/assets/nlm/en_nlm.gguf" "$DEST/.nlm.new/"
+    dirs="$dirs nlm"
+else
+    rm -rf "$DEST/nlm"
 fi
 for d in $dirs; do rm -rf "$DEST/$d" && mv "$DEST/.$d.new" "$DEST/$d"; done
 echo "installed to $DEST"

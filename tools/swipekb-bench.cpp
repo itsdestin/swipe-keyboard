@@ -44,6 +44,11 @@ struct Args {
     int topK = 3, beam = 0, limit = 0, recallK = 50;
     bool noDecoder = false, noLm = false, skipOov = false, noNgram = false, useNgram = false;
     swipekb::RerankWeights weights;
+    // The neural re-ranking (step 1b): on/off like the n-gram flags, plus its weights.
+    std::string nlm;
+    bool useNlm = false, noNlm = false;
+    int nlmThreads = 4;
+    swipekb::NlmWeights nlmWeights;
 };
 
 void usage()
@@ -52,7 +57,9 @@ void usage()
                  "usage: swipekb-bench --data DIR --jsonl FILE [--top-k 3] [--beam N] [--no-decoder] [--no-lm]\n"
                  "                     [--dict PATH] [--limit N] [--recall-k 50] [--skip-oov] [--layout PATH]\n"
                  "                     [--use-ngram] [--no-ngram] [--ngram PATH] [--alpha X] [--gamma X] [--beta X] [--lambda X]\n"
-                 "                     [--dump FILE]\n");
+                 "                     [--dump FILE] [--use-nlm] [--no-nlm] [--nlm FILE.gguf] [--nlm-threads N]\n"
+                 "                     [--nlm-n N] [--nlm-beta X] [--nlm-beta-short X] [--nlm-margin X]\n"
+                 "                     [--nlm-per-token] [--nlm-no-per-token] [--nlm-no-word-end]\n");
 }
 
 bool parseArgs(int argc, char **argv, Args &a)
@@ -92,6 +99,17 @@ bool parseArgs(int argc, char **argv, Args &a)
         else if (s == "--no-decoder") a.noDecoder = true;
         else if (s == "--no-lm") a.noLm = true;
         else if (s == "--skip-oov") a.skipOov = true;
+        else if (s == "--use-nlm") a.useNlm = true;
+        else if (s == "--no-nlm") a.noNlm = true;
+        else if (s == "--nlm") { ok = str(a.nlm); a.useNlm = true; }
+        else if (s == "--nlm-threads") ok = num(a.nlmThreads);
+        else if (s == "--nlm-n") ok = num(a.nlmWeights.n);
+        else if (s == "--nlm-beta") ok = real(a.nlmWeights.beta);
+        else if (s == "--nlm-beta-short") ok = real(a.nlmWeights.beta_short);
+        else if (s == "--nlm-margin") ok = real(a.nlmWeights.margin);
+        else if (s == "--nlm-per-token") a.nlmWeights.per_token = true;
+        else if (s == "--nlm-no-per-token") a.nlmWeights.per_token = false;
+        else if (s == "--nlm-no-word-end") a.nlmWeights.word_end = false;
         else ok = false;
         if (!ok) return false;
     }
@@ -140,6 +158,7 @@ int main(int argc, char **argv)
     if (a.noLm) { paths.lm_model.clear(); paths.lm_vocab.clear(); }
     if (!a.dict.empty()) paths.dictionary = a.dict;
     if (!a.ngram.empty()) paths.ngram = a.ngram;
+    if (!a.nlm.empty()) paths.nlm = a.nlm;
 
     // Layout file: same FUTO file infer_jsonl is given. Default is the copy inside the repo's submodule.
     const std::string layoutPath = !a.layout.empty() ? a.layout
@@ -155,13 +174,15 @@ int main(int argc, char **argv)
     swipekb::Recognizer r;
     // WHY the keyboard's default unless a flag says otherwise: by default the tool measures what ships.
     const bool ngram = !a.noNgram && (a.useNgram || swipekb::RecognizerOptions{}.ngram);
-    if (!r.init(paths, {.beam_width = a.beam, .ngram = ngram, .weights = a.weights})) {
+    const bool nlm = !a.noNlm && (a.useNlm || swipekb::RecognizerOptions{}.nlm);
+    if (!r.init(paths, {.beam_width = a.beam, .ngram = ngram, .weights = a.weights, .nlm = nlm,
+                        .nlm_weights = a.nlmWeights, .nlm_threads = a.nlmThreads})) {
         std::fprintf(stderr, "engine failed to load from %s\n", a.data.c_str());
         return 1;
     }
     // WHY printed: a missing model file silently falls back to the old ranking; the run must say which it used.
     std::cerr << "ranking: " << (r.usingNgram() ? "n-gram model " + paths.ngram : std::string("FUTO context model"))
-              << "\n";
+              << (r.usingNlm() ? " + neural model " + paths.nlm : std::string()) << "\n";
     QFile dump(QString::fromStdString(a.dump));
     if (!a.dump.empty() && !dump.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
         std::fprintf(stderr, "cannot write %s\n", a.dump.c_str());
@@ -182,6 +203,7 @@ int main(int argc, char **argv)
 
     int good = 0, ok = 0, bad = 0, recallHit = 0, firstN = 0, firstGood = 0, lineNo = 0, skipped = 0;
     double totalUs = 0;
+    std::vector<double> swipeUs;   // WHY each swipe's time: the live budget is about the slow swipes (p95), not the mean
     while (!f.atEnd()) {
         if (a.limit && good + ok + bad >= a.limit) break;
         const QByteArray line = f.readLine().trimmed();
@@ -219,7 +241,8 @@ int main(int argc, char **argv)
 
         const auto t1 = std::chrono::steady_clock::now();
         const auto results = r.recognize(trace, keys, context, a.topK);
-        totalUs += std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - t1).count();
+        swipeUs.push_back(std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - t1).count());
+        totalUs += swipeUs.back();
         const auto longList = r.recognize(trace, keys, context, askK);
 
         auto rankOf = [&](const std::vector<swipekb::Candidate> &list) {
@@ -272,6 +295,9 @@ int main(int argc, char **argv)
     std::cout << "  recall@" << askK << ":  " << recallHit << " / " << total << " = " << (recallHit * 100.0f) / total << "%\n";
     std::cout << "  first-word top-1:  " << firstGood << " / " << firstN << " = " << (firstN ? (firstGood * 100.0f) / firstN : 0.0f) << "%\n";
     if (skipped) std::cout << "  skipped (two-hand format):  " << skipped << "\n";
+    std::sort(swipeUs.begin(), swipeUs.end());
+    std::cout << "  ms per swipe p50 / p95:  " << swipeUs[swipeUs.size() / 2] / 1000 << " / "
+              << swipeUs[swipeUs.size() * 95 / 100] / 1000 << "\n";
     // WHY: memory is part of the cost of a ranking change (the n-gram model is a 150 MB file mapped in); the
     // kernel's own counters say how much of it really ended up in RAM. Linux only; silently absent elsewhere.
     {

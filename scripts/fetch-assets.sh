@@ -6,6 +6,8 @@
 # Re-running skips files already present. Usage: scripts/fetch-assets.sh
 # The optional n-gram model (assets/lm/en_ngram.bin, FineWeb, ODC-BY 1.0) is a separate, much larger build:
 # scripts/lm/build-lm.sh (install.sh runs it when the model is missing).
+# The optional neural word model (assets/nlm/en_nlm.gguf) is SmolLM2-135M by Hugging Face (Apache-2.0), 8-bit
+# GGUF from ggml-org, 145 MB; it re-orders the best few guesses (step 1b) and needs llama.cpp installed.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 A="${SWIPEKB_ASSETS:-$ROOT/assets}"
@@ -30,4 +32,8 @@ get "$HF/LICENSE.md" "$A/models/FUTO-MODEL-LICENSE.md"
 "$ROOT/scripts/dict/build-en-swipe.sh" "$A"
 
 get "$DS/test.jsonl" "$A/eval/test.jsonl"
+# WHY never fatal: the keyboard works without the neural model (the best guesses are then simply not
+# re-ordered), so a failed download must not stop an install.
+get https://huggingface.co/ggml-org/SmolLM2-135M-GGUF/resolve/main/SmolLM2-135M-Q8_0.gguf "$A/nlm/en_nlm.gguf" ||
+    echo "warning: neural word model not downloaded; the keyboard works without it" >&2
 echo "assets ready in $A"

@@ -35,3 +35,8 @@ target_include_directories(tst_benchlayout PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(tst_benchlayout PRIVATE swipekb_engine Qt6::Core Qt6::Test)
 target_compile_definitions(tst_benchlayout PRIVATE SWIPEKB_LAYOUT_JSON="${SWIPEKB_FUTO_LAYOUT}")
 add_test(NAME tools_benchlayout COMMAND tst_benchlayout)
+
+# swipekb-nlm-score: the neural word model's score for given candidates on FUTO's test sentences, plus its
+# speed and memory (bench/tune-nlm.py tunes the ranking from these stored scores).
+add_executable(swipekb-nlm-score swipekb-nlm-score.cpp)
+target_link_libraries(swipekb-nlm-score PRIVATE swipekb_engine Qt6::Core)

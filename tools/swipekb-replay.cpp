@@ -35,6 +35,11 @@ struct Args {
     bool noDecoder = false, noLm = false, noNgram = false, useNgram = false;
     int beam = 0;
     swipekb::RerankWeights weights;
+    // The neural re-ranking (step 1b): on/off like the n-gram flags, plus its weights.
+    std::string nlm;
+    bool useNlm = false, noNlm = false;
+    int nlmThreads = 4;
+    swipekb::NlmWeights nlmWeights;
 };
 
 void usage()
@@ -53,7 +58,9 @@ void usage()
                  "  --use-ngram     rank with the n-gram model (lm/en_ngram.bin) even if the keyboard default is off\n"
                  "  --no-ngram      rank with FUTO's context model (the old way)\n"
                  "  --ngram PATH    rank with this n-gram model file\n"
-                 "  --alpha X       weight of the n-gram model in the ranking\n");
+                 "  --alpha X       weight of the n-gram model in the ranking\n"
+                 "  --use-nlm / --no-nlm / --nlm FILE.gguf   neural re-ranking of the best few guesses on/off/model\n"
+                 "  --nlm-n N --nlm-beta X --nlm-beta-short X --nlm-margin X --nlm-per-token --nlm-no-word-end\n");
 }
 
 bool parseArgs(int argc, char **argv, Args &a)
@@ -88,6 +95,25 @@ bool parseArgs(int argc, char **argv, Args &a)
             std::string n;
             if (!value(n)) return false;
             a.weights.alpha = std::strtof(n.c_str(), nullptr);
+        } else if (s == "--use-nlm") {
+            a.useNlm = true;
+        } else if (s == "--no-nlm") {
+            a.noNlm = true;
+        } else if (s == "--nlm") {
+            if (!value(a.nlm)) return false;
+            a.useNlm = true;
+        } else if (s == "--nlm-n" || s == "--nlm-beta" || s == "--nlm-beta-short" || s == "--nlm-margin") {
+            std::string n;
+            if (!value(n)) return false;
+            const float v = std::strtof(n.c_str(), nullptr);
+            if (s == "--nlm-n") a.nlmWeights.n = int(v);
+            else if (s == "--nlm-beta") a.nlmWeights.beta = v;
+            else if (s == "--nlm-beta-short") a.nlmWeights.beta_short = v;
+            else a.nlmWeights.margin = v;
+        } else if (s == "--nlm-per-token") {
+            a.nlmWeights.per_token = true;
+        } else if (s == "--nlm-no-word-end") {
+            a.nlmWeights.word_end = false;
         } else if (s == "--no-ngram") {
             a.noNgram = true;
         } else if (s == "--no-decoder") {
@@ -205,6 +231,8 @@ int main(int argc, char **argv)
         paths.dictionary = a.dict;
     if (!a.ngram.empty())
         paths.ngram = a.ngram;
+    if (!a.nlm.empty())
+        paths.nlm = a.nlm;
 
     std::vector<Swipe> swipes;
     QStringList expected;
@@ -218,7 +246,9 @@ int main(int argc, char **argv)
     swipekb::Recognizer r;
     // WHY the keyboard's default unless a flag says otherwise: by default the tool measures what ships.
     const bool ngram = !a.noNgram && (a.useNgram || swipekb::RecognizerOptions{}.ngram);
-    if (!r.init(paths, {.beam_width = a.beam, .ngram = ngram, .weights = a.weights})) {
+    const bool nlm = !a.noNlm && (a.useNlm || swipekb::RecognizerOptions{}.nlm);
+    if (!r.init(paths, {.beam_width = a.beam, .ngram = ngram, .weights = a.weights, .nlm = nlm,
+                        .nlm_weights = a.nlmWeights, .nlm_threads = a.nlmThreads})) {
         std::fprintf(stderr, "engine failed to load from %s\n", a.data.c_str());
         return 1;
     }
@@ -226,7 +256,7 @@ int main(int argc, char **argv)
     // WHY "ranking": a missing n-gram file silently falls back to FUTO's ranking; the output must say which ran.
     std::printf("settings: decoder=%s lm=%s beam=%s dict=%s ranking=%s\n", a.noDecoder ? "off" : "on",
                 a.noLm ? "off" : "on", a.beam ? std::to_string(a.beam).c_str() : "default", paths.dictionary.c_str(),
-                r.usingNgram() ? "ngram" : "futo");
+                r.usingNgram() ? (r.usingNlm() ? "ngram+nlm" : "ngram") : (r.usingNlm() ? "futo+nlm" : "futo"));
     std::printf("%-4s %s%s%s%s%s%s\n", "#", cell("expected", 14).c_str(), cell("guess1", 14).c_str(),
                 cell("guess2", 14).c_str(), cell("guess3", 14).c_str(), cell("result", 8).c_str(), "live-typed");
 

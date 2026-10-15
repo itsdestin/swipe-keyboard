@@ -12,7 +12,10 @@ built dictionary file is therefore CC-BY-SA 4.0 too (it is built on install, not
 The optional word-sequence model (`assets/lm/en_ngram.bin`, built by `scripts/lm/build-lm.sh`) is computed
 from [FineWeb](https://huggingface.co/datasets/HuggingFaceFW/fineweb) (sample-10BT) by Hugging Face, licensed
 ODC-BY 1.0 (web pages from CommonCrawl, also subject to CommonCrawl's terms of use); it is built on install, not
-stored in this repo.
+stored in this repo. The optional neural word model (`assets/nlm/en_nlm.gguf`) is
+[SmolLM2-135M](https://huggingface.co/HuggingFaceTB/SmolLM2-135M) by Hugging Face, Apache-2.0, in ggml-org's
+8-bit GGUF conversion; it is downloaded on install, not stored in this repo, and run with
+[llama.cpp](https://github.com/ggml-org/llama.cpp) (MIT, the system's `llama-cpp` package).
 
 ## Install / uninstall
 

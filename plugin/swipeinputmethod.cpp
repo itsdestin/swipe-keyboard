@@ -31,9 +31,14 @@ static swipekb::Recognizer &recognizer()
         // If the model file is missing the engine quietly keeps the old ranking either way.
         swipekb::RecognizerOptions options;
         options.ngram = QFileInfo::exists(dir + QStringLiteral("/use-ngram"));
+        // Same pattern for the neural re-ranking of the best few guesses (step 1b): <data>/use-nlm turns it on.
+        // WHY a switch file and not on by default: see RecognizerOptions::nlm. It also costs ~200 MB of memory
+        // (145 MB of it the shared, mapped model file) and some start-up time, only when switched on.
+        options.nlm = options.nlm || QFileInfo::exists(dir + QStringLiteral("/use-nlm"));
         const bool ok = r.init(paths, options);
         if (ok)
-            qCInfo(lcSwipe) << "ranking guesses with" << (r.usingNgram() ? "the n-gram model" : "FUTO's context model");
+            qCInfo(lcSwipe) << "ranking guesses with" << (r.usingNgram() ? "the n-gram model" : "FUTO's context model")
+                            << (r.usingNlm() ? "+ the neural model" : "");
         if (!ok)
             qCWarning(lcSwipe) << "swipe engine not loaded from" << dir << "- swiping disabled, tapping unaffected";
         return ok;

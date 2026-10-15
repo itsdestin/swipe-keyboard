@@ -8,6 +8,8 @@
 #include <string>
 #include <vector>
 
+#include "swipekb/nlm.hpp"
+
 namespace swipekb {
 
 struct TracePoint {
@@ -48,6 +50,8 @@ struct ModelPaths {
     // Our word-sequence model (scripts/lm/build-lm.sh). Optional: when the file is missing or unreadable the
     // engine ranks guesses the old way, with FUTO's context model.
     std::string ngram;
+    // The neural word model (a small GGUF language model, nlm.hpp). Optional, like the n-gram file.
+    std::string nlm;
     // Standard layout of assets/ and of the installed ~/.local/share/swipe-keyboard.
     static ModelPaths fromDir(const std::string &dir)
     {
@@ -58,7 +62,8 @@ struct ModelPaths {
                 // WHY en_swipe: AOSP's word list plus wordfreq words (scripts/dict/build-en-swipe.sh); it scored
                 // higher than AOSP alone on the scoreboard.
                 dir + "/dict/en_swipe.combined",
-                dir + "/lm/en_ngram.bin"};
+                dir + "/lm/en_ngram.bin",
+                dir + "/nlm/en_nlm.gguf"};
     }
 };
 
@@ -90,6 +95,34 @@ struct RerankWeights {
 // word model. Ties keep FUTO's order.
 std::vector<Candidate> rerankCandidates(const std::vector<RawCandidate> &pool, const RerankWeights &w, int top_k);
 
+// How the neural model re-orders the first pass's best few guesses (step 1b,
+// .superpowers/sdd/step1b-nlm-report.md):  new score = first-pass score + weight * neural score, where the
+// neural score is the natural-log chance of the word (and of the word ending there) given the sentence so far.
+// Only the first `n` guesses are re-ordered; everything below them keeps its place.
+// WHY the defaults: tuned on FUTO's validation swipes only (bench/tune-nlm.py on tune-10000 and devhold-5000,
+// 13k swipes; never on the scoreboard's bench-2000). Weight 0.4 sits in the middle of the plateau (0.3-0.5 are
+// within ~0.1 point on the pooled dev swipes; 0.6+ starts breaking more words than it fixes). Re-ordering 5
+// guesses gains as much as 8 at less cost; 3 is cheaper but helps the top-3 less. Dividing by the piece count
+// and counting the word-end chance were each slightly better on both dev slices.
+struct NlmWeights {
+    int n = 5;                 // how many of the first pass's best guesses the neural model may re-order
+    float beta = 0.4f;         // weight of the neural score
+    // Weight for words of 3 letters or fewer; negative = same as beta. WHY: the n-gram attempt's breakages
+    // were mostly short words (in/of/too/off/now/had); this lets them be tuned separately.
+    float beta_short = -1.f;
+    bool per_token = true;     // divide the neural score by how many pieces the model spelled the word with
+    bool word_end = true;      // include the chance that the word ends there (WordScore::word_end)
+    // When the first pass's best guess leads the second by more than this, change nothing. Negative = off.
+    // WHY: a clear, well-swiped word should not be overruled by the sentence model.
+    float margin = -1.f;
+};
+
+// Pure ranking rule, testable without any model: `base` = first-pass scores, best first; `letters` = each
+// guess's letter count; `scores` = neural scores for the first min(n, size) guesses. Returns the new order of
+// those first guesses as indices into `base` (ties keep the first pass's order). The caller appends the rest.
+std::vector<size_t> nlmOrder(const std::vector<float> &base, const std::vector<int> &letters,
+                             const std::vector<WordScore> &scores, const NlmWeights &w);
+
 // Tuning knobs. WHY a struct: the replay tool (tools/swipekb-replay) compares settings on recorded swipes;
 // the keyboard itself uses the defaults.
 struct RecognizerOptions {
@@ -100,6 +133,15 @@ struct RecognizerOptions {
     // swipes. The owner decides; the keyboard turns it on with the `use-ngram` switch file (plugin).
     bool ngram = false;
     RerankWeights weights;
+    // Re-order the best few guesses with the neural word model (when ModelPaths::nlm and its library load).
+    // WHY off by default: the ship rules were not all met (.superpowers/sdd/step1b-nlm-report.md). On the
+    // scoreboard it gains +0.57 first-guess points over FUTO's ranking but loses one top-3 hit (96.51 vs 96.56);
+    // combined with the n-gram ranking it gains +1.18 / +0.15 but the owner replay loses one first guess (as with
+    // the n-gram alone); and it adds ~25-40 ms per swipe on this (busy) machine, over the 20 ms budget.
+    // The keyboard turns it on with the `use-nlm` switch file (plugin).
+    bool nlm = false;
+    NlmWeights nlm_weights;
+    int nlm_threads = 4;
 };
 
 class Recognizer {
@@ -121,6 +163,10 @@ public:
 
     // True when guesses are ranked by the n-gram model (option on and the model file loaded).
     bool usingNgram() const;
+    // True when the neural model re-orders the best guesses (option on, model and library loaded).
+    bool usingNlm() const;
+    // For tests: re-order with this scorer instead of the model file (nullptr = none). Takes ownership.
+    void setWordScorerForTesting(std::unique_ptr<WordScorer> scorer);
 
     // Tuning aid: every word FUTO's search kept (not cut to a top-k), with the raw scores, the n-gram score
     // (when loaded) and FUTO's context-model score (when loaded). Unranked. Empty when not ready or invalid.
