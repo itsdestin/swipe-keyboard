@@ -41,6 +41,15 @@ bool SwipeSession::needsSpaceBefore(const QString &textBeforeCursor, SpaceContex
     return !glue.contains(c);
 }
 
+bool SwipeSession::keepHiddenTextSpaceFallback(const QString &surroundingText, int cursor, int anchor,
+                                                int cursorBeforeSwipe, int cursorAfterSwipe)
+{
+    // WHY full buffer + selection: Firefox select-all reports cursor 0 before deletion. Looking only
+    // before that cursor mistakes an edited field for a hidden buffer and prefixes the next word with space.
+    return surroundingText.isEmpty() && cursor >= 0 && cursor == anchor
+        && (cursor == cursorBeforeSwipe || cursor == cursorAfterSwipe);
+}
+
 bool SwipeSession::spaceBeforeTappedKey(const QString &keyText, bool rightAfterSwipedWord, bool urlOrEmailField)
 {
     // WHY letters and digits only: they start a new word. Punctuation (. , ! ? ; : ' " and closing quotes)
@@ -85,7 +94,9 @@ CommitPlan SwipeSession::commitSwipe(const QString &textBeforeCursor, const QStr
     m_current = 0;
     m_mode = mode;
     m_typedWord = applyCase(candidates.front(), mode);
-    return {(needsSpaceBefore(textBeforeCursor, ctx) ? QStringLiteral(" ") : QString()) + m_typedWord, 0, 0};
+    m_beforeSwipe = textBeforeCursor;
+    m_insertedSeparator = needsSpaceBefore(textBeforeCursor, ctx);
+    return {(m_insertedSeparator ? QStringLiteral(" ") : QString()) + m_typedWord, 0, 0};
 }
 
 QStringList SwipeSession::alternatives() const
@@ -108,9 +119,26 @@ CommitPlan SwipeSession::swapToAlternative(int index)
     return {m_typedWord, -static_cast<int>(old.size()), static_cast<int>(old.size())};
 }
 
+CommitPlan SwipeSession::takeBackspace(const QString &textBeforeCursor, bool hasSelection)
+{
+    CommitPlan plan;
+    const QString inserted = (m_insertedSeparator ? QStringLiteral(" ") : QString()) + m_typedWord;
+    // WHY exact prefix, not suffix: a moved cursor or unrelated field ending in the same word must
+    // never authorize deletion. Hidden/changed context and selections keep Qt's ordinary backspace.
+    if (isActive() && !hasSelection && !m_typedWord.isEmpty()
+        && textBeforeCursor == m_beforeSwipe + inserted) {
+        const int length = static_cast<int>(inserted.size());
+        plan = {QString(), -length, length};
+    }
+    clear(); // even a rejected attempt consumes this one-shot opportunity
+    return plan;
+}
+
 bool SwipeSession::cursorStillAfterWord(const QString &textBeforeCursor) const
 {
-    return isActive() && textBeforeCursor.endsWith(m_typedWord);
+    // WHY exact prefix: an earlier occurrence of the same word is a cursor move, not the last swipe.
+    return isActive() && textBeforeCursor == m_beforeSwipe
+        + (m_insertedSeparator ? QStringLiteral(" ") : QString()) + m_typedWord;
 }
 
 void SwipeSession::clear()
@@ -119,4 +147,6 @@ void SwipeSession::clear()
     m_current = -1;
     m_mode = CaseMode::AsIs;
     m_typedWord.clear();
+    m_beforeSwipe.clear();
+    m_insertedSeparator = false;
 }

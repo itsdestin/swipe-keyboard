@@ -18,6 +18,12 @@ QString dataDir()
     return dir;
 }
 
+QString modelDir()
+{
+    const QString dir = qEnvironmentVariable("SWIPEKB_MODEL_DATA");
+    return dir.isEmpty() ? dataDir() : dir;
+}
+
 // WHY copy only the known fields (not the whole map): the line format stays fixed for the replay tool, and
 // numbers are stored as plain numbers whatever type QML handed over.
 static QJsonArray pointsJson(const QVariantList &points)

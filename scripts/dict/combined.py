@@ -4,7 +4,7 @@ WHY a tiny shared module: every candidate-dictionary script reads and writes the
 engine silently skips lines it cannot parse, so one careful writer is safer than several copies.
 """
 import re
-import time
+import os
 
 _WORD = re.compile(r"^ word=([^,]+),f=(\d+)(?:,flags=([^,]*))?")
 
@@ -63,7 +63,7 @@ def write(path, entries, description):
     entries = sorted(entries, key=lambda e: (-e[1], e[0]))
     with open(path, "w", encoding="utf-8") as f:
         f.write("dictionary=main:en_us,locale=en_US,description=%s,date=%d,version=54\n"
-                % (description, int(time.time())))
+                % (description, int(os.environ.get("SOURCE_DATE_EPOCH", "0"))))
         for word, freq, flags in entries:
             f.write(" word=%s,f=%d,flags=%s,originalFreq=%d\n" % (word, freq, flags, freq))
 

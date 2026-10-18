@@ -1,0 +1,74 @@
+{
+  "model_revision": "18328c3042b066952c0936b3771d492fe2ec289a",
+  "aosp_revision": "127336e9f29d69607eab55982324b210279ae8c5",
+  "assets": [
+    {
+      "path": "models/FUTO-MODEL-LICENSE.md",
+      "url": "https://huggingface.co/futo-org/futo-swipe/resolve/18328c3042b066952c0936b3771d492fe2ec289a/LICENSE.md",
+      "sha256": "ef6b4f6437efa0a2929de351b10c16a8c870b32e1c23054ac76af61531f5db21"
+    },
+    {
+      "path": "models/honorable_sturgeon/metadata.json",
+      "url": "https://huggingface.co/futo-org/futo-swipe/resolve/18328c3042b066952c0936b3771d492fe2ec289a/honorable_sturgeon/metadata.json",
+      "sha256": "d2c5aecd89d97e21125046eb1f311b5aed1bdb5805e97316bba70b13f1c7be2c"
+    },
+    {
+      "path": "models/honorable_sturgeon/model_fp32.pte",
+      "url": "https://huggingface.co/futo-org/futo-swipe/resolve/18328c3042b066952c0936b3771d492fe2ec289a/honorable_sturgeon/model_fp32.pte",
+      "sha256": "725242bab5d14345e96ff214e8de2bfbc1f962c232d320df9c24cb82ffd1fbaf"
+    },
+    {
+      "path": "models/hungry_jellyfish/context_lm.pte",
+      "url": "https://huggingface.co/futo-org/futo-swipe/resolve/18328c3042b066952c0936b3771d492fe2ec289a/hungry_jellyfish/context_lm.pte",
+      "sha256": "74d29f56a513c0c60abcd43df3b16a6b68925cdf4e97e51b094a5275ec2810d7"
+    },
+    {
+      "path": "models/hungry_jellyfish/metadata.json",
+      "url": "https://huggingface.co/futo-org/futo-swipe/resolve/18328c3042b066952c0936b3771d492fe2ec289a/hungry_jellyfish/metadata.json",
+      "sha256": "3daee38ea94796b676e7f60c3e1cf22525d5ae4dbdfa2787979a99e4573d9495"
+    },
+    {
+      "path": "models/hungry_jellyfish/vocab.txt",
+      "url": "https://huggingface.co/futo-org/futo-swipe/resolve/18328c3042b066952c0936b3771d492fe2ec289a/hungry_jellyfish/vocab.txt",
+      "sha256": "a7db66376783b5a23ee3d4a2aaa8f2499fd9b35f975e92bcb248664c2cf6ebd1"
+    },
+    {
+      "path": "models/magic_macaw/metadata.json",
+      "url": "https://huggingface.co/futo-org/futo-swipe/resolve/18328c3042b066952c0936b3771d492fe2ec289a/magic_macaw/metadata.json",
+      "sha256": "65ffc8890de41782eb3322aa96f31df24463ea434a200d3ce84aad4fe7c28a11"
+    },
+    {
+      "path": "models/magic_macaw/model_fp32.pte",
+      "url": "https://huggingface.co/futo-org/futo-swipe/resolve/18328c3042b066952c0936b3771d492fe2ec289a/magic_macaw/model_fp32.pte",
+      "sha256": "01eaf16ac4bc0f1ed0698c240807f0e95e6d427bcf6de04983ffc50736744d85"
+    },
+    {
+      "path": "dict-src/en_US_wordlist.combined.gz.b64",
+      "url": "https://android.googlesource.com/platform/packages/inputmethods/LatinIME/+/127336e9f29d69607eab55982324b210279ae8c5/dictionaries/en_US_wordlist.combined.gz?format=TEXT",
+      "sha256": "9eb41d421deca91ed79ab22be295d0c2abe53288603a4994c488dae65d5932cc"
+    },
+    {
+      "path": "dict-src/en_wordlist.combined.gz.b64",
+      "url": "https://android.googlesource.com/platform/packages/inputmethods/LatinIME/+/127336e9f29d69607eab55982324b210279ae8c5/dictionaries/en_wordlist.combined.gz?format=TEXT",
+      "sha256": "7d156543cfa7dbe79a6d11e2eb65c6d49b7af2acb2b5e7b5abce1d50bebd844e"
+    },
+    {
+      "path": "licenses/AOSP-NOTICE.b64",
+      "url": "https://android.googlesource.com/platform/packages/inputmethods/LatinIME/+/127336e9f29d69607eab55982324b210279ae8c5/NOTICE?format=TEXT",
+      "sha256": "2d5279ec018d50b4b191389f53c12e55c9e5f777634aece58022ea78cd031e06"
+    }
+  ],
+  "wordfreq_wheel": {
+    "url": "https://files.pythonhosted.org/packages/24/61/62835c475d69872d30689f284497853fe33fe1d6dd18f57346d13305861d/wordfreq-3.1.1-py3-none-any.whl",
+    "sha256": "4b1c6ecffc6198be3396d5cf871c4423ca71c907c231348d352dd54d62b97473"
+  },
+  "wordfreq_source": {
+    "url": "https://files.pythonhosted.org/packages/4c/cd/9581ff0ea2c581012d0caae4bba024f3ff6b46e030a55ddec1ce545e2caf/wordfreq-3.1.1.tar.gz",
+    "sha256": "7943098975f25c2a70e1151ee5a62083b14a5f86f6cc5703cc9526f716ceb408"
+  },
+  "cc_license_source": {
+    "url": "https://raw.githubusercontent.com/spdx/license-list-data/main/text/CC-BY-SA-4.0.txt",
+    "sha256": "cde7883b9050a1104f4ac19a1572aafd6e5d7323b68351aaf51fbf4beba54966"
+  },
+  "dictionary_sha256": "ff49678bb2afec6d088dca84fa599b39df0311b6e393ef0daf5a3731143b7ebe"
+}

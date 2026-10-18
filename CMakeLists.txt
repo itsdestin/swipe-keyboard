@@ -13,6 +13,9 @@ endif()
 set(SWIPEKB_QML_DIR ${CMAKE_BINARY_DIR}/qml)
 set(SWIPEKB_ASSETS ${CMAKE_SOURCE_DIR}/assets)
 
+# Distributable binaries must not inherit upstream's host-specific default.
+set(USE_MARCH_NATIVE OFF CACHE BOOL "Enable host-specific instructions (developer only)")
+
 # FUTO's library. ExecuTorch must already be built by scripts/build-futo.sh.
 add_subdirectory(third_party/swipe-library EXCLUDE_FROM_ALL)
 if(NOT TARGET executorch)
@@ -24,3 +27,7 @@ find_package(GTest REQUIRED)
 add_subdirectory(engine)
 add_subdirectory(plugin)
 add_subdirectory(tools)
+
+# Capture the build Qt minor for the launcher's fail-closed ABI check.
+find_package(Qt6 6.8 REQUIRED COMPONENTS Core)
+include(cmake/Install.cmake)

@@ -1,0 +1,3 @@
+#!/bin/sh
+# WHY fixed system-owned location: activation must not execute code from a downloaded checkout.
+exec python3 /usr/share/swipe-keyboard/integration/setup.py "$@"

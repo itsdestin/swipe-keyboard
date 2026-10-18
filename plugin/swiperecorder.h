@@ -12,10 +12,11 @@
 
 namespace SwipeRecorder {
 
-// The swipe-keyboard data folder: $SWIPEKB_DATA, else ~/.local/share/swipe-keyboard.
-// WHY shared: the engine loads its models from this same folder, so the record switch and the recordings
-// live next to the models the owner already knows about.
+// Writable options/recordings: $SWIPEKB_DATA, else ~/.local/share/swipe-keyboard.
 QString dataDir();
+// WHY separate: native packages own read-only models under /usr/share; personal typed text must
+// remain in the user's private folder. Unpackaged installs keep the original shared-folder behavior.
+QString modelDir();
 
 // One swipe, as SwipeInputMethod saw it.
 struct Entry {

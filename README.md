@@ -1,51 +1,101 @@
-# swipe-keyboard
+# Swipe Keyboard for KDE Plasma
 
-Gboard-style swipe typing for the KDE Plasma on-screen keyboard on Destin's ROG Flow Z13.
-Design: `docs/superpowers/specs/2026-10-14-swipe-typing-design.md`.
+**English swipe typing for Plasma Keyboard. Powered by FUTO Swipe.**
 
-**Powered by FUTO Swipe.** Swipe recognition uses the FUTO Swipe models (FUTO Model Weights License 1.0,
-shipped next to the models as `FUTO-MODEL-LICENSE.md`) and FUTO's GPL-3.0 `swipe-library`. The scoreboard
-uses FUTO's MIT-licensed swipe dataset. The English dictionary (`en_swipe.combined`, built by
-`scripts/dict/build-en-swipe.sh`) combines AOSP's US English word list (Apache-2.0) with word frequencies from
-the [wordfreq](https://github.com/rspeer/wordfreq) package by Robyn Speer, whose data is CC-BY-SA 4.0; the
-built dictionary file is therefore CC-BY-SA 4.0 too (it is built on install, not stored in this repo).
-The optional word-sequence model (`assets/lm/en_ngram.bin`, built by `scripts/lm/build-lm.sh`) is computed
-from [FineWeb](https://huggingface.co/datasets/HuggingFaceFW/fineweb) (sample-10BT) by Hugging Face, licensed
-ODC-BY 1.0 (web pages from CommonCrawl, also subject to CommonCrawl's terms of use); it is built on install, not
-stored in this repo. The optional neural word model (`assets/nlm/en_nlm.gguf`) is
-[SmolLM2-135M](https://huggingface.co/HuggingFaceTB/SmolLM2-135M) by Hugging Face, Apache-2.0, in ggml-org's
-8-bit GGUF conversion; it is downloaded on install, not stored in this repo, and run with
-[llama.cpp](https://github.com/ggml-org/llama.cpp) (MIT, the system's `llama-cpp` package).
+Swipe across the keys, choose alternative words, and undo a fresh swipe with one Backspace. Uses local recognition models and your existing keyboard's look. **No Z13, ASUS hardware, tablet bundle, theme, agent or YouCoded account required.**
 
-## Install / uninstall
+[**Download v0.1.0 test release**](https://github.com/itsdestin/swipe-keyboard/releases/tag/v0.1.0) · [Report a bug](https://github.com/itsdestin/swipe-keyboard/issues/new?template=bug.yml) · [Contribute](CONTRIBUTING.md)
 
-    ./install.sh              # fetch assets, build, test, install to ~/.local/share/swipe-keyboard, restart keyboard
-    ./install.sh --uninstall  # remove it; the keyboard goes back to plain tapping
+![Swipe Keyboard in a Fedora KDE VM, with synthetic “the world” text and word alternatives](docs/images/swipe-typing.png)
 
-Needs touch-profile's keyboard layout (it loads this module when present).
+*Fedora KDE test VM; synthetic text only. The keyboard follows your system theme.*
 
-- The hook that loads this module is only in touch-profile's wide-space layout (`TP_KBD_WIDE_SPACE=1`,
-  the default). With `TP_KBD_WIDE_SPACE=0` the keyboard never loads swipe typing.
-- `--uninstall` leaves touch-profile's hook in its generated layout. That is harmless: the hook looks for
-  this module and, when it's gone, the keyboard behaves exactly as before.
+## What it does
 
-## Smarter guess ranking (n-gram model, off by default)
+- English (US) swipe typing with word alternatives and normal tapping.
+- One-shot whole-word Backspace immediately after a swipe or alternative choice, when exact field context is available. After typing or a reported cursor move, Backspace returns to normal. It never guesses a multi-character deletion from hidden/changed/selected or sensitive text.
+- Stock Plasma layout and theme retained; no changes to panels, gestures, tablet mode, rotation or wallpaper.
+- Reversible per-user activation; later manual keyboard choices are preserved on disable.
+- Recognition runs locally. Recording is **off by default**.
 
-A 3-gram word model (how likely a word is after the previous two) can rank the guesses instead of FUTO's
-context model. It is **off** until you create a switch file, then restart the on-screen keyboard:
+## Supported test-release targets
 
-    touch ~/.local/share/swipe-keyboard/use-ngram     # on  (delete the file to go back)
+| Package | Tested baseline |
+|---|---|
+| Arch / CachyOS, x86_64 | Plasma Keyboard 6.8.0, Qt 6.12.0 |
+| **Updated** Fedora 44 KDE, x86_64 | Plasma Keyboard 6.7.5, Qt 6.11.2 |
 
-Measured (step 1 of the accuracy push): first guess 93.32% -> 93.42% on the scoreboard, 93.16% -> 93.67% on
-10,000 other test swipes, 93.23% -> 94.12% on held-out validation swipes. Costs ~150 MB disk and up to ~130 MB
-of (shared, reclaimable) memory; no measurable delay. Without the model file the keyboard ranks the old way.
+Requires **KDE Plasma Wayland** and a touchscreen. Activation accepts Plasma Keyboard 6.7/6.8 and checks that your Qt major/minor matches the package build. Unsupported versions are refused rather than patched blindly. These first packages do not claim X11, non-KDE, ARM or non-English swipe support.
 
-## Scoreboard
+Both native package builds, extracted-keyboard loading, installation and removal were checked in isolated distro environments. A full Fedora KDE VM additionally verified real typing, word alternatives/backspace, password safeguards, reinstall, reboot and setting restoration. This is a **test release**, not a universal hardware/application guarantee. See [verification details](docs/standalone-verification.md).
 
-    bench/score.sh --label "what changed" --check
+## Install
 
-Replays 2000 real human swipes (never trained on) and records first-guess % and top-3 % in `bench/history.tsv`.
+1. Download the package matching your distribution from the [release page](https://github.com/itsdestin/swipe-keyboard/releases/tag/v0.1.0). Optionally download `SHA256SUMS.txt` and check the files with `sha256sum --check --ignore-missing SHA256SUMS.txt`.
+2. Install the local package:
 
-## License
+   **Arch / CachyOS**
+   ```sh
+   sudo pacman -U ./swipe-keyboard-0.1.0-1-x86_64.pkg.tar.zst
+   ```
 
-GPL-3.0 (links FUTO's GPL swipe-library). If this is ever shared, its source must be shared too.
+   **Fedora 44 KDE**
+   ```sh
+   sudo dnf install ./swipe-keyboard-0.1.0-1.fc44.x86_64.rpm
+   ```
+
+3. As your **normal logged-in KDE user**, not sudo:
+   ```sh
+   swipe-keyboard check
+   swipe-keyboard enable
+   ```
+4. Select **English (US)** in Plasma Keyboard. Touch a supported text field and swipe a word.
+
+The package includes compiled code, models and a dictionary. You do not need a compiler, a Python environment setup or a training-corpus download. A fresh Fedora release ISO has an older KDE/Qt baseline: update Fedora normally first. This keyboard is not a desktop-upgrade tool.
+
+**Already using custom Plasma keyboard layouts?** Setup refuses to overwrite `~/.local/share/plasma/keyboard/layouts` (or its XDG equivalent). Migrate that setup explicitly first; do not stack this over touch-profile's existing keyboard overlay.
+
+## Updates and removal
+
+Install a newer **matching native package** normally. At keyboard startup the private English overlay is rebuilt from the installed stock layouts. Unknown layout formats or incompatible versions fail closed, with a stock-keyboard fallback where possible.
+
+Before removing the package, run as your normal KDE user:
+
+```sh
+swipe-keyboard disable
+```
+
+Then remove it with `sudo pacman -R swipe-keyboard` or `sudo dnf remove swipe-keyboard`. Original settings still owned by setup are restored; later manual choices are preserved. Personal opt-in recordings/options are not silently deleted.
+
+There is **no public AUR/COPR package repository or automatic update feed yet**; GitHub releases are the download source.
+
+## Known v1 limits
+
+- **Firefox physical Ctrl+A/Delete:** the browser/input-method chain can leave field context stale; the next swipe may insert an unwanted leading space. This is a documented minor v1 issue, not a solved upstream bug.
+- Apps that hide or misreport text cannot guarantee automatic word deletion or candidate replacement. Normal deletion is the conservative fallback, but an edit never reported by an app cannot be detected reliably.
+- Application Wayland text-input support affects when the keyboard appears. Not every application's keyboard-summoning behavior is fixed by this extension.
+- English swipe recognition only. The base release excludes optional neural/n-gram ranking and training/evaluation data.
+
+[Open a bug report](https://github.com/itsdestin/swipe-keyboard/issues/new?template=bug.yml) with the package version, distribution, Plasma Keyboard/Qt versions, keyboard layout, affected app and a synthetic reproduction phrase. **Do not attach typing recordings, learned words, credentials or unredacted logs.**
+
+## Privacy
+
+Package code/models live under `/usr/share/swipe-keyboard/`. Per-user state and private overlays live under `$XDG_DATA_HOME/swipe-keyboard/`, normally `~/.local/share/swipe-keyboard/`.
+
+Recording requires a user-created `record` switch file and can contain typed words/context; it is intended for explicit local development, not support-log collection. Recordings are owner-only, and password/sensitive-field hints are checked. No recordings are included in release files.
+
+## Development and source
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Code, engine benchmarks, tests and native package recipes are in this repository. The legacy `./install.sh` is retained for the original touch-profile **developer** setup; it is not the standalone end-user installer.
+
+For complete corresponding source, use the release's **`swipe-keyboard-0.1.0.tar.gz`**, which includes the recursive upstream dependencies. GitHub's automatic “Source code” ZIP/tar links do **not** include Git submodules. Alternatively clone with `git clone --recurse-submodules https://github.com/itsdestin/swipe-keyboard.git`.
+
+The checked-in scoreboard records around 93.32% first-guess accuracy on its 2,000-swipe benchmark, not a guarantee about anyone's typing. Compare changes on the same held-out dataset/configuration rather than treating different benchmarks as equivalent.
+
+## Credits and licenses
+
+**Powered by FUTO Swipe.** [FUTO's swipe-library](https://gitlab.futo.org/keyboard/swipe-library) is GPL-3.0; the model weights have the separate **FUTO Model Weights License 1.0**, distributed alongside them. Preserve the upstream notices and provide corresponding source with GPL binaries. The benchmark dataset is MIT-licensed.
+
+The English dictionary combines AOSP US English word lists (Apache-2.0) and Robyn Speer's [wordfreq](https://github.com/rspeer/wordfreq) frequency data (CC-BY-SA 4.0). The generated dictionary is CC-BY-SA 4.0; attribution/source/checksum details are in [NOTICE](packaging/NOTICE) and the installed licenses. Stock Qt/KDE layouts retain their notices. Optional development models have their own licenses and are not part of the base release merely because the code is GPL.
+
+This project is not endorsed by FUTO, KDE, Google or ASUS. It was built and refined with [YouCoded](https://youcoded.ai); the maintainer also makes YouCoded. Using or contributing to this keyboard does not require it.

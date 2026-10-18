@@ -20,10 +20,11 @@ static swipekb::Recognizer &recognizer()
 {
     static swipekb::Recognizer r;
     static const bool loaded = [] {
-        // WHY SwipeRecorder::dataDir(): one definition of the data folder, so the recorder's switch file
-        // and recordings always sit next to the models the engine actually loaded.
+        // WHY separate model/user paths: packages update system-owned models without moving personal
+        // recordings/options out of the user's private folder. Legacy installs still use one folder.
         const QString dir = SwipeRecorder::dataDir();
-        swipekb::ModelPaths paths = swipekb::ModelPaths::fromDir(dir.toStdString());
+        const QString models = SwipeRecorder::modelDir();
+        swipekb::ModelPaths paths = swipekb::ModelPaths::fromDir(models.toStdString());
         if (qEnvironmentVariableIntValue("SWIPEKB_NO_DECODER"))
             paths.decoder.clear();
         // WHY a switch file (like `record`): the n-gram ranking is off by default until the owner has tried
@@ -40,7 +41,7 @@ static swipekb::Recognizer &recognizer()
             qCInfo(lcSwipe) << "ranking guesses with" << (r.usingNgram() ? "the n-gram model" : "FUTO's context model")
                             << (r.usingNlm() ? "+ the neural model" : "");
         if (!ok)
-            qCWarning(lcSwipe) << "swipe engine not loaded from" << dir << "- swiping disabled, tapping unaffected";
+            qCWarning(lcSwipe) << "swipe engine not loaded from" << models << "- swiping disabled, tapping unaffected";
         return ok;
     }();
     Q_UNUSED(loaded);
@@ -84,8 +85,26 @@ void SwipeInputMethod::writeOutcome(const SwipeOutcomeTracker::Outcome &o)
                                               o.swipeTs);
 }
 
-bool SwipeInputMethod::keyEvent(Qt::Key key, const QString &text, Qt::KeyboardModifiers)
+bool SwipeInputMethod::keyEvent(Qt::Key key, const QString &text, Qt::KeyboardModifiers modifiers)
 {
+    if (key == Qt::Key_Backspace && modifiers == Qt::NoModifier && m_session.isActive()) {
+        QVirtualKeyboardInputContext *ic = inputContext();
+        const bool safeContext = ic && ic->cursorPosition() >= 0
+            && ic->cursorPosition() == ic->anchorPosition() && ic->selectedText().isEmpty()
+            && !(ic->inputMethodHints() & (Qt::ImhSensitiveData | Qt::ImhHiddenText));
+        const auto outcome = m_outcome.keyTapped(true, text);
+        const CommitPlan plan = m_session.takeBackspace(safeContext ? textBeforeCursor() : QString(), !safeContext);
+        refreshGuessBar();
+        clearAfterSwipe();
+        writeOutcome(outcome);
+        // WHY return true only on exact known context: Qt must not additionally erase a character
+        // after our word deletion. When an app hides its text, preserve normal backspace instead.
+        if (!plan.isEmpty()) {
+            ic->commit(plan.text, plan.replaceFrom, plan.replaceLength);
+            return true;
+        }
+        return false;
+    }
     // Gboard-style: tapping a letter or digit right after a swiped word starts a new word, so type the space
     // first ("write" + tap "a" = "write a"). WHY checked before anything is cleared: "right after the swiped
     // word" is exactly the session (cursor still behind the word) or, in apps that hide their text, the
@@ -177,13 +196,12 @@ void SwipeInputMethod::update()
         m_outcome.abandon();   // WHY: cursor moved away; we can't tell if the word was right, so no outcome
         clearSession();
     }
-    // WHY: the after-swipe space flag only matters when the app hides its text. Once the app reports real
-    // text, that text decides. If it reports nothing but the cursor landed somewhere other than just before
-    // or just after our word, the user moved elsewhere, so stop assuming a word sits before the cursor.
+    // WHY: only genuinely hidden buffers need spacing memory. Text after the cursor and an active
+    // selection also prove an edit; select-all/delete must not leave a stale word before the next swipe.
     if (m_afterSwipe) {
         QVirtualKeyboardInputContext *ic = inputContext();
-        const int pos = ic ? ic->cursorPosition() : -1;
-        if (!before.isEmpty() || (pos != m_afterSwipeCursorBefore && pos != m_afterSwipeCursorAfter))
+        if (!ic || !SwipeSession::keepHiddenTextSpaceFallback(ic->surroundingText(), ic->cursorPosition(),
+                ic->anchorPosition(), m_afterSwipeCursorBefore, m_afterSwipeCursorAfter))
             clearAfterSwipe();
     }
 }

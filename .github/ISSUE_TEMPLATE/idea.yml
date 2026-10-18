@@ -1,0 +1,25 @@
+name: Improvement or compatibility idea
+description: Suggest a keyboard improvement, language, package or compatibility contribution.
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        Contributions from non-Z13 users are welcome. Do not include private typing recordings,
+        learned words, credentials or unredacted logs. A request does not imply a support commitment.
+  - type: textarea
+    id: goal
+    attributes:
+      label: What would you like to improve?
+      description: Explain the task or difficulty and the behavior you want.
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Relevant distribution, Plasma/Qt versions, language or app
+      description: Optional, but useful for packaging and compatibility ideas.
+  - type: textarea
+    id: contribution
+    attributes:
+      label: Possible approach or contribution
+      description: Testing, documentation, packaging and code contributions are all welcome.

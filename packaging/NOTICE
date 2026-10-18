@@ -1,0 +1,28 @@
+Powered by FUTO Swipe
+
+This keyboard includes models from futo-org/futo-swipe, licensed under the
+FUTO Model Weights License 1.0, not GPL. The complete model license is installed
+at /usr/share/swipe-keyboard/models/FUTO-MODEL-LICENSE.md. Model revision,
+immutable download URLs and SHA-256 checksums are recorded in assets.lock.json.
+
+Keyboard source: https://github.com/itsdestin/swipe-keyboard (GPL-3.0-or-later;
+see LICENSE). Recursive source dependency revisions and local modifications
+are recorded in SOURCE-PROVENANCE.txt in the corresponding source archive.
+The source archive is a required companion to binary build artifacts; these
+recipes do not publish anything.
+
+FUTO swipe-library and its recursively included ExecuTorch dependencies carry
+their own licenses/notices. Their source files and notices are included in the
+companion source archive; installed third-party notices are collected at build
+time. ExecuTorch is BSD-3-Clause; see the corresponding upstream LICENSE.
+
+English dictionary is generated from Android LatinIME/AOSP word lists
+(Apache-2.0, original notices retained) and wordfreq 3.1.1 English frequency
+data (CC-BY-SA-4.0). Transformation: scripts/dict/wordfreq_combined.py combines
+entries, preserves AOSP frequencies, adjusts apostrophe pairs, and filters
+likely misspellings, with a 250000-entry cap. The resulting combined dictionary
+is distributed under CC-BY-SA-4.0 with attribution to AOSP contributors and
+Robyn Speer/wordfreq contributors. Original input URLs/revisions/checksums
+are in assets.lock.json; wordfreq source and attribution/license information:
+https://github.com/rspeer/wordfreq and https://pypi.org/project/wordfreq/3.1.1/.
+Optional evaluation data, n-gram and neural reranking models are not included.

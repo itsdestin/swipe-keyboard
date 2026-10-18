@@ -61,3 +61,14 @@ target_compile_definitions(tst_pluginload PRIVATE SWIPEKB_QML_DIR="${SWIPEKB_QML
 add_dependencies(tst_pluginload swipekeyboardplugin)
 add_test(NAME plugin_load COMMAND tst_pluginload)
 set_tests_properties(plugin_load PROPERTIES ENVIRONMENT "SWIPEKB_DATA=${SWIPEKB_ASSETS};QT_QPA_PLATFORM=offscreen")
+
+# Load the distro's real InputPanel/layouts, not just standalone plugin components.
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+qt_add_executable(tst_stocklayout tests/tst_stocklayout.cpp)
+target_link_libraries(tst_stocklayout PRIVATE Qt6::Qml Qt6::Quick Qt6::Test)
+add_dependencies(tst_stocklayout swipekeyboardplugin)
+add_test(NAME plugin_stock_layout
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/check-stock-layout.py
+        $<TARGET_FILE:tst_stocklayout>
+        --qml-dir ${SWIPEKB_QML_DIR} --model-data ${SWIPEKB_ASSETS})
+set_tests_properties(plugin_stock_layout PROPERTIES TIMEOUT 75)

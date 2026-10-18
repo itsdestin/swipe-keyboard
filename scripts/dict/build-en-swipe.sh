@@ -14,13 +14,21 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 A="${1:-$HERE/../../assets}"
 SRC="$A/dict-src"
 OUT="$A/dict/en_swipe.combined"
-[ -s "$OUT" ] && exit 0
-AOSP=https://android.googlesource.com/platform/packages/inputmethods/LatinIME/+/refs/heads/main/dictionaries
+# A fixed dictionary header makes package output independent of the build date.
+export SOURCE_DATE_EPOCH=0
+valid_dictionary() {
+    python3 - "$HERE/../../packaging/assets.lock.json" "$1" <<'PY'
+import hashlib, json, pathlib, sys
+expected = json.load(open(sys.argv[1]))['dictionary_sha256']
+path = pathlib.Path(sys.argv[2])
+sys.exit(0 if path.is_file() and hashlib.sha256(path.read_bytes()).hexdigest() == expected else 1)
+PY
+}
+valid_dictionary "$OUT" && exit 0
+python3 "$HERE/../fetch-assets.py" --assets "$A"
 
-aosp() { # name — AOSP word list, once. WHY base64: googlesource serves raw files only as base64 text.
-    [ -s "$SRC/$1" ] && return 0
-    mkdir -p "$SRC"
-    curl -fsL "$AOSP/$1.gz?format=TEXT" | base64 -d | gunzip > "$SRC/$1.part"
+aosp() { # Decode checksum-verified, immutable AOSP input.
+    base64 -d "$SRC/$1.gz.b64" | gunzip > "$SRC/$1.part"
     mv "$SRC/$1.part" "$SRC/$1"
 }
 aosp en_US_wordlist.combined   # the base: every word keeps AOSP's frequency
@@ -29,15 +37,10 @@ aosp en_wordlist.combined      # only used to copy capitals ("I'm", "London") on
 # WHY a private venv (never a system-wide pip install), and a pinned version: the same wordfreq data gives the
 # same dictionary every time, so a scoreboard number stays tied to one exact file.
 VENV="$SRC/.venv"
-if [ ! -x "$VENV/bin/python" ]; then
-    if command -v uv >/dev/null; then
-        uv venv -q "$VENV" && VIRTUAL_ENV="$VENV" uv pip install -q wordfreq==3.1.1
-    else
-        python3 -m venv "$VENV" && "$VENV/bin/pip" install -q wordfreq==3.1.1
-    fi
-fi
+python3 "$HERE/../provision-build-deps.py" dictionary "$VENV"
 
 mkdir -p "$A/dict"
 "$VENV/bin/python" -I "$HERE/wordfreq_combined.py" --out "$OUT.part" --max 250000 --typo-ratio 20 \
     --base "$SRC/en_US_wordlist.combined" --casing "$SRC/en_wordlist.combined"
+valid_dictionary "$OUT.part" || { echo 'Generated dictionary checksum mismatch' >&2; exit 1; }
 mv "$OUT.part" "$OUT"

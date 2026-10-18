@@ -1,0 +1,50 @@
+name: Keyboard bug
+description: Report setup, swipe recognition or keyboard behavior problems.
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        Do not attach typing recordings, learned words, passwords or unredacted logs.
+        ASUS/Z13 hardware is not required. For an app-specific failure, name the app.
+  - type: input
+    id: version
+    attributes:
+      label: Swipe Keyboard package version
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Distribution and release; Plasma Keyboard and Qt versions
+      placeholder: Fedora KDE 44; Plasma Keyboard 6.7.5; Qt 6.11.2
+    validations:
+      required: true
+  - type: dropdown
+    id: session
+    attributes:
+      label: Desktop session
+      options:
+        - KDE Plasma Wayland
+        - KDE Plasma X11 (not supported)
+        - Other (describe below)
+    validations:
+      required: true
+  - type: input
+    id: locale
+    attributes:
+      label: Keyboard language/layout and affected application
+      placeholder: English (US); app name and version
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps, expected behavior and actual behavior
+      description: Use a synthetic example phrase rather than your private typed text.
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Optional diagnostics
+      description: Include check output or a screenshot only after inspecting it for private information.

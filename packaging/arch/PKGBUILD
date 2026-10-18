@@ -1,0 +1,51 @@
+# Local build candidate only; no install hooks and no publication.
+pkgname=swipe-keyboard
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='Standalone English swipe input for Plasma Keyboard — Powered by FUTO Swipe'
+arch=('x86_64')
+url='https://github.com/itsdestin/swipe-keyboard'
+license=('GPL-3.0-or-later' 'Apache-2.0' 'CC-BY-SA-4.0' 'LicenseRef-FUTO-Model-Weights-1.0')
+depends=('python' 'systemd' 'plasma-keyboard>=6.7' 'plasma-keyboard<6.9' 'qt6-declarative' 'qt6-virtualkeyboard' 'kwindowsystem' 'kconfig' 'qt6-tools')
+# Kirigami supplies the QML accent-colour probe exercised by native plugin tests.
+makedepends=('cmake' 'ninja' 'gcc' 'git' 'make' 'python-pip' 'kirigami' 'gtest' 'curl')
+# Native library dependencies are supplemented from the actual staged ELF files.
+# This source tarball is generated locally with scripts/package-source.sh.
+source=("swipe-keyboard-$pkgver.tar.gz")
+# Locally generated source: source provenance and input locks are inside the archive.
+sha256sums=('SKIP')
+
+build() {
+  cd "$srcdir/swipe-keyboard-$pkgver"
+  scripts/fetch-assets.sh
+  scripts/build-futo.sh
+  cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr -DUSE_MARCH_NATIVE=OFF
+  cmake --build build
+}
+
+check() {
+  cd "$srcdir/swipe-keyboard-$pkgver"
+  QT_QPA_PLATFORM=offscreen ctest --test-dir build --output-on-failure
+  python -m unittest discover -s tests/packaging -v
+  python -m unittest discover -s tests/integration -v
+}
+
+package() {
+  cd "$srcdir/swipe-keyboard-$pkgver"
+  DESTDIR="$pkgdir" cmake --install build
+  python scripts/package-check.py "$pkgdir"
+  _add_native_dependencies
+}
+
+_add_native_dependencies() {
+  # WHY helper: makepkg evaluates dependency assignments inside package() while reading
+  # metadata, before any ELF/provider exists. Only query providers during actual packaging.
+  # Arch has no RPM-style automatic ELF dependency generator. Ask pacman which
+  # packages provide the resolved libraries (rather than guessing Qt/KF sonames).
+  local owner lib
+  while IFS= read -r lib; do
+    owner=$(pacman -Qoq "$lib") || return 1
+    # A minimum keeps needed symbols without blocking ABI-compatible patch/security upgrades.
+    depends+=("$(pacman -Q "$owner" | awk '{print $1 ">=" $2}')")
+  done < <(find "$pkgdir" -name '*.so*' -type f -exec ldd {} \; | awk '/=> \/usr\// {print $3}' | sort -u)
+}

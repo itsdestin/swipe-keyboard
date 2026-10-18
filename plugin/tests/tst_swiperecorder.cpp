@@ -41,6 +41,25 @@ class TstSwipeRecorder : public QObject {
     }
 
 private slots:
+    void packagedModelsNeverRedirectPrivateRecordings()
+    {
+        const auto oldData = qgetenv("SWIPEKB_DATA");
+        const auto oldModels = qgetenv("SWIPEKB_MODEL_DATA");
+        QTemporaryDir dir;
+        qputenv("SWIPEKB_DATA", (dir.path() + "/private").toUtf8());
+        qputenv("SWIPEKB_MODEL_DATA", (dir.path() + "/system-models").toUtf8());
+        const auto data = SwipeRecorder::dataDir();
+        const auto models = SwipeRecorder::modelDir();
+        qunsetenv("SWIPEKB_MODEL_DATA");
+        const auto legacyModels = SwipeRecorder::modelDir();
+        // Restore the process environment before any assertion can return early.
+        if (oldData.isNull()) qunsetenv("SWIPEKB_DATA"); else qputenv("SWIPEKB_DATA", oldData);
+        if (oldModels.isNull()) qunsetenv("SWIPEKB_MODEL_DATA"); else qputenv("SWIPEKB_MODEL_DATA", oldModels);
+        QCOMPARE(data, dir.path() + "/private");
+        QCOMPARE(models, dir.path() + "/system-models");
+        QCOMPARE(legacyModels, data);
+    }
+
     void writesNothingWhenSwitchedOff()
     {
         QTemporaryDir dir;

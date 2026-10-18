@@ -5,6 +5,34 @@
 class TstSwipeSession : public QObject {
     Q_OBJECT
 private slots:
+    void hiddenTextFallback_data()
+    {
+        QTest::addColumn<QString>("surrounding");
+        QTest::addColumn<int>("cursor");
+        QTest::addColumn<int>("anchor");
+        QTest::addColumn<bool>("expected");
+        QTest::newRow("hidden buffer before echo") << QString() << 0 << 0 << true;
+        QTest::newRow("hidden buffer after word") << QString() << 3 << 3 << true;
+        QTest::newRow("hidden cursor moved") << QString() << 1 << 1 << false;
+        QTest::newRow("known text after cursor") << QStringLiteral("tee") << 0 << 0 << false;
+        QTest::newRow("select all before deleting") << QStringLiteral("tee") << 0 << 3 << false;
+        QTest::newRow("selection even with hidden buffer") << QString() << 0 << 3 << false;
+        QTest::newRow("known text before cursor") << QStringLiteral("tee") << 3 << 3 << false;
+        QTest::newRow("missing context") << QString() << -1 << -1 << false;
+    }
+    void hiddenTextFallback()
+    {
+        QFETCH(QString, surrounding);
+        QFETCH(int, cursor);
+        QFETCH(int, anchor);
+        QFETCH(bool, expected);
+        const bool keep = SwipeSession::keepHiddenTextSpaceFallback(surrounding, cursor, anchor, 0, 3);
+        QCOMPARE(keep, expected);
+        SwipeSession session;
+        QCOMPARE(session.commitSwipe(QString(), {"the"}, CaseMode::AsIs, {.afterSwipe = keep}).text,
+                 expected ? QStringLiteral(" the") : QStringLiteral("the"));
+    }
+
     void contextWords_data()
     {
         QTest::addColumn<QString>("before");
@@ -174,6 +202,56 @@ private slots:
         QCOMPARE(back.replaceFrom, -6);
         QCOMPARE(back.replaceLength, 6);
     }
+    void backspaceUndoesLatestSwipeOnlyOnce()
+    {
+        SwipeSession s;
+        s.commitSwipe(QString(), {"hello", "yellow"}, CaseMode::AsIs);
+        const auto plan = s.takeBackspace(QStringLiteral("hello"), false);
+        QVERIFY(plan.text.isEmpty());
+        QCOMPARE(plan.replaceFrom, -5);
+        QCOMPARE(plan.replaceLength, 5);
+        QVERIFY(!s.isActive());
+        QVERIFY(s.takeBackspace(QStringLiteral("hello"), false).isEmpty());
+    }
+    void backspaceUsesChosenAlternativeAndOnlyItsOwnSeparator()
+    {
+        SwipeSession s;
+        s.commitSwipe(QStringLiteral("say"), {"hello", "yellow"}, CaseMode::AsIs);
+        s.swapToAlternative(0);
+        auto plan = s.takeBackspace(QStringLiteral("say yellow"), false);
+        QCOMPARE(plan.replaceFrom, -7);
+        QCOMPARE(plan.replaceLength, 7); // undo the space introduced by this swipe too
+        s.commitSwipe(QStringLiteral("say "), {"hello"}, CaseMode::Capitalize);
+        plan = s.takeBackspace(QStringLiteral("say Hello"), false);
+        QCOMPARE(plan.replaceLength, 5); // preserve an existing space the user typed
+    }
+    void backspaceFallsBackOnUncertainOrChangedContext_data()
+    {
+        QTest::addColumn<QString>("before");
+        QTest::addColumn<bool>("selection");
+        QTest::newRow("hidden") << QString() << false;
+        QTest::newRow("cursor moved") << QStringLiteral("say he") << false;
+        QTest::newRow("extra typed character") << QStringLiteral("say hellox") << false;
+        QTest::newRow("same suffix different context") << QStringLiteral("other hello") << false;
+        QTest::newRow("selected word") << QStringLiteral("say hello") << true;
+    }
+    void backspaceFallsBackOnUncertainOrChangedContext()
+    {
+        QFETCH(QString, before);
+        QFETCH(bool, selection);
+        SwipeSession s;
+        s.commitSwipe(QStringLiteral("say"), {"hello"}, CaseMode::AsIs);
+        QVERIFY(s.takeBackspace(before, selection).isEmpty());
+        QVERIFY(!s.isActive());
+    }
+    void backspaceAfterSessionEndedStaysNormal()
+    {
+        SwipeSession s;
+        s.commitSwipe(QString(), {"hello"}, CaseMode::AsIs);
+        s.clear(); // tapped punctuation/letter/space, reset, or reported cursor move
+        QVERIFY(s.takeBackspace(QStringLiteral("hello"), false).isEmpty());
+    }
+
     void swapKeepsCasing()
     {
         SwipeSession s;
@@ -196,6 +274,17 @@ private slots:
         QVERIFY(!s.isActive());
         QVERIFY(s.alternatives().isEmpty());
     }
+    void cursorMoveToEarlierIdenticalWordEndsUndo()
+    {
+        SwipeSession s;
+        s.commitSwipe(QStringLiteral("hello"), {"hello"}, CaseMode::AsIs);
+        QVERIFY(s.cursorStillAfterWord(QStringLiteral("hello hello")));
+        // Moving to the earlier word must invalidate the session even though its suffix matches.
+        QVERIFY(!s.cursorStillAfterWord(QStringLiteral("hello")));
+        s.clear(); // the input method applies this invalidation on the reported cursor update
+        QVERIFY(s.takeBackspace(QStringLiteral("hello hello"), false).isEmpty());
+    }
+
     void cursorTracking()
     {
         SwipeSession s;

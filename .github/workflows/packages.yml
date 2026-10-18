@@ -1,0 +1,128 @@
+name: Local native package candidates (no publishing)
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'CMakeLists.txt'
+      - 'cmake/**'
+      - 'packaging/**'
+      - 'scripts/**'
+      # Build locks, vendored revisions and tool tests are executable package inputs too.
+      - 'requirements/**'
+      - 'third_party/**'
+      - '.gitmodules'
+      - 'tools/**'
+      - 'install.sh'
+      - 'integration/**'
+      - 'plugin/**'
+      - 'engine/**'
+      - 'tests/**'
+      - '.github/workflows/packages.yml'
+permissions:
+  contents: read
+jobs:
+  arch:
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    steps:
+      - name: Install current build dependencies
+        run: pacman -Syu --noconfirm --needed base-devel git cmake ninja python python-pip qt6-declarative qt6-virtualkeyboard qt6-tools kwindowsystem kconfig kirigami gtest curl plasma-keyboard
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Record available keyboard versions (not hardware acceptance)
+        run: pacman -Si plasma-keyboard | tee packaging/AVAILABLE-KEYBOARD.txt
+      - name: Build source and native package as unprivileged builder
+        run: |
+          useradd -m builder
+          bash scripts/package-source.sh "$GITHUB_WORKSPACE/dist"
+          cp packaging/arch/PKGBUILD dist/
+          cd dist
+          # Local snapshot checksum is generated, never skip archive verification in CI.
+          digest=$(sha256sum swipe-keyboard-0.1.0.tar.gz | cut -d' ' -f1)
+          sed -i "s/sha256sums=('SKIP')/sha256sums=('$digest')/" PKGBUILD
+          chown -R builder:builder "$GITHUB_WORKSPACE"
+          # Resolve the real runtime requirements too; do not bypass compatibility to get a green build.
+          su builder -c "cd '$GITHUB_WORKSPACE/dist' && makepkg --noconfirm"
+      - name: Inspect actual package payload
+        run: |
+          mkdir dist/stage
+          # makepkg may also emit a debug archive; extract only the installable main package.
+          tar -xf dist/swipe-keyboard-0.1.0-1-x86_64.pkg.tar.zst -C dist/stage
+          python scripts/package-check.py dist/stage
+          # Load the actual stripped package payload, not the build tree, in a private offscreen InputPanel.
+          python3 scripts/check-stock-layout.py dist/src/swipe-keyboard-0.1.0/build/plugin/tst_stocklayout --runtime-root dist/stage/usr/share/swipe-keyboard
+          pacman -Qip dist/*.pkg.tar.zst > dist/package-metadata.txt
+      - name: Verify installed wrapper as ordinary user and remove package
+        run: |
+          pacman -U --noconfirm dist/swipe-keyboard-0.1.0-1-x86_64.pkg.tar.zst
+          # No compositor is launched or configured: check is read-only, with a normal user's PATH.
+          su builder -c 'XDG_SESSION_TYPE=wayland XDG_CURRENT_DESKTOP=KDE swipe-keyboard check'
+          pacman -R --noconfirm swipe-keyboard
+          test ! -e /usr/bin/swipe-keyboard
+          test ! -e /usr/share/swipe-keyboard
+      - uses: actions/upload-artifact@v4
+        with:
+          name: arch-standalone-candidate-and-source
+          path: |
+            dist/*.pkg.tar.zst
+            dist/*.tar.gz*
+            dist/package-metadata.txt
+            packaging/AVAILABLE-KEYBOARD.txt
+  fedora:
+    runs-on: ubuntu-latest
+    container: fedora:44
+    steps:
+      - name: Install RPM tooling
+        run: dnf -y install git rpm-build rpmdevtools dnf-plugins-core cpio findutils
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Resolve current Fedora 44 build dependencies
+        run: |
+          dnf -y builddep packaging/fedora/swipe-keyboard.spec
+          dnf repoquery --latest-limit 1 plasma-keyboard | tee packaging/AVAILABLE-KEYBOARD.txt
+      - name: Build source and RPM as unprivileged builder
+        run: |
+          useradd -m builder
+          bash scripts/package-source.sh "$GITHUB_WORKSPACE/dist"
+          mkdir -p /home/builder/rpmbuild/{SOURCES,SPECS,BUILD,BUILDROOT,RPMS,SRPMS}
+          cp dist/*.tar.gz /home/builder/rpmbuild/SOURCES/
+          cp packaging/fedora/swipe-keyboard.spec /home/builder/rpmbuild/SPECS/
+          chown -R builder:builder /home/builder/rpmbuild
+          # Keep the test executable until the extracted-package probe below (RPM 6 cleans BUILD by default).
+          su builder -c 'rpmbuild -ba --noclean /home/builder/rpmbuild/SPECS/swipe-keyboard.spec'
+          cp /home/builder/rpmbuild/RPMS/x86_64/*.rpm dist/
+          cp /home/builder/rpmbuild/SRPMS/*.rpm dist/
+      - name: Inspect actual RPM payload (no installation or desktop changes)
+        run: |
+          mkdir dist/stage
+          cd dist/stage
+          rpm2cpio ../swipe-keyboard-0.1.0-1.fc44.x86_64.rpm | cpio -idm
+          cd ../..
+          python3 scripts/package-check.py dist/stage
+          test_executable=$(find /home/builder/rpmbuild/BUILD -path '*/redhat-linux-build/plugin/tst_stocklayout' -type f -print -quit)
+          test -n "$test_executable"
+          python3 scripts/check-stock-layout.py "$test_executable" --runtime-root dist/stage/usr/share/swipe-keyboard
+          rpm -qp --requires dist/*x86_64.rpm > dist/package-requires.txt
+      - name: Verify installed wrapper as ordinary user and remove package
+        run: |
+          # The minimal Fedora image substitutes a tmpfiles-only package for full systemd.
+          # Desktop KDE already has systemd (busctl's provider); prepare only this container explicitly.
+          if rpm -q systemd-standalone-tmpfiles >/dev/null 2>&1; then
+            dnf -y swap systemd-standalone-tmpfiles systemd
+          fi
+          dnf -y --setopt=install_weak_deps=False install dist/swipe-keyboard-0.1.0-1.fc44.x86_64.rpm
+          # Check the packaged command, not a developer's Python import or extended Qt tool PATH.
+          su builder -c 'XDG_SESSION_TYPE=wayland XDG_CURRENT_DESKTOP=KDE swipe-keyboard check'
+          dnf -y --setopt=clean_requirements_on_remove=False remove swipe-keyboard
+          test ! -e /usr/bin/swipe-keyboard
+          test ! -e /usr/share/swipe-keyboard
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fedora44-standalone-candidate-and-source
+          path: |
+            dist/*.rpm
+            dist/*.tar.gz*
+            dist/package-requires.txt
+            packaging/AVAILABLE-KEYBOARD.txt

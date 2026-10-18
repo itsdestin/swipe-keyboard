@@ -43,10 +43,10 @@ case "${1:-}" in
 esac
 
 "$ROOT/scripts/fetch-assets.sh"
-# WHY only when missing, and never fatal: the n-gram model is a ~15-minute, ~13 GB-download build, and the
-# keyboard works without it (it then ranks guesses the old way, with FUTO's context model).
-if [ ! -s "$ROOT/assets/lm/en_ngram.bin" ] && [ "${SWIPEKB_SKIP_LM:-0}" != 1 ]; then
-    echo "building the n-gram model (scripts/lm/build-lm.sh; skip with SWIPEKB_SKIP_LM=1)..."
+# Developer-only opt-in: this optional build downloads ~13 GB. The keyboard
+# works without it; retaining SWIPEKB_SKIP_LM gives existing callers a veto.
+if [ "${SWIPEKB_BUILD_LM:-0}" = 1 ] && [ "${SWIPEKB_SKIP_LM:-0}" != 1 ] && [ ! -s "$ROOT/assets/lm/en_ngram.bin" ]; then
+    echo "building the explicitly requested n-gram model (scripts/lm/build-lm.sh)..."
     "$ROOT/scripts/lm/build-lm.sh" || echo "warning: n-gram model not built; the keyboard keeps its old ranking" >&2
 fi
 [ -f "$ROOT/third_party/swipe-library/third_party/executorch/cmake-out-host/libexecutorch.a" ] || "$ROOT/scripts/build-futo.sh"
@@ -71,7 +71,8 @@ if [ -s "$ROOT/assets/lm/en_ngram.bin" ]; then
 else
     rm -rf "$DEST/lm"
 fi
-# The neural word model is optional too (fetch-assets.sh downloads it). WHY -L: assets/nlm/en_nlm.gguf may be
+# The neural word model is optional too (only fetched with SWIPEKB_FETCH_DEVELOPER_EXTRAS=1).
+# WHY -L: assets/nlm/en_nlm.gguf may be
 # a link to one of several downloaded models; the installed copy must be the file itself.
 if [ -s "$ROOT/assets/nlm/en_nlm.gguf" ]; then
     mkdir -p "$DEST/.nlm.new"

@@ -39,6 +39,10 @@ public:
     static QStringList contextWords(const QString &textBeforeCursor, int max = 20);
     // True when the swiped word must be preceded by a space (Gboard-style auto-space).
     static bool needsSpaceBefore(const QString &textBeforeCursor, SpaceContext ctx = {});
+    // Keep spacing memory only for a genuinely hidden buffer with no selection/cursor move.
+    // Full surrounding text matters: select-all puts the cursor at zero even while text still exists.
+    static bool keepHiddenTextSpaceFallback(const QString &surroundingText, int cursor, int anchor,
+                                            int cursorBeforeSwipe, int cursorAfterSwipe);
 
     // True when a tapped key must get a space typed before it: Gboard-style, tapping a letter or digit right
     // after a swiped word starts a new word ("write" + tap "a" = "write a", not "writea").
@@ -55,6 +59,8 @@ public:
                            SpaceContext ctx = {});
     // Replaces the typed word with alternatives()[index]. Empty plan if inactive or out of range.
     CommitPlan swapToAlternative(int index);
+    // One-shot undo only with exact reported context and no selection; otherwise let Qt delete normally.
+    CommitPlan takeBackspace(const QString &textBeforeCursor, bool hasSelection);
     // The guesses not currently typed, best first, with the session's capitalization.
     QStringList alternatives() const;
     // False once the user has typed or moved the cursor away from the swiped word.
@@ -69,4 +75,6 @@ private:
     int m_current = -1;
     CaseMode m_mode = CaseMode::AsIs;
     QString m_typedWord;
+    QString m_beforeSwipe;
+    bool m_insertedSeparator = false;
 };
