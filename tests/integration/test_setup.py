@@ -138,6 +138,25 @@ class SetupTests(unittest.TestCase):
             execute.assert_called_once_with('plasma-keyboard', ['plasma-keyboard'], dict(os.environ))
         self.assertFalse(self.controller.layouts.exists())
 
+    def test_check_reports_versions_and_selection_without_private_paths(self):
+        (self.root / 'runtime.json').write_text(json.dumps({'qt': '6.12', 'package': '0.1.0-2'}))
+        with mock.patch.object(self.module.platform, 'freedesktop_os_release', return_value={'PRETTY_NAME': 'Test Linux 44'}):
+            report = self.controller.check()
+        self.assertEqual(report['Distribution'], 'Test Linux 44')
+        self.assertEqual(report['Package'], '0.1.0-2')
+        self.assertEqual(report['Plasma Keyboard'], 'plasma-keyboard 6.7.5')
+        self.assertEqual(report['Qt installed / build'], '6.12.0 / 6.12')
+        self.assertEqual(report['Session'], 'KDE Plasma Wayland')
+        self.assertEqual(report['Selected input method'], 'Other / stock')
+        self.assertEqual(report['Setup record'], 'Absent')
+        self.assertNotIn(str(self.base), str(report))
+        self.assertFalse((self.base / 'data').exists())
+        self.assertFalse(any(Path(c[0]).name in ('kwriteconfig6', 'busctl') for c in self.commands.calls))
+        self.controller.enable()
+        report = self.controller.check()
+        self.assertEqual(report['Selected input method'], 'Swipe Keyboard')
+        self.assertEqual(report['Setup record'], 'Present')
+
     def test_check_is_read_only(self):
         self.controller.check()
         self.assertFalse((self.base / 'data').exists())

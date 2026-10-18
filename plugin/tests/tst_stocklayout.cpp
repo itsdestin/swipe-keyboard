@@ -4,6 +4,17 @@
 #include <QQuickItem>
 #include <QQuickWindow>
 #include <memory>
+#include <QLoggingCategory>
+
+static QStringList swipeMessages;
+static QtMessageHandler previousHandler = nullptr;
+static void captureSwipeLog(QtMsgType type, const QMessageLogContext &context, const QString &message)
+{
+    if (QByteArray(context.category) == "swipekb")
+        swipeMessages.append(message);
+    if (previousHandler)
+        previousHandler(type, context, message);
+}
 
 // Loaded layouts belong to a Loader's visual tree, not necessarily its QObject tree.
 static QQuickItem *swipeLayout(QQuickItem *item)
@@ -36,11 +47,28 @@ private slots:
                 function tapLetter() { InputContext.inputEngine.virtualKeyClick(Qt.Key_X, "x", Qt.NoModifier) }
                 function chooseAlternative() { InputContext.inputEngine.wordCandidateListModel.selectItem(0) }
                 function moveToStart() { editor.cursorPosition = 0 }
+                function clearEditor() { editor.text = ""; editor.deselect(); editor.forceActiveFocus() }
+                function selectPrefix() { editor.select(0, editor.text.length) }
+                function sensitive() { editor.inputMethodHints = Qt.ImhSensitiveData }
+                function hidden() { editor.inputMethodHints = Qt.ImhHiddenText }
+                function ordinary() { editor.inputMethodHints = Qt.ImhNone }
+                function focusOther() { other.forceActiveFocus() }
+                function focusPassword() { password.forceActiveFocus() }
+                property int passwordLength: password.text.length
+                function focusEditor() { editor.forceActiveFocus() }
+                function cycleMethod() {
+                    var method = InputContext.inputEngine.inputMethod
+                    InputContext.inputEngine.inputMethod = null
+                    InputContext.inputEngine.inputMethod = method
+                }
+                property int candidateCount: InputContext.inputEngine.wordCandidateListModel.count
                 Component.onCompleted: {
                     VirtualKeyboardSettings.locale = "en_US"
                     editor.forceActiveFocus()
                 }
                 TextInput { id: editor; width: parent.width; height: 40; focus: true }
+                TextInput { id: other; y: 45; width: parent.width; height: 40 }
+                TextInput { id: password; y: 90; width: parent.width; height: 40; echoMode: TextInput.Password }
                 InputPanel { width: parent.width; anchors.bottom: parent.bottom; active: true }
             }
         )", QUrl());
@@ -96,9 +124,16 @@ private slots:
                 }
             previous = center;
         }
-        auto swipe = [&] {
-            return QMetaObject::invokeMethod(method, "finishSwipe", Q_ARG(QVariantList, trace), Q_ARG(QVariantList, keys));
+        auto finish = [&](int generation, const QVariantList &path) {
+            return QMetaObject::invokeMethod(method, "finishSwipe", Q_ARG(QVariantList, path),
+                                             Q_ARG(QVariantList, keys), Q_ARG(int, generation));
         };
+        auto begin = [&] {
+            int generation = -1;
+            QMetaObject::invokeMethod(method, "beginSwipe", Q_RETURN_ARG(int, generation));
+            return generation;
+        };
+        auto swipe = [&] { return finish(begin(), trace); };
         QVERIFY(swipe());
         QTRY_VERIFY(!root->property("committedText").toString().isEmpty());
         QVERIFY(QMetaObject::invokeMethod(root.get(), "backspace"));
@@ -108,8 +143,15 @@ private slots:
         QVERIFY(swipe());
         QTRY_VERIFY(root->property("committedText").toString().size() > 2);
         QVERIFY(QMetaObject::invokeMethod(root.get(), "chooseAlternative"));
-        QCoreApplication::processEvents();
+        // WHY allow delayed context echoes: immediate in-process success does not prove the candidate
+        // session survives an app's asynchronous replacement update before the next backspace.
+        QTest::qWait(150);
+        QVERIFY(root->property("candidateCount").toInt() > 0);
         QVERIFY(QMetaObject::invokeMethod(root.get(), "backspace"));
+        QTRY_COMPARE(root->property("committedText").toString(), QStringLiteral("x"));
+        QVERIFY(QMetaObject::invokeMethod(root.get(), "backspace"));
+        QTRY_COMPARE(root->property("committedText").toString(), QString());
+        QVERIFY(QMetaObject::invokeMethod(root.get(), "tapLetter"));
         QTRY_COMPARE(root->property("committedText").toString(), QStringLiteral("x"));
         QVERIFY(swipe());
         QTRY_VERIFY(root->property("committedText").toString().size() > 2);
@@ -123,6 +165,91 @@ private slots:
         QVERIFY(QMetaObject::invokeMethod(root.get(), "backspace"));
         QTRY_COMPARE(root->property("committedText").toString(), moved);
         qInfo("Real stock InputPanel: one-shot word backspace, candidate undo, normal typing and cursor fallback passed");
+
+        // WHY real selection ending at the word: its text-before-cursor still matches, but replacement
+        // would delete the selected prefix too. A suffix-only check cannot authorize this edit.
+        QVERIFY(QMetaObject::invokeMethod(root.get(), "clearEditor"));
+        QVERIFY(swipe());
+        QTRY_VERIFY(root->property("candidateCount").toInt() > 0);
+        const QString selected = root->property("committedText").toString();
+        QVERIFY(QMetaObject::invokeMethod(root.get(), "selectPrefix"));
+        QCoreApplication::processEvents();
+        QTRY_COMPARE(root->property("candidateCount").toInt(), 0); // update, not just pick, revokes the session
+        QVERIFY(QMetaObject::invokeMethod(root.get(), "chooseAlternative"));
+        QCOMPARE(root->property("committedText").toString(), selected);
+        QCOMPARE(root->property("candidateCount").toInt(), 0);
+
+        // Direct invocation deliberately bypasses the QML press guard: C++ is the privacy boundary.
+        for (const char *privacy : {"sensitive", "hidden"}) {
+            QVERIFY(QMetaObject::invokeMethod(root.get(), "clearEditor"));
+            QVERIFY(QMetaObject::invokeMethod(root.get(), privacy));
+            QCoreApplication::processEvents();
+            QVERIFY(swipe());
+            QCoreApplication::processEvents();
+            QCOMPARE(root->property("committedText").toString(), QString());
+            QCOMPARE(root->property("candidateCount").toInt(), 0);
+            QVERIFY(QMetaObject::invokeMethod(root.get(), "ordinary"));
+        }
+
+        // A return to the same field/method/hints does not resurrect a path begun before the change.
+        for (const char *change : {"reset", "sensitive", "hidden", "focusOther", "focusPassword", "cycleMethod"}) {
+            QVERIFY(QMetaObject::invokeMethod(root.get(), "clearEditor"));
+            QCoreApplication::processEvents();
+            const int generation = begin();
+            QVERIFY(generation >= 0);
+            // Model the already-held swipe in the real capture layer, then deliver real context signals.
+            capture->setProperty("originMethod", QVariant::fromValue(method));
+            capture->setProperty("originGeneration", generation);
+            capture->setProperty("trackedId", 7);
+            capture->setProperty("points", trace);
+            capture->setProperty("swiping", true);
+            if (QByteArray(change) == "reset")
+                QVERIFY(QMetaObject::invokeMethod(method, "reset"));
+            else
+                QVERIFY(QMetaObject::invokeMethod(root.get(), change));
+            QCoreApplication::processEvents();
+            QCOMPARE(capture->property("trackedId").toInt(), -1);
+            QVERIFY(!capture->property("swiping").toBool());
+            // Regression for the VM reproduction: release while the password still owns focus.
+            QVERIFY(finish(generation, trace));
+            QCOMPARE(root->property("passwordLength").toInt(), 0);
+            QVERIFY(QMetaObject::invokeMethod(root.get(), "ordinary"));
+            QVERIFY(QMetaObject::invokeMethod(root.get(), "focusEditor"));
+            QCoreApplication::processEvents();
+            QVERIFY(finish(generation, trace));
+            QCOMPARE(root->property("committedText").toString(), QString());
+            QCOMPARE(root->property("candidateCount").toInt(), 0);
+            // Cancellation must leave the next normal tap usable, never an active virtual key.
+            QVERIFY(QMetaObject::invokeMethod(root.get(), "tapLetter"));
+            QTRY_COMPARE(root->property("committedText").toString(), QStringLiteral("x"));
+        }
+        for (const bool overCount : {true, false}) {
+            QVERIFY(QMetaObject::invokeMethod(root.get(), "clearEditor"));
+            QVariantList oversized = trace;
+            if (overCount)
+                while (oversized.size() <= 2048) oversized.append(trace.last());
+            else {
+                auto last = oversized.last().toMap();
+                last["t"] = 10001;
+                oversized.last() = last;
+            }
+            QVERIFY(finish(begin(), oversized));
+            QCOMPARE(root->property("committedText").toString(), QString());
+        }
+        QVERIFY(swipe());
+        QTRY_VERIFY(!root->property("committedText").toString().isEmpty());
+        qInfo("Safety: selection, hidden/sensitive finish, stale reset/focus/privacy/method tokens and trace limits passed");
+        // WHY enable logging explicitly: default-disabled info logs still must not expose typing.
+        QLoggingCategory::setFilterRules(QStringLiteral("swipekb.info=true"));
+        swipeMessages.clear();
+        previousHandler = qInstallMessageHandler(captureSwipeLog);
+        const bool loggedSwipe = swipe();
+        qInstallMessageHandler(previousHandler);
+        QLoggingCategory::setFilterRules(QStringLiteral("swipekb.info=false"));
+        QVERIFY(loggedSwipe);
+        QCOMPARE(swipeMessages.size(), 1);
+        QVERIFY2(QRegularExpression(QStringLiteral("^swipe \\d+ points -> \\d+ candidates in \\d+ ms$"))
+                     .match(swipeMessages.first()).hasMatch(), qPrintable(swipeMessages.first()));
     }
 };
 

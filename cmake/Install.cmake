@@ -22,6 +22,7 @@ install(FILES "${SWIPEKB_SOURCE}/integration/setup.py" "${SWIPEKB_SOURCE}/integr
 install(PROGRAMS "${SWIPEKB_SOURCE}/integration/swipe-keyboard" DESTINATION "${_runtime}/integration")
 install(PROGRAMS "${SWIPEKB_SOURCE}/integration/swipe-keyboard" DESTINATION "${CMAKE_INSTALL_BINDIR}")
 install(FILES "${SWIPEKB_SOURCE}/integration/swipe-keyboard.desktop" DESTINATION "${CMAKE_INSTALL_DATADIR}/applications")
+set(SWIPEKB_PACKAGE_VERSION "0.1.0-dev" CACHE STRING "Native package version for support diagnostics")
 file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/runtime.json"
-    "{\"qt\": \"${Qt6Core_VERSION_MAJOR}.${Qt6Core_VERSION_MINOR}\"}\n")
+    "{\"qt\": \"${Qt6Core_VERSION_MAJOR}.${Qt6Core_VERSION_MINOR}\", \"package\": \"${SWIPEKB_PACKAGE_VERSION}\"}\n")
 install(FILES "${CMAKE_CURRENT_BINARY_DIR}/runtime.json" DESTINATION "${_runtime}")

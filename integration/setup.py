@@ -115,6 +115,21 @@ class Controller:
             patch_english(english.read_text())
         except (OSError, ValueError) as error:
             raise SetupError(str(error)) from error
+        # WHY fixed labels rather than raw settings: support needs versions and selection,
+        # not a user's home directory or the path of an unrelated input method.
+        selected = self.read_setting('InputMethod') == self.wanted['InputMethod']
+        try:
+            distro = platform.freedesktop_os_release().get('PRETTY_NAME', 'Unknown Linux')
+        except OSError:
+            distro = 'Unknown Linux'
+        return {'Distribution': distro,
+                'Package': runtime.get('package', '0.1.0 (legacy metadata)'),
+                'Plasma Keyboard': version,
+                'Qt installed / build': f'{qt} / {build_qt}',
+                'Session': 'KDE Plasma Wayland',
+                'English (US) overlay': 'Compatible',
+                'Selected input method': 'Swipe Keyboard' if selected else 'Other / stock',
+                'Setup record': 'Present' if self.state_file.exists() else 'Absent'}
 
     def read_setting(self, key):
         return self.command(['kreadconfig6', '--file', 'kwinrc', '--group', 'Wayland', '--key', key, '--default', UNSET])
@@ -287,12 +302,19 @@ def main():
                 print(f'Swipe Keyboard: {error}\nStarting the unmodified stock keyboard instead.', file=sys.stderr)
                 env = dict(os.environ)
             os.execvpe('plasma-keyboard', ['plasma-keyboard'], env)
-        getattr(controller, args.action)()
-        print({'check': 'Compatibility checks passed. Interactive typing still needs a KDE session check.',
+        report = getattr(controller, args.action)()
+        if args.action == 'check':
+            for label, value in report.items():
+                print(f'{label}: {value}')
+        print({'check': 'Compatibility checks passed. Touch activation and typing still need a real KDE session test.',
                'enable': 'Swipe Keyboard enabled. Select English (US) and swipe a word in a supported text field.',
                'disable': 'Swipe Keyboard disabled; settings still owned by setup were restored.'}[args.action])
     except (SetupError, OSError) as error:
         print('Swipe Keyboard: ' + str(error), file=sys.stderr)
+        print('Help: https://github.com/itsdestin/swipe-keyboard#troubleshooting\n'
+              'Optional AI-agent assistance: https://youcoded.ai (not required).\n'
+              'Share the error and versions, not typing recordings or private logs. '
+              'Do not force dependencies or overwrite custom layouts.', file=sys.stderr)
         return 1
     return 0
 

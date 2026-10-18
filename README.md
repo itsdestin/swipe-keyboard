@@ -6,6 +6,8 @@ Swipe across the keys, choose alternative words, and undo a fresh swipe with one
 
 [**Download v0.1.0 test release**](https://github.com/itsdestin/swipe-keyboard/releases/tag/v0.1.0) · [Report a bug](https://github.com/itsdestin/swipe-keyboard/issues/new?template=bug.yml) · [Contribute](CONTRIBUTING.md)
 
+**Unreleased safety update:** this checkout prepares package release `0.1.0-2`. The linked public `0.1.0-1` downloads do not contain it. A real KDE VM reproduced a stale swipe entering a password field after focus changed mid-gesture; the update cancels interrupted gestures and tightens word-alternative selection checks. Do not treat source changes as an updated download.
+
 ![Swipe Keyboard in a Fedora KDE VM, with synthetic “the world” text and word alternatives](docs/images/swipe-typing.png)
 
 *Fedora KDE test VM; synthetic text only. The keyboard follows your system theme.*
@@ -49,7 +51,8 @@ Both native package builds, extracted-keyboard loading, installation and removal
    swipe-keyboard check
    swipe-keyboard enable
    ```
-4. Select **English (US)** in Plasma Keyboard. Touch a supported text field and swipe a word.
+4. Touch a normal text field to open Plasma Keyboard. Check the language label on the spacebar: **American English / English (US)**. If another language is selected, use the keyboard's globe/language key to switch.
+5. Swipe `the`, then `world`; choose a word alternative and try the first on-screen Backspace. Ordinary tapping should still work. [Troubleshooting](#troubleshooting) separates activation problems from recognition/app problems.
 
 The package includes compiled code, models and a dictionary. You do not need a compiler, a Python environment setup or a training-corpus download. A fresh Fedora release ISO has an older KDE/Qt baseline: update Fedora normally first. This keyboard is not a desktop-upgrade tool.
 
@@ -69,10 +72,33 @@ Then remove it with `sudo pacman -R swipe-keyboard` or `sudo dnf remove swipe-ke
 
 There is **no public AUR/COPR package repository or automatic update feed yet**; GitHub releases are the download source.
 
+### Desktop upgrades
+
+These packages require Plasma Keyboard **6.7.x/6.8.x** and a matching **Qt major/minor**. A desktop upgrade to Plasma Keyboard 6.9 or newer may be blocked by the package's dependency limit. A Qt minor-version change can instead leave ordinary stock typing working while swipe support is disabled. Run `swipe-keyboard check` to identify incompatibility. Do not force dependencies or downgrade individual desktop libraries. If no matching keyboard package exists, disable and remove this extension first, then perform your normal full OS upgrade.
+
+### Already removed the package without disabling?
+
+KDE may still point to the removed Swipe Keyboard launcher. Reinstall a compatible package, run `swipe-keyboard disable` **as the same user who enabled it**, then remove the package again. The per-user restoration record survives ordinary package removal. If reinstalling is blocked by a desktop upgrade, use **System Settings → Virtual Keyboard** (or search Settings for “Virtual Keyboard”) to select the stock **Plasma Keyboard**, not Swipe Keyboard. That restores a usable keyboard but does not automatically reconstruct all your previous settings. Preserve `~/.local/share/swipe-keyboard/setup-state.json` (or its XDG equivalent) for assisted recovery; do not delete it or guess values.
+
+## Troubleshooting
+
+| Symptom | First checks |
+|---|---|
+| Keyboard never appears | Run enable in a terminal **inside your logged-in KDE Wayland desktop**, without sudo. Touch a text field rather than clicking with a mouse. Check System Settings → Virtual Keyboard. Test another native Wayland app; this extension does not fix every app's text-input support. |
+| Keyboard appears, but only taps work | Run `swipe-keyboard check`; confirm the English language label and matching Qt/Plasma versions. A failed startup check deliberately falls back to stock typing. Reinstall a matching package if files are damaged. |
+| Works in one app, not another | Report the app/version and whether it is a native package or Flatpak. Do not change global Qt/input-method environment variables as a first workaround. |
+| Existing custom layouts detected | Nothing was overwritten. Preserve your custom layouts and arrange an explicit migration; do not blindly delete the folder or stack overlays. |
+| Word alternatives/whole-word undo do nothing | Selections, cursor changes, sensitive fields and missing field context intentionally prevent multi-character edits. Try again in a normal field with no selection. |
+| Error during disable | Keep the setup record and exact error. Retry from the original user's desktop; do not run sudo, delete the record or force-reset unrelated keyboard settings. |
+
+**Agent assistance is welcome.** If an error is unfamiliar, you can ask an AI coding agent—such as [YouCoded](https://youcoded.ai)—to inspect the error and guide setup/recovery. It is optional; [GitHub Issues](https://github.com/itsdestin/swipe-keyboard/issues) remains available without an agent. Start with the guide, the exact error, distribution and version information. Ask it to diagnose before changing settings, preserve existing custom layouts/restoration records, and avoid forcing dependencies. Never share typed text, recordings, credentials or unreviewed logs. The maintainer also makes YouCoded.
+
+In package release `0.1.0-2`, `swipe-keyboard check` prints a read-only support summary (package, Plasma Keyboard/Qt versions, session and current selection). It does not prove touchscreen or application compatibility. Older release `0.1.0-1` prints only a short pass/fail message.
+
 ## Known v1 limits
 
 - **Firefox physical Ctrl+A/Delete:** the browser/input-method chain can leave field context stale; the next swipe may insert an unwanted leading space. This is a documented minor v1 issue, not a solved upstream bug.
-- Apps that hide or misreport text cannot guarantee automatic word deletion or candidate replacement. Normal deletion is the conservative fallback, but an edit never reported by an app cannot be detected reliably.
+- Apps that hide or misreport text cannot guarantee automatic word deletion or candidate replacement. Normal deletion is the conservative fallback, but an edit never reported by an app cannot be detected reliably. Field context can also be briefly incomplete during initial focus/keyboard startup, temporarily causing ordinary character deletion rather than whole-word undo.
 - Application Wayland text-input support affects when the keyboard appears. Not every application's keyboard-summoning behavior is fixed by this extension.
 - English swipe recognition only. The base release excludes optional neural/n-gram ranking and training/evaluation data.
 

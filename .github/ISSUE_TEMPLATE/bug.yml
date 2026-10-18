@@ -36,6 +36,11 @@ body:
       placeholder: English (US); app name and version
     validations:
       required: true
+  - type: input
+    id: device
+    attributes:
+      label: Device, display scale/orientation and app package type (if known)
+      placeholder: Touchscreen model; 150% landscape; native RPM or Flatpak
   - type: textarea
     id: reproduce
     attributes:

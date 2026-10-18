@@ -31,9 +31,16 @@ public:
     void update() override;
 
     Q_INVOKABLE bool isReady() const;
-    Q_INVOKABLE void finishSwipe(const QVariantList &points, const QVariantList &keys);
+    Q_INVOKABLE int beginSwipe();
+    Q_INVOKABLE void finishSwipe(const QVariantList &points, const QVariantList &keys, int generation);
+
+signals:
+    void gestureInvalidated();
 
 private:
+    bool safeContext() const;
+    int m_generation = 0;
+    bool m_contextConnected = false;
     QString textBeforeCursor() const;
     void clearSession();
     void refreshGuessBar();

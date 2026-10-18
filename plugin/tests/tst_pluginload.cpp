@@ -23,7 +23,69 @@ private slots:
         QVERIFY(QMetaObject::invokeMethod(im.get(), "isReady", Q_RETURN_ARG(bool, ready)));
         QVERIFY2(ready, "models not found — SWIPEKB_DATA should point at assets/");
         // No input context attached: a swipe must be ignored, not crash.
-        QVERIFY(QMetaObject::invokeMethod(im.get(), "finishSwipe", Q_ARG(QVariantList, QVariantList()), Q_ARG(QVariantList, QVariantList())));
+        QVERIFY(QMetaObject::invokeMethod(im.get(), "finishSwipe", Q_ARG(QVariantList, QVariantList()), Q_ARG(QVariantList, QVariantList()), Q_ARG(int, -1)));
+    }
+    void geometryChangeCancelsGesture()
+    {
+        QQmlEngine engine;
+        engine.addImportPath(qmlDir());
+        QQmlComponent c(&engine, QStringLiteral("SwipeKeyboard"), QStringLiteral("SwipeCapture"));
+        QQuickItem layout, area;
+        layout.setWidth(400);
+        std::unique_ptr<QObject> layer(c.createWithInitialProperties({
+            {"layoutItem", QVariant::fromValue(&layout)}, {"touchArea", QVariant::fromValue(&area)}}));
+        QVERIFY2(layer, qPrintable(c.errorString()));
+        for (const bool resizeLayout : {true, false}) {
+            layer->setProperty("trackedId", 7);
+            layer->setProperty("swiping", true);
+            layer->setProperty("points", QVariantList{QVariantMap{{"x", 1}, {"y", 2}, {"t", 0}}});
+            if (resizeLayout) layout.setWidth(500); else area.setHeight(300);
+            QCOMPARE(layer->property("trackedId").toInt(), -1);
+            QVERIFY(!layer->property("swiping").toBool());
+            QVERIFY(layer->property("points").toList().isEmpty());
+        }
+    }
+    void excessiveCaptureCancelsAndDropsPoints()
+    {
+        QQmlEngine engine;
+        engine.addImportPath(qmlDir());
+        QQmlComponent fixture(&engine);
+        fixture.setData(R"(
+            import QtQuick
+            Item {
+                property int cancellations: 0
+                signal pressed(var points)
+                signal updated(var points)
+                signal released(var points)
+                signal canceled(var points)
+                function reset() { ++cancellations }
+                function moveFinger() { updated([{pointId: 7, x: 10, y: 10}]) }
+                function now() { return Date.now() }
+            }
+        )", QUrl());
+        std::unique_ptr<QObject> area(fixture.create());
+        QVERIFY2(area, qPrintable(fixture.errorString()));
+        QQuickItem layout;
+        QQmlComponent c(&engine, QStringLiteral("SwipeKeyboard"), QStringLiteral("SwipeCapture"));
+        std::unique_ptr<QObject> layer(c.createWithInitialProperties({
+            {"layoutItem", QVariant::fromValue(&layout)}, {"touchArea", QVariant::fromValue(area.get())}}));
+        QVERIFY2(layer, qPrintable(c.errorString()));
+        for (const bool overCount : {true, false}) {
+            QVariant now;
+            QVERIFY(QMetaObject::invokeMethod(area.get(), "now", Q_RETURN_ARG(QVariant, now)));
+            layer->setProperty("startTime", now.toDouble() - (overCount ? 0 : 10001));
+            layer->setProperty("trackedId", 7);
+            layer->setProperty("swiping", true);
+            QVariantList points;
+            for (int i = 0; i < (overCount ? 2048 : 2); ++i)
+                points.append(QVariantMap{{"x", 0}, {"y", 0}, {"t", i}});
+            layer->setProperty("points", points);
+            QVERIFY(QMetaObject::invokeMethod(area.get(), "moveFinger"));
+            QCOMPARE(layer->property("trackedId").toInt(), -1);
+            QVERIFY(!layer->property("swiping").toBool());
+            QVERIFY(layer->property("points").toList().isEmpty());
+        }
+        QCOMPARE(area->property("cancellations").toInt(), 2);
     }
     void captureComponentCompiles()
     {

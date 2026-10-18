@@ -1,5 +1,6 @@
 #include "swipeinputmethod.h"
 
+#include <cmath>
 #include <QDateTime>
 #include <QElapsedTimer>
 #include <QFileInfo>
@@ -9,7 +10,7 @@
 #include "swipekb/recognizer.hpp"
 #include "swiperecorder.h"
 
-// Enable with QT_LOGGING_RULES="swipekb.info=true" to see each swipe's guesses and timing.
+// Enable with QT_LOGGING_RULES="swipekb.info=true" to see swipe counts and timing, never words.
 Q_LOGGING_CATEGORY(lcSwipe, "swipekb", QtWarningMsg)
 
 using Type = QVirtualKeyboardSelectionListModel::Type;
@@ -62,8 +63,7 @@ QList<QVirtualKeyboardInputEngine::InputMode> SwipeInputMethod::inputModes(const
 
 bool SwipeInputMethod::setInputMode(const QString &, QVirtualKeyboardInputEngine::InputMode)
 {
-    m_outcome.abandon();
-    clearSession();
+    reset();
     // WHY: a mode change means keys may have been typed elsewhere (e.g. on the symbols page), so we can no
     // longer be sure the last thing typed was our swiped word. Missing one space is safer than adding one.
     clearAfterSwipe();
@@ -89,9 +89,7 @@ bool SwipeInputMethod::keyEvent(Qt::Key key, const QString &text, Qt::KeyboardMo
 {
     if (key == Qt::Key_Backspace && modifiers == Qt::NoModifier && m_session.isActive()) {
         QVirtualKeyboardInputContext *ic = inputContext();
-        const bool safeContext = ic && ic->cursorPosition() >= 0
-            && ic->cursorPosition() == ic->anchorPosition() && ic->selectedText().isEmpty()
-            && !(ic->inputMethodHints() & (Qt::ImhSensitiveData | Qt::ImhHiddenText));
+        const bool safeContext = this->safeContext();
         const auto outcome = m_outcome.keyTapped(true, text);
         const CommitPlan plan = m_session.takeBackspace(safeContext ? textBeforeCursor() : QString(), !safeContext);
         refreshGuessBar();
@@ -156,14 +154,13 @@ QVariant SwipeInputMethod::selectionListData(Type type, int index, QVirtualKeybo
 void SwipeInputMethod::selectionListItemSelected(Type type, int index)
 {
     QVirtualKeyboardInputContext *ic = inputContext();
-    if (type != Type::WordCandidateList || !ic)
+    if (type != Type::WordCandidateList)
         return;
     // WHY: the swap deletes the typed word before the cursor. If we can't see that word there (the app hides
     // its text, or the cursor moved), the delete would hit nothing or the wrong text and the guess would just
     // be appended ("helloyellow"). Doing nothing is safer; the guess bar closes.
-    if (!m_session.cursorStillAfterWord(textBeforeCursor())) {
-        m_outcome.abandon();
-        clearSession();
+    if (!safeContext() || !m_session.cursorStillAfterWord(textBeforeCursor())) {
+        reset();
         return;
     }
     const CommitPlan plan = m_session.swapToAlternative(index);
@@ -180,6 +177,9 @@ void SwipeInputMethod::selectionListItemSelected(Type type, int index)
 
 void SwipeInputMethod::reset()
 {
+    // WHY: points collected before a focus/privacy/mode reset must never authorize a later commit.
+    m_generation = (m_generation + 1) % 1000000000;
+    emit gestureInvalidated();
     m_outcome.abandon();   // WHY: focus moved; the swipe's fate is unknown
     clearSession();
     // WHY: Qt resets on focus moves and field-type changes; whatever was typed before belongs to another field.
@@ -192,6 +192,10 @@ void SwipeInputMethod::update()
     // a word we just committed: the echo arrives later, asynchronously, not during our commit. Keep the
     // guess bar only while the cursor still sits right after the swiped word.
     const QString before = textBeforeCursor();
+    if (!safeContext()) {
+        reset();
+        return;
+    }
     if (m_session.isActive() && !m_session.cursorStillAfterWord(before)) {
         m_outcome.abandon();   // WHY: cursor moved away; we can't tell if the word was right, so no outcome
         clearSession();
@@ -214,10 +218,47 @@ QString SwipeInputMethod::textBeforeCursor() const
     return ic ? ic->surroundingText().left(ic->cursorPosition()) : QString();
 }
 
-void SwipeInputMethod::finishSwipe(const QVariantList &points, const QVariantList &keys)
+bool SwipeInputMethod::safeContext() const
+{
+    const auto *ic = inputContext();
+    return ic && ic->inputItem() && ic->cursorPosition() >= 0
+        && ic->cursorPosition() == ic->anchorPosition() && ic->selectedText().isEmpty()
+        && !(ic->inputMethodHints() & (Qt::ImhSensitiveData | Qt::ImhHiddenText));
+}
+
+int SwipeInputMethod::beginSwipe()
+{
+    auto *ic = inputContext();
+    if (!ic)
+        return -1;
+    // WHY here, not the constructor: Qt attaches the input context after constructing the method.
+    if (!m_contextConnected) {
+        connect(ic, &QVirtualKeyboardInputContext::inputItemChanged, this, &SwipeInputMethod::reset);
+        connect(ic, &QVirtualKeyboardInputContext::inputMethodHintsChanged, this, &SwipeInputMethod::reset);
+        // WHY: Qt may report a selection without calling the method's update immediately.
+        connect(ic, &QVirtualKeyboardInputContext::selectedTextChanged, this, [this] {
+            if (!safeContext()) reset();
+        });
+        connect(ic->inputEngine(), &QVirtualKeyboardInputEngine::inputMethodChanged, this, &SwipeInputMethod::reset);
+        m_contextConnected = true;
+    }
+    m_generation = (m_generation + 1) % 1000000000;
+    return safeContext() && ic->inputEngine()->inputMethod() == this ? m_generation : -1;
+}
+
+void SwipeInputMethod::finishSwipe(const QVariantList &points, const QVariantList &keys, int generation)
 {
     QVirtualKeyboardInputContext *ic = inputContext();
-    if (!ic || !recognizer().ready())
+    // WHY before recognition/context extraction/logging: QML's press-time privacy check is not a
+    // release-time guarantee. Also bound direct callers, not just the touch listener.
+    if (!safeContext() || ic->inputEngine()->inputMethod() != this || generation < 0
+        || generation != m_generation)
+        return;
+    m_generation = (m_generation + 1) % 1000000000; // consume once, even when the trace is rejected
+    if (points.size() < 2 || points.size() > 2048 || keys.size() > 64 || !recognizer().ready())
+        return;
+    const double duration = points.last().toMap().value("t").toDouble();
+    if (!std::isfinite(duration) || duration < 0 || duration > 10000)
         return;
     QElapsedTimer timer;
     timer.start();
@@ -276,9 +317,8 @@ void SwipeInputMethod::finishSwipe(const QVariantList &points, const QVariantLis
     }
     refreshGuessBar();
     // Opt-in recording for offline tuning (only when the owner created <data>/record; see swiperecorder.h).
-    // WHY here: only swipes SwipeCapture accepted reach this function, so password fields (refused there)
-    // are never recorded. `typed` is the word without its auto-space.
-    // Belt and braces: never record in a password field even if a swipe somehow got through.
+    // WHY another privacy check after commit: a synchronous field update may have changed the hints.
+    // `typed` is the word without its auto-space.
     const bool secret = ic->inputMethodHints() & (Qt::ImhSensitiveData | Qt::ImhHiddenText);
     const qint64 ts = QDateTime::currentMSecsSinceEpoch();
     const bool recorded = !secret
@@ -289,7 +329,9 @@ void SwipeInputMethod::finishSwipe(const QVariantList &points, const QVariantLis
     // WHY after the new swipe is written: swiping again means the previous word was accepted ("keep"), and
     // the new swipe becomes the one waiting for its outcome (only if it was recorded, or it has no line).
     writeOutcome(m_outcome.beginSwipe(m_lastRecordedSwipeTs));
-    qCInfo(lcSwipe) << "swipe" << trace.size() << "points ->" << candidates << "in" << timer.elapsed() << "ms";
+    // WHY counts only: enabling Qt info diagnostics must not expose the owner's typing guesses.
+    qCInfo(lcSwipe) << "swipe" << trace.size() << "points ->" << candidates.size()
+                   << "candidates in" << timer.elapsed() << "ms";
 }
 
 void SwipeInputMethod::clearSession()

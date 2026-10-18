@@ -2,7 +2,7 @@
 
 These are **test-only fixtures**, not an installer or runtime dependency. Start a new disposable KDE VM only with the owner's approval. Never automate keys/touches against the host desktop.
 
-- `session-client.cpp` is an ordinary Wayland text/password client. It does **not** import SwipeKeyboard. Its private test-account D-Bus service exposes committed normal text and password length, so a pass requires the packaged keyboard to deliver text through the real KWin input-method protocol. No slot injects text (only fixture clearing is provided).
+- `session-client.cpp` is an ordinary Wayland text/password client. It does **not** import SwipeKeyboard. Its private test-account D-Bus service exposes committed normal text and password length, so a pass requires the packaged keyboard to deliver text through the real KWin input-method protocol. No slot injects text: controls only clear the fixture, move focus (including a delayed password transition), or select existing following text. The delayed transition reproduces an application moving focus while a real touchscreen gesture is held.
 - `vm-touch.py` adapts touch-profile's existing virtual-touch test. It opens **only the guest kernel's** uinput device, and refuses unless running as guest root on QEMU with `/etc/swipekb-full-vm-acceptance`. Its normal host invocation must exit 2. Do not replace this with host uinput, ydotool, desktop key injection or a default Wayland-display connection.
 - The text client also refuses unless the QEMU guest marker exists. Build it against the guest's Qt version; a developer-host binary is not evidence of distro compatibility.
 

@@ -48,14 +48,14 @@ jobs:
         run: |
           mkdir dist/stage
           # makepkg may also emit a debug archive; extract only the installable main package.
-          tar -xf dist/swipe-keyboard-0.1.0-1-x86_64.pkg.tar.zst -C dist/stage
+          tar -xf dist/swipe-keyboard-0.1.0-2-x86_64.pkg.tar.zst -C dist/stage
           python scripts/package-check.py dist/stage
           # Load the actual stripped package payload, not the build tree, in a private offscreen InputPanel.
           python3 scripts/check-stock-layout.py dist/src/swipe-keyboard-0.1.0/build/plugin/tst_stocklayout --runtime-root dist/stage/usr/share/swipe-keyboard
           pacman -Qip dist/*.pkg.tar.zst > dist/package-metadata.txt
       - name: Verify installed wrapper as ordinary user and remove package
         run: |
-          pacman -U --noconfirm dist/swipe-keyboard-0.1.0-1-x86_64.pkg.tar.zst
+          pacman -U --noconfirm dist/swipe-keyboard-0.1.0-2-x86_64.pkg.tar.zst
           # No compositor is launched or configured: check is read-only, with a normal user's PATH.
           su builder -c 'XDG_SESSION_TYPE=wayland XDG_CURRENT_DESKTOP=KDE swipe-keyboard check'
           pacman -R --noconfirm swipe-keyboard
@@ -98,7 +98,7 @@ jobs:
         run: |
           mkdir dist/stage
           cd dist/stage
-          rpm2cpio ../swipe-keyboard-0.1.0-1.fc44.x86_64.rpm | cpio -idm
+          rpm2cpio ../swipe-keyboard-0.1.0-2.fc44.x86_64.rpm | cpio -idm
           cd ../..
           python3 scripts/package-check.py dist/stage
           test_executable=$(find /home/builder/rpmbuild/BUILD -path '*/redhat-linux-build/plugin/tst_stocklayout' -type f -print -quit)
@@ -112,7 +112,7 @@ jobs:
           if rpm -q systemd-standalone-tmpfiles >/dev/null 2>&1; then
             dnf -y swap systemd-standalone-tmpfiles systemd
           fi
-          dnf -y --setopt=install_weak_deps=False install dist/swipe-keyboard-0.1.0-1.fc44.x86_64.rpm
+          dnf -y --setopt=install_weak_deps=False install dist/swipe-keyboard-0.1.0-2.fc44.x86_64.rpm
           # Check the packaged command, not a developer's Python import or extended Qt tool PATH.
           su builder -c 'XDG_SESSION_TYPE=wayland XDG_CURRENT_DESKTOP=KDE swipe-keyboard check'
           dnf -y --setopt=clean_requirements_on_remove=False remove swipe-keyboard

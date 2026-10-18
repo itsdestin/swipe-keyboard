@@ -1,7 +1,7 @@
 # Local build candidate only; no install hooks and no publication.
 pkgname=swipe-keyboard
 pkgver=0.1.0
-pkgrel=1
+pkgrel=2
 pkgdesc='Standalone English swipe input for Plasma Keyboard — Powered by FUTO Swipe'
 arch=('x86_64')
 url='https://github.com/itsdestin/swipe-keyboard'
@@ -19,7 +19,7 @@ build() {
   cd "$srcdir/swipe-keyboard-$pkgver"
   scripts/fetch-assets.sh
   scripts/build-futo.sh
-  cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr -DUSE_MARCH_NATIVE=OFF
+  cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr -DUSE_MARCH_NATIVE=OFF -DSWIPEKB_PACKAGE_VERSION="$pkgver-$pkgrel"
   cmake --build build
 }
 

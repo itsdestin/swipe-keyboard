@@ -1,5 +1,13 @@
 # Changes
 
+## Unreleased — package release 0.1.0-2 safety candidate
+
+- Cancel stale/interrupted swipes across focus/privacy changes and geometry changes; revalidate sensitive context before recognition or insertion.
+- Reject word-alternative replacement when a selection or unsafe field context makes multi-character editing uncertain.
+- Add a read-only version/session/selection support summary and optional agent-assistance links on errors.
+- Document uninstall recovery, desktop-upgrade compatibility and symptom-based troubleshooting. AI-agent assistance, including YouCoded, remains optional.
+- Candidate packages have a new native release number; published 0.1.0-1 downloads are not silently replaced. Verification details belong in the candidate acceptance report, not the historical v0.1.0 results below.
+
 ## 0.1.0 — first public test release
 
 - Standalone English (US) swipe typing for Plasma Keyboard; no Z13, touch-profile, theme or YouCoded dependency.

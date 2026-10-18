@@ -84,7 +84,7 @@ include("{ROOT}/cmake/Install.cmake")
             for name in ('bin/swipe-keyboard', 'share/applications/swipe-keyboard.desktop', 'share/swipe-keyboard/integration/setup.py', 'share/swipe-keyboard/integration/layout.py', 'share/swipe-keyboard/qml/SwipeKeyboard/libswipekb_engine.so', 'share/swipe-keyboard/models/honorable_sturgeon/model_fp32.pte', 'share/swipe-keyboard/dict/en_swipe.combined', 'share/licenses/swipe-keyboard/LICENSE'):
                 self.assertTrue((stage/name).is_file(), name)
             self.assertFalse((stage/'share/swipe-keyboard/eval').exists())
-            self.assertEqual((stage/'share/swipe-keyboard/runtime.json').read_text(), '{"qt": "6.10"}\n')
+            self.assertEqual((stage/'share/swipe-keyboard/runtime.json').read_text(), '{"qt": "6.10", "package": "0.1.0-dev"}\n')
             self.assertTrue((stage/'bin/swipe-keyboard').stat().st_mode & 0o111)
             self.assertTrue((stage/'share/swipe-keyboard/qml/SwipeKeyboard/libswipekb_engine.so').stat().st_mode & 0o111,
                             'Native libraries must retain executable mode for RPM debug-info discovery')
@@ -192,7 +192,7 @@ include("{ROOT}/cmake/Install.cmake")
     def test_ci_extracts_main_arch_package_not_debug_archive_wildcard(self):
         workflow = (ROOT/'.github/workflows/packages.yml').read_text()
         self.assertNotIn('tar -xf dist/*.pkg.tar.zst', workflow)
-        self.assertIn('tar -xf dist/swipe-keyboard-0.1.0-1-x86_64.pkg.tar.zst', workflow)
+        self.assertIn('tar -xf dist/swipe-keyboard-0.1.0-2-x86_64.pkg.tar.zst', workflow)
 
     def test_native_builds_include_kirigami_for_accent_test(self):
         arch = (ROOT/'packaging/arch/PKGBUILD').read_text()

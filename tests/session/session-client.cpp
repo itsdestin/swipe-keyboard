@@ -7,6 +7,7 @@
 #include <QQmlEngine>
 #include <QQmlComponent>
 #include <QFile>
+#include <QTimer>
 #include <memory>
 #include <cstdio>
 
@@ -23,6 +24,16 @@ public slots:
         m_root->setProperty("typedText", QString());
         m_root->setProperty("passwordText", QString());
     }
+    // WHY timed focus: reproduce an app moving focus while a real guest touch is still down.
+    // These controls never inject text or call into the input method.
+    void focusPasswordAfter(int milliseconds) {
+        QTimer::singleShot(qBound(0, milliseconds, 10000), m_root, [this] {
+            QMetaObject::invokeMethod(m_root, "focusPassword");
+        });
+    }
+    void focusEditor() { QMetaObject::invokeMethod(m_root, "focusEditor"); }
+    void selectFollowingText() { QMetaObject::invokeMethod(m_root, "selectFollowingText"); }
+    QString selectedText() const { return m_root->property("selectedText").toString(); }
     void quit() { QGuiApplication::quit(); }
 private:
     QQuickItem *m_root;
@@ -49,6 +60,14 @@ int main(int argc, char **argv)
             property alias passwordText: secret.text
             readonly property int passwordLength: secret.text.length
             property bool editorFocused: editor.activeFocus
+            readonly property string selectedText: editor.selectedText
+            function focusPassword() { secret.forceActiveFocus() }
+            function focusEditor() { editor.forceActiveFocus() }
+            // Backward selection keeps its cursor after the first word; no text is synthesized.
+            function selectFollowingText() {
+                var start = editor.text.indexOf(" ")
+                if (start > 0) editor.select(editor.text.length, start)
+            }
             Text { x: 56; y: 36; text: "Swipe Keyboard · isolated KDE test"; font.pixelSize: 30; color: "#17243b" }
             Text { x: 56; y: 84; text: "Packaged keyboard → real KWin input method → ordinary Wayland fields"; font.pixelSize: 18; color: "#52647b" }
             Text { x: 56; y: 124; text: "Normal text"; font.pixelSize: 17; color: "#52647b" }

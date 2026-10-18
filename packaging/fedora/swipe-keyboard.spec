@@ -1,6 +1,6 @@
 Name: swipe-keyboard
 Version: 0.1.0
-Release: 1%{?dist}
+Release: 2%{?dist}
 Summary: Standalone English swipe input for Plasma Keyboard — Powered by FUTO Swipe
 License: GPL-3.0-or-later AND Apache-2.0 AND CC-BY-SA-4.0 AND LicenseRef-FUTO-Model-Weights-1.0
 URL: https://github.com/itsdestin/swipe-keyboard
@@ -22,7 +22,8 @@ Requires: plasma-keyboard < 1:6.9
 English swipe recognition for the stock Plasma Keyboard, Powered by FUTO Swipe.
 Activation is an explicit per-user operation; package transactions never change
 KWin settings. Plasma Keyboard 6.7 and 6.8 are candidate series accepted by the controller.
-This is a local packaging candidate, not a claim of interactive Fedora support.
+Package release 2 is an unpublished safety-update candidate. See the setup guide
+for tested KDE/Qt baselines and exact desktop verification scope.
 
 %prep
 %autosetup
@@ -30,7 +31,7 @@ This is a local packaging candidate, not a claim of interactive Fedora support.
 %build
 scripts/fetch-assets.sh
 scripts/build-futo.sh
-%cmake -G Ninja -DUSE_MARCH_NATIVE=OFF
+%cmake -G Ninja -DUSE_MARCH_NATIVE=OFF -DSWIPEKB_PACKAGE_VERSION=%{version}-%{release}
 %cmake_build
 
 %check

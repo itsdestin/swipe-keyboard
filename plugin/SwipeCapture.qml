@@ -58,6 +58,67 @@ Item {
     property bool swiping: false
     // WHY: once the hold-for-accents popup has opened for this touch, sliding must pick an accent, never swipe.
     property bool popupSeen: false
+    property var originMethod: null
+    property int originGeneration: -1
+    property var originKeys: []
+    // WHY bounded: an abandoned/held touch must not accumulate an unbounded path or block the UI.
+    readonly property int maxPoints: 2048
+    readonly property int maxDuration: 10000
+
+    function cancelGesture() {
+        if (root.trackedId === -1)
+            return
+        // WHY clear first: cancellation may synchronously deliver another reset/cancel signal.
+        root.stop()
+        InputContext.inputEngine.virtualKeyCancel()
+        if (typeof root.touchArea.reset === "function")
+            root.touchArea.reset()
+    }
+
+    function validGesture() {
+        return root.originMethod === InputContext.inputEngine.inputMethod
+            && !(InputContext.inputMethodHints & (Qt.ImhSensitiveData | Qt.ImhHiddenText))
+            && Date.now() - root.startTime <= root.maxDuration
+            && root.points.length < root.maxPoints
+            && JSON.stringify(root.originKeys) === JSON.stringify(root.letterKeys())
+    }
+
+    Timer {
+        interval: root.maxDuration
+        running: root.trackedId !== -1
+        onTriggered: root.cancelGesture()
+    }
+    Connections {
+        target: root.originMethod
+        function onGestureInvalidated() { root.cancelGesture() }
+    }
+    Connections {
+        target: InputContext
+        function onInputItemChanged() { root.cancelGesture() }
+        function onInputMethodHintsChanged() { root.cancelGesture() }
+    }
+    Connections {
+        target: InputContext.inputEngine
+        function onInputMethodChanged() { root.cancelGesture() }
+        function onInputMethodReset() { root.cancelGesture() }
+    }
+    // WHY immediate cancellation: the existing points are in the old key coordinate system.
+    Connections {
+        target: root.layoutItem
+        function onWidthChanged() { root.cancelGesture() }
+        function onHeightChanged() { root.cancelGesture() }
+        function onXChanged() { root.cancelGesture() }
+        function onYChanged() { root.cancelGesture() }
+        function onScaleChanged() { root.cancelGesture() }
+        function onRotationChanged() { root.cancelGesture() }
+    }
+    Connections {
+        target: root.touchArea
+        function onWidthChanged() { root.cancelGesture() }
+        function onHeightChanged() { root.cancelGesture() }
+        function onXChanged() { root.cancelGesture() }
+        function onYChanged() { root.cancelGesture() }
+    }
 
     // WHY: keep the guess bar always shown so the keyboard stays one height instead of growing on each swipe
     // and making the app above jump. Set once and never undone: this layer is destroyed on "?123", but the
@@ -184,6 +245,9 @@ Item {
         swiping = false
         popupSeen = false
         startKey = null
+        originMethod = null
+        originGeneration = -1
+        originKeys = []
         trail.requestPaint()
     }
 
@@ -209,6 +273,12 @@ Item {
             var key = root.touchArea.keyOnPoint(tp.x, tp.y)
             if (!root.isLetterKey(key))
                 return
+            var generation = im.beginSwipe()
+            if (generation < 0)
+                return
+            root.originMethod = im
+            root.originGeneration = generation
+            root.originKeys = root.letterKeys()
             root.trackedId = tp.pointId
             root.startTime = Date.now()
             root.popupSeen = false
@@ -221,6 +291,10 @@ Item {
             var tp = root.trackedPoint(touchPoints)
             if (!tp)
                 return
+            if (!root.validGesture()) {
+                root.cancelGesture()
+                return
+            }
             root.points.push({ x: tp.x, y: tp.y, t: Date.now() - root.startTime })
             root.trailPoints.push(root.toTrail(tp.x, tp.y))
             // WHY popup check: a swipe may only start before the press-and-hold popup opens.
@@ -245,19 +319,21 @@ Item {
             var tp = root.trackedPoint(touchPoints)
             if (!tp)
                 return
+            if (!root.validGesture()) {
+                root.cancelGesture()
+                return
+            }
             if (root.swiping) {
                 root.points.push({ x: tp.x, y: tp.y, t: Date.now() - root.startTime })
-                // WHY re-check: the input method can be swapped mid-swipe; same guard as onPressed.
-                var im = InputContext.inputEngine.inputMethod
-                if (im && typeof im.finishSwipe === "function")
-                    im.finishSwipe(root.points, root.letterKeys())
+                // WHY origin, not whichever method is now active: resets must revoke the held path.
+                root.originMethod.finishSwipe(root.points, root.originKeys, root.originGeneration)
             }
             root.stop()
         }
 
         function onCanceled(touchPoints) {
             if (root.trackedPoint(touchPoints))
-                root.stop()
+                root.cancelGesture()
         }
     }
 
