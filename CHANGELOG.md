@@ -1,6 +1,15 @@
 # Changes
 
-## Unreleased — package release 0.1.0-2 safety candidate
+## v0.1.0-r3 — package revision 0.1.0-3, safety and compatibility test release
+
+- Build the public Arch package against the older July 2026 repository baseline, then test the same bytes on newer Qt/KDE libraries.
+- Derive direct native-library dependencies and actual GLIBC/GLIBCXX/CXXABI floors instead of copying recursive build-machine package versions, duplicate providers and fakeroot injection.
+- Remove generated QML AOT code that introduced private, Qt-minor-specific ABI imports; reject unexpected private Qt imports in final ELF files.
+- Accept a same-major Qt runtime at or above the build-minor baseline only after eager native-plugin loading succeeds, before activation modifies settings. Older or unresolved ABIs still fail safely.
+- Includes the safety changes first verified in the local revision-2 candidate below. The final Arch archive passed old/new runtime checks and installed/activated on the maintainer's existing CachyOS libraries without an OS update; the final Fedora RPM passed real KDE touchscreen checks. Full evidence and limitations are in `docs/revision3-verification.md`.
+- Automated ongoing maintenance/update channels are explicitly deferred; this remains a manually downloaded public test release.
+
+## Local package release 0.1.0-2 — verified safety candidate (not publicly released)
 
 - Cancel stale/interrupted swipes across focus/privacy changes and geometry changes; revalidate sensitive context before recognition or insertion.
 - Reject word-alternative replacement when a selection or unsafe field context makes multi-character editing uncertain.

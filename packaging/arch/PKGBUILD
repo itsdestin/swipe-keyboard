@@ -1,7 +1,7 @@
 # Local build candidate only; no install hooks and no publication.
 pkgname=swipe-keyboard
 pkgver=0.1.0
-pkgrel=2
+pkgrel=3
 pkgdesc='Standalone English swipe input for Plasma Keyboard — Powered by FUTO Swipe'
 arch=('x86_64')
 url='https://github.com/itsdestin/swipe-keyboard'
@@ -40,12 +40,16 @@ package() {
 _add_native_dependencies() {
   # WHY helper: makepkg evaluates dependency assignments inside package() while reading
   # metadata, before any ELF/provider exists. Only query providers during actual packaging.
-  # Arch has no RPM-style automatic ELF dependency generator. Ask pacman which
-  # packages provide the resolved libraries (rather than guessing Qt/KF sonames).
-  local owner lib
-  while IFS= read -r lib; do
-    owner=$(pacman -Qoq "$lib") || return 1
-    # A minimum keeps needed symbols without blocking ABI-compatible patch/security upgrades.
-    depends+=("$(pacman -Q "$owner" | awk '{print $1 ">=" $2}')")
-  done < <(find "$pkgdir" -name '*.so*' -type f -exec ldd {} \; | awk '/=> \/usr\// {print $3}' | sort -u)
+  # WHY direct ELF needs: recursive ldd includes unrelated transitive libraries and
+  # fakeroot's LD_PRELOAD. Fail the transaction if generation fails (not a process substitution).
+  local generated dependency name existing
+  generated=$(python scripts/arch-dependencies.py "$pkgdir") || return 1
+  while IFS= read -r dependency; do
+    name=${dependency%%[\<\>\=]*}
+    local -a retained=()
+    for existing in "${depends[@]}"; do
+      [[ ${existing%%[\<\>\=]*} == "$name" ]] || retained+=("$existing")
+    done
+    depends=("${retained[@]}" "$dependency")
+  done <<< "$generated"
 }

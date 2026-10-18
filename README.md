@@ -4,9 +4,9 @@
 
 Swipe across the keys, choose alternative words, and undo a fresh swipe with one Backspace. Uses local recognition models and your existing keyboard's look. **No Z13, ASUS hardware, tablet bundle, theme, agent or YouCoded account required.**
 
-[**Download v0.1.0 test release**](https://github.com/itsdestin/swipe-keyboard/releases/tag/v0.1.0) · [Report a bug](https://github.com/itsdestin/swipe-keyboard/issues/new?template=bug.yml) · [Contribute](CONTRIBUTING.md)
+[**Download v0.1.0-r3 test release**](https://github.com/itsdestin/swipe-keyboard/releases/tag/v0.1.0-r3) · [Report a bug](https://github.com/itsdestin/swipe-keyboard/issues/new?template=bug.yml) · [Contribute](CONTRIBUTING.md)
 
-**Unreleased safety update:** this checkout prepares package release `0.1.0-2`. The linked public `0.1.0-1` downloads do not contain it. A real KDE VM reproduced a stale swipe entering a password field after focus changed mid-gesture; the update cancels interrupted gestures and tightens word-alternative selection checks. Do not treat source changes as an updated download.
+**Safety and compatibility update:** use the `0.1.0-3` packages in **v0.1.0-r3**, not the older v0.1.0 downloads. This revision fixes stale swipes across focus/password changes, tightens selection safeguards, and supports older build baselines plus newer compatible libraries without copying the build machine's package versions into your requirements. See the [tested runtime matrix](docs/revision3-verification.md).
 
 ![Swipe Keyboard in a Fedora KDE VM, with synthetic “the world” text and word alternatives](docs/images/swipe-typing.png)
 
@@ -22,28 +22,28 @@ Swipe across the keys, choose alternative words, and undo a fresh swipe with one
 
 ## Supported test-release targets
 
-| Package | Tested baseline |
+| Package | Verified build/runtime coverage |
 |---|---|
-| Arch / CachyOS, x86_64 | Plasma Keyboard 6.8.0, Qt 6.12.0 |
-| **Updated** Fedora 44 KDE, x86_64 | Plasma Keyboard 6.7.5, Qt 6.11.2 |
+| Arch / CachyOS, x86_64 | Built with Plasma Keyboard 6.7.2, Qt 6.11.1, Frameworks 6.27; the **same archive** passed on current Arch with Keyboard 6.8.0, Qt 6.12.0, Frameworks 6.31. The exact package also installed/activated on CachyOS with Qt 6.12 / Frameworks 6.30, without an OS update; installed payload and live system-plugin loading were verified. |
+| Fedora 44 KDE, x86_64 | Plasma Keyboard 6.7.5, Qt 6.11.2; native package and real KDE touchscreen acceptance. |
 
-Requires **KDE Plasma Wayland** and a touchscreen. Activation accepts Plasma Keyboard 6.7/6.8 and checks that your Qt major/minor matches the package build. Unsupported versions are refused rather than patched blindly. These first packages do not claim X11, non-KDE, ARM or non-English swipe support.
+Requires **native Plasma Keyboard 6.7/6.8 in KDE Plasma Wayland**, a touchscreen, **Qt 6.11 or newer within Qt 6** and **glibc 2.43 or newer**—not Maliit or just the Qt Virtual Keyboard libraries. Qt 6.11 and 6.12 are the tested runtime minors. Activation requires an eager native-plugin load to succeed before changing settings; genuine missing libraries/symbols refuse safely. These are actual ABI requirements, not a demand to match every package revision on the build machine. X11, non-KDE, ARM and non-English swipe support are not claimed.
 
-Both native package builds, extracted-keyboard loading, installation and removal were checked in isolated distro environments. A full Fedora KDE VM additionally verified real typing, word alternatives/backspace, password safeguards, reinstall, reboot and setting restoration. This is a **test release**, not a universal hardware/application guarantee. See [verification details](docs/standalone-verification.md).
+Both native packages, extracted-keyboard loading, installation and removal were checked in isolated distro environments. A full Fedora KDE VM additionally exercised real touchscreen typing, word alternatives/backspace, password safeguards and interrupted-gesture recovery. Reinstall, reboot and restoration/removal acceptance are recorded for the safety candidate; the final compatibility RPM was also installed/restarted and checked in that VM. Arch container/loading tests are not a full Arch desktop or physical-hardware test. This is a **test release**, not a universal hardware/application guarantee. See [revision-3 results](docs/revision3-verification.md) and [earlier safety acceptance](docs/pre-reddit-verification.md).
 
 ## Install
 
-1. Download the package matching your distribution from the [release page](https://github.com/itsdestin/swipe-keyboard/releases/tag/v0.1.0). Optionally download `SHA256SUMS.txt` and check the files with `sha256sum --check --ignore-missing SHA256SUMS.txt`.
+1. Download the package matching your distribution from the [release page](https://github.com/itsdestin/swipe-keyboard/releases/tag/v0.1.0-r3). Optionally download `SHA256SUMS.txt` and check the files with `sha256sum --check --ignore-missing SHA256SUMS.txt`.
 2. Install the local package:
 
    **Arch / CachyOS**
    ```sh
-   sudo pacman -U ./swipe-keyboard-0.1.0-1-x86_64.pkg.tar.zst
+   sudo pacman -U ./swipe-keyboard-0.1.0-3-x86_64.pkg.tar.zst
    ```
 
    **Fedora 44 KDE**
    ```sh
-   sudo dnf install ./swipe-keyboard-0.1.0-1.fc44.x86_64.rpm
+   sudo dnf install ./swipe-keyboard-0.1.0-3.fc44.x86_64.rpm
    ```
 
 3. As your **normal logged-in KDE user**, not sudo:
@@ -54,7 +54,7 @@ Both native package builds, extracted-keyboard loading, installation and removal
 4. Touch a normal text field to open Plasma Keyboard. Check the language label on the spacebar: **American English / English (US)**. If another language is selected, use the keyboard's globe/language key to switch.
 5. Swipe `the`, then `world`; choose a word alternative and try the first on-screen Backspace. Ordinary tapping should still work. [Troubleshooting](#troubleshooting) separates activation problems from recognition/app problems.
 
-The package includes compiled code, models and a dictionary. You do not need a compiler, a Python environment setup or a training-corpus download. A fresh Fedora release ISO has an older KDE/Qt baseline: update Fedora normally first. This keyboard is not a desktop-upgrade tool.
+The package includes compiled code, models and a dictionary. You do not need a compiler, a Python environment setup or a training-corpus download. **Do not upgrade your whole desktop merely to match the build machine's library revisions.** Check whether you already have a supported native Plasma Keyboard and meet the actual package ABI requirements. An old distro image without that keyboard is a different prerequisite problem; this extension does not install or upgrade the desktop stack for you.
 
 **Already using custom Plasma keyboard layouts?** Setup refuses to overwrite `~/.local/share/plasma/keyboard/layouts` (or its XDG equivalent). Migrate that setup explicitly first; do not stack this over touch-profile's existing keyboard overlay.
 
@@ -74,7 +74,7 @@ There is **no public AUR/COPR package repository or automatic update feed yet**;
 
 ### Desktop upgrades
 
-These packages require Plasma Keyboard **6.7.x/6.8.x** and a matching **Qt major/minor**. A desktop upgrade to Plasma Keyboard 6.9 or newer may be blocked by the package's dependency limit. A Qt minor-version change can instead leave ordinary stock typing working while swipe support is disabled. Run `swipe-keyboard check` to identify incompatibility. Do not force dependencies or downgrade individual desktop libraries. If no matching keyboard package exists, disable and remove this extension first, then perform your normal full OS upgrade.
+The supported keyboard series remain **6.7.x/6.8.x**. The original public packages require an exact Qt-minor match; revision 3 is designed for older-build → newer-runtime compatibility within Qt 6, with a real loader check instead of fabricated library-version floors. A runtime older than the build baseline or a missing required ABI still needs a genuinely compatible build—not forced dependencies. Run `swipe-keyboard check` for the specific failure. A future Plasma Keyboard 6.9 upgrade may still conflict with the currently verified series limit; disable/remove the extension first if no compatible release is available. Do not downgrade individual desktop libraries or bypass the package manager.
 
 ### Already removed the package without disabling?
 
@@ -93,7 +93,7 @@ KDE may still point to the removed Swipe Keyboard launcher. Reinstall a compatib
 
 **Agent assistance is welcome.** If an error is unfamiliar, you can ask an AI coding agent—such as [YouCoded](https://youcoded.ai)—to inspect the error and guide setup/recovery. It is optional; [GitHub Issues](https://github.com/itsdestin/swipe-keyboard/issues) remains available without an agent. Start with the guide, the exact error, distribution and version information. Ask it to diagnose before changing settings, preserve existing custom layouts/restoration records, and avoid forcing dependencies. Never share typed text, recordings, credentials or unreviewed logs. The maintainer also makes YouCoded.
 
-In package release `0.1.0-2`, `swipe-keyboard check` prints a read-only support summary (package, Plasma Keyboard/Qt versions, session and current selection). It does not prove touchscreen or application compatibility. Older release `0.1.0-1` prints only a short pass/fail message.
+Since package revision 2, `swipe-keyboard check` prints a read-only support summary (package, Plasma Keyboard/Qt versions, session and current selection). Revision 3 also validates native-library loading before changing settings. Neither proves touchscreen or application compatibility. The original public `0.1.0-1` prints only a short pass/fail message.
 
 ## Known v1 limits
 

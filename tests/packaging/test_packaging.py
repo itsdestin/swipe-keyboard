@@ -177,8 +177,8 @@ include("{ROOT}/cmake/Install.cmake")
 
     def test_ci_checks_installed_wrapper_as_ordinary_user(self):
         workflow = (ROOT/'.github/workflows/packages.yml').read_text()
-        self.assertEqual(workflow.count('XDG_SESSION_TYPE=wayland XDG_CURRENT_DESKTOP=KDE swipe-keyboard check'), 2)
-        self.assertEqual(workflow.count('test ! -e /usr/bin/swipe-keyboard'), 2)
+        self.assertEqual(workflow.count('XDG_SESSION_TYPE=wayland XDG_CURRENT_DESKTOP=KDE swipe-keyboard check'), 3)
+        self.assertEqual(workflow.count('test ! -e /usr/bin/swipe-keyboard'), 3)
 
     def test_fedora_ci_retains_test_executable_until_package_probe(self):
         workflow = (ROOT/'.github/workflows/packages.yml').read_text()
@@ -186,13 +186,24 @@ include("{ROOT}/cmake/Install.cmake")
 
     def test_ci_loads_extracted_package_in_real_stock_inputpanel(self):
         workflow = (ROOT/'.github/workflows/packages.yml').read_text()
-        self.assertEqual(workflow.count('--runtime-root dist/stage/usr/share/swipe-keyboard'), 2)
-        self.assertEqual(workflow.count('python3 scripts/check-stock-layout.py'), 2)
+        self.assertEqual(workflow.count('--runtime-root dist/stage/usr/share/swipe-keyboard'), 3)
+        self.assertEqual(workflow.count('python3 scripts/check-stock-layout.py'), 3)
 
     def test_ci_extracts_main_arch_package_not_debug_archive_wildcard(self):
         workflow = (ROOT/'.github/workflows/packages.yml').read_text()
         self.assertNotIn('tar -xf dist/*.pkg.tar.zst', workflow)
-        self.assertIn('tar -xf dist/swipe-keyboard-0.1.0-2-x86_64.pkg.tar.zst', workflow)
+        self.assertIn('tar -xf dist/swipe-keyboard-0.1.0-3-x86_64.pkg.tar.zst', workflow)
+
+    def test_arch_ci_uses_older_baseline_and_retests_identical_bytes_on_current_runtime(self):
+        workflow = (ROOT/'.github/workflows/packages.yml').read_text()
+        self.assertIn('archive.archlinux.org/repos/2026/07/01/$repo/os/$arch', workflow)
+        self.assertIn('pacman -Syyuu --noconfirm', workflow)
+        self.assertIn('cp /tmp/current-mirrorlist /etc/pacman.d/mirrorlist', workflow)
+        self.assertIn('sha256sum -c dist/baseline-package.sha256', workflow)
+        self.assertIn('packaging/BASELINE-VERSIONS.txt', workflow)
+        self.assertIn('dist/CURRENT-VERSIONS.txt', workflow)
+        self.assertLess(workflow.index('pacman -Syyuu --noconfirm'), workflow.index('makepkg --noconfirm'))
+        self.assertGreater(workflow.index('sha256sum -c'), workflow.index('makepkg --noconfirm'))
 
     def test_native_builds_include_kirigami_for_accent_test(self):
         arch = (ROOT/'packaging/arch/PKGBUILD').read_text()
@@ -214,7 +225,7 @@ include("{ROOT}/cmake/Install.cmake")
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertNotIn("package '' was not found", result.stderr)
 
-    def test_arch_native_dependencies_allow_compatible_upgrades(self):
+    def test_arch_native_dependencies_merge_without_duplicate_provider_entries(self):
         with tempfile.TemporaryDirectory() as tmp:
             p = pathlib.Path(tmp)
             source = p/'src/swipe-keyboard-0.1.0/scripts'
@@ -224,15 +235,22 @@ include("{ROOT}/cmake/Install.cmake")
 source "$1"
 srcdir="$2/src"; pkgdir="$2/pkg"
 cmake() { :; }
-find() { printf 'libQt6Core.so.6 => /usr/lib/libQt6Core.so.6 (0x0)\\n'; }
-pacman() { if [ "$1" = -Qoq ]; then echo qt6-base; else echo 'qt6-base 6.12.0-3'; fi; }
+python() {
+  if [[ $1 == scripts/arch-dependencies.py ]]; then
+    printf '%s\\n' 'qt6-base>=6.11' 'qt6-declarative>=6.11' 'kwindowsystem'
+  else command python "$@"; fi
+}
 package
 printf '%s\\n' "${depends[@]}"
 '''
             result = subprocess.run(['bash', '-c', command, 'test', str(ROOT/'packaging/arch/PKGBUILD'), str(p)],
                                     check=True, text=True, capture_output=True)
-            self.assertIn('qt6-base>=6.12.0-3', result.stdout.splitlines())
-            self.assertNotIn('qt6-base=6.12.0-3', result.stdout.splitlines())
+            dependencies = result.stdout.splitlines()
+            self.assertIn('qt6-base>=6.11', dependencies)
+            self.assertIn('qt6-declarative>=6.11', dependencies)
+            self.assertNotIn('qt6-declarative', dependencies)
+            self.assertEqual(dependencies.count('kwindowsystem'), 1)
+            self.assertEqual(sum(d.startswith('qt6-declarative') for d in dependencies), 1)
 
     def test_recipes_no_transaction_hooks(self):
         arch = (ROOT/'packaging/arch/PKGBUILD').read_text()

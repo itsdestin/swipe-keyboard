@@ -20,6 +20,7 @@ class Commands:
         self.fedora_commands = False
         self.live_mode = 0
         self.arch_qtpaths = False
+        self.preflight_error = None
 
     def __call__(self, args, **kwargs):
         self.calls.append(args)
@@ -34,6 +35,11 @@ class Commands:
             if self.arch_qtpaths and args[0] != '/usr/lib/qt6/bin/qtpaths6':
                 raise FileNotFoundError('Arch keeps qtpaths6 outside the default PATH')
             value = self.qt_version
+        elif command == 'swipekb-preflight':
+            if self.preflight_error:
+                raise subprocess.CalledProcessError(1, args, stderr=self.preflight_error)
+            assert args[1].endswith('/qml/SwipeKeyboard/libswipekeyboardplugin.so')
+            assert kwargs['timeout'] == 15
         elif command == 'kreadconfig6':
             key = args[args.index('--key') + 1]
             value = self.settings.get(key, args[args.index('--default') + 1])
@@ -178,6 +184,40 @@ class SetupTests(unittest.TestCase):
             self.controller.enable()
         self.assertFalse((self.base / 'data').exists())
         self.assertEqual(self.commands.settings['InputMethod'], '/old/keyboard.desktop')
+
+    def test_newer_same_major_qt_requires_successful_native_preflight(self):
+        (self.root / 'runtime.json').write_text(json.dumps({'qt': '6.11'}))
+        self.controller.check()
+        self.assertTrue(any(Path(c[0]).name == 'swipekb-preflight' for c in self.commands.calls))
+        self.assertFalse((self.base / 'data').exists())
+
+    def test_unresolved_abi_refuses_read_only_before_activation(self):
+        for error in ('libmissing.so: cannot open shared object file',
+                      'GLIBCXX_3.4.32 not found', 'undefined symbol: a_new_KF_function'):
+            with self.subTest(error=error):
+                self.commands.preflight_error = error
+                with self.assertRaisesRegex(self.module.SetupError, 'Native plugin load failed'):
+                    self.controller.enable()
+                self.assertFalse((self.base / 'data').exists())
+                self.assertEqual(self.commands.settings['InputMethod'], '/old/keyboard.desktop')
+
+    def test_missing_preflight_and_loader_timeout_fail_without_writes(self):
+        helper = self.root / 'integration/swipekb-preflight'
+        helper.unlink()
+        with self.assertRaisesRegex(self.module.SetupError, 'Package files are missing'):
+            self.controller.enable()
+        with mock.patch.object(self.controller, 'run', side_effect=subprocess.TimeoutExpired('loader', 15, stderr=b'timed out')):
+            with self.assertRaisesRegex(self.module.SetupError, 'Native plugin load failed'):
+                self.controller.preflight()
+        self.assertFalse((self.base / 'data').exists())
+        self.assertEqual(self.commands.settings['InputMethod'], '/old/keyboard.desktop')
+
+    def test_different_major_and_malformed_qt_are_rejected(self):
+        for qt in ('7.0.0', '5.15.0', 'garbled'):
+            self.commands.qt_version = qt
+            with self.subTest(qt=qt), self.assertRaises(self.module.SetupError):
+                self.controller.enable()
+        self.assertFalse((self.base / 'data').exists())
 
     def test_arch_qt_version_tool_outside_default_path(self):
         self.commands.arch_qtpaths = True

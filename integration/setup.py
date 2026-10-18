@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from layout import build_overlay
 
 REQUIRED_ASSETS = (
+    'integration/swipekb-preflight',
     'qml/SwipeKeyboard/qmldir', 'qml/SwipeKeyboard/libswipekeyboardplugin.so',
     'qml/SwipeKeyboard/libswipekeyboard.so', 'qml/SwipeKeyboard/libswipekb_engine.so',
     'models/honorable_sturgeon/model_fp32.pte', 'models/honorable_sturgeon/metadata.json',
@@ -67,6 +68,19 @@ class Controller:
         except (OSError, subprocess.CalledProcessError) as error:
             raise SetupError(f'{args[0]} failed; no compatible setup could be confirmed. {error}') from error
 
+    def preflight(self):
+        # WHY a child QPluginLoader with eager binding: version strings cannot prove
+        # KF/Qt/libstdc++ symbols exist. No instance(), QML engine or desktop is started.
+        args = [str(self.root / 'integration/swipekb-preflight'),
+                str(self.root / 'qml/SwipeKeyboard/libswipekeyboardplugin.so')]
+        try:
+            self.run(args, check=True, capture_output=True, text=True, env=self.env, timeout=15)
+        except (OSError, subprocess.SubprocessError) as error:
+            detail = getattr(error, 'stderr', None) or str(error)
+            if isinstance(detail, bytes):
+                detail = detail.decode(errors='replace')
+            raise SetupError('Native plugin load failed; stock keyboard is unchanged. ' + detail.strip()) from error
+
     def check(self):
         if platform.machine() not in ('x86_64', 'AMD64'):
             raise SetupError('This package targets x86_64 computers only.')
@@ -82,7 +96,7 @@ class Controller:
         try:
             runtime = json.loads((self.root / 'runtime.json').read_text())
             build_qt = runtime['qt']
-        except (OSError, ValueError, KeyError) as error:
+        except (OSError, ValueError, KeyError, TypeError) as error:
             raise SetupError('Package compatibility metadata is missing or damaged. Reinstall the package.') from error
         qt = None
         # WHY explicit Arch path: qt6-base installs this tool under /usr/lib/qt6/bin,
@@ -93,11 +107,16 @@ class Controller:
                 break
             except SetupError:
                 continue
-        if qt is None or '.'.join(qt.split('.')[:2]) != build_qt:
-            raise SetupError(f'Package was built for Qt {build_qt}; installed Qt is {qt or "unavailable"}. Use a matching package.')
+        # WHY one-way compatibility: public Qt permits an older-built plugin on a
+        # newer same-major runtime, never a newer-built plugin on an older runtime.
+        built = re.fullmatch(r'6\.(\d+)', build_qt) if isinstance(build_qt, str) else None
+        installed = re.fullmatch(r'6\.(\d+)(?:\.\d+)?', qt or '')
+        if (not built or int(built[1]) < 8 or not installed or int(installed[1]) < int(built[1])):
+            raise SetupError(f'Package needs Qt {build_qt} or newer in the same major; installed Qt is {qt or "unavailable"}. Use a compatible package.')
         missing = [name for name in REQUIRED_ASSETS if not (self.root / name).is_file() or (self.root / name).stat().st_size == 0]
         if missing:
             raise SetupError('Package files are missing; reinstall the package: ' + ', '.join(missing))
+        self.preflight()
         if not (self.stock / 'en_US').is_dir():
             raise SetupError('Stock Plasma Keyboard English layouts are missing.')
         if (self.data_home / 'plasma/keyboard/layouts').exists():

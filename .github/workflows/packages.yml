@@ -25,13 +25,21 @@ jobs:
     runs-on: ubuntu-latest
     container: archlinux:latest
     steps:
-      - name: Install current build dependencies
-        run: pacman -Syu --noconfirm --needed base-devel git cmake ninja python python-pip qt6-declarative qt6-virtualkeyboard qt6-tools kwindowsystem kconfig kirigami gtest curl plasma-keyboard
+      - name: Use the older public build baseline (disposable container only)
+        run: |
+          # WHY full downgrade: mixing archived Qt with current headers/libc would
+          # silently stamp newer ABI requirements into a supposedly older build.
+          cp /etc/pacman.d/mirrorlist /tmp/current-mirrorlist
+          printf 'Server = https://archive.archlinux.org/repos/2026/07/01/$repo/os/$arch\n' > /etc/pacman.d/mirrorlist
+          pacman -Syyuu --noconfirm
+          pacman -S --noconfirm --needed base-devel git cmake ninja python python-pip qt6-declarative qt6-virtualkeyboard qt6-tools kwindowsystem kconfig kirigami gtest curl plasma-keyboard
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-      - name: Record available keyboard versions (not hardware acceptance)
-        run: pacman -Si plasma-keyboard | tee packaging/AVAILABLE-KEYBOARD.txt
+      - name: Record actual baseline libraries (not hardware acceptance)
+        run: |
+          pacman -Q glibc gcc-libs qt6-base qt6-declarative qt6-virtualkeyboard kwindowsystem plasma-keyboard python | tee packaging/BASELINE-VERSIONS.txt
+          pacman -Si plasma-keyboard | tee packaging/AVAILABLE-KEYBOARD.txt
       - name: Build source and native package as unprivileged builder
         run: |
           useradd -m builder
@@ -48,15 +56,29 @@ jobs:
         run: |
           mkdir dist/stage
           # makepkg may also emit a debug archive; extract only the installable main package.
-          tar -xf dist/swipe-keyboard-0.1.0-2-x86_64.pkg.tar.zst -C dist/stage
+          tar -xf dist/swipe-keyboard-0.1.0-3-x86_64.pkg.tar.zst -C dist/stage
           python scripts/package-check.py dist/stage
           # Load the actual stripped package payload, not the build tree, in a private offscreen InputPanel.
           python3 scripts/check-stock-layout.py dist/src/swipe-keyboard-0.1.0/build/plugin/tst_stocklayout --runtime-root dist/stage/usr/share/swipe-keyboard
-          pacman -Qip dist/*.pkg.tar.zst > dist/package-metadata.txt
+          pacman -Qip dist/swipe-keyboard-0.1.0-3-x86_64.pkg.tar.zst > dist/package-metadata.txt
+          sha256sum dist/swipe-keyboard-0.1.0-3-x86_64.pkg.tar.zst > dist/baseline-package.sha256
       - name: Verify installed wrapper as ordinary user and remove package
         run: |
-          pacman -U --noconfirm dist/swipe-keyboard-0.1.0-2-x86_64.pkg.tar.zst
+          pacman -U --noconfirm dist/swipe-keyboard-0.1.0-3-x86_64.pkg.tar.zst
           # No compositor is launched or configured: check is read-only, with a normal user's PATH.
+          su builder -c 'XDG_SESSION_TYPE=wayland XDG_CURRENT_DESKTOP=KDE swipe-keyboard check'
+          pacman -R --noconfirm swipe-keyboard
+          test ! -e /usr/bin/swipe-keyboard
+          test ! -e /usr/share/swipe-keyboard
+      - name: Test identical older-built bytes on current Arch (container only)
+        run: |
+          cp /tmp/current-mirrorlist /etc/pacman.d/mirrorlist
+          pacman -Syyu --noconfirm
+          pacman -Q glibc gcc-libs qt6-base qt6-declarative qt6-virtualkeyboard kwindowsystem plasma-keyboard python | tee dist/CURRENT-VERSIONS.txt
+          sha256sum -c dist/baseline-package.sha256
+          python scripts/package-check.py dist/stage
+          python3 scripts/check-stock-layout.py dist/src/swipe-keyboard-0.1.0/build/plugin/tst_stocklayout --runtime-root dist/stage/usr/share/swipe-keyboard
+          pacman -U --noconfirm dist/swipe-keyboard-0.1.0-3-x86_64.pkg.tar.zst
           su builder -c 'XDG_SESSION_TYPE=wayland XDG_CURRENT_DESKTOP=KDE swipe-keyboard check'
           pacman -R --noconfirm swipe-keyboard
           test ! -e /usr/bin/swipe-keyboard
@@ -68,6 +90,9 @@ jobs:
             dist/*.pkg.tar.zst
             dist/*.tar.gz*
             dist/package-metadata.txt
+            dist/baseline-package.sha256
+            dist/CURRENT-VERSIONS.txt
+            packaging/BASELINE-VERSIONS.txt
             packaging/AVAILABLE-KEYBOARD.txt
   fedora:
     runs-on: ubuntu-latest
@@ -98,7 +123,7 @@ jobs:
         run: |
           mkdir dist/stage
           cd dist/stage
-          rpm2cpio ../swipe-keyboard-0.1.0-2.fc44.x86_64.rpm | cpio -idm
+          rpm2cpio ../swipe-keyboard-0.1.0-3.fc44.x86_64.rpm | cpio -idm
           cd ../..
           python3 scripts/package-check.py dist/stage
           test_executable=$(find /home/builder/rpmbuild/BUILD -path '*/redhat-linux-build/plugin/tst_stocklayout' -type f -print -quit)
@@ -112,7 +137,7 @@ jobs:
           if rpm -q systemd-standalone-tmpfiles >/dev/null 2>&1; then
             dnf -y swap systemd-standalone-tmpfiles systemd
           fi
-          dnf -y --setopt=install_weak_deps=False install dist/swipe-keyboard-0.1.0-2.fc44.x86_64.rpm
+          dnf -y --setopt=install_weak_deps=False install dist/swipe-keyboard-0.1.0-3.fc44.x86_64.rpm
           # Check the packaged command, not a developer's Python import or extended Qt tool PATH.
           su builder -c 'XDG_SESSION_TYPE=wayland XDG_CURRENT_DESKTOP=KDE swipe-keyboard check'
           dnf -y --setopt=clean_requirements_on_remove=False remove swipe-keyboard

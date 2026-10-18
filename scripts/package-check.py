@@ -6,6 +6,19 @@ import hashlib
 import pathlib
 import subprocess
 import configparser
+import re
+
+
+def check_public_qt_abi(library):
+    # WHY final ELF, not target names: qmlcachegen can introduce private imports
+    # after configuration. Undefined symbols catch versioned AND unversioned Qt internals.
+    symbols = subprocess.run(['readelf', '-W', '--dyn-syms', str(library)],
+                             check=True, text=True, capture_output=True).stdout
+    private = [line.strip() for line in symbols.splitlines()
+               if re.search(r'\bUND\b', line) and
+               ('PRIVATE_API' in line or 'AOTCompiledContext' in line or 'AOTLookupValidation' in line)]
+    if private:
+        raise ValueError(f'{library}: unexpected private Qt ABI imports: ' + '; '.join(private))
 
 
 def check_desktop(path):
@@ -26,7 +39,7 @@ def check_desktop(path):
 def check(root):
     root = pathlib.Path(root)
     base = root/'usr/share/swipe-keyboard'
-    required = ['integration/setup.py', 'integration/layout.py', 'runtime.json',
+    required = ['integration/setup.py', 'integration/layout.py', 'integration/swipekb-preflight', 'runtime.json',
                 'qml/SwipeKeyboard/qmldir', 'qml/SwipeKeyboard/SwipeCapture.qml',
                 'qml/SwipeKeyboard/libswipekeyboard.so', 'qml/SwipeKeyboard/libswipekeyboardplugin.so',
                 'qml/SwipeKeyboard/libswipekb_engine.so',
@@ -54,7 +67,10 @@ def check(root):
     assert json.loads((base/'runtime.json').read_text())['qt'].startswith('6.'), 'Missing Qt ABI gate'
     for unwanted in ('eval', 'nlm', 'lm', 'dict-src'):
         assert not (base/unwanted).exists(), f'Unexpected optional/source payload: {unwanted}'
-    for library in (base/'qml/SwipeKeyboard').glob('*.so*'):
+    helper = base/'integration/swipekb-preflight'
+    assert helper.stat().st_mode & 0o111, 'Native preflight must be executable'
+    for library in [helper, *(base/'qml/SwipeKeyboard').glob('*.so*')]:
+        check_public_qt_abi(library)
         result = subprocess.run(['ldd', str(library)], text=True, capture_output=True, check=True)
         assert 'not found' not in result.stdout, result.stdout
         resolved = result.stdout.replace(str(root.resolve()), '/STAGED')
@@ -63,5 +79,13 @@ def check(root):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('root')
-    check(parser.parse_args().root)
+    parser.add_argument('root', nargs='?')
+    parser.add_argument('--elf', nargs='+', help='Check final native files for private Qt imports only')
+    args = parser.parse_args()
+    if args.elf:
+        for library in args.elf:
+            check_public_qt_abi(library)
+    elif args.root:
+        check(args.root)
+    else:
+        parser.error('root or --elf is required')

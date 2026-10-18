@@ -4,6 +4,12 @@ find_package(Qt6 6.8 REQUIRED COMPONENTS Core Gui Qml Quick VirtualKeyboard Test
 find_package(KF6WindowSystem REQUIRED)
 qt_standard_project_setup(REQUIRES 6.8)
 
+# WHY Core-only: activation must validate Qt metadata and all ELF relocations
+# without a compositor, QML engine or access to the user's running keyboard.
+qt_add_executable(swipekb-preflight preflight.cpp)
+target_link_libraries(swipekb-preflight PRIVATE Qt6::Core)
+install(TARGETS swipekb-preflight RUNTIME DESTINATION share/swipe-keyboard/integration)
+
 # Pure text logic, no keyboard or engine: unit-tested on its own.
 add_library(swipekb_session STATIC swipesession.cpp swipeoutcome.cpp)
 target_include_directories(swipekb_session PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
@@ -34,6 +40,9 @@ qt_add_library(swipekeyboard SHARED)
 qt_add_qml_module(swipekeyboard
     URI SwipeKeyboard
     VERSION 1.0
+    # WHY: QML AOT imports Qt_<minor>_PRIVATE_API even with public C++ targets.
+    # Interpreting this small QML file preserves Qt's older-built -> newer-runtime ABI.
+    NO_CACHEGEN
     OUTPUT_DIRECTORY ${SWIPEKB_QML_DIR}/SwipeKeyboard
     QML_FILES SwipeCapture.qml
     SOURCES swipeinputmethod.h swipeinputmethod.cpp windowblur.h windowblur.cpp
@@ -64,6 +73,17 @@ set_tests_properties(plugin_load PROPERTIES ENVIRONMENT "SWIPEKB_DATA=${SWIPEKB_
 
 # Load the distro's real InputPanel/layouts, not just standalone plugin components.
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
+add_test(NAME plugin_public_qt_abi
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/package-check.py --elf
+        $<TARGET_FILE:swipekeyboard> $<TARGET_FILE:swipekeyboardplugin>
+        $<TARGET_FILE:swipekb_engine> $<TARGET_FILE:swipekb-preflight>)
+add_test(NAME plugin_native_preflight
+    COMMAND swipekb-preflight $<TARGET_FILE:swipekeyboardplugin>)
+add_test(NAME plugin_preflight_failures
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/packaging/test_elf_compatibility.py
+        ElfCompatibility.test_real_preflight_rejects_missing_library_and_unresolved_symbol)
+set_tests_properties(plugin_preflight_failures PROPERTIES
+    ENVIRONMENT "SWIPEKB_TEST_PREFLIGHT=$<TARGET_FILE:swipekb-preflight>")
 qt_add_executable(tst_stocklayout tests/tst_stocklayout.cpp)
 target_link_libraries(tst_stocklayout PRIVATE Qt6::Qml Qt6::Quick Qt6::Test)
 add_dependencies(tst_stocklayout swipekeyboardplugin)
