@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build-time preparation only: checksum-pinned FUTO base models and English
-# AOSP + wordfreq dictionary, including license notices. Not an end-user install.
+# AOSP + wordfreq English dictionary and es/fr/de packs, including license notices. Not an end-user install.
 # Optional evaluation/neural data requires SWIPEKB_FETCH_DEVELOPER_EXTRAS=1.
 # Optional n-gram generation remains an explicit scripts/lm/build-lm.sh operation.
 set -euo pipefail

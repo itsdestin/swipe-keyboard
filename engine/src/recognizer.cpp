@@ -7,6 +7,8 @@
 #include <exception>
 #include <fstream>
 #include <numeric>
+#include <mutex>
+#include <QChar>
 #include <unordered_map>
 
 #include "swipe_decoder/engine.hpp"
@@ -28,6 +30,7 @@ struct Recognizer::Impl {
     std::unordered_map<std::string, std::string> spelling;
     // Apostrophes back into the typed guesses ("lets" -> "let's", "im" -> "i'm"). See Spellings.
     Spellings spellings;
+    std::string bestShape;
     RecognizerOptions options;
     bool ready = false;
 };
@@ -193,11 +196,15 @@ static std::vector<RawCandidate> toRaw(const NgramLM &ngram, const std::vector<s
 
 Recognizer::Recognizer() : impl_(std::make_unique<Impl>()) {}
 Recognizer::~Recognizer() = default;
+std::string Recognizer::bestShapeWord() const { return impl_->spellings.spell(impl_->bestShape); }
 
 bool Recognizer::init(const ModelPaths &p, const RecognizerOptions &options)
 {
     impl_ = std::make_unique<Impl>();
     try {
+        // WHY defense in depth: callers outside the plugin must not attach English refinements to an experimental language.
+        if (options.language!="en" && (!p.decoder.empty() || !p.lm_model.empty() || !p.lm_vocab.empty() ||
+            !p.ngram.empty() || !p.nlm.empty() || options.ngram || options.nlm)) return false;
         if (!fileExists(p.encoder) || !fileExists(p.dictionary)) {
             std::fprintf(stderr, "swipekb: missing encoder or dictionary (%s, %s)\n", p.encoder.c_str(), p.dictionary.c_str());
             return false;
@@ -216,10 +223,29 @@ bool Recognizer::init(const ModelPaths &p, const RecognizerOptions &options)
             if (impl_->nlm)
                 impl_->spelling = readSpellings(p.dictionary);
         }
-        impl_->dict = swipe_decoder::load_trie_simple(p.dictionary);
+        // WHY install once before any trie: FUTO otherwise only lowercases ASCII on desktop.
+        static std::once_flag caseTable;
+        std::call_once(caseTable, [] {
+            std::vector<int> from,to;
+            for (char32_t c=128;c<0x10000;++c) {
+                const auto lower=QChar::toLower(c);
+                if (c!=lower) { from.push_back(int(c)); to.push_back(int(lower)); }
+            }
+            swipe_decoder::set_case_mapping(from.data(),to.data(),from.size());
+        });
+        // WHY the default trie is ASCII: construct its Unicode alphabet explicitly for experimental packs.
+        swipe_decoder::ParsedCombined combined;
+        if (!swipe_decoder::parse_combined_vocab(p.dictionary,"f",combined)) return false;
+        impl_->dict.emplace(options.alphabet);
+        swipe_decoder::apply_parsed_to_trie(combined,*impl_->dict);
+        // WHY expose the same bounded physical aliases that Spellings restores. These are
+        // dictionary-derived keys, not English fallback or relaxed lexical evaluation.
+        for (const auto &entry:combined.alphas)
+            for (const auto &alias:Spellings::recognitionAliases(entry.alpha,options.language))
+                impl_->dict->insert(alias,entry.max_freq,true);
         // WHY always (not an option): FUTO's search drops apostrophes, so without this every contraction was
         // typed wrong ("im", "dont", "lets"). Costs one more read of the dictionary file at start-up.
-        impl_->spellings = Spellings::fromCombinedFile(p.dictionary);
+        impl_->spellings = Spellings::fromCombinedFile(p.dictionary, options.language);
         if (!impl_->dict) {
             std::fprintf(stderr, "swipekb: could not read dictionary %s\n", p.dictionary.c_str());
             return false;
@@ -286,9 +312,10 @@ std::vector<Candidate> Recognizer::recognizeLetters(const std::vector<TracePoint
                                                     const std::vector<KeyRect> &keys,
                                                     const std::vector<std::string> &context, int top_k)
 {
+    impl_->bestShape.clear();
     if (!impl_->ready || top_k <= 0)
         return {};
-    const auto n = normalize(trace, keys);
+    const auto n = normalize(trace, keys, impl_->options.alphabet, impl_->options.popupAliases);
     if (!n)
         return {};
     try {
@@ -318,6 +345,7 @@ std::vector<Candidate> Recognizer::recognizeLetters(const std::vector<TracePoint
             }
             for (const auto &c : ranked)
                 letters.push_back(int(NgramLM::alphaForm(c.word).size()));
+            impl_->bestShape=bestShape;
             return finishWithNlm(*impl_->nlm, impl_->spelling, std::move(ranked), letters, bestShape, context,
                                  impl_->options.nlm_weights, top_k);
         }
@@ -328,9 +356,11 @@ std::vector<Candidate> Recognizer::recognizeLetters(const std::vector<TracePoint
             // scoring.json), so no word is lost by this.
             const auto words = impl_->engine.recognize(n->x.data(), n->y.data(), n->t.data(), n->x.size(), {},
                                                        poolSize(impl_->options));
+            if (!words.empty()) impl_->bestShape=std::max_element(words.begin(),words.end(),[](const auto &a,const auto &b) { return a.ctc_score<b.ctc_score; })->word;
             return rerankCandidates(toRaw(impl_->ngram, words, context), impl_->options.weights, top_k);
         }
         const auto words = impl_->engine.recognize(n->x.data(), n->y.data(), n->t.data(), n->x.size(), context, top_k);
+        if (!words.empty()) impl_->bestShape=std::max_element(words.begin(),words.end(),[](const auto &a,const auto &b) { return a.ctc_score<b.ctc_score; })->word;
         std::vector<Candidate> out;
         out.reserve(words.size());
         for (const auto &w : words)
@@ -352,7 +382,7 @@ std::vector<RawCandidate> Recognizer::recognizeDetailed(const std::vector<TraceP
 {
     if (!impl_->ready)
         return {};
-    const auto n = normalize(trace, keys);
+    const auto n = normalize(trace, keys, impl_->options.alphabet, impl_->options.popupAliases);
     if (!n)
         return {};
     try {

@@ -1,14 +1,16 @@
 # Local build candidate only; no install hooks and no publication.
 pkgname=swipe-keyboard
-pkgver=0.1.0
-pkgrel=3
-pkgdesc='Standalone English swipe input for Plasma Keyboard — Powered by FUTO Swipe'
+pkgver=0.2.0
+pkgrel=1
+pkgdesc='Multilingual swipe input and English next-word suggestions for Plasma Keyboard — Powered by FUTO Swipe'
 arch=('x86_64')
 url='https://github.com/itsdestin/swipe-keyboard'
 license=('GPL-3.0-or-later' 'Apache-2.0' 'CC-BY-SA-4.0' 'LicenseRef-FUTO-Model-Weights-1.0')
 depends=('python' 'systemd' 'plasma-keyboard>=6.7' 'plasma-keyboard<6.9' 'qt6-declarative' 'qt6-virtualkeyboard' 'kwindowsystem' 'kconfig' 'qt6-tools')
 # Kirigami supplies the QML accent-colour probe exercised by native plugin tests.
 makedepends=('cmake' 'ninja' 'gcc' 'git' 'make' 'python-pip' 'kirigami' 'gtest' 'curl')
+# Real KConfigWatcher regression needs a fresh private session, never the host bus.
+checkdepends=('dbus')
 # Native library dependencies are supplemented from the actual staged ELF files.
 # This source tarball is generated locally with scripts/package-source.sh.
 source=("swipe-keyboard-$pkgver.tar.gz")

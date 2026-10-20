@@ -8,13 +8,26 @@
 
 #include "swipeoutcome.h"
 #include "swipesession.h"
+#include "nextwordsession.h"
+#include "nextwordworker.h"
+#include "languageprofile.h"
+#include "predictiondiagnostics.h"
+#include <QPointer>
+#include <memory>
+namespace swipekb { class Recognizer; }
 
 class SwipeInputMethod : public QVirtualKeyboardAbstractInputMethod {
     Q_OBJECT
     QML_ELEMENT
+    Q_PROPERTY(QObject *predictionPolicySource READ predictionPolicySource WRITE setPredictionPolicySource)
+    Q_PROPERTY(QVariantMap diagnostics READ diagnostics NOTIFY diagnosticsChanged)
 
 public:
     explicit SwipeInputMethod(QObject *parent = nullptr);
+    SwipeInputMethod(QObject *parent, NextWordWorker::Inference inference);
+    ~SwipeInputMethod() override;
+    swipekb::ProfileSnapshot profileSnapshot() const { return m_profiles.snapshot(); }
+    Q_INVOKABLE void setPhysicalLayout(const QString &layoutId);
 
     QList<QVirtualKeyboardInputEngine::InputMode> inputModes(const QString &locale) override;
     bool setInputMode(const QString &locale, QVirtualKeyboardInputEngine::InputMode inputMode) override;
@@ -30,15 +43,55 @@ public:
     void reset() override;
     void update() override;
 
+    QVariantMap diagnostics() const;
+    Q_INVOKABLE QString predictionSelectionToken() const;
+    Q_INVOKABLE quint64 beginPredictionSelection(const QString &token);
+    Q_INVOKABLE void endPredictionSelection(quint64 pressId);
+    QObject *predictionPolicySource() const { return m_policySource; }
+    void setPredictionPolicySource(QObject *);
     Q_INVOKABLE bool isReady() const;
+    Q_INVOKABLE bool isReadyForLayout(const QVariantList &keys) const;
     Q_INVOKABLE int beginSwipe();
+    Q_INVOKABLE bool validateSwipe(int generation);
     Q_INVOKABLE void finishSwipe(const QVariantList &points, const QVariantList &keys, int generation);
 
 signals:
     void gestureInvalidated();
+    void profileChanged();
+    void predictionWorkSettled();
+    void diagnosticsChanged();
 
+private slots:
+    void predictionPolicyChanged();
 private:
-    bool safeContext() const;
+    bool safeContext();
+    bool m_liveQueryActive = false;
+#ifdef SWIPEKB_PRIVATE_FLAGS_DIAGNOSTIC
+    bool observeFlags(const char *phase);
+    quint64 m_diagnosticContext = 0;
+    quint64 m_diagnosticItem = 0;
+    quint64 m_diagnosticRecognitionCount = 0;
+    quint64 m_diagnosticCommitLength = 0;
+    bool m_diagnosticQueryActive = false;
+#endif
+    void resolveCurrentProfile();
+    swipekb::ProfileEpoch m_profiles;
+    std::shared_ptr<swipekb::Recognizer> m_recognizer;
+    QString m_locale, m_layoutId, m_inputMode;
+    void ensureContextConnections();
+    EditorSnapshot predictionEditor() const;
+    PredictionPolicy predictionPolicy() const;
+    void invalidatePredictions();
+    void observePredictionEcho();
+    bool predictionCapable() const;
+    CaseMode caseMode() const;
+    QStringList barCandidates() const;
+    quint64 m_predictionPressId = 0;
+    std::optional<PredictionStamp> m_predictionTap;
+    NextWordSession m_nextWord;
+    NextWordWorker m_predictionWorker;
+    swipekb::PredictionModelState m_predictionModelState=swipekb::PredictionModelState::NotRequested;
+    QPointer<QObject> m_policySource;
     int m_generation = 0;
     bool m_contextConnected = false;
     QString textBeforeCursor() const;

@@ -39,7 +39,7 @@ def check_desktop(path):
 def check(root):
     root = pathlib.Path(root)
     base = root/'usr/share/swipe-keyboard'
-    required = ['integration/setup.py', 'integration/layout.py', 'integration/swipekb-preflight', 'runtime.json',
+    required = ['integration/setup.py', 'integration/layout.py', 'integration/swipekb-preflight', 'integration/swipekb-config', 'runtime.json',
                 'qml/SwipeKeyboard/qmldir', 'qml/SwipeKeyboard/SwipeCapture.qml',
                 'qml/SwipeKeyboard/libswipekeyboard.so', 'qml/SwipeKeyboard/libswipekeyboardplugin.so',
                 'qml/SwipeKeyboard/libswipekb_engine.so',
@@ -48,6 +48,8 @@ def check(root):
                 'models/hungry_jellyfish/context_lm.pte', 'models/hungry_jellyfish/vocab.txt',
                 'models/hungry_jellyfish/metadata.json', 'models/FUTO-MODEL-LICENSE.md',
                 'dict/en_swipe.combined']
+    required += ['integration/swipekb-profilecheck']
+    required += [f'language-packs/{language}.json' for language in ('es', 'fr', 'de')]
     for name in required:
         assert (base/name).is_file() and (base/name).stat().st_size, f'Missing/empty {name}'
     for name in ['usr/bin/swipe-keyboard', 'usr/share/applications/swipe-keyboard.desktop',
@@ -69,7 +71,21 @@ def check(root):
         assert not (base/unwanted).exists(), f'Unexpected optional/source payload: {unwanted}'
     helper = base/'integration/swipekb-preflight'
     assert helper.stat().st_mode & 0o111, 'Native preflight must be executable'
-    for library in [helper, *(base/'qml/SwipeKeyboard').glob('*.so*')]:
+    config_probe = base/'integration/swipekb-config'
+    assert config_probe.stat().st_mode & 0o111, 'Native KConfig probe must be executable'
+    profile_probe = base/'integration/swipekb-profilecheck'
+    assert profile_probe.stat().st_mode & 0o111, 'Profile diagnostic utility must be executable'
+    # WHY manifest presence is not pack verification; use the same pinned resolver as runtime.
+    for locale, layout in [('en-US', 'qwerty'), ('en-GB', 'qwerty'), ('es-ES', 'qwerty'),
+                           ('fr-FR', 'azerty'), ('de-DE', 'qwertz')]:
+        query = subprocess.run([str(profile_probe), '--model-root', str(base), '--locale', locale,
+                                '--layout', layout, '--mode', 'Latin'], check=True, text=True, capture_output=True)
+        capability = json.loads(query.stdout)
+        assert capability['swipeCapable'], f'Pack unavailable for {locale}'
+        assert capability['scope'] == 'queried-installation-capability'
+        if not locale.startswith('en'):
+            assert not capability['nextWordCapable'], 'Non-English prediction is unavailable'
+    for library in [helper, config_probe, profile_probe, *(base/'qml/SwipeKeyboard').glob('*.so*')]:
         check_public_qt_abi(library)
         result = subprocess.run(['ldd', str(library)], text=True, capture_output=True, check=True)
         assert 'not found' not in result.stdout, result.stdout

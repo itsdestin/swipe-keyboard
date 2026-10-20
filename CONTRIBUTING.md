@@ -1,10 +1,10 @@
 # Contributing
 
-Swipe Keyboard is an English swipe-typing extension for Plasma Keyboard, not a desktop theme or an ASUS hardware service. No YouCoded subscription, agent, or ASUS device is required to contribute.
+Swipe Keyboard adds local swipe recognition to Plasma Keyboard. Contributions to recognition, language support, packaging, accessibility and documentation are welcome.
 
 ## Scope
 
-The first test-release targets are x86_64 Arch/CachyOS and updated Fedora 44 KDE, Plasma Keyboard 6.7.x/6.8.x, in a KDE Wayland session. Native package checks passed on both, and bounded real-session acceptance passed in a full Fedora KDE VM. This does not establish all hardware/application compatibility. New Plasma/Qt versions, distributions and architectures need build/load tests and an interactive acceptance report before being added to the support list.
+See the [current release scope](docs/releases/v0.2.0.md) for tested configurations. Version 0.2.0 supplies a Steam Deck Desktop Mode Flatpak and a Fedora 44 x86_64 native package, with bounded Plasma Mobile coverage. ARM phones and Gaming Mode are not verified. Older Arch/CachyOS r3 packages have a different feature/test scope. New Plasma/Qt versions, distributions and architectures need build/load and real-input checks before being advertised.
 
 Keep recognition (`engine/`), Qt integration (`plugin/`), per-user activation (`integration/`) and distribution packaging (`packaging/`) separate. Do not add desktop layouts, tablet-mode policy or theme dependencies to the keyboard installer.
 
@@ -38,7 +38,7 @@ Recording is opt-in. Never attach `traces/`, learned words, typed context, crede
 
 ## Changes and reports
 
-Include the smallest reproducer, expected behavior, package version, distribution, Plasma Keyboard/Qt versions, Wayland/X11, locale and affected app. Hardware model is useful when behavior depends on touch input, but Z13 ownership is not required.
+Include the smallest reproducer, expected behavior, package version, distribution, Plasma Keyboard/Qt versions, Wayland/X11, locale and affected app. Include the hardware model when behavior depends on touch input.
 
 Contributions beyond code are welcome: clean-install reports, other distro recipes, accessible interaction testing, language support, and documentation. A new language needs matching models/dictionary/layout tests; changing a locale label alone does not add recognition support.
 

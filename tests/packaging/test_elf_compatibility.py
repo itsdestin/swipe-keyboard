@@ -54,6 +54,36 @@ class ElfCompatibility(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'Unresolved direct ELF dependency'):
                 generator.dependencies(stage, missing_provider)
 
+    def test_config_helper_contributes_direct_needs_and_version_floors(self):
+        generator = load('arch-dependencies')
+        with tempfile.TemporaryDirectory() as tmp:
+            stage = Path(tmp)
+            base = stage / 'usr/share/swipe-keyboard'
+            (base / 'qml/SwipeKeyboard').mkdir(parents=True)
+            (base / 'integration').mkdir()
+            (base / 'runtime.json').write_text('{"qt": "6.11"}')
+            for name in ('qml/SwipeKeyboard/one.so', 'integration/swipekb-preflight', 'integration/swipekb-config'):
+                (base / name).write_bytes(b'ELF')
+            calls = []
+            def command(args):
+                calls.append(args)
+                if args[0] == 'readelf':
+                    helper = Path(args[-1]).name == 'swipekb-config'
+                    if '--dynamic' in args:
+                        names = ('libKF6ConfigCore.so.6', 'libc.so.6', 'libstdc++.so.6') if helper else ('libc.so.6',)
+                        return '\n'.join(f'(NEEDED) Shared library: [{name}]' for name in names)
+                    return 'Version needs section\nName: GLIBC_2.44\nName: GLIBCXX_3.4.34\n' if helper else 'Version needs section\nName: GLIBC_2.40\n'
+                if args[0] == 'ldconfig':
+                    return '\n'.join(f'{name} (libc6,x86-64) => /usr/lib/{name}' for name in
+                                     ('libKF6ConfigCore.so.6', 'libc.so.6', 'libstdc++.so.6'))
+                if args[:2] == ['pacman', '-Qoq']:
+                    return {'libKF6ConfigCore.so.6': 'kconfig', 'libc.so.6': 'glibc', 'libstdc++.so.6': 'gcc-libs'}[Path(args[-1]).name]
+                self.fail(args)
+            self.assertEqual(generator.dependencies(stage, command),
+                             ['gcc-libs>=15.1', 'glibc>=2.44', 'kconfig'])
+            for mode in ('--dynamic', '--version-info'):
+                self.assertTrue(any(mode in call and call[-1].endswith('/swipekb-config') for call in calls))
+
     def test_cxx_symbol_floors_and_unknown_future_requirements(self):
         generator = load('arch-dependencies')
         self.assertEqual(generator.gcc_floor({'GLIBCXX_3.4.31', 'CXXABI_1.3.17'}), '16.1')

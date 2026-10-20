@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include <QString>
 
 #include "swipekb/recognizer.hpp"
 
@@ -74,7 +75,8 @@ bool isPunct(char32_t c)
 
 std::vector<std::string> contextWords(const std::string &textBeforeCursor, int max)
 {
-    std::vector<char32_t> text = decode(textBeforeCursor);
+    // WHY canonical equivalents must reach swipe and prediction context models with the same spelling.
+    std::vector<char32_t> text = decode(QString::fromStdString(textBeforeCursor).normalized(QString::NormalizationForm_C).toStdString());
 
     // Only the current sentence counts: after . ! ? the next word starts fresh, like Gboard.
     size_t start = 0;

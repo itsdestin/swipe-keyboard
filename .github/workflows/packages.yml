@@ -47,7 +47,7 @@ jobs:
           cp packaging/arch/PKGBUILD dist/
           cd dist
           # Local snapshot checksum is generated, never skip archive verification in CI.
-          digest=$(sha256sum swipe-keyboard-0.1.0.tar.gz | cut -d' ' -f1)
+          digest=$(sha256sum swipe-keyboard-0.2.0.tar.gz | cut -d' ' -f1)
           sed -i "s/sha256sums=('SKIP')/sha256sums=('$digest')/" PKGBUILD
           chown -R builder:builder "$GITHUB_WORKSPACE"
           # Resolve the real runtime requirements too; do not bypass compatibility to get a green build.
@@ -56,15 +56,15 @@ jobs:
         run: |
           mkdir dist/stage
           # makepkg may also emit a debug archive; extract only the installable main package.
-          tar -xf dist/swipe-keyboard-0.1.0-3-x86_64.pkg.tar.zst -C dist/stage
+          tar -xf dist/swipe-keyboard-0.2.0-1-x86_64.pkg.tar.zst -C dist/stage
           python scripts/package-check.py dist/stage
           # Load the actual stripped package payload, not the build tree, in a private offscreen InputPanel.
-          python3 scripts/check-stock-layout.py dist/src/swipe-keyboard-0.1.0/build/plugin/tst_stocklayout --runtime-root dist/stage/usr/share/swipe-keyboard
-          pacman -Qip dist/swipe-keyboard-0.1.0-3-x86_64.pkg.tar.zst > dist/package-metadata.txt
-          sha256sum dist/swipe-keyboard-0.1.0-3-x86_64.pkg.tar.zst > dist/baseline-package.sha256
+          python3 scripts/check-stock-layout.py dist/src/swipe-keyboard-0.2.0/build/plugin/tst_stocklayout --runtime-root dist/stage/usr/share/swipe-keyboard
+          pacman -Qip dist/swipe-keyboard-0.2.0-1-x86_64.pkg.tar.zst > dist/package-metadata.txt
+          sha256sum dist/swipe-keyboard-0.2.0-1-x86_64.pkg.tar.zst > dist/baseline-package.sha256
       - name: Verify installed wrapper as ordinary user and remove package
         run: |
-          pacman -U --noconfirm dist/swipe-keyboard-0.1.0-3-x86_64.pkg.tar.zst
+          pacman -U --noconfirm dist/swipe-keyboard-0.2.0-1-x86_64.pkg.tar.zst
           # No compositor is launched or configured: check is read-only, with a normal user's PATH.
           su builder -c 'XDG_SESSION_TYPE=wayland XDG_CURRENT_DESKTOP=KDE swipe-keyboard check'
           pacman -R --noconfirm swipe-keyboard
@@ -77,8 +77,8 @@ jobs:
           pacman -Q glibc gcc-libs qt6-base qt6-declarative qt6-virtualkeyboard kwindowsystem plasma-keyboard python | tee dist/CURRENT-VERSIONS.txt
           sha256sum -c dist/baseline-package.sha256
           python scripts/package-check.py dist/stage
-          python3 scripts/check-stock-layout.py dist/src/swipe-keyboard-0.1.0/build/plugin/tst_stocklayout --runtime-root dist/stage/usr/share/swipe-keyboard
-          pacman -U --noconfirm dist/swipe-keyboard-0.1.0-3-x86_64.pkg.tar.zst
+          python3 scripts/check-stock-layout.py dist/src/swipe-keyboard-0.2.0/build/plugin/tst_stocklayout --runtime-root dist/stage/usr/share/swipe-keyboard
+          pacman -U --noconfirm dist/swipe-keyboard-0.2.0-1-x86_64.pkg.tar.zst
           su builder -c 'XDG_SESSION_TYPE=wayland XDG_CURRENT_DESKTOP=KDE swipe-keyboard check'
           pacman -R --noconfirm swipe-keyboard
           test ! -e /usr/bin/swipe-keyboard
@@ -123,7 +123,7 @@ jobs:
         run: |
           mkdir dist/stage
           cd dist/stage
-          rpm2cpio ../swipe-keyboard-0.1.0-3.fc44.x86_64.rpm | cpio -idm
+          rpm2cpio ../swipe-keyboard-0.2.0-1.fc44.x86_64.rpm | cpio -idm
           cd ../..
           python3 scripts/package-check.py dist/stage
           test_executable=$(find /home/builder/rpmbuild/BUILD -path '*/redhat-linux-build/plugin/tst_stocklayout' -type f -print -quit)
@@ -137,7 +137,7 @@ jobs:
           if rpm -q systemd-standalone-tmpfiles >/dev/null 2>&1; then
             dnf -y swap systemd-standalone-tmpfiles systemd
           fi
-          dnf -y --setopt=install_weak_deps=False install dist/swipe-keyboard-0.1.0-3.fc44.x86_64.rpm
+          dnf -y --setopt=install_weak_deps=False install dist/swipe-keyboard-0.2.0-1.fc44.x86_64.rpm
           # Check the packaged command, not a developer's Python import or extended Qt tool PATH.
           su builder -c 'XDG_SESSION_TYPE=wayland XDG_CURRENT_DESKTOP=KDE swipe-keyboard check'
           dnf -y --setopt=clean_requirements_on_remove=False remove swipe-keyboard

@@ -32,9 +32,9 @@ class Packaging(unittest.TestCase):
             output = pathlib.Path(tmp)/'dist'
             result = subprocess.run(['bash', str(fixture/'scripts/package-source.sh'), str(output)], text=True, capture_output=True)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            with tarfile.open(output/'swipe-keyboard-0.1.0.tar.gz') as archive:
+            with tarfile.open(output/'swipe-keyboard-0.2.0.tar.gz') as archive:
                 names = {name.replace('/./', '/') for name in archive.getnames()}
-            prefix = 'swipe-keyboard-0.1.0/'
+            prefix = 'swipe-keyboard-0.2.0/'
             self.assertNotIn(prefix + 'personal-secret.txt', names)
             self.assertIn(prefix + tracked, names)
             self.assertIn(prefix + shim_tracked, names)
@@ -63,7 +63,7 @@ class Packaging(unittest.TestCase):
             module.mkdir(parents=True)
             for name in ('qmldir', 'SwipeCapture.qml', 'libswipekeyboard.so', 'libswipekeyboardplugin.so', 'libswipekb_engine.so'):
                 (module / name).write_text('fixture')
-            for name in ('models/honorable_sturgeon/model_fp32.pte', 'models/magic_macaw/model_fp32.pte', 'models/hungry_jellyfish/context_lm.pte', 'models/hungry_jellyfish/vocab.txt', 'models/FUTO-MODEL-LICENSE.md', 'dict/en_swipe.combined', 'licenses/NOTICE'):
+            for name in ('models/honorable_sturgeon/model_fp32.pte', 'models/magic_macaw/model_fp32.pte', 'models/hungry_jellyfish/context_lm.pte', 'models/hungry_jellyfish/vocab.txt', 'models/FUTO-MODEL-LICENSE.md', 'dict/en_swipe.combined', 'language-packs/es.json', 'language-packs/fr.json', 'language-packs/de.json', 'licenses/NOTICE'):
                 target = assets / name
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_text('fixture')
@@ -83,8 +83,10 @@ include("{ROOT}/cmake/Install.cmake")
             stage = p/'stage/usr'
             for name in ('bin/swipe-keyboard', 'share/applications/swipe-keyboard.desktop', 'share/swipe-keyboard/integration/setup.py', 'share/swipe-keyboard/integration/layout.py', 'share/swipe-keyboard/qml/SwipeKeyboard/libswipekb_engine.so', 'share/swipe-keyboard/models/honorable_sturgeon/model_fp32.pte', 'share/swipe-keyboard/dict/en_swipe.combined', 'share/licenses/swipe-keyboard/LICENSE'):
                 self.assertTrue((stage/name).is_file(), name)
+            for language in ('es', 'fr', 'de'):
+                self.assertTrue((stage/f'share/swipe-keyboard/language-packs/{language}.json').is_file())
             self.assertFalse((stage/'share/swipe-keyboard/eval').exists())
-            self.assertEqual((stage/'share/swipe-keyboard/runtime.json').read_text(), '{"qt": "6.10", "package": "0.1.0-dev"}\n')
+            self.assertEqual((stage/'share/swipe-keyboard/runtime.json').read_text(), '{"qt": "6.10", "package": "0.2.0-1"}\n')
             self.assertTrue((stage/'bin/swipe-keyboard').stat().st_mode & 0o111)
             self.assertTrue((stage/'share/swipe-keyboard/qml/SwipeKeyboard/libswipekb_engine.so').stat().st_mode & 0o111,
                             'Native libraries must retain executable mode for RPM debug-info discovery')
@@ -95,7 +97,7 @@ include("{ROOT}/cmake/Install.cmake")
         with tempfile.TemporaryDirectory() as tmp:
             fixture = pathlib.Path(tmp)
             shutil.copy2(ROOT/'install.sh', fixture/'install.sh')
-            for directory in ('scripts/lm', 'assets/models', 'assets/dict', 'build/qml', 'bin', 'third_party/swipe-library/third_party/executorch/cmake-out-host'):
+            for directory in ('scripts/lm', 'assets/models', 'assets/dict', 'assets/language-packs', 'build/qml', 'bin', 'third_party/swipe-library/third_party/executorch/cmake-out-host'):
                 (fixture/directory).mkdir(parents=True, exist_ok=True)
             (fixture/'third_party/swipe-library/third_party/executorch/cmake-out-host/libexecutorch.a').write_text('fixture')
             for command, text in {
@@ -155,6 +157,16 @@ include("{ROOT}/cmake/Install.cmake")
         script = (ROOT/'scripts/build-futo.sh').read_text()
         self.assertIn('-DUSE_MARCH_NATIVE=OFF', script)
 
+    def test_config_probe_is_part_of_native_build_install_and_elf_checks(self):
+        self.assertIn('add_subdirectory(integration)', (ROOT/'CMakeLists.txt').read_text())
+        native = (ROOT/'integration/CMakeLists.txt').read_text()
+        self.assertIn('KF6::ConfigCore', native)
+        self.assertIn('install(TARGETS swipekb-config', native)
+        self.assertIn('$<TARGET_FILE:swipekb-config>', (ROOT/'plugin/CMakeLists.txt').read_text())
+        self.assertIn('integration/swipekb-config', (ROOT/'scripts/package-check.py').read_text())
+        self.assertRegex((ROOT/'packaging/fedora/swipe-keyboard.spec').read_text(),
+                         r'(?m)^BuildRequires: [^\n]*\bkf6-kconfig-devel\b')
+
     def test_recipes_declare_busctl_provider_and_run_integration_tests(self):
         arch = (ROOT/'packaging/arch/PKGBUILD').read_text()
         rpm = (ROOT/'packaging/fedora/swipe-keyboard.spec').read_text()
@@ -192,7 +204,7 @@ include("{ROOT}/cmake/Install.cmake")
     def test_ci_extracts_main_arch_package_not_debug_archive_wildcard(self):
         workflow = (ROOT/'.github/workflows/packages.yml').read_text()
         self.assertNotIn('tar -xf dist/*.pkg.tar.zst', workflow)
-        self.assertIn('tar -xf dist/swipe-keyboard-0.1.0-3-x86_64.pkg.tar.zst', workflow)
+        self.assertIn('tar -xf dist/swipe-keyboard-0.2.0-1-x86_64.pkg.tar.zst', workflow)
 
     def test_arch_ci_uses_older_baseline_and_retests_identical_bytes_on_current_runtime(self):
         workflow = (ROOT/'.github/workflows/packages.yml').read_text()
@@ -228,7 +240,7 @@ include("{ROOT}/cmake/Install.cmake")
     def test_arch_native_dependencies_merge_without_duplicate_provider_entries(self):
         with tempfile.TemporaryDirectory() as tmp:
             p = pathlib.Path(tmp)
-            source = p/'src/swipe-keyboard-0.1.0/scripts'
+            source = p/'src/swipe-keyboard-0.2.0/scripts'
             source.mkdir(parents=True)
             (source/'package-check.py').write_text('pass')
             command = '''

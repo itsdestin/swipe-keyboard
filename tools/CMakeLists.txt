@@ -4,6 +4,14 @@
 find_package(Qt6 6.8 REQUIRED COMPONENTS Core Test)
 set(CMAKE_AUTOMOC ON)   # the test uses Q_OBJECT
 
+# WHY keep deterministic accounting and fixture validation in ordinary CTest, not only the feature build.
+add_executable(swipekb-language-bench swipekb-language-bench.cpp languageevaluation.cpp)
+target_link_libraries(swipekb-language-bench PRIVATE swipekb_engine swipekb_language)
+add_executable(tst_languageevaluation tests/tst_languageevaluation.cpp languageevaluation.cpp)
+target_include_directories(tst_languageevaluation PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(tst_languageevaluation PRIVATE swipekb_language Qt6::Test)
+add_test(NAME tools_languageevaluation COMMAND tst_languageevaluation)
+
 add_executable(swipekb-replay swipekb-replay.cpp)
 target_link_libraries(swipekb-replay PRIVATE swipekb_engine Qt6::Core)
 
@@ -18,6 +26,9 @@ set_tests_properties(tools_replay PROPERTIES ENVIRONMENT "SWIPEKB_ASSETS=${SWIPE
 # swipe-stats: daily "how often did a swipe need fixing" counts from the recordings (Python, stdlib only).
 find_package(Python3 COMPONENTS Interpreter)
 if(Python3_FOUND)
+    add_test(NAME tools_language_cli COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_language_cli.py)
+    set_tests_properties(tools_language_cli PROPERTIES ENVIRONMENT
+        "SWIPEKB_PROFILECHECK_EXE=$<TARGET_FILE:swipekb-profilecheck>;SWIPEKB_LANGUAGE_BENCH_EXE=$<TARGET_FILE:swipekb-language-bench>")
     add_test(NAME tools_swipe_stats COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_swipe_stats.py)
 endif()
 

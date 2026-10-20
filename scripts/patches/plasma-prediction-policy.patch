@@ -1,0 +1,101 @@
+--- a/src/inputplugin.h
++++ b/src/inputplugin.h
+@@ -10,6 +10,7 @@
+ #include <QKeyEvent>
+ #include <QObject>
+ #include <memory>
++#include "backendpredictionpolicy.h"
+ 
+ class InputMethod;
+ class Keyboard;
+@@ -79,6 +80,7 @@
+     void keysym(uint timestamp, uint sym, KeyState state, uint modifiers);
+     void key(KeyState state, quint32 scancode);
+ 
++    QVariantMap swipePredictionPolicy() const { return m_swipePolicy.snapshot(); }
+     ContentHint contentHint() const;
+     ContentPurpose contentPurpose() const;
+     uint32_t cursorPos() const;
+@@ -91,6 +93,7 @@
+ 
+ Q_SIGNALS:
+     void contextChanged();
++    void swipePredictionPolicyChanged();
+     void surroundingTextChanged();
+     void cursorChanged();
+     void contentTypeChanged();
+@@ -112,6 +115,7 @@
+ private:
+     void setGrabbingInternal();
+ 
++    BackendPredictionPolicy m_swipePolicy;
+     bool m_grabbing = false;
+     std::shared_ptr<Keyboard> m_keyboard;
+     std::shared_ptr<InputMethodContext> m_context = nullptr;
+--- a/src/inputplugin.cpp
++++ b/src/inputplugin.cpp
+@@ -17,6 +17,9 @@
+         }
+         m_keyboard.reset();
+         m_context = inputMethod->current();
++        // WHY: permission belongs to this activation, never a recycled context address.
++        m_swipePolicy.contextChanged(bool(m_context));
++        Q_EMIT swipePredictionPolicyChanged();
+         Q_EMIT contextChanged();
+         Q_EMIT surroundingTextChanged();
+         if (!m_context) {
+@@ -25,8 +28,17 @@
+ 
+         connect(m_context.get(), &InputMethodContext::receivedCommit, this, &InputPlugin::receivedCommit);
+         connect(m_context.get(), &InputMethodContext::surroundingTextChanged, this, &InputPlugin::surroundingTextChanged);
+-        connect(m_context.get(), &InputMethodContext::contentTypeChanged, this, &InputPlugin::contentTypeChanged);
+-        connect(m_context.get(), &InputMethodContext::reset, this, &InputPlugin::resetRequested);
++        connect(m_context.get(), &InputMethodContext::contentTypeChanged, this, [this] {
++            // WHY: purpose-only changes may leave every Qt hint unchanged.
++            m_swipePolicy.contentType(uint32_t(contentHint()), uint32_t(contentPurpose()));
++            Q_EMIT swipePredictionPolicyChanged();
++            Q_EMIT contentTypeChanged();
++        });
++        connect(m_context.get(), &InputMethodContext::reset, this, [this] {
++            m_swipePolicy.reset();
++            Q_EMIT swipePredictionPolicyChanged();
++            Q_EMIT resetRequested();
++        });
+         connect(m_context.get(), &InputMethodContext::preferredLanguageChanged, this, &InputPlugin::preferredLanguageChanged);
+         if (m_grabbing) {
+             setGrabbingInternal();
+--- a/src/inputlisteneritem.h
++++ b/src/inputlisteneritem.h
+@@ -26,6 +26,7 @@
+ 
+     Q_PROPERTY(QVirtualKeyboardInputEngine *engine WRITE setEngine)
+     Q_PROPERTY(bool keyboardNavigationActive MEMBER m_keyboardNavigationActive)
++    Q_PROPERTY(QVariantMap swipePredictionPolicy READ swipePredictionPolicy NOTIFY swipePredictionPolicyChanged)
+ 
+     /**
+      * Controller for overlay popups (diacritics, emoji, text expansion).
+@@ -38,6 +39,7 @@
+     InputListenerItem();
+ 
+     void setEngine(QVirtualKeyboardInputEngine *engine);
++    QVariantMap swipePredictionPolicy() const { return m_input.swipePredictionPolicy(); }
+ 
+     QVariant inputMethodQuery(Qt::InputMethodQuery query) const override;
+ 
+@@ -51,6 +53,7 @@
+     OverlayController *overlayController() const;
+ 
+ Q_SIGNALS:
++    void swipePredictionPolicyChanged();
+     void keyNavigationPressed(int key);
+     void keyNavigationReleased(int key);
+ 
+--- a/src/inputlisteneritem.cpp
++++ b/src/inputlisteneritem.cpp
+@@ -50,5 +50,6 @@
+     : m_input(&(*s_im))
+     , m_overlayController(new OverlayController(&m_input, this))
+ {
++    connect(&m_input, &InputPlugin::swipePredictionPolicyChanged, this, &InputListenerItem::swipePredictionPolicyChanged);
+     // Grab and listen to physical keyboard input
+     m_input.setGrabbing(true);

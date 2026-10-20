@@ -3,6 +3,7 @@
 #include <QQmlEngine>
 #include <QQuickItem>
 #include <QQuickWindow>
+#include <QtVirtualKeyboard/QVirtualKeyboardAbstractInputMethod>
 
 // Loads the built module the way Plasma Keyboard will: by import path, then by type name.
 // SWIPEKB_QML_DIR (env) lets install.sh's check point this at the installed copy instead of the build.
@@ -19,6 +20,12 @@ private slots:
         c.setData("import QtQuick\nimport SwipeKeyboard\nSwipeInputMethod {}\n", QUrl());
         std::unique_ptr<QObject> im(c.create());
         QVERIFY2(im, qPrintable(c.errorString()));
+        // WHY: readiness is now scoped to Qt's selected locale and measured physical layout,
+        // not an eagerly initialized process-global English engine in a bare constructor.
+        auto *method=qobject_cast<QVirtualKeyboardAbstractInputMethod *>(im.get());
+        QVERIFY(method);
+        QVERIFY(method->setInputMode(QStringLiteral("en_US"), QVirtualKeyboardInputEngine::InputMode::Latin));
+        QVERIFY(QMetaObject::invokeMethod(im.get(), "setPhysicalLayout", Q_ARG(QString, QStringLiteral("qwerty"))));
         bool ready = false;
         QVERIFY(QMetaObject::invokeMethod(im.get(), "isReady", Q_RETURN_ARG(bool, ready)));
         QVERIFY2(ready, "models not found — SWIPEKB_DATA should point at assets/");

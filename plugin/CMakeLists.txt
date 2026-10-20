@@ -10,8 +10,23 @@ qt_add_executable(swipekb-preflight preflight.cpp)
 target_link_libraries(swipekb-preflight PRIVATE Qt6::Core)
 install(TARGETS swipekb-preflight RUNTIME DESTINATION share/swipe-keyboard/integration)
 
+# WHY a Core-only library: prediction consumers share verified values/rules without QML or GUI types.
+set(CMAKE_AUTORCC ON)
+add_library(swipekb_language STATIC languageprofile.cpp profilediagnostics.cpp languagetextrules.cpp language-assets.qrc ../engine/src/context.cpp)
+target_include_directories(swipekb_language PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} PRIVATE ../engine/include)
+target_link_libraries(swipekb_language PUBLIC Qt6::Core)
+qt_add_executable(tst_languageprofile tests/tst_languageprofile.cpp)
+target_link_libraries(tst_languageprofile PRIVATE swipekb_language Qt6::Test)
+add_test(NAME plugin_languageprofile COMMAND tst_languageprofile)
+qt_add_executable(tst_profilediagnostics tests/tst_profilediagnostics.cpp)
+target_link_libraries(tst_profilediagnostics PRIVATE swipekb_language Qt6::Test)
+add_test(NAME plugin_profilediagnostics COMMAND tst_profilediagnostics)
+qt_add_executable(swipekb-profilecheck ../integration/profilecheck.cpp)
+target_link_libraries(swipekb-profilecheck PRIVATE swipekb_language)
+install(TARGETS swipekb-profilecheck RUNTIME DESTINATION share/swipe-keyboard/integration)
+
 # Pure text logic, no keyboard or engine: unit-tested on its own.
-add_library(swipekb_session STATIC swipesession.cpp swipeoutcome.cpp)
+add_library(swipekb_session STATIC swipesession.cpp swipeoutcome.cpp nextwordsession.cpp predictionpolicy.cpp predictiondiagnostics.cpp)
 target_include_directories(swipekb_session PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 # WHY the engine: SwipeSession::contextWords forwards to swipekb::contextWords (one shared implementation).
 target_link_libraries(swipekb_session PUBLIC Qt6::Core swipekb_engine)
@@ -23,6 +38,31 @@ add_test(NAME plugin_session COMMAND tst_swipesession)
 qt_add_executable(tst_swipeoutcome tests/tst_swipeoutcome.cpp)
 target_link_libraries(tst_swipeoutcome PRIVATE swipekb_session Qt6::Test)
 add_test(NAME plugin_outcome COMMAND tst_swipeoutcome)
+
+# WHY these tests are independent of a compositor/installed keyboard: prediction
+# insertion and policy authority must be pinned without activating a host backend.
+foreach(feature IN ITEMS nextwordsession predictionpolicy predictiondiagnostics)
+    qt_add_executable(tst_${feature} tests/tst_${feature}.cpp)
+    target_link_libraries(tst_${feature} PRIVATE swipekb_session Qt6::Test)
+    add_test(NAME plugin_${feature} COMMAND tst_${feature})
+endforeach()
+qt_add_executable(tst_nextwordworker tests/tst_nextwordworker.cpp nextwordworker.h nextwordworker.cpp)
+target_link_libraries(tst_nextwordworker PRIVATE swipekb_session Qt6::Test)
+add_test(NAME plugin_nextwordworker COMMAND tst_nextwordworker)
+set_tests_properties(plugin_nextwordworker PROPERTIES ENVIRONMENT "SWIPEKB_TEST_ASSETS=${SWIPEKB_ASSETS}")
+qt_add_executable(tst_backendpredictionpolicy tests/tst_backendpredictionpolicy.cpp)
+target_include_directories(tst_backendpredictionpolicy PRIVATE ${CMAKE_SOURCE_DIR}/scripts/patches)
+target_link_libraries(tst_backendpredictionpolicy PRIVATE Qt6::Core Qt6::Test)
+add_test(NAME plugin_backendpredictionpolicy COMMAND tst_backendpredictionpolicy)
+qt_add_executable(tst_predictioncapture tests/tst_predictioncapture.cpp)
+target_compile_definitions(tst_predictioncapture PRIVATE SWIPEKB_CAPTURE_SOURCE="${CMAKE_CURRENT_SOURCE_DIR}/SwipeCapture.qml")
+target_link_libraries(tst_predictioncapture PRIVATE Qt6::Quick Qt6::Qml Qt6::VirtualKeyboard Qt6::Test)
+add_test(NAME plugin_predictioncapture COMMAND tst_predictioncapture)
+set_tests_properties(plugin_predictioncapture PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_IM_MODULE=qtvirtualkeyboard")
+qt_add_executable(test_prediction ../engine/tests/test_prediction.cpp)
+target_link_libraries(test_prediction PRIVATE swipekb_engine Qt6::Test)
+add_test(NAME engine_prediction COMMAND test_prediction)
+set_tests_properties(engine_prediction PROPERTIES ENVIRONMENT "SWIPEKB_TEST_ASSETS=${SWIPEKB_ASSETS}")
 
 # Opt-in swipe recorder (writes swipes.jsonl for offline tuning). Separate so it is tested without a keyboard.
 add_library(swipekb_recorder STATIC swiperecorder.cpp)
@@ -45,9 +85,57 @@ qt_add_qml_module(swipekeyboard
     NO_CACHEGEN
     OUTPUT_DIRECTORY ${SWIPEKB_QML_DIR}/SwipeKeyboard
     QML_FILES SwipeCapture.qml
-    SOURCES swipeinputmethod.h swipeinputmethod.cpp windowblur.h windowblur.cpp
+    SOURCES swipeinputmethod.h swipeinputmethod.cpp nextwordworker.h nextwordworker.cpp windowblur.h windowblur.cpp
 )
-target_link_libraries(swipekeyboard PRIVATE Qt6::Quick Qt6::VirtualKeyboard KF6::WindowSystem swipekb_session swipekb_recorder swipekb_engine)
+target_link_libraries(swipekeyboard PRIVATE Qt6::Quick Qt6::VirtualKeyboard KF6::WindowSystem swipekb_session swipekb_recorder swipekb_engine swipekb_language)
+# WHY: flags-only observations must not exist in ordinary release builds or change authorization policy.
+option(SWIPEKB_PRIVATE_FLAGS_DIAGNOSTIC "PRIVATE flags-only Deck diagnostic (not a release)" OFF)
+if(SWIPEKB_PRIVATE_FLAGS_DIAGNOSTIC)
+    target_compile_definitions(swipekeyboard PRIVATE SWIPEKB_PRIVATE_FLAGS_DIAGNOSTIC=1)
+endif()
+# WHY: the public query is a production safety boundary, including invalid and deleted receivers.
+qt_add_executable(tst_livehintsquery tests/tst_livehintsquery.cpp)
+target_include_directories(tst_livehintsquery PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(tst_livehintsquery PRIVATE Qt6::Quick Qt6::Test)
+add_test(NAME plugin_livehintsquery COMMAND tst_livehintsquery)
+set_tests_properties(plugin_livehintsquery PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+qt_add_executable(tst_nextwordintegration tests/tst_nextwordintegration.cpp)
+target_include_directories(tst_nextwordintegration PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(tst_nextwordintegration PRIVATE swipekeyboard Qt6::Quick Qt6::Qml Qt6::VirtualKeyboard Qt6::Test)
+add_test(NAME plugin_nextwordintegration COMMAND tst_nextwordintegration)
+set_tests_properties(plugin_nextwordintegration PROPERTIES ENVIRONMENT
+    "QT_QPA_PLATFORM=offscreen;QT_IM_MODULE=qtvirtualkeyboard;SWIPEKB_TEST_ASSETS=${SWIPEKB_ASSETS};SWIPEKB_TEST_PROFILE_ASSETS=${SWIPEKB_ASSETS}")
+
+# WHY register in the ordinary build too: the lightweight feature project is not the normal CTest gate.
+# Fixtures are explicit opt-ins. Tests QSKIP when absent, but supplied invalid fixtures fail rather than pass.
+set(_language_fixture_env)
+foreach(fixture ENGLISH_ASSETS LANGUAGE_PACKS CC_LICENSE)
+    set(SWIPEKB_TEST_${fixture} "" CACHE PATH "Explicit read-only language ${fixture} test fixture")
+    if(SWIPEKB_TEST_${fixture})
+        list(APPEND _language_fixture_env "SWIPEKB_TEST_${fixture}=${SWIPEKB_TEST_${fixture}}")
+    endif()
+endforeach()
+qt_add_executable(tst_languagegeometry tests/tst_languagegeometry.cpp)
+target_link_libraries(tst_languagegeometry PRIVATE swipekb_language swipekb_engine Qt6::Test)
+add_test(NAME plugin_languagegeometry COMMAND tst_languagegeometry)
+qt_add_executable(tst_languagepacks tests/tst_languagepacks.cpp)
+target_link_libraries(tst_languagepacks PRIVATE swipekb_language swipekb_engine Qt6::Test)
+add_test(NAME plugin_languagepacks COMMAND tst_languagepacks)
+qt_add_executable(tst_languagecapture tests/tst_languagecapture.cpp)
+target_link_libraries(tst_languagecapture PRIVATE Qt6::Quick Qt6::Qml Qt6::Test)
+target_compile_definitions(tst_languagecapture PRIVATE SWIPEKB_CAPTURE_QML="${CMAKE_CURRENT_SOURCE_DIR}/SwipeCapture.qml")
+add_test(NAME plugin_languagecapture COMMAND tst_languagecapture)
+set_tests_properties(plugin_languagecapture PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_IM_MODULE=")
+qt_add_executable(tst_languageintegration tests/tst_languageintegration.cpp)
+target_include_directories(tst_languageintegration PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(tst_languageintegration PRIVATE swipekeyboard Qt6::Quick Qt6::Qml Qt6::VirtualKeyboard Qt6::Test)
+add_test(NAME plugin_languageintegration COMMAND tst_languageintegration)
+set_tests_properties(plugin_languageprofile plugin_languagepacks PROPERTIES ENVIRONMENT "${_language_fixture_env}")
+# WHY CTest must expose missing-fixture coverage as skipped, not a misleading green model gate.
+set_tests_properties(plugin_languageprofile plugin_languagepacks plugin_languageintegration PROPERTIES
+    SKIP_RETURN_CODE 77)
+set_tests_properties(plugin_languageintegration PROPERTIES ENVIRONMENT
+    "${_language_fixture_env};QT_QPA_PLATFORM=offscreen;QT_IM_MODULE=qtvirtualkeyboard;QT_VIRTUALKEYBOARD_DESKTOP_DISABLE=1")
 # WHY SHARED + same output folder: a STATIC backing library makes the plugin static too, which Qt cannot load.
 # The three .so files (plugin, backing library, engine) sit side by side so the module folder is
 # self-contained and relocatable.
@@ -56,6 +144,24 @@ set_target_properties(swipekeyboard PROPERTIES LIBRARY_OUTPUT_DIRECTORY ${SWIPEK
 # copy would silently load libs from there. Forcing "$ORIGIN" only makes a missing sibling lib fail loudly.
 set_target_properties(swipekeyboard swipekeyboardplugin swipekb_engine PROPERTIES
     BUILD_WITH_INSTALL_RPATH TRUE INSTALL_RPATH "\$ORIGIN")
+# WHY: the bundle's QtVirtualKeyboard is not in the SDK/system loader path.
+# Resolve only this sandbox's fixed /app/lib, without global LD_LIBRARY_PATH or
+# widening the native $ORIGIN-only contract to a mutable build/host directory.
+set(SWIPEKB_BUNDLE_LIBDIR "" CACHE PATH "Additional Flatpak-local native library directory")
+if(SWIPEKB_BUNDLE_LIBDIR)
+    if(NOT CMAKE_INSTALL_PREFIX STREQUAL "/app" OR NOT SWIPEKB_BUNDLE_LIBDIR STREQUAL "/app/lib")
+        message(FATAL_ERROR "Bundled library lookup is supported only for /app/lib under the /app prefix")
+    endif()
+    if(NOT CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64")
+        message(FATAL_ERROR "This pinned Flatpak SDK library profile supports x86_64 only")
+    endif()
+    # WHY: the observed KDE SDK installs QtVirtualKeyboard into the Debian-style
+    # multiarch subdirectory despite CMAKE_INSTALL_LIBDIR=lib. Both locations
+    # are private /app roots; neither searches mutable host/build directories.
+    set_property(TARGET swipekeyboard swipekeyboardplugin swipekb_engine
+        APPEND PROPERTY INSTALL_RPATH ${SWIPEKB_BUNDLE_LIBDIR}
+        "${SWIPEKB_BUNDLE_LIBDIR}/x86_64-linux-gnu")
+endif()
 
 # The blur shape (rounded corners as strips) is checked on its own, without a compositor.
 qt_add_executable(tst_windowblur tests/tst_windowblur.cpp windowblur.cpp)
@@ -65,7 +171,7 @@ add_test(NAME plugin_windowblur COMMAND tst_windowblur)
 set_tests_properties(plugin_windowblur PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
 qt_add_executable(tst_pluginload tests/tst_pluginload.cpp)
-target_link_libraries(tst_pluginload PRIVATE Qt6::Qml Qt6::Quick Qt6::Test)
+target_link_libraries(tst_pluginload PRIVATE Qt6::Qml Qt6::Quick Qt6::Test Qt6::VirtualKeyboard)
 target_compile_definitions(tst_pluginload PRIVATE SWIPEKB_QML_DIR="${SWIPEKB_QML_DIR}")
 add_dependencies(tst_pluginload swipekeyboardplugin)
 add_test(NAME plugin_load COMMAND tst_pluginload)
@@ -76,7 +182,7 @@ find_package(Python3 REQUIRED COMPONENTS Interpreter)
 add_test(NAME plugin_public_qt_abi
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/package-check.py --elf
         $<TARGET_FILE:swipekeyboard> $<TARGET_FILE:swipekeyboardplugin>
-        $<TARGET_FILE:swipekb_engine> $<TARGET_FILE:swipekb-preflight>)
+        $<TARGET_FILE:swipekb_engine> $<TARGET_FILE:swipekb-preflight> $<TARGET_FILE:swipekb-config>)
 add_test(NAME plugin_native_preflight
     COMMAND swipekb-preflight $<TARGET_FILE:swipekeyboardplugin>)
 add_test(NAME plugin_preflight_failures
@@ -87,8 +193,17 @@ set_tests_properties(plugin_preflight_failures PROPERTIES
 qt_add_executable(tst_stocklayout tests/tst_stocklayout.cpp)
 target_link_libraries(tst_stocklayout PRIVATE Qt6::Qml Qt6::Quick Qt6::Test)
 add_dependencies(tst_stocklayout swipekeyboardplugin)
+# WHY: Flatpak's bundled backend installs under /app; native builds retain the
+# existing distro layout default, without testing an unrelated host backend.
+set(SWIPEKB_STOCK_LAYOUTS "/usr/share/plasma/keyboard/layouts" CACHE PATH "Backend stock layout directory for loader tests")
+set(SWIPEKB_BACKEND_QML_DIR "" CACHE PATH "Explicit bundled backend QML root for loader tests")
+set(_swipekb_backend_import_args)
+if(SWIPEKB_BACKEND_QML_DIR)
+    list(APPEND _swipekb_backend_import_args --backend-qml-dir ${SWIPEKB_BACKEND_QML_DIR})
+endif()
 add_test(NAME plugin_stock_layout
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/check-stock-layout.py
         $<TARGET_FILE:tst_stocklayout>
-        --qml-dir ${SWIPEKB_QML_DIR} --model-data ${SWIPEKB_ASSETS})
+        --qml-dir ${SWIPEKB_QML_DIR} --model-data ${SWIPEKB_ASSETS}
+        --stock-layouts ${SWIPEKB_STOCK_LAYOUTS} ${_swipekb_backend_import_args})
 set_tests_properties(plugin_stock_layout PROPERTIES TIMEOUT 75)

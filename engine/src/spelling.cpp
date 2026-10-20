@@ -6,6 +6,8 @@
 #include <cstdlib>
 #include <fstream>
 #include <sstream>
+#include <QString>
+#include <QRegularExpression>
 
 namespace swipekb {
 
@@ -20,45 +22,50 @@ constexpr int kOfferWithin = 80;
 // as-is, so "us$", "states'" or "'tis" style entries must never replace a clean word.
 bool wellFormed(const std::string &w)
 {
-    if (w.empty())
-        return false;
-    auto letter = [](char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'); };
-    if (!letter(w.front()) || !letter(w.back()))
-        return false;
-    for (size_t i = 1; i < w.size(); ++i) {
-        const char c = w[i];
-        if (letter(c))
-            continue;
-        if ((c != '\'' && c != '-') || !letter(w[i - 1]))
-            return false;
-    }
-    return true;
+    // WHY Unicode letters and interior punctuation only: retain display forms without accepting control/markup entries.
+    static const QRegularExpression valid(QString::fromUtf8(R"(^\p{L}+(?:['’\-]\p{L}+)*$)"));
+    return valid.match(QString::fromStdString(w).normalized(QString::NormalizationForm_C)).hasMatch();
 }
 
 std::string lower(const std::string &w)
 {
-    std::string out = w;
-    for (char &c : out)
-        if (c >= 'A' && c <= 'Z')
-            c = char(c | 0x20);
-    return out;
+    return QString::fromStdString(w).normalized(QString::NormalizationForm_C).toLower().toStdString();
 }
 
 std::string lettersOf(const std::string &w)
 {
     std::string out;
-    for (char c : lower(w))
-        if (c >= 'a' && c <= 'z')
-            out += c;
+    for (char32_t c : QString::fromStdString(lower(w)).toUcs4())
+        if (QChar::isLetter(c)) out += QString::fromUcs4(&c,1).toStdString();
     return out;
 }
 
 } // namespace
 
-Spellings Spellings::fromCombinedText(const std::string &text)
+std::vector<std::string> Spellings::recognitionAliases(const std::string &word, const std::string &language)
+{
+    // WHY: the physical œ/æ/ß popup shares a base key, while many users draw the
+    // conventional oe/ae/ss digraph. Neither should erase the dictionary's display form.
+    const QString source=QString::fromStdString(lettersOf(word));
+    QString base=source, digraph=source;
+    if (language=="fr") {
+        base.replace(QStringLiteral("œ"),QStringLiteral("o")).replace(QStringLiteral("æ"),QStringLiteral("a"));
+        digraph.replace(QStringLiteral("œ"),QStringLiteral("oe")).replace(QStringLiteral("æ"),QStringLiteral("ae"));
+    } else if (language=="de") {
+        base.replace(QStringLiteral("ß"),QStringLiteral("s"));
+        digraph.replace(QStringLiteral("ß"),QStringLiteral("ss"));
+    }
+    std::vector<std::string> out;
+    if (base!=source) out.push_back(base.toStdString());
+    if (digraph!=source && digraph!=base) out.push_back(digraph.toStdString());
+    return out;
+}
+
+Spellings Spellings::fromCombinedText(const std::string &text, const std::string &language)
 {
     // letters -> (lower-case spelling -> best frequency)
     std::unordered_map<std::string, std::vector<std::pair<std::string, int>>> groups;
+    Spellings out;
     std::istringstream in(text);
     std::string line;
     while (std::getline(in, line)) {
@@ -78,15 +85,18 @@ Spellings Spellings::fromCombinedText(const std::string &text)
         if (freq <= 0 || line.find("not_a_word=true") != std::string::npos
             || line.find("nonword") != std::string::npos || !wellFormed(word))
             continue;
-        const std::string spelled = lower(word);
-        auto &g = groups[lettersOf(word)];
-        auto it = std::find_if(g.begin(), g.end(), [&](const auto &x) { return x.first == spelled; });
-        if (it == g.end())
-            g.push_back({spelled, freq});
-        else
-            it->second = std::max(it->second, freq);
+        const std::string spelled = language=="de" ? QString::fromStdString(word).normalized(QString::NormalizationForm_C).toStdString() : lower(word);
+        const auto add=[&](const std::string &key) {
+            auto &g=groups[key];
+            auto it=std::find_if(g.begin(),g.end(),[&](const auto &x) { return x.first==spelled; });
+            if (it==g.end()) g.push_back({spelled,freq});
+            else it->second=std::max(it->second,freq);
+        };
+        add(lettersOf(word));
+        const auto aliases=recognitionAliases(word,language);
+        for (const auto &key:aliases) add(key);
+        if (!aliases.empty()) out.otherKeys_[lower(word)]=aliases.front();
     }
-    Spellings out;
     for (auto &[letters, g] : groups) {
         // Most frequent first; on a tie the plain letters-only spelling first (it is what FUTO returned).
         std::stable_sort(g.begin(), g.end(), [&](const auto &a, const auto &b) {
@@ -106,14 +116,14 @@ Spellings Spellings::fromCombinedText(const std::string &text)
     return out;
 }
 
-Spellings Spellings::fromCombinedFile(const std::string &path)
+Spellings Spellings::fromCombinedFile(const std::string &path, const std::string &language)
 {
     std::ifstream f(path, std::ios::binary);
     if (!f)
         return {};
     std::ostringstream ss;
     ss << f.rdbuf();
-    return fromCombinedText(ss.str());
+    return fromCombinedText(ss.str(), language);
 }
 
 std::string Spellings::spell(const std::string &letters) const
@@ -124,13 +134,14 @@ std::string Spellings::spell(const std::string &letters) const
 
 std::vector<std::string> Spellings::others(const std::string &word) const
 {
-    const auto it = byLetters_.find(lettersOf(word));
+    const std::string me = lower(word);
+    const auto alias=otherKeys_.find(me);
+    const auto it = byLetters_.find(alias==otherKeys_.end() ? lettersOf(word) : alias->second);
     if (it == byLetters_.end())
         return {};
-    const std::string me = lower(word);
     std::vector<std::string> out;
     for (const std::string &w : it->second)
-        if (w != me)
+        if (lower(w) != me)
             out.push_back(w);
     return out;
 }

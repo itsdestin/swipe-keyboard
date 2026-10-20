@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from layout import build_overlay
 
 REQUIRED_ASSETS = (
-    'integration/swipekb-preflight',
+    'integration/swipekb-preflight', 'integration/swipekb-config',
     'qml/SwipeKeyboard/qmldir', 'qml/SwipeKeyboard/libswipekeyboardplugin.so',
     'qml/SwipeKeyboard/libswipekeyboard.so', 'qml/SwipeKeyboard/libswipekb_engine.so',
     'models/honorable_sturgeon/model_fp32.pte', 'models/honorable_sturgeon/metadata.json',
@@ -81,13 +81,38 @@ class Controller:
                 detail = detail.decode(errors='replace')
             raise SetupError('Native plugin load failed; stock keyboard is unchanged. ' + detail.strip()) from error
 
+    def profile_checks(self):
+        """Fixed offline queries, not claims about the selected locale or running engine."""
+        utility = self.root / 'integration/swipekb-profilecheck'
+        if not utility.is_file():
+            return {'status': 'utility-missing', 'scope': 'queried-installation-capability',
+                    'engineReady': 'unknown', 'activeFieldPolicy': 'unknown'}
+        results = []
+        for locale, layout in (('en-US', 'qwerty'), ('en-GB', 'qwerty'), ('es-ES', 'qwerty'),
+                               ('fr-FR', 'azerty'), ('de-DE', 'qwertz')):
+            try:
+                process = self.run([str(utility), '--model-root', str(self.root),
+                                    '--locale', locale, '--layout', layout, '--mode', 'Latin'],
+                                   check=False, capture_output=True, text=True, env=self.env, timeout=30)
+                value = json.loads(process.stdout)
+                if (process.returncode not in (0, 1) or not isinstance(value, dict) or
+                        value.get('scope') != 'queried-installation-capability' or
+                        value.get('engineReady') != 'unknown' or value.get('activeFieldPolicy') != 'unknown'):
+                    raise ValueError('invalid utility result')
+                results.append(value)
+            except (OSError, subprocess.SubprocessError, ValueError):
+                # WHY no child stderr/path text in shareable diagnostics, and no success inferred from absence.
+                return {'status': 'utility-failed', 'scope': 'queried-installation-capability',
+                        'engineReady': 'unknown', 'activeFieldPolicy': 'unknown'}
+        return {'status': 'queried', 'profiles': results}
+
     def check(self):
         if platform.machine() not in ('x86_64', 'AMD64'):
             raise SetupError('This package targets x86_64 computers only.')
         if self.env.get('XDG_SESSION_TYPE') != 'wayland' or 'KDE' not in self.env.get('XDG_CURRENT_DESKTOP', '').split(':'):
             raise SetupError('Use a KDE Plasma Wayland session. Other desktops/sessions are not supported.')
         # WHY: upstream skips its XDG layout search when this override is enabled, so our private
-        # English overlay would never load even though the plugin itself is installed correctly.
+        # language overlays would never load even though the plugin itself is installed correctly.
         if self.env.get('PLASMA_KEYBOARD_USE_QT_LAYOUTS', '0') not in ('', '0'):
             raise SetupError('Custom Qt layout override is enabled. Disable that override before using this Plasma layout extension.')
         version = self.command(['plasma-keyboard', '--version'], env={**self.env, 'QT_QPA_PLATFORM': 'offscreen'})
@@ -122,16 +147,9 @@ class Controller:
         if (self.data_home / 'plasma/keyboard/layouts').exists():
             raise SetupError('Existing custom keyboard layouts detected. Nothing was overwritten; use agent-assisted migration first.')
         # WHY fail before changing settings if the stock layout format has drifted upstream.
-        from layout import patch_english
-        english = self.stock / 'en_US/main.qml'
-        if not english.is_file():
-            fallback = self.stock / 'en_US/main.fallback'
-            # Qt's empty .fallback marker selects the default fallback layout.
-            if not fallback.is_file() or fallback.read_text().strip():
-                raise SetupError('Unsupported English layout fallback; stock keyboard is unchanged.')
-            english = self.stock / 'fallback/main.qml'
+        from layout import prepare_overrides
         try:
-            patch_english(english.read_text())
+            prepare_overrides(self.stock)
         except (OSError, ValueError) as error:
             raise SetupError(str(error)) from error
         # WHY fixed labels rather than raw settings: support needs versions and selection,
@@ -146,16 +164,53 @@ class Controller:
                 'Plasma Keyboard': version,
                 'Qt installed / build': f'{qt} / {build_qt}',
                 'Session': 'KDE Plasma Wayland',
-                'English (US) overlay': 'Compatible',
+                'Language overlays': 'Compatible',
+                'Profile capability queries (not active runtime)': self.profile_checks(),
                 'Selected input method': 'Swipe Keyboard' if selected else 'Other / stock',
                 'Setup record': 'Present' if self.state_file.exists() else 'Absent'}
 
+    def config_state(self, writable=False):
+        # WHY native KConfig: INI parsing misses Kiosk file/group/key locks and session
+        # overlays. Null is raw absence, never a magic string that a user could select.
+        if (not Path(self.env['HOME']).is_absolute() or
+                (self.env.get('XDG_CONFIG_HOME') and not Path(self.env['XDG_CONFIG_HOME']).is_absolute())):
+            raise SetupError('An absolute HOME/XDG_CONFIG_HOME is required to establish KConfig ownership.')
+        try:
+            result = json.loads(self.command([str(self.root / 'integration/swipekb-config')]))
+            if set(result) != set(self.wanted):
+                raise ValueError('unexpected keys')
+            for entry in result.values():
+                if (set(entry) != {'raw', 'effective', 'immutable'} or
+                        type(entry['immutable']) is not bool or
+                        any(value is not None and not isinstance(value, str)
+                            for value in (entry['raw'], entry['effective']))):
+                    raise ValueError('unexpected entry')
+        except SetupError as error:
+            # WHY surface the read-only helper's refusal: unsupported raw syntax is
+            # not a successful absence probe or an unexplained compatibility failure.
+            cause = error.__cause__
+            if isinstance(cause, subprocess.CalledProcessError) and cause.returncode == 2:
+                raise SetupError('Native KConfig ownership check refused: ' + (cause.stderr or '').strip()) from error
+            raise
+        except (ValueError, TypeError, AttributeError) as error:
+            raise SetupError('Native KConfig ownership check is unavailable or invalid; refusing to guess ownership.') from error
+        if writable and any(entry['immutable'] for entry in result.values()):
+            raise SetupError('KConfig keyboard settings are immutable; refusing settings and live-control mutations. '
+                             'The setup record is retained if present.')
+        return result
+
     def read_setting(self, key):
-        return self.command(['kreadconfig6', '--file', 'kwinrc', '--group', 'Wayland', '--key', key, '--default', UNSET])
+        return self.config_state()[key]['effective']
 
     def write_setting(self, key, value):
-        args = ['kwriteconfig6', '--notify', '--file', 'kwinrc', '--group', 'Wayland', '--key', key]
-        self.command(args + (['--delete'] if value == UNSET else [value]))
+        self.config_state(writable=True)
+        # WHY absolute user file: a relative write can omit an explicit entry equal
+        # to an inherited default, losing the raw ownership needed on later disable.
+        config_home = Path(self.env.get('XDG_CONFIG_HOME') or Path(self.env['HOME']) / '.config')
+        args = ['kwriteconfig6', '--notify', '--file', str(config_home / 'kwinrc'), '--group', 'Wayland', '--key', key]
+        self.command(args + (['--delete'] if value is None else [value]))
+        if self.config_state()[key]['raw'] != value:
+            raise SetupError('KConfig write could not be confirmed; setup record retained for recovery.')
 
     @contextmanager
     def locked(self, wait=False):
@@ -180,12 +235,15 @@ class Controller:
             state = json.loads(self.state_file.read_text())
             if set(state['previous']) != set(self.wanted) or state['wanted'] != self.wanted:
                 raise ValueError('unexpected settings')
-            if (not all(isinstance(v, str) for v in state['previous'].values()) or
+            schema = state.get('schema', 1)
+            valid_value = lambda value: isinstance(value, str) or (schema == 2 and value is None)
+            if (type(schema) is not int or schema not in (1, 2) or
+                    not all(valid_value(v) for v in state['previous'].values()) or
                     type(state['live_mode']) is not int or state['live_mode'] not in (0, 1, 2)):
                 raise ValueError('unexpected values')
             pending = state.get('mode_restore')
             if pending is not None and (not isinstance(pending, dict) or set(pending) != {'before', 'target'} or
-                                        not all(isinstance(value, str) for value in pending.values())):
+                                        not all(valid_value(value) for value in pending.values())):
                 raise ValueError('unexpected restoration journal')
             return state
         except (OSError, ValueError, KeyError, TypeError) as error:
@@ -200,6 +258,15 @@ class Controller:
             if not isinstance(error.__cause__, FileNotFoundError):
                 raise
             self.command(['qdbus-qt6', *args])
+        # WHY logical KConfig notification: KConfig::sync suppresses notifications for
+        # absolute names, but KWin watches relative kwinrc's Wayland/InputMethod.
+        # Keep raw absolute writes and generic reconfigure; emit KConfig's own
+        # a{saay} protocol only after verified writes/restoration. Failure must reach
+        # the transaction so rollback/retry retains the setup record when necessary.
+        key = list(b'InputMethod')
+        self.command(['busctl', '--user', 'emit', '/kwinrc', 'org.kde.kconfig.notify',
+                      'ConfigChanged', 'a{saay}', '1', 'Wayland', '1', str(len(key)),
+                      *map(str, key)])
 
     def read_live_mode(self):
         value = self.command(['busctl', '--user', 'get-property', 'org.kde.KWin', '/VirtualKeyboard',
@@ -211,15 +278,33 @@ class Controller:
     def set_live_mode(self, value):
         # WHY the typed D-Bus property: KWin 6.7 does not reload VirtualKeyboardMode from
         # kwinrc on reconfigure. Its setter applies live and also persists the value.
+        self.config_state(writable=True)
         self.command(['busctl', '--user', 'set-property', 'org.kde.KWin', '/VirtualKeyboard',
                       'org.kde.kwin.VirtualKeyboard', 'mode', 'i', str(value)])
 
     def restore_owned(self, state):
-        mode_config = self.read_setting('VirtualKeyboardMode')
+        config = self.config_state(writable=True)
+        if state.get('schema', 1) == 1:
+            # WHY fail closed for legacy values: r3 saved effective strings, which
+            # cannot prove whether a previous key existed in the user's file. Retain
+            # r3's UNSET convention, but never infer absence from another old value.
+            ambiguous = [key for key in self.wanted
+                         if config[key]['raw'] == self.wanted[key] and state['previous'][key] != UNSET]
+            pending = state.get('mode_restore')
+            if ambiguous or (pending and pending['target'] != UNSET):
+                raise SetupError('Legacy setup record has no raw setting provenance. Previous values may be inherited; '
+                                 'refusing automatic restoration. Record retained; choose your keyboard settings explicitly.')
+            state['previous'] = {key: None if value == UNSET else config[key]['raw']
+                                 for key, value in state['previous'].items()}
+            if pending:
+                state['mode_restore'] = {key: None if value == UNSET else value for key, value in pending.items()}
+            state['schema'] = 2
+            atomic_json(self.state_file, state)
+        mode_config = config['VirtualKeyboardMode']['raw']
         live_mode = self.read_live_mode()
         config_owned = mode_config == self.wanted['VirtualKeyboardMode']
         pending = state.get('mode_restore')
-        if pending is None and live_mode == 1:
+        if pending is None and live_mode == 1 and config_owned:
             # WHY journal before the live setter: it persists its own value to disk. A failed
             # config restore must not make retry mistake that intermediate value for a user edit.
             pending = {'before': mode_config,
@@ -234,31 +319,33 @@ class Controller:
                     pending['before'] = mode_config
                     atomic_json(self.state_file, state)
                 self.set_live_mode(state['live_mode'])
-                mode_config = self.read_setting('VirtualKeyboardMode')
+                mode_config = self.config_state()['VirtualKeyboardMode']['raw']
                 live_mode = self.read_live_mode()
             if live_mode == state['live_mode'] and mode_config in (pending['before'], str(state['live_mode'])):
                 self.write_setting('VirtualKeyboardMode', pending['target'])
         elif config_owned:
             self.write_setting('VirtualKeyboardMode', state['previous']['VirtualKeyboardMode'])
-        if self.read_setting('InputMethod') == self.wanted['InputMethod']:
+        if self.config_state()['InputMethod']['raw'] == self.wanted['InputMethod']:
             self.write_setting('InputMethod', state['previous']['InputMethod'])
 
     def enable(self):
         self.check()
         with self.locked():
+            config = self.config_state(writable=True)
             if self.state_file.exists():
                 self.saved_state()
-                if self.read_setting('InputMethod') != self.wanted['InputMethod']:
+                if (config['InputMethod']['raw'] != self.wanted['InputMethod'] or
+                        config['InputMethod']['effective'] != self.wanted['InputMethod']):
                     raise SetupError('Keyboard selection changed since setup. Run disable before choosing to enable again.')
                 self.rebuild_layout()
                 return
-            previous = {key: self.read_setting(key) for key in self.wanted}
-            if previous['InputMethod'] == self.wanted['InputMethod']:
+            previous = {key: config[key]['raw'] for key in self.wanted}
+            if config['InputMethod']['effective'] == self.wanted['InputMethod']:
                 raise SetupError('Swipe Keyboard is selected without a setup record. Select your old keyboard before enabling.')
             live_mode = self.read_live_mode()
             self.rebuild_layout()
             # WHY snapshot before writes: interrupted activation can be recovered with disable.
-            state = {'previous': previous, 'wanted': self.wanted, 'live_mode': live_mode}
+            state = {'schema': 2, 'previous': previous, 'wanted': self.wanted, 'live_mode': live_mode}
             atomic_json(self.state_file, state)
             try:
                 self.write_setting('InputMethod', self.wanted['InputMethod'])
@@ -307,7 +394,7 @@ class Controller:
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Standalone English swipe typing — Powered by FUTO Swipe')
+    parser = argparse.ArgumentParser(description='Standalone swipe typing — Powered by FUTO Swipe')
     parser.add_argument('action', choices=('check', 'enable', 'disable', 'launch'))
     args = parser.parse_args()
     if os.geteuid() == 0:
@@ -326,7 +413,7 @@ def main():
             for label, value in report.items():
                 print(f'{label}: {value}')
         print({'check': 'Compatibility checks passed. Touch activation and typing still need a real KDE session test.',
-               'enable': 'Swipe Keyboard enabled. Select English (US) and swipe a word in a supported text field.',
+               'enable': 'Swipe Keyboard enabled. Choose English (US/UK), Spanish, French or German in the keyboard language menu.',
                'disable': 'Swipe Keyboard disabled; settings still owned by setup were restored.'}[args.action])
     except (SetupError, OSError) as error:
         print('Swipe Keyboard: ' + str(error), file=sys.stderr)

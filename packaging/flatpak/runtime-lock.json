@@ -1,0 +1,12 @@
+{
+  "architecture": "x86_64",
+  "branch": "6.10",
+  "remote": "https://dl.flathub.org/repo/",
+  "org.kde.Sdk": "58a3c36a9e2cbd3fb3507d88d9195b3dcb8e8cde7bce86a0a0a5700a28a0ea18",
+  "org.kde.Platform": "31742ff0f905913c512ea732960bbdeffa8306dcbebca45eeee62bfed0ca03a3",
+  "python": "3.13.15",
+  "qt": "6.10.3",
+  "frameworks": "6.29.0",
+  "glibc": "2.42",
+  "gcc": "15.2.0"
+}

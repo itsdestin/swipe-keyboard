@@ -21,6 +21,8 @@ class Commands:
         self.live_mode = 0
         self.arch_qtpaths = False
         self.preflight_error = None
+        self.defaults = {}
+        self.immutable = set()
 
     def __call__(self, args, **kwargs):
         self.calls.append(args)
@@ -40,9 +42,14 @@ class Commands:
                 raise subprocess.CalledProcessError(1, args, stderr=self.preflight_error)
             assert args[1].endswith('/qml/SwipeKeyboard/libswipekeyboardplugin.so')
             assert kwargs['timeout'] == 15
+        elif command == 'swipekb-config':
+            value = json.dumps({key: {'raw': self.settings.get(key),
+                                     'effective': self.settings.get(key, self.defaults.get(key)),
+                                     'immutable': key in self.immutable}
+                                for key in ('InputMethod', 'VirtualKeyboardMode')})
         elif command == 'kreadconfig6':
             key = args[args.index('--key') + 1]
-            value = self.settings.get(key, args[args.index('--default') + 1])
+            value = self.settings.get(key, self.defaults.get(key, args[args.index('--default') + 1]))
         elif command == 'kwriteconfig6':
             key = args[args.index('--key') + 1]
             if self.fail_key == key:
@@ -55,7 +62,7 @@ class Commands:
         elif command == 'busctl':
             if 'get-property' in args:
                 value = 'i ' + str(self.live_mode)
-            else:
+            elif 'set-property' in args:
                 self.live_mode = int(args[-1])
                 self.settings['VirtualKeyboardMode'] = str(self.live_mode)
         elif command not in ('qdbus6', 'qdbus-qt6'):
@@ -105,6 +112,29 @@ class SetupTests(unittest.TestCase):
         self.addCleanup(process.communicate, b'', timeout=5)
         self.assertEqual(process.stdout.readline(), b'locked\n')
         return process
+
+    def test_profile_queries_distinguish_missing_failed_and_verified_utility_read_only(self):
+        self.assertEqual(self.controller.profile_checks()['status'], 'utility-missing')
+        utility = self.root/'integration/swipekb-profilecheck'
+        utility.write_text('fixture')
+        result = {'scope': 'queried-installation-capability', 'engineReady': 'unknown',
+                  'activeFieldPolicy': 'unknown', 'swipeCapable': False,
+                  'unavailableReason': 'Language pack manifest missing or invalid'}
+        calls = []
+        def query(args, **kwargs):
+            calls.append(args)
+            self.assertFalse(kwargs['check'])
+            return subprocess.CompletedProcess(args, 1, json.dumps(result))
+        self.controller.run = query
+        report = self.controller.profile_checks()
+        self.assertEqual(report['status'], 'queried')
+        self.assertEqual(len(report['profiles']), 5)
+        self.assertTrue(all(not p['swipeCapable'] for p in report['profiles']))
+        self.assertEqual(len(calls), 5)
+        self.assertFalse(self.controller.data.exists())
+        self.controller.run = lambda *a, **k: subprocess.CompletedProcess(a, 2, 'bad output /private')
+        self.assertEqual(self.controller.profile_checks()['status'], 'utility-failed')
+        self.assertFalse(self.controller.data.exists())
 
     def test_launcher_waits_for_setup_transaction(self):
         holder = self.hold_setup_lock(release_after=0.1)
@@ -162,6 +192,103 @@ class SetupTests(unittest.TestCase):
         report = self.controller.check()
         self.assertEqual(report['Selected input method'], 'Swipe Keyboard')
         self.assertEqual(report['Setup record'], 'Present')
+
+    def notification_failure(self, count, later_choice=None):
+        original = self.controller.run
+        remaining = count
+        def runner(args, **kwargs):
+            nonlocal remaining
+            if args[:3] == ['busctl', '--user', 'emit'] and remaining:
+                remaining -= 1
+                if later_choice:
+                    self.commands.settings.update(later_choice)
+                    self.commands.live_mode = 2
+                raise subprocess.CalledProcessError(1, args, stderr='notification failed')
+            return original(args, **kwargs)
+        self.controller.run = runner
+
+    def test_notification_failure_rolls_back_enable(self):
+        previous = dict(self.commands.settings)
+        self.notification_failure(1)
+        with self.assertRaisesRegex(self.module.SetupError, 'busctl failed'):
+            self.controller.enable()
+        self.assertEqual(self.commands.settings, previous)
+        self.assertEqual(self.commands.live_mode, 0)
+        self.assertFalse(self.controller.state_file.exists())
+
+    def test_notification_failure_retains_journal_until_disable_retry(self):
+        self.notification_failure(2)
+        with self.assertRaises(self.module.SetupError):
+            self.controller.enable()
+        self.assertTrue(self.controller.state_file.exists())
+        self.assertEqual(self.commands.settings['InputMethod'], '/old/keyboard.desktop')
+        self.controller.disable()
+        self.assertFalse(self.controller.state_file.exists())
+
+    def test_disable_notification_failure_preserves_later_choices_and_retry(self):
+        self.controller.enable()
+        later = {'InputMethod': '/later/keyboard.desktop', 'VirtualKeyboardMode': '2'}
+        self.commands.settings.update(later)
+        self.commands.live_mode = 2
+        self.notification_failure(1)
+        with self.assertRaises(self.module.SetupError):
+            self.controller.disable()
+        self.assertTrue(self.controller.state_file.exists())
+        self.assertEqual(self.commands.settings, later)
+        self.controller.disable()
+        self.assertEqual(self.commands.settings, later)
+        self.assertEqual(self.commands.live_mode, 2)
+        self.assertFalse(self.controller.state_file.exists())
+
+    def test_enable_notification_failure_rollback_preserves_concurrent_choice(self):
+        later = {'InputMethod': '/later/keyboard.desktop', 'VirtualKeyboardMode': '2'}
+        self.notification_failure(1, later)
+        with self.assertRaises(self.module.SetupError):
+            self.controller.enable()
+        self.assertEqual(self.commands.settings, later)
+        self.assertEqual(self.commands.live_mode, 2)
+        self.assertFalse(self.controller.state_file.exists())
+
+    def test_disable_notification_failure_after_restore_retains_journal(self):
+        previous = dict(self.commands.settings)
+        self.controller.enable()
+        self.notification_failure(1)
+        with self.assertRaises(self.module.SetupError):
+            self.controller.disable()
+        self.assertEqual(self.commands.settings, previous)
+        self.assertTrue(self.controller.state_file.exists())
+        self.controller.disable()
+        self.assertEqual(self.commands.settings, previous)
+        self.assertFalse(self.controller.state_file.exists())
+
+    def test_check_validates_every_present_target_before_any_activation_write(self):
+        for locale in ('en_GB', 'es_ES', 'fr_FR', 'de_DE'):
+            with self.subTest(locale=locale):
+                folder = self.stock / locale
+                folder.mkdir()
+                (folder / 'main.qml').write_text('unknown target layout')
+                try:
+                    with self.assertRaises(self.module.SetupError):
+                        self.controller.check()
+                    self.assertFalse((self.base / 'data').exists())
+                    self.assertFalse(any(Path(c[0]).name in ('kwriteconfig6', 'busctl') for c in self.commands.calls))
+                finally:
+                    (folder / 'main.qml').unlink()
+                    folder.rmdir()
+
+    def test_launch_hooks_language_layouts_without_an_extra_language_gate(self):
+        for locale, glyph in (('en_GB', '£'), ('es_ES', 'ñ'), ('fr_FR', 'a'), ('de_DE', 'z')):
+            (self.stock / locale).mkdir()
+            (self.stock / locale / 'main.qml').write_text(STOCK.replace('text: "q"', f'text: "{glyph}"'))
+        env = self.controller.launch_environment()
+        for locale, glyph in (('en_GB', '£'), ('es_ES', 'ñ'), ('fr_FR', 'a'), ('de_DE', 'z')):
+            result = (self.controller.layouts / locale / 'main.qml').read_text()
+            self.assertIn('SwipeInputMethod {}', result)
+            self.assertIn(f'text: "{glyph}"', result)
+        self.assertEqual(env['SWIPEKB_MODEL_DATA'], str(self.root))
+        self.assertNotIn('SWIPEKB_LANGUAGE_PACKS', {k: v for k, v in env.items() if k not in self.env})
+        self.assertFalse(any(Path(c[0]).name in ('kwriteconfig6', 'busctl') for c in self.commands.calls))
+        self.assertFalse(self.controller.state_file.exists())
 
     def test_check_is_read_only(self):
         self.controller.check()
@@ -251,6 +378,129 @@ class SetupTests(unittest.TestCase):
             self.controller.enable()
         self.assertEqual((custom / 'mine').read_text(), 'leave alone')
         self.assertFalse((self.base / 'data/swipe-keyboard').exists())
+
+    def test_inherited_defaults_restore_raw_absence_across_session_switch(self):
+        self.commands.settings.clear()
+        self.commands.defaults = {'InputMethod': '/mobile/stock.desktop', 'VirtualKeyboardMode': '2'}
+        self.controller.enable()
+        self.commands.defaults = {'InputMethod': '/desktop/stock.desktop', 'VirtualKeyboardMode': '0'}
+        self.controller.disable()
+        self.assertEqual(self.commands.settings, {})
+
+    def test_explicit_empty_and_sentinel_values_round_trip(self):
+        for value in ('', self.module.UNSET, '/mobile/stock.desktop'):
+            with self.subTest(value=value):
+                self.commands.settings = {'InputMethod': value, 'VirtualKeyboardMode': ''}
+                self.commands.defaults = {'InputMethod': '/mobile/stock.desktop'}
+                self.controller.enable()
+                self.controller.disable()
+                self.assertEqual(self.commands.settings, {'InputMethod': value, 'VirtualKeyboardMode': ''})
+
+    def test_immutable_keys_refuse_before_any_mutation(self):
+        for key in self.controller.wanted:
+            with self.subTest(key=key):
+                self.commands.immutable = {key}
+                with self.assertRaisesRegex(self.module.SetupError, 'immutable'):
+                    self.controller.enable()
+                self.assertFalse(self.controller.state_file.exists())
+                self.assertFalse(any('set-property' in call or Path(call[0]).name == 'kwriteconfig6'
+                                     for call in self.commands.calls))
+
+    def test_later_removal_is_preserved_even_when_effective_default_is_ours(self):
+        self.controller.enable()
+        self.commands.settings.clear()
+        self.commands.defaults = dict(self.controller.wanted)
+        self.controller.disable()
+        self.assertEqual(self.commands.settings, {})
+
+    def test_later_immutability_blocks_disable_without_live_mutation(self):
+        self.controller.enable()
+        self.commands.immutable = {'VirtualKeyboardMode'}
+        calls = len(self.commands.calls)
+        with self.assertRaisesRegex(self.module.SetupError, 'immutable'):
+            self.controller.disable()
+        self.assertTrue(self.controller.state_file.exists())
+        self.assertFalse(any('set-property' in call for call in self.commands.calls[calls:]))
+
+    def test_failed_activation_with_inherited_defaults_restores_absence(self):
+        self.commands.settings.clear()
+        self.commands.defaults = {'InputMethod': '/mobile/stock.desktop'}
+        self.commands.fail_key = 'VirtualKeyboardMode'
+        with self.assertRaises(self.module.SetupError):
+            self.controller.enable()
+        self.assertEqual(self.commands.settings, {})
+        self.assertFalse(self.controller.state_file.exists())
+
+    def legacy_record(self, previous, pending=None):
+        self.controller.data.mkdir(parents=True, exist_ok=True)
+        state = {'previous': previous, 'wanted': self.controller.wanted, 'live_mode': 2}
+        if pending is not None:
+            state['mode_restore'] = pending
+        self.module.atomic_json(self.controller.state_file, state)
+        self.commands.settings = dict(self.controller.wanted)
+        self.commands.live_mode = 1
+
+    def test_legacy_absence_record_and_interrupted_restore_are_recoverable(self):
+        absent = {key: self.module.UNSET for key in self.controller.wanted}
+        self.legacy_record(absent, {'before': '1', 'target': self.module.UNSET})
+        self.commands.live_mode = 2
+        self.commands.settings['VirtualKeyboardMode'] = '2'
+        self.controller.disable()
+        self.assertEqual(self.commands.settings, {})
+        self.assertFalse(self.controller.state_file.exists())
+
+    def test_legacy_ambiguous_value_retains_journal_without_mutation(self):
+        for pending in (None, {'before': '1', 'target': '/possibly/inherited'}):
+            with self.subTest(pending=pending):
+                self.legacy_record({'InputMethod': '/possibly/inherited', 'VirtualKeyboardMode': '0'}, pending)
+                before = self.controller.state_file.read_bytes()
+                calls = len(self.commands.calls)
+                with self.assertRaisesRegex(self.module.SetupError, 'no raw setting provenance'):
+                    self.controller.disable()
+                self.assertEqual(self.controller.state_file.read_bytes(), before)
+                self.assertFalse(any('set-property' in call or Path(call[0]).name == 'kwriteconfig6'
+                                     for call in self.commands.calls[calls:]))
+
+    def test_legacy_later_choices_can_be_retired_without_guessing_previous_values(self):
+        self.legacy_record({'InputMethod': '/possibly/inherited', 'VirtualKeyboardMode': '0'})
+        self.commands.settings = {'InputMethod': '/later/choice', 'VirtualKeyboardMode': '2'}
+        self.commands.live_mode = 2
+        self.controller.disable()
+        self.assertEqual(self.commands.settings, {'InputMethod': '/later/choice', 'VirtualKeyboardMode': '2'})
+
+    def test_retry_preserves_later_removal_after_interrupted_restore(self):
+        self.commands.live_mode = 2
+        self.controller.enable()
+        self.commands.fail_key = 'VirtualKeyboardMode'
+        with self.assertRaises(self.module.SetupError):
+            self.controller.disable()
+        self.commands.settings.clear()
+        self.commands.defaults = dict(self.controller.wanted)
+        self.controller.disable()
+        self.assertEqual(self.commands.settings, {})
+
+    def test_existing_record_repeat_does_not_reclaim_removed_key(self):
+        self.controller.enable()
+        self.commands.settings.pop('InputMethod')
+        self.commands.defaults = dict(self.controller.wanted)
+        with self.assertRaisesRegex(self.module.SetupError, 'selection changed'):
+            self.controller.enable()
+        self.assertNotIn('InputMethod', self.commands.settings)
+
+    def test_unavailable_or_malformed_probe_fails_closed(self):
+        original = self.controller.run
+        for failure in (FileNotFoundError('probe'), subprocess.CompletedProcess([], 0, '{}', '')):
+            def runner(args, **kwargs):
+                if Path(args[0]).name == 'swipekb-config':
+                    if isinstance(failure, Exception):
+                        raise failure
+                    return failure
+                return original(args, **kwargs)
+            self.controller.run = runner
+            with self.subTest(failure=failure), self.assertRaises(self.module.SetupError):
+                self.controller.enable()
+            self.assertFalse(self.controller.state_file.exists())
+        self.assertFalse(any('set-property' in call for call in self.commands.calls))
 
     def test_enable_disable_restores_original_settings(self):
         original = dict(self.commands.settings)

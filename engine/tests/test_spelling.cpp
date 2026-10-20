@@ -38,6 +38,20 @@ TEST(Spellings, PutsApostrophesBackWithoutCapitals)
     EXPECT_EQ(s.spell("fulltime"), "full-time");
 }
 
+TEST(Spellings, RestoresVerifiedLigaturesAndSharpSFromPhysicalAliases)
+{
+    const auto fr=Spellings::fromCombinedText(" word=cœur,f=152\n word=cour,f=149\n word=œuvre,f=147\n", "fr");
+    EXPECT_EQ(fr.spell("cour"), "cœur");
+    EXPECT_EQ(fr.spell("coeur"), "cœur");
+    EXPECT_EQ(fr.spell("oeuvre"), "œuvre");
+    EXPECT_EQ(fr.others("cœur"), V{"cour"}); // ambiguity remains selectable, not erased
+    const auto de=Spellings::fromCombinedText(" word=Straße,f=156\n word=Fußball,f=140\n", "de");
+    EXPECT_EQ(de.spell("strasse"), "Straße");
+    EXPECT_EQ(de.spell("strase"), "Straße");
+    EXPECT_EQ(de.spell("fussball"), "Fußball");
+    EXPECT_EQ(Spellings::fromCombinedText(" word=masse,f=140\n", "de").spell("masse"), "masse");
+}
+
 TEST(Spellings, PlainWordsStayPlain)
 {
     const Spellings s = Spellings::fromCombinedText(kDict);

@@ -19,7 +19,7 @@ struct TracePoint {
 };
 
 struct KeyRect {
-    char letter;          // 'a'..'z' (upper case accepted, lower-cased)
+    char32_t letter;      // Unicode scalar, lower-cased without changing the measured key center
     float x, y, w, h;     // top-left corner and size, same pixel space as the trace
 };
 
@@ -31,13 +31,16 @@ struct Candidate {
 // FUTO's models expect key centers and trace points in 0..1 coordinates of the letter area
 // (left edge of the leftmost letter key = 0, right edge of the rightmost = 1; same for rows).
 struct NormalizedInput {
-    std::string letters;                 // always "abcdefghijklmnopqrstuvwxyz"
-    std::vector<float> key_cx, key_cy;   // [26], indexed like `letters`
+    std::string letters;                 // UTF-8 profile alphabet (one index per Unicode scalar)
+    std::vector<float> key_cx, key_cy;   // [alphabet codepoint count], never UTF-8 byte count
     std::vector<float> x, y, t;          // trace, same length
 };
 
-// nullopt unless all 26 letters are present and the trace has at least 2 points.
-std::optional<NormalizedInput> normalize(const std::vector<TracePoint> &trace, const std::vector<KeyRect> &keys);
+// nullopt unless every alphabet symbol has measured geometry (or an explicit measured popup base),
+// rectangles/trace are finite and well formed, and the trace has at least 2 points.
+std::optional<NormalizedInput> normalize(const std::vector<TracePoint> &trace, const std::vector<KeyRect> &keys,
+                                         const std::string &alphabet = "abcdefghijklmnopqrstuvwxyz",
+                                         const std::unordered_map<char32_t,char32_t> &popupAliases = {});
 
 // The words before the cursor that the context model should see: only the current sentence (a . ! or ?
 // starts a fresh one), split on whitespace, punctuation trimmed off both ends of each word, last `max` kept,
@@ -127,6 +130,9 @@ std::vector<size_t> nlmOrder(const std::vector<float> &base, const std::vector<i
 // Tuning knobs. WHY a struct: the replay tool (tools/swipekb-replay) compares settings on recorded swipes;
 // the keyboard itself uses the defaults.
 struct RecognizerOptions {
+    std::string language = "en";
+    std::string alphabet = "abcdefghijklmnopqrstuvwxyz";
+    std::unordered_map<char32_t,char32_t> popupAliases;
     int beam_width = 0;   // how many partial words the search keeps alive; 0 = FUTO's default (100)
     // Rank guesses with our n-gram model (when ModelPaths::ngram loads) instead of FUTO's context model.
     // WHY off by default: the ship rule is "+0.5 points on the scoreboard's test slice"; it measured +0.10
@@ -152,10 +158,13 @@ struct RecognizerOptions {
 // and the owner chose not to auto-capitalize a lone "i".
 class Spellings {
 public:
+    // German preserves supplied noun case; other profiles retain the existing lowercase policy.
     // Reads a `.combined` dictionary. Words marked not-a-word (f=0, "nonword", "not_a_word") are ignored, as
     // are spellings with anything but letters and inner ' or - ("us$", "states'").
-    static Spellings fromCombinedFile(const std::string &path);
-    static Spellings fromCombinedText(const std::string &text);   // the same, from text (tests)
+    static Spellings fromCombinedFile(const std::string &path, const std::string &language = "en");
+    static Spellings fromCombinedText(const std::string &text, const std::string &language = "en");   // the same, from text (tests)
+    // Physical-key alternatives only; emitted display/lexical identity remains the verified spelling.
+    static std::vector<std::string> recognitionAliases(const std::string &word, const std::string &language);
 
     // The usual spelling of a letters-only guess: its most frequent spelling ("lets" -> "let's",
     // "its" -> "its"); the guess itself when the dictionary knows no other.
@@ -168,6 +177,7 @@ public:
 private:
     // letters-only, lower case -> real spellings, most frequent first (only where some spelling differs).
     std::unordered_map<std::string, std::vector<std::string>> byLetters_;
+    std::unordered_map<std::string, std::string> otherKeys_;
 };
 
 class Recognizer {
@@ -192,6 +202,8 @@ public:
 
     // True when guesses are ranked by the n-gram model (option on and the model file loaded).
     bool usingNgram() const;
+    // Display spelling of the most recent recognition's best raw path match; no second inference needed.
+    std::string bestShapeWord() const;
     // True when the neural model re-orders the best guesses (option on, model and library loaded).
     bool usingNlm() const;
     // For tests: re-order with this scorer instead of the model file (nullptr = none). Takes ownership.

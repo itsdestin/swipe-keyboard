@@ -21,6 +21,7 @@ def main():
     parser.add_argument("--qml-dir", type=Path)
     parser.add_argument("--model-data", type=Path)
     parser.add_argument("--stock-layouts", type=Path, default=Path("/usr/share/plasma/keyboard/layouts"))
+    parser.add_argument("--backend-qml-dir", type=Path, help="Explicit bundled backend QML root (native default unchanged)")
     args = parser.parse_args()
     root = args.runtime_root.resolve()
     qml = (args.qml_dir or root / "qml").resolve()
@@ -41,6 +42,12 @@ def main():
             env = os.environ.copy()
             for name in ("DBUS_SESSION_BUS_ADDRESS", "DISPLAY", "WAYLAND_DISPLAY", "WAYLAND_SOCKET"):
                 env.pop(name, None)
+            # WHY: the SDK does not contain QtVirtualKeyboard. Its bundled /app
+            # module must be explicit, not dropped when isolating the Swipe path;
+            # never preserve arbitrary inherited host/user QML search paths.
+            imports = str(qml)
+            if args.backend_qml_dir:
+                imports += ':' + str(args.backend_qml_dir.resolve())
             env.update({
                 "HOME": str(private / "home"),
                 "XDG_DATA_HOME": str(private / "data"),
@@ -50,9 +57,12 @@ def main():
                 "QT_QPA_PLATFORM": "offscreen",
                 "QT_IM_MODULE": "qtvirtualkeyboard",
                 "QT_QUICK_BACKEND": "software",
-                "QML_IMPORT_PATH": str(qml),
-                "QML2_IMPORT_PATH": str(qml),
+                "QML_IMPORT_PATH": imports,
+                "QML2_IMPORT_PATH": imports,
                 "QT_VIRTUALKEYBOARD_LAYOUT_PATH": str(layouts),
+                # WHY: qmldir prefers the embedded resource; matching loose QML alone
+                # cannot detect stale rcc objects reused after an epoch-dated source overlay.
+                "SWIPEKB_CAPTURE_QML": str(qml / "SwipeKeyboard/SwipeCapture.qml"),
                 "SWIPEKB_MODEL_DATA": str(models),
                 "SWIPEKB_DATA": str(private / "private"),
             })

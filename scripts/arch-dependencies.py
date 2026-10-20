@@ -56,9 +56,12 @@ def dependencies(root, run=command):
     if not libraries:
         raise ValueError('No staged native libraries')
     local = {p.name for p in libraries}
-    helper = base / 'integration/swipekb-preflight'
-    if helper.is_file():
-        libraries.append(helper)
+    # WHY both executables: the ownership probe can introduce independent direct
+    # libraries and newer symbol needs that none of the QML libraries import.
+    for name in ('swipekb-preflight', 'swipekb-config'):
+        helper = base / 'integration' / name
+        if helper.is_file():
+            libraries.append(helper)
     needed, tags = set(), set()
     for library in libraries:
         dynamic = run(['readelf', '-W', '--dynamic', str(library)])

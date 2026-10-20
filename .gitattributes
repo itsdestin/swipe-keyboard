@@ -1,0 +1,3 @@
+# WHY: unified-diff context for an empty upstream line is one literal space.
+# Preserve patch data; whitespace checks for ordinary source remain enabled.
+/scripts/patches/*.patch whitespace=-blank-at-eol

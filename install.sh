@@ -33,8 +33,8 @@ restart_keyboard() {
 
 case "${1:-}" in
     --uninstall)
-        rm -rf "$DEST/qml" "$DEST/models" "$DEST/dict" "$DEST/lm" "$DEST/nlm" "$DEST/.qml.new" "$DEST/.models.new" \
-               "$DEST/.dict.new" "$DEST/.lm.new" "$DEST/.nlm.new"
+        rm -rf "$DEST/qml" "$DEST/models" "$DEST/dict" "$DEST/language-packs" "$DEST/lm" "$DEST/nlm" "$DEST/.qml.new" "$DEST/.models.new" \
+               "$DEST/.dict.new" "$DEST/.lm.new" "$DEST/.nlm.new" "$DEST/.language-packs.new"
         restart_keyboard
         echo "swipe typing removed (keyboard back to plain tapping)"
         exit 0 ;;
@@ -55,15 +55,16 @@ cmake --build "$ROOT/build" -j"$(nproc)"
 (cd "$ROOT/build" && ctest --output-on-failure)
 
 mkdir -p "$DEST"
-# WHY: a failed copy must never leave a half-installed keyboard (e.g. new qml but no models). So copy all three
+# WHY: a failed copy must never leave a half-installed keyboard (e.g. new qml but no models). So copy all payloads
 # into staging dirs first; only when every copy has succeeded (set -e stops us otherwise) swap them in back to back.
-rm -rf "$DEST/.qml.new" "$DEST/.models.new" "$DEST/.dict.new" "$DEST/.lm.new" "$DEST/.nlm.new"
+rm -rf "$DEST/.qml.new" "$DEST/.models.new" "$DEST/.dict.new" "$DEST/.lm.new" "$DEST/.nlm.new" "$DEST/.language-packs.new"
 cp -r "$ROOT/build/qml" "$DEST/.qml.new"
 cp -r "$ROOT/assets/models" "$DEST/.models.new"
 cp -r "$ROOT/assets/dict" "$DEST/.dict.new"
 # The n-gram model is optional: copied when built; when it isn't, any older copy is removed so the installed
 # model always matches the installed dictionary (a stale one would still load and rank with old word lists).
-dirs="qml models dict"
+cp -r "$ROOT/assets/language-packs" "$DEST/.language-packs.new"
+dirs="qml models dict language-packs"
 if [ -s "$ROOT/assets/lm/en_ngram.bin" ]; then
     mkdir -p "$DEST/.lm.new"
     cp "$ROOT/assets/lm/en_ngram.bin" "$DEST/.lm.new/"

@@ -7,7 +7,8 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 export CFLAGS="${CFLAGS:-} -fPIC" CXXFLAGS="${CXXFLAGS:-} -fPIC"
-python3 "$ROOT/scripts/apply-build-patches.py" "$ROOT/third_party/swipe-library/third_party/executorch"
+python3 "$ROOT/scripts/apply-build-patches.py" "$ROOT/third_party/swipe-library/third_party/executorch" \
+    --swipe-library "$ROOT/third_party/swipe-library"
 # Populate the Makefile's venv target ourselves so its mutable pip setup is skipped.
 python3 "$ROOT/scripts/provision-build-deps.py" futo "$ROOT/third_party/swipe-library/.venv"
 # Configure first: upstream's make host configure has no portable-default switch.

@@ -12,6 +12,8 @@ install(DIRECTORY "${SWIPEKB_QML_DIR}/SwipeKeyboard" DESTINATION "${_runtime}/qm
     PATTERN "qmldir" PATTERN "*.qml" PATTERN "*.qmltypes")
 install(DIRECTORY "${SWIPEKB_ASSETS}/models/" DESTINATION "${_runtime}/models")
 install(FILES "${SWIPEKB_ASSETS}/dict/en_swipe.combined" DESTINATION "${_runtime}/dict")
+# WHY required, not OPTIONAL: a normal installation must contain every selectable language pack.
+install(DIRECTORY "${SWIPEKB_ASSETS}/language-packs/" DESTINATION "${_runtime}/language-packs")
 install(DIRECTORY "${SWIPEKB_ASSETS}/licenses/" DESTINATION "${CMAKE_INSTALL_DATADIR}/licenses/swipe-keyboard")
 install(FILES "${SWIPEKB_SOURCE}/LICENSE" "${SWIPEKB_SOURCE}/packaging/assets.lock.json"
     "${SWIPEKB_SOURCE}/packaging/NOTICE" DESTINATION "${CMAKE_INSTALL_DATADIR}/licenses/swipe-keyboard")
@@ -22,7 +24,7 @@ install(FILES "${SWIPEKB_SOURCE}/integration/setup.py" "${SWIPEKB_SOURCE}/integr
 install(PROGRAMS "${SWIPEKB_SOURCE}/integration/swipe-keyboard" DESTINATION "${_runtime}/integration")
 install(PROGRAMS "${SWIPEKB_SOURCE}/integration/swipe-keyboard" DESTINATION "${CMAKE_INSTALL_BINDIR}")
 install(FILES "${SWIPEKB_SOURCE}/integration/swipe-keyboard.desktop" DESTINATION "${CMAKE_INSTALL_DATADIR}/applications")
-set(SWIPEKB_PACKAGE_VERSION "0.1.0-dev" CACHE STRING "Native package version for support diagnostics")
+set(SWIPEKB_PACKAGE_VERSION "0.2.0-1" CACHE STRING "Native package version for support diagnostics")
 file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/runtime.json"
     "{\"qt\": \"${Qt6Core_VERSION_MAJOR}.${Qt6Core_VERSION_MINOR}\", \"package\": \"${SWIPEKB_PACKAGE_VERSION}\"}\n")
 install(FILES "${CMAKE_CURRENT_BINARY_DIR}/runtime.json" DESTINATION "${_runtime}")

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Swipe Keyboard
+Comment=Multilingual swipe typing and English next-word suggestions; manually selected KDE Wayland input method
+Exec=swipe-keyboard-flatpak
+Icon=input-keyboard
+NoDisplay=true
+X-KDE-Wayland-VirtualKeyboard=true
+X-KDE-StartupNotify=false

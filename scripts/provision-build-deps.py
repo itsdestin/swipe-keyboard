@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Provision locked CPython 3.14/x86_64 build venvs; never install torch itself."""
+"""Provision locked native 3.14 or KDE SDK 3.13/x86_64 venvs; never install torch."""
 import argparse
 import hashlib
 import json
@@ -49,11 +49,17 @@ def install(python, requirements, cache):
                     '--require-hashes', '--no-deps', '--no-index', '--only-binary=:all:',
                     '--find-links', str(cache), '-r', str(requirements)], check=True)
 
-def provision(group, destination, cache):
-    if sys.version_info[:2] != (3, 14) or platform.machine() != 'x86_64' or sys.platform != 'linux':
-        raise RuntimeError('Locks target CPython 3.14 Linux x86_64 only')
-    manifest = json.loads((LOCKS/'wheels.lock.json').read_text())
-    requirements = LOCKS/(group + '.txt')
+def provision(group, destination, cache, profile='native'):
+    # WHY: SDK 6.10 has CPython 3.13; never relax the native 3.14 guard or
+    # reuse its extension wheels merely because the build architecture matches.
+    if profile not in ('native', 'kde-6.10'):
+        raise RuntimeError('Unknown build dependency profile: ' + profile)
+    locks = LOCKS if profile == 'native' else LOCKS/profile
+    python_version = (3, 14) if profile == 'native' else (3, 13)
+    if sys.version_info[:2] != python_version or platform.machine() != 'x86_64' or sys.platform != 'linux':
+        raise RuntimeError(f'Locks target CPython {python_version[0]}.{python_version[1]} Linux x86_64 only')
+    manifest = json.loads((locks/'wheels.lock.json').read_text())
+    requirements = locks/(group + '.txt')
     # Validate requirements and manifest agree before fetching or executing anything.
     expected = ''.join(f"{name}=={manifest['wheels'][name]['version']} --hash=sha256:{manifest['wheels'][name]['sha256']}\n"
                        for name in manifest['groups'][group])
@@ -61,7 +67,7 @@ def provision(group, destination, cache):
         raise ValueError('Requirements/manifest lock mismatch')
     wheels = {name: fetch(manifest['wheels'][name], cache) for name in manifest['groups'][group]}
     torch = fetch(manifest['torchgen'], cache) if group == 'futo' else None
-    fingerprint = hashlib.sha256((requirements.read_bytes() + (LOCKS/'wheels.lock.json').read_bytes())).hexdigest()
+    fingerprint = hashlib.sha256((requirements.read_bytes() + (locks/'wheels.lock.json').read_bytes())).hexdigest()
     marker = destination/'.swipe-build-lock'
     if marker.is_file() and marker.read_text() == fingerprint and (destination/'bin/python3').is_file():
         return
@@ -82,6 +88,10 @@ def provision(group, destination, cache):
             for member in archive.infolist():
                 path = pathlib.PurePosixPath(member.filename)
                 if path.parts and path.parts[0] == 'torchgen' and '..' not in path.parts:
+                    # WHY: torchgen is intentionally shared as Python/templates,
+                    # never as interpreter-specific torch native code from this wheel.
+                    if path.suffix in ('.so', '.pyd', '.dll', '.dylib', '.pyc'):
+                        raise ValueError('Native/bytecode file in torchgen: ' + member.filename)
                     archive.extract(member, site)
         if not (site/'torchgen/__init__.py').is_file():
             raise ValueError('Pinned torch wheel lacks torchgen')
@@ -94,8 +104,9 @@ def main():
     parser.add_argument('group', choices=('futo', 'dictionary'))
     parser.add_argument('destination', type=pathlib.Path)
     parser.add_argument('--cache', type=pathlib.Path, default=pathlib.Path(os.environ.get('XDG_CACHE_HOME', pathlib.Path.home()/'.cache'))/'swipe-keyboard/build-wheels')
+    parser.add_argument('--profile', choices=('native', 'kde-6.10'), default='native')
     args = parser.parse_args()
-    provision(args.group, args.destination.resolve(), args.cache.resolve())
+    provision(args.group, args.destination.resolve(), args.cache.resolve(), args.profile)
 
 if __name__ == '__main__':
     main()

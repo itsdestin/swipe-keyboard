@@ -1,0 +1,136 @@
+{
+  "id": "org.itsdestin.SwipeKeyboard",
+  "runtime": "org.kde.Platform",
+  "runtime-version": "6.10",
+  "sdk": "org.kde.Sdk",
+  "command": "swipe-keyboard-flatpak",
+  "build-options": {
+    "prefix": "/app",
+    "env": {"CMAKE_BUILD_PARALLEL_LEVEL": "2", "MAKEFLAGS": "-j2"}
+  },
+  "finish-args": [
+    "--socket=wayland",
+    "--socket=inherit-wayland-socket",
+    "--nofilesystem=xdg-config/kdeglobals",
+    "--no-talk-name=com.canonical.AppMenu.Registrar",
+    "--no-talk-name=org.kde.kconfig.notify",
+    "--no-talk-name=org.kde.KGlobalSettings"
+  ],
+  "modules": [
+    {
+      "name": "qt6-virtualkeyboard",
+      "buildsystem": "cmake-ninja",
+      "config-opts": ["-DQT_DISABLE_RPATH=OFF", "-DCMAKE_INSTALL_LIBDIR=lib"],
+      "sources": [{
+        "type": "archive",
+        "url": "https://download.qt.io/official_releases/qt/6.10/6.10.3/submodules/qtvirtualkeyboard-everywhere-src-6.10.3.tar.xz",
+        "sha256": "3298e26dfa4fad2363e3dfb2b55079c54fc8115a4a040d9616e5619f095d8fb5"
+      }]
+    },
+    {
+      "name": "libplasma",
+      "buildsystem": "cmake-ninja",
+      "config-opts": ["-DCMAKE_BUILD_TYPE=Release", "-DBUILD_TESTING=OFF", "-DCMAKE_INSTALL_LIBDIR=lib"],
+      "sources": [{
+        "type": "archive",
+        "url": "https://invent.kde.org/plasma/libplasma/-/archive/3992079c1036f18c78f8fdda78be3697b689071c/libplasma-3992079c1036f18c78f8fdda78be3697b689071c.tar.gz",
+        "sha256": "c4eafeccfb6be592f4db7c157ccf55b7f43d5b208d089487bb91891a13d59bd6"
+      }]
+    },
+    {
+      "name": "plasma-keyboard",
+      "buildsystem": "cmake-ninja",
+      "config-opts": ["-DCMAKE_BUILD_TYPE=Release", "-DBUILD_TESTING=OFF", "-DCMAKE_INSTALL_LIBDIR=lib", "-DPLASMA_KEYBOARD_SOUNDS_ENABLED=OFF", "-DPLASMA_KEYBOARD_VIBRATION_ENABLED=OFF"],
+      "sources": [{
+        "type": "archive",
+        "url": "https://invent.kde.org/plasma/plasma-keyboard/-/archive/e54f5a9d95de54c0147911de009dc12b2d711757/plasma-keyboard-e54f5a9d95de54c0147911de009dc12b2d711757.tar.gz",
+        "sha256": "30c6770d68d7a2a3e0a34e843679a8c8b515142e05f49fb61049d76ad0375b4c"
+      }, {
+        "type": "patch",
+        "path": "../../scripts/patches/plasma-prediction-policy.patch"
+      }, {
+        "type": "file",
+        "path": "../../scripts/patches/backendpredictionpolicy.h",
+        "dest": "src"
+      }]
+    },
+    {
+      "name": "googletest",
+      "buildsystem": "cmake-ninja",
+      "config-opts": ["-DBUILD_SHARED_LIBS=OFF", "-DCMAKE_INSTALL_LIBDIR=lib"],
+      "sources": [{
+        "type": "archive",
+        "url": "https://github.com/google/googletest/archive/refs/tags/v1.17.0.tar.gz",
+        "sha256": "65fab701d9829d38cb77c14acdc431d2108bfdbf8979e40eb8ae567edf10b27c"
+      }]
+    },
+    {
+      "name": "swipe-keyboard",
+      "buildsystem": "simple",
+      "build-commands": [
+        "sh packaging/flatpak/build-swipe.sh",
+        "install -d /app/share/licenses/qt6-virtualkeyboard /app/share/licenses/libplasma /app/share/licenses/plasma-keyboard",
+        "cp -a source-licenses/qt6-virtualkeyboard/LICENSES /app/share/licenses/qt6-virtualkeyboard/",
+        "cp source-licenses/qt6-virtualkeyboard/src/plugins/tcime/3rdparty/tcime/COPYING /app/share/licenses/qt6-virtualkeyboard/tcime-COPYING",
+        "cp -a source-licenses/libplasma/LICENSES /app/share/licenses/libplasma/",
+        "cp -a source-licenses/plasma-keyboard/LICENSES /app/share/licenses/plasma-keyboard/"
+      ],
+      "sources": [
+        {
+          "type": "archive",
+          "path": "swipe-source.tar.xz",
+          "sha256": "0406f79211d076ea78c45cb8f12eee63beb52996bdf03e990b87f64a6aa7bf93"
+        },
+        {
+          "type": "archive",
+          "dest": "source-licenses/qt6-virtualkeyboard",
+          "url": "https://download.qt.io/official_releases/qt/6.10/6.10.3/submodules/qtvirtualkeyboard-everywhere-src-6.10.3.tar.xz",
+          "sha256": "3298e26dfa4fad2363e3dfb2b55079c54fc8115a4a040d9616e5619f095d8fb5"
+        },
+        {
+          "type": "archive",
+          "dest": "source-licenses/libplasma",
+          "url": "https://invent.kde.org/plasma/libplasma/-/archive/3992079c1036f18c78f8fdda78be3697b689071c/libplasma-3992079c1036f18c78f8fdda78be3697b689071c.tar.gz",
+          "sha256": "c4eafeccfb6be592f4db7c157ccf55b7f43d5b208d089487bb91891a13d59bd6"
+        },
+        {
+          "type": "archive",
+          "dest": "source-licenses/plasma-keyboard",
+          "url": "https://invent.kde.org/plasma/plasma-keyboard/-/archive/e54f5a9d95de54c0147911de009dc12b2d711757/plasma-keyboard-e54f5a9d95de54c0147911de009dc12b2d711757.tar.gz",
+          "sha256": "30c6770d68d7a2a3e0a34e843679a8c8b515142e05f49fb61049d76ad0375b4c"
+        },
+        {
+          "type": "file",
+          "dest": "wheelcache",
+          "url": "https://files.pythonhosted.org/packages/de/f0/c81e05b613866b76d2d1066490adf1a3dbc4ee9d9c839961c3fc8a6997af/pip-26.0.1-py3-none-any.whl",
+          "sha256": "bdb1b08f4274833d62c1aa29e20907365a2ceb950410df15fc9521bad440122b"
+        },
+        {
+          "type": "file",
+          "dest": "wheelcache",
+          "url": "https://files.pythonhosted.org/packages/a7/c2/7ecd2aec927262ff2898d371f44ccb15884b6172407326e9388df07f9642/cmake-4.2.3-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
+          "sha256": "8e91b381aaea3c47110583dccc52f4562333d1accdbb806939f953c16e74ec0a"
+        },
+        {
+          "type": "file",
+          "dest": "wheelcache",
+          "url": "https://files.pythonhosted.org/packages/74/27/e5b8f34d02d9995b80abcef563ea1f8b56d20134d8f4e5e81733b1feceb2/pyyaml-6.0.3-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+          "sha256": "0f29edc409a6392443abf94b9cf89ce99889a1dd5376d94316ae5145dfedd5d6"
+        },
+        {
+          "type": "file",
+          "dest": "wheelcache",
+          "url": "https://files.pythonhosted.org/packages/18/67/36e9267722cc04a6b9f15c7f3441c2363321a3ea07da7ae0c0707beb2a9c/typing_extensions-4.15.0-py3-none-any.whl",
+          "sha256": "f0fa19c6845758ab08074a0cfa8b7aecb71c999ca73d62883bc25cc018c4e548"
+        },
+        {
+          "type": "file",
+          "dest": "wheelcache",
+          "dest-filename": "torch-2.10.0+cpu-cp314-cp314-manylinux_2_28_x86_64.whl",
+          "url": "https://download-r2.pytorch.org/whl/cpu/torch-2.10.0%2Bcpu-cp314-cp314-manylinux_2_28_x86_64.whl",
+          "sha256": "aada8afc068add586464b2a55adb7cc9091eec55caf5320447204741cb6a0604"
+        }
+      ]
+    }
+  ]
+}

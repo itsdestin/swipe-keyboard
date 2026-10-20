@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Guarded build-only patch for the pinned ExecuTorch source; never weaken distro linker flags."""
+"""Guarded patches for pinned build inputs; never weaken distro or metadata checks."""
 from pathlib import Path
+import argparse
 import os
-import sys
+import subprocess
 import tempfile
 
 
@@ -26,5 +27,25 @@ def apply(root):
     os.replace(temporary, path)
 
 
+def apply_swipe(root):
+    # WHY: dependency commits/assets stay pinned. Persist the validator repair
+    # here so clean builds reproduce it; reverse-check makes reruns idempotent
+    # while unknown upstream inputs fail closed instead of silently skipping.
+    root = Path(root).resolve()
+    patch = Path(__file__).resolve().parent / 'patches/swipe-metadata.patch'
+    command = ['git', 'apply', '--unsafe-paths', '--directory=' + str(root)]
+    if subprocess.run(command + ['--reverse', '--check', str(patch)],
+                      capture_output=True).returncode == 0:
+        return
+    subprocess.run(command + ['--check', str(patch)], check=True)
+    subprocess.run(command + [str(patch)], check=True)
+
+
 if __name__ == '__main__':
-    apply(sys.argv[1])
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('executorch')
+    parser.add_argument('--swipe-library', type=Path)
+    args = parser.parse_args()
+    apply(args.executorch)
+    if args.swipe_library is not None:
+        apply_swipe(args.swipe_library)

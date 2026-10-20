@@ -1,8 +1,10 @@
-add_library(swipekb_engine SHARED src/normalize.cpp src/context.cpp src/ngram.cpp src/recognizer.cpp src/spelling.cpp src/nlm_loader.cpp)
+# WHY Qt Core only: shared Unicode normalization/casing without a GUI/runtime keyboard dependency.
+find_package(Qt6 6.8 REQUIRED COMPONENTS Core)
+add_library(swipekb_engine SHARED src/normalize.cpp src/context.cpp src/ngram.cpp src/recognizer.cpp src/spelling.cpp src/nlm_loader.cpp src/prediction.cpp)
 target_include_directories(swipekb_engine PUBLIC include)
 # WHY PRIVATE: FUTO's library forces -fno-rtti on whatever compiles against it. Keeping it private
 # confines that to this .so, so the Qt plugin (which needs RTTI) is unaffected.
-target_link_libraries(swipekb_engine PRIVATE swipe_decoder executorch ${CMAKE_DL_LIBS})
+target_link_libraries(swipekb_engine PRIVATE swipe_decoder executorch Qt6::Core ${CMAKE_DL_LIBS})
 # Sits next to the Qt plugin, which finds it through an $ORIGIN rpath.
 set_target_properties(swipekb_engine PROPERTIES LIBRARY_OUTPUT_DIRECTORY ${SWIPEKB_QML_DIR}/SwipeKeyboard)
 

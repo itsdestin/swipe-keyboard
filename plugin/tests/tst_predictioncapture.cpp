@@ -1,0 +1,115 @@
+#include <QtTest>
+#include <QQmlEngine>
+#include <QQmlComponent>
+#include <QQuickItem>
+#include <QQuickWindow>
+#include <QtVirtualKeyboard/QVirtualKeyboardAbstractInputMethod>
+#include <QtVirtualKeyboard/QVirtualKeyboardInputContext>
+
+class CaptureMethod : public QVirtualKeyboardAbstractInputMethod {
+    Q_OBJECT
+public:
+    QString token = "1:2:3", captured;
+    Q_INVOKABLE QString predictionSelectionToken() const { return token; }
+    quint64 press = 0;
+    bool selectionAuthorized = false;
+    Q_INVOKABLE quint64 beginPredictionSelection(const QString &value) { captured = value; selectionAuthorized = true; emit capturedChanged(); return ++press; }
+    Q_INVOKABLE void endPredictionSelection(quint64 id) { if (id == press) selectionAuthorized = false; }
+    QList<QVirtualKeyboardInputEngine::InputMode> inputModes(const QString &) override { return {QVirtualKeyboardInputEngine::InputMode::Latin}; }
+    bool setInputMode(const QString &, QVirtualKeyboardInputEngine::InputMode) override { return true; }
+    bool setTextCase(QVirtualKeyboardInputEngine::TextCase) override { return true; }
+    bool keyEvent(Qt::Key,const QString &,Qt::KeyboardModifiers) override { return false; }
+signals:
+    void capturedChanged();
+};
+class PredictionCaptureTest : public QObject {
+    Q_OBJECT
+private slots:
+    void passivePressCapturesStampWithoutSwallowingStockClick() {
+        QQmlEngine engine;
+        QQmlComponent fixture(&engine);
+        fixture.setData(R"(
+            import QtQuick
+            import QtQuick.VirtualKeyboard
+            Item {
+                width: 500; height: 200
+                property var alternativeKeys: ({active:false})
+                property var context: InputContext
+                property alias bar: bar
+                property alias touch: touch
+                property int clicked: 0
+                ListView {
+                    id: bar; objectName: "wordCandidateView"; width: 500; height: 40
+                    orientation: ListView.Horizontal; model: 1
+                    delegate: Item {
+                        width: 200; height: 40
+                        MouseArea { objectName: "candidateMouse"; anchors.fill: parent; onClicked: ++bar.parent.clicked }
+                    }
+                }
+                Item { id: touch; y: 50; width: 500; height: 150
+                    signal pressed(var points)
+                    signal updated(var points)
+                    signal released(var points)
+                    signal canceled(var points)
+                    function reset() {} }
+            }
+        )", QUrl());
+        std::unique_ptr<QObject> root(fixture.create()); QVERIFY2(root,qPrintable(fixture.errorString()));
+        QQuickWindow window; window.resize(500,200);
+        auto *item = qobject_cast<QQuickItem *>(root.get()); item->setParentItem(window.contentItem());
+        window.show(); window.requestActivate();
+        auto *ic = qvariant_cast<QVirtualKeyboardInputContext *>(root->property("context")); QVERIFY(ic);
+        CaptureMethod method; ic->inputEngine()->setInputMethod(&method);
+        auto *bar = qvariant_cast<QQuickItem *>(root->property("bar"));
+        auto *touch = qvariant_cast<QQuickItem *>(root->property("touch")); QVERIFY(bar && touch);
+        QQmlComponent capture(&engine,QUrl::fromLocalFile(QStringLiteral(SWIPEKB_CAPTURE_SOURCE)));
+        std::unique_ptr<QObject> layer(capture.createWithInitialProperties({
+            {"layoutItem",QVariant::fromValue(touch)}, {"touchArea",QVariant::fromValue(touch)}}));
+        QVERIFY2(layer,qPrintable(capture.errorString()));
+        QVERIFY(QMetaObject::invokeMethod(bar,"forceLayout"));
+        QTRY_VERIFY_WITH_TIMEOUT(layer->property("predictionTapCapture").value<QObject *>(),15000);
+        QQuickItem *delegate = nullptr;
+        QVERIFY(QMetaObject::invokeMethod(bar,"itemAtIndex",Q_RETURN_ARG(QQuickItem *,delegate),Q_ARG(int,0)));
+        QVERIFY(delegate);
+        const auto tapPoint = delegate->mapToScene(QPointF(delegate->width()/2,delegate->height()/2)).toPoint();
+        qInfo() << "candidate position" << tapPoint << "bar" << bar->mapToScene(QPointF()) << "delegate size" << delegate->size();
+        QSignalSpy pressed(&method,&CaptureMethod::capturedChanged);
+        QTest::mousePress(&window,Qt::LeftButton,Qt::NoModifier,tapPoint);
+        QTRY_COMPARE_WITH_TIMEOUT(pressed.size(),1,15000);
+        QCOMPARE(method.captured,QStringLiteral("1:2:3"));
+        method.token = "1:2:4";
+        QTest::mouseRelease(&window,Qt::LeftButton,Qt::NoModifier,tapPoint);
+        QTRY_COMPARE_WITH_TIMEOUT(root->property("clicked").toInt(),1,15000);
+        QCOMPARE(method.captured,QStringLiteral("1:2:3"));
+        // WHY distinct device events: synthesized mouse input alone does not pin
+        // the keyboard's touchscreen press-before-release authority path.
+        auto *device = QTest::createTouchDevice();
+        method.token = "2:3:4";
+        QTest::touchEvent(&window,device).press(0,tapPoint,&window);
+        QTRY_COMPARE_WITH_TIMEOUT(pressed.size(),2,15000);
+        QCOMPARE(method.captured,QStringLiteral("2:3:4"));
+        method.token = "2:3:5";
+        QTest::touchEvent(&window,device).release(0,tapPoint,&window);
+        QTRY_COMPARE_WITH_TIMEOUT(root->property("clicked").toInt(),2,15000);
+        QCOMPARE(method.captured,QStringLiteral("2:3:4"));
+        QTRY_VERIFY_WITH_TIMEOUT(!method.selectionAuthorized,15000);
+        method.token = "3:4:5";
+        QTest::mousePress(&window,Qt::LeftButton,Qt::NoModifier,tapPoint);
+        QTRY_VERIFY_WITH_TIMEOUT(method.selectionAuthorized,15000);
+        QTest::mouseMove(&window,QPoint(490,190));
+        QTest::mouseRelease(&window,Qt::LeftButton,Qt::NoModifier,QPoint(490,190));
+        QTRY_VERIFY_WITH_TIMEOUT(!method.selectionAuthorized,15000);
+        QCOMPARE(root->property("clicked").toInt(),2);
+        QPointer<QObject> handler = layer->property("predictionTapCapture").value<QObject *>();
+        // WHY real candidate delegates can disappear before their capture layer during layout
+        // switches. Stale JS wrapper entries must not call destroy() on a deleted handler.
+        bar->setProperty("model", 0);
+        QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+        QTest::failOnWarning(QRegularExpression(".*Property 'destroy'.*"));
+        layer.reset(); QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+        QVERIFY(handler.isNull());
+        ic->inputEngine()->setInputMethod(nullptr);
+    }
+};
+QTEST_MAIN(PredictionCaptureTest)
+#include "tst_predictioncapture.moc"

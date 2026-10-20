@@ -61,6 +61,23 @@ Item {
     property var originMethod: null
     property int originGeneration: -1
     property var originKeys: []
+    // WHY physical identity comes from measured key order, never from the locale name.
+    readonly property string measuredLayoutId: identifyLayout(letterKeys())
+    onMeasuredLayoutIdChanged: syncProfile()
+    function syncProfile() {
+        var im = InputContext.inputEngine.inputMethod
+        if (im && typeof im.setPhysicalLayout === "function")
+            im.setPhysicalLayout(root.identifyLayout(root.letterKeys()))
+    }
+    function identifyLayout(keys) {
+        if (keys.length < 26) return "unknown"
+        var sorted = keys.slice().sort(function(a, b) { return a.y === b.y ? a.x - b.x : a.y - b.y })
+        var letters = sorted.map(function(k) { return k.letter }).filter(function(c) { return /^[a-z]$/.test(c) }).join("")
+        if (letters === "qwertyuiopasdfghjklzxcvbnm") return "qwerty"
+        if (letters === "qwertzuiopasdfghjklyxcvbnm") return "qwertz"
+        if (letters === "azertyuiopqsdfghjklmwxcvbn") return "azerty"
+        return "unknown"
+    }
     // WHY bounded: an abandoned/held touch must not accumulate an unbounded path or block the UI.
     readonly property int maxPoints: 2048
     readonly property int maxDuration: 10000
@@ -76,13 +93,26 @@ Item {
     }
 
     function validGesture() {
-        return root.originMethod === InputContext.inputEngine.inputMethod
+        return root.originMethod !== null
+            && root.originMethod === InputContext.inputEngine.inputMethod
+            && root.originMethod.validateSwipe(root.originGeneration)
             && !(InputContext.inputMethodHints & (Qt.ImhSensitiveData | Qt.ImhHiddenText))
             && Date.now() - root.startTime <= root.maxDuration
             && root.points.length < root.maxPoints
             && JSON.stringify(root.originKeys) === JSON.stringify(root.letterKeys())
     }
 
+    // WHY: a stationary finger emits no movement/hint signal when the proxy changes purpose.
+    // Bound work to the held contact, reuse the same public live gate, and erase the trail on refusal.
+    Timer {
+        interval: 50
+        repeat: true
+        running: root.trackedId !== -1
+        onTriggered: {
+            if (!root.validGesture())
+                root.cancelGesture()
+        }
+    }
     Timer {
         interval: root.maxDuration
         running: root.trackedId !== -1
@@ -99,7 +129,7 @@ Item {
     }
     Connections {
         target: InputContext.inputEngine
-        function onInputMethodChanged() { root.cancelGesture() }
+        function onInputMethodChanged() { root.cancelGesture(); root.syncProfile() }
         function onInputMethodReset() { root.cancelGesture() }
     }
     // WHY immediate cancellation: the existing points are in the old key coordinate system.
@@ -131,11 +161,20 @@ Item {
         root.themeProbe = root.makeThemeProbe("import QtQuick; import org.kde.kirigami as Kirigami")
         VirtualKeyboardSettings.wordCandidateList.alwaysVisible = true
         root.candidateView = root.findCandidateView()
+        root.syncProfile()
+        Qt.callLater(root.installPredictionCaptures)
     }
     // WHY: give the guess bar back its stock left alignment when this layer goes away (the "?123" page, or
     // swipe-keyboard uninstalled while running). The Binding below stops with us, but the last value it wrote
     // would otherwise stay. A new swipe layer re-centers at once.
     Component.onDestruction: {
+        // WHY the delegate owns the dynamic PointHandler: its deletion can leave a truthy
+        // stale JS wrapper in this list. Destroy only still-live dynamically created handlers.
+        for (var i = 0; i < root.predictionCaptures.length; ++i) {
+            var handler = root.predictionCaptures[i].handler
+            if (handler && typeof handler.destroy === "function")
+                handler.destroy()
+        }
         if (root.candidateView)
             root.candidateView.leftMargin = 0
     }
@@ -179,6 +218,69 @@ Item {
         restoreMode: Binding.RestoreValue
     }
 
+    // WHY passive press capture: Qt's stock candidate callback carries only an
+    // index. Freeze prediction authority before the stock delegate handles release;
+    // a refresh during a held touch must reject that old tap.
+    property var predictionTapCapture: null
+    property var predictionCaptures: []
+    function installPredictionCaptures() {
+        if (!root.candidateView)
+            return
+        root.predictionCaptures = root.predictionCaptures.filter(function(c) { return c.handler && c.target })
+        function walk(item) {
+            if (item.acceptedButtons !== undefined && item.pressAndHoldInterval !== undefined) {
+                if (!root.predictionCaptures.some(function(c) { return c.target === item })) {
+                    var handler = predictionTapComponent.createObject(item)
+                    root.predictionCaptures.push({target: item, handler: handler})
+                    root.predictionTapCapture = handler
+                }
+            }
+            for (var i = 0; i < item.children.length; ++i)
+                walk(item.children[i])
+        }
+        walk(root.candidateView.contentItem)
+    }
+    Connections {
+        target: root.candidateView
+        function onCountChanged() { Qt.callLater(root.installPredictionCaptures) }
+    }
+    Connections {
+        target: root.candidateView ? root.candidateView.contentItem : null
+        function onChildrenChanged() { Qt.callLater(root.installPredictionCaptures) }
+    }
+    Component {
+        id: predictionTapComponent
+        PointHandler {
+            property var pressMethod: null
+            property var pressId: 0
+            function clearPress(deferred) {
+                var method = pressMethod
+                var id = pressId
+                pressMethod = null
+                pressId = 0
+                if (!method || typeof method.endPredictionSelection !== "function")
+                    return
+                // WHY release cleanup is deferred: stock MouseArea.onClicked runs
+                // during this release event. Canceled gestures revoke immediately.
+                if (deferred)
+                    Qt.callLater(function() { if (method) method.endPredictionSelection(id) })
+                else
+                    method.endPredictionSelection(id)
+            }
+            onCanceled: clearPress(false)
+            onActiveChanged: {
+                if (active) {
+                    pressMethod = InputContext.inputEngine.inputMethod
+                    if (pressMethod && typeof pressMethod.beginPredictionSelection === "function")
+                        pressId = pressMethod.beginPredictionSelection(pressMethod.predictionSelectionToken())
+                } else {
+                    clearPress(true)
+                }
+            }
+            Component.onDestruction: clearPress(false)
+        }
+    }
+
     // The Keyboard item that owns the touch area (it exposes alternativeKeys and pressAndHoldDelay).
     function keyboardItem() {
         var it = root.touchArea
@@ -209,18 +311,22 @@ Item {
     }
 
     function isLetterKey(item) {
-        return !!item && item.key !== undefined && item.key >= Qt.Key_A && item.key <= Qt.Key_Z
+        return !!item && item.key !== undefined && typeof item.text === "string"
+            && /^[A-Za-zÀ-ÖØ-öø-ÿŒœẞ]$/.test(item.text)
     }
 
     function letterKeys() {
         var out = []
         function walk(item) {
+            if (!item) return
             for (var i = 0; i < item.children.length; ++i) {
                 var c = item.children[i]
                 if (root.isLetterKey(c)) {
                     if (c.visible) {
                         var p = c.mapToItem(root.touchArea, 0, 0)
-                        out.push({ letter: String(c.text).toLowerCase(), x: p.x, y: p.y, w: c.width, h: c.height })
+                        // WHY localX/Y: mapToItem() alone does not establish QML binding dependencies on key positions.
+                        out.push({ letter: String(c.text).toLowerCase(), x: p.x, y: p.y, w: c.width, h: c.height,
+                                   localX: c.x, localY: c.y })
                     }
                 } else {
                     walk(c)
@@ -261,7 +367,9 @@ Item {
                 return
             }
             var im = InputContext.inputEngine.inputMethod
-            if (!im || typeof im.finishSwipe !== "function" || !im.isReady())
+            root.syncProfile()
+            if (!im || typeof im.finishSwipe !== "function" || !im.isReady()
+                    || !im.isReadyForLayout(root.letterKeys()))
                 return
             // WHY: no swiping in password fields: the trail would show the password's shape on screen and
             // the guess bar would show the guessed word. Plain tapping still works. (Not ImhNoPredictiveText:
