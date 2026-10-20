@@ -41,7 +41,7 @@ class Consent(unittest.TestCase):
     def test_explains_current_and_proposed_settings_before_yes(self):
         result, _, output, _ = self.invoke('y')
         self.assertTrue(result)
-        for text in ('old.desktop', 'swipe.desktop', '0', '1', 'You may notice',
+        for text in ('old.desktop', 'swipe.desktop', '0', '(preserved)', 'You may notice',
                      'system backend', 'prediction', 'disable'):
             self.assertIn(text, output)
 
@@ -54,6 +54,29 @@ class Consent(unittest.TestCase):
         self.assertTrue(result)
         prompt.assert_not_called()
         self.assertIn('You may notice', output)
+
+    def test_explicit_visibility_opt_in_is_explained_before_confirmation(self):
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output), \
+             mock.patch.object(setup.sys.stdin, 'isatty', return_value=True), \
+             mock.patch('builtins.input', return_value='y'):
+            self.assertTrue(setup.confirm_activation(self.controller(), always_available=True))
+        self.assertIn("'0' -> '1'", output.getvalue())
+        self.assertIn('physical keyboard', output.getvalue())
+        self.assertNotIn('(preserved)', output.getvalue())
+
+    def test_cli_forwards_only_explicit_visibility_choice(self):
+        for option, expected in (([], False), (['--always-available'], True)):
+            with self.subTest(option=option):
+                controller = self.controller()
+                with mock.patch.object(setup.os, 'geteuid', return_value=1000), \
+                     mock.patch.object(setup.sys, 'argv', ['swipe-keyboard', 'enable', '--yes', *option]), \
+                     mock.patch.object(setup, 'Controller', return_value=controller), \
+                     mock.patch.object(setup, 'confirm_activation', return_value=True) as confirm, \
+                     contextlib.redirect_stdout(io.StringIO()):
+                    self.assertEqual(setup.main(), 0)
+                confirm.assert_called_once_with(controller, assume_yes=True, always_available=expected)
+                controller.enable.assert_called_once_with(always_available=expected)
 
     def test_cli_decline_never_calls_enable(self):
         controller = self.controller()

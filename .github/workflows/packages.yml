@@ -99,8 +99,19 @@ jobs:
           pacman-key --populate archlinux
           cp /etc/pacman.d/mirrorlist /tmp/current-mirrorlist
           printf 'Server = https://archive.archlinux.org/repos/2026/07/01/$repo/os/$arch\n' > /etc/pacman.d/mirrorlist
-          pacman -Syyuu --noconfirm
-          pacman -S --noconfirm --needed base-devel git cmake ninja python python-pip qt6-declarative qt6-virtualkeyboard qt6-tools kwindowsystem kconfig kirigami gtest curl plasma-keyboard
+          # WHY bounded retries: the archive can hit pacman's low-speed timeout
+          # fetching packages/signatures. Reuse verified cache, never bypass trust
+          # or dependencies; persistent failures still fail this required job.
+          retry_pacman() {
+            local attempt
+            for attempt in 1 2 3; do
+              if pacman "$@"; then return 0; fi
+              if (( attempt < 3 )); then sleep 15; fi
+            done
+            return 1
+          }
+          retry_pacman -Syyuu --noconfirm
+          retry_pacman -S --noconfirm --needed base-devel git cmake ninja python python-pip qt6-declarative qt6-virtualkeyboard qt6-tools kwindowsystem kconfig kirigami gtest curl plasma-keyboard
       - uses: actions/checkout@v4
         with:
           persist-credentials: false

@@ -90,7 +90,9 @@ swipe-keyboard check
 swipe-keyboard enable
 ```
 
-`enable` shows your current and proposed input-method/visibility settings and asks **[y/N]** before changing them. **You may notice different suggestions and whole-word Backspace behavior.** The native package keeps your existing system backend; it does not replace desktop libraries. Declining leaves settings untouched. Explicit automation can use `swipe-keyboard enable --yes`; do not use it to bypass compatibility checks.
+`enable` changes the input method **but preserves your existing keyboard-visibility policy**. Your tablet/desktop manager and physical-keyboard policy remain in control; touch-only devices keep their current behavior. It explains the proposed change and asks **[y/N]**. **You may notice different suggestions and whole-word Backspace behavior.** The native package keeps your system backend and does not replace desktop libraries. Declining leaves settings untouched.
+
+If you deliberately want the touch keyboard available even with a physical keyboard attached, choose `swipe-keyboard enable --always-available` during initial activation. That explicitly opts into KDE visibility mode 1 and is explained before confirmation. Do not choose it for a convertible whose tablet/desktop manager owns visibility. Automated setup can add `--yes` as explicit consent, never as a compatibility bypass.
 
 If dependencies or a compatibility check fail, stop and follow the error. Do not force installation or downgrade desktop libraries. Existing custom keyboard layouts are not overwritten; they need a separate migration.
 

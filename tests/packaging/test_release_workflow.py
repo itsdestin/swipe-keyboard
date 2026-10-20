@@ -105,9 +105,37 @@ class WorkflowTests(unittest.TestCase):
         arch = self.jobs['arch']
         self.assertIn('container: archlinux:latest', arch)
         self.assertLess(arch.index('pacman-key --init'), arch.index('pacman-key --populate archlinux'))
-        self.assertLess(arch.index('pacman-key --populate archlinux'), arch.index('pacman -Syyuu'))
+        self.assertLess(arch.index('pacman-key --populate archlinux'), arch.index('retry_pacman -Syyuu'))
         self.assertNotIn('SigLevel', arch)
         self.assertNotIn('--nosignature', arch)
+
+    def test_arch_archive_transactions_retry_bounded_without_bypassing_checks(self):
+        import subprocess
+        arch = self.jobs['arch']
+        match = re.search(r'          retry_pacman\(\) \{\n.*?^          \}', arch, re.M | re.S)
+        self.assertIsNotNone(match, 'Archived mirror downloads need bounded retries')
+        function = '\n'.join(line[10:] for line in match[0].splitlines())
+        # WHY execute the actual workflow function with a fake pacman: success after
+        # a transient timeout must not hide persistent transport/signature failures.
+        for failures, attempts, status in ((0, 1, 0), (2, 3, 0), (9, 3, 1)):
+            with self.subTest(failures=failures):
+                script = f'''attempts=0
+pacman() {{ attempts=$((attempts + 1)); echo "pacman:$*"; (( attempts > {failures} )); }}
+sleep() {{ echo "sleep:$*"; }}
+{function}
+retry_pacman -Syyuu --noconfirm
+result=$?
+echo "attempts:$attempts"
+exit "$result"
+'''
+                result = subprocess.run(['bash', '-c', script], text=True, capture_output=True)
+                self.assertEqual(result.returncode, status, result.stderr)
+                self.assertEqual(result.stdout.count('pacman:-Syyuu --noconfirm'), attempts)
+                self.assertEqual(result.stdout.count('sleep:15'), attempts - 1)
+                self.assertIn(f'attempts:{attempts}', result.stdout)
+        self.assertIn('retry_pacman -Syyuu --noconfirm', arch)
+        self.assertIn('retry_pacman -S --noconfirm --needed base-devel', arch)
+        self.assertNotIn('--nodeps', arch)
 
     def test_fedora_resolves_systemd_conflict_before_build_dependencies(self):
         fedora = self.jobs['fedora']
