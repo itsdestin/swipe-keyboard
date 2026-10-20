@@ -154,6 +154,35 @@ class FlatpakContractTests(unittest.TestCase):
             module.verify_runtime(pins, run=lambda *args, **kwargs: '0' * 64)
         module.verify_runtime(pins, run=lambda command, **kwargs: pins[command[-1].split('//')[0]])
 
+    def test_backend_receives_touch_samples_without_global_environment_writes(self):
+        import os
+        import socket
+        import sys
+        import types
+        spec = importlib.util.spec_from_file_location('flatpak_runtime_launch', BUNDLE/'launch.py')
+        launcher = importlib.util.module_from_spec(spec)
+        layout = types.SimpleNamespace(build_overlay=mock.Mock())
+        with mock.patch.dict(sys.modules, {'layout': layout}), mock.patch.object(sys, 'path', sys.path.copy()):
+            spec.loader.exec_module(launcher)
+        left, right = socket.socketpair()
+        self.addCleanup(left.close)
+        self.addCleanup(right.close)
+        with tempfile.TemporaryDirectory() as directory:
+            environment = {'FLATPAK_ID': 'org.itsdestin.SwipeKeyboard',
+                           'WAYLAND_SOCKET': str(left.fileno()), 'XDG_DATA_HOME': directory}
+            with mock.patch.dict(launcher.os.environ, environment, clear=True), \
+                 mock.patch.object(launcher.Path, 'is_file', return_value=True), \
+                 mock.patch.object(launcher.sys, 'argv', ['swipe-keyboard-flatpak']), \
+                 mock.patch.object(launcher.os, 'execve') as execute:
+                before = dict(launcher.os.environ)
+                launcher.main()
+                execute.assert_called_once()
+                child = execute.call_args.args[2]
+                self.assertEqual(child.get('QML_NO_TOUCH_COMPRESSION'), '1')
+                self.assertEqual(child['WAYLAND_SOCKET'], str(left.fileno()))
+                self.assertEqual(dict(launcher.os.environ), before)
+                os.fstat(left.fileno())  # Validation must not consume KWin's socket.
+
     def test_launcher_is_sandbox_only_and_preserves_fd(self):
         launcher = (BUNDLE / 'launcher.sh').read_text()
         self.assertIn('/.flatpak-info', launcher)

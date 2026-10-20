@@ -407,6 +407,10 @@ class Controller:
         env['XDG_DATA_DIRS'] = str(self.data / 'overlay') + ':' + (env.get('XDG_DATA_DIRS') or '/usr/local/share:/usr/share')
         env['SWIPEKB_MODEL_DATA'] = str(self.root)
         env['SWIPEKB_DATA'] = str(self.data)
+        # WHY: Qt Quick batches touch updates by rendered frame. On slow rendering
+        # this dropped the middle of actual ARM swipes before recognition. Preserve
+        # the trajectory from process startup; no desktop policy/global env changes.
+        env['QML_NO_TOUCH_COMPRESSION'] = '1'
         return env
 
 

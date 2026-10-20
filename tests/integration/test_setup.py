@@ -611,6 +611,17 @@ class SetupTests(unittest.TestCase):
         self.assertTrue(env['QML_IMPORT_PATH'].startswith(str(self.root / 'qml')))
         self.assertFalse((self.base / 'data/swipe-keyboard/record').exists())
 
+    def test_launch_preserves_touch_samples_only_in_child_environment(self):
+        before = dict(os.environ)
+        self.controller.enable()
+        settings = dict(self.commands.settings)
+        env = self.controller.launch_environment()
+        self.assertEqual(env.get('QML_NO_TOUCH_COMPRESSION'), '1')
+        self.assertEqual(dict(os.environ), before)
+        self.assertNotIn('QML_NO_TOUCH_COMPRESSION', self.controller.env)
+        self.assertEqual(self.commands.settings, settings)
+        self.assertEqual(self.commands.live_mode, 0)
+
     def test_launch_regenerates_layout_after_stock_update(self):
         self.controller.enable(always_available=True)
         (self.stock / 'fallback/main.qml').write_text(STOCK.replace('text: "q"', 'text: "Q"'))
