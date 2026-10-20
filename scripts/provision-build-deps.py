@@ -103,7 +103,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('group', choices=('futo', 'dictionary'))
     parser.add_argument('destination', type=pathlib.Path)
-    parser.add_argument('--cache', type=pathlib.Path, default=pathlib.Path(os.environ.get('XDG_CACHE_HOME', pathlib.Path.home()/'.cache'))/'swipe-keyboard/build-wheels')
+    # WHY corresponding-source archives carry only authenticated downloads, never product objects.
+    default_cache = ROOT/'wheelcache' if (ROOT/'wheelcache').is_dir() else pathlib.Path(os.environ.get('XDG_CACHE_HOME', pathlib.Path.home()/'.cache'))/'swipe-keyboard/build-wheels'
+    parser.add_argument('--cache', type=pathlib.Path, default=default_cache)
     parser.add_argument('--profile', choices=('native', 'kde-6.10'), default='native')
     args = parser.parse_args()
     provision(args.group, args.destination.resolve(), args.cache.resolve(), args.profile)

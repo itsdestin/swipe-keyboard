@@ -1,0 +1,10 @@
+{
+  "version": "0.2.1",
+  "release": 1,
+  "targets": {
+    "source": {"arch": "source", "files": ["swipe-keyboard-{version}.tar.gz"]},
+    "arch": {"arch": "x86_64", "files": ["swipe-keyboard-{version}-{release}-x86_64.pkg.tar.zst"]},
+    "fedora": {"arch": "x86_64", "files": ["swipe-keyboard-{version}-{release}.fc44.x86_64.rpm", "swipe-keyboard-{version}-{release}.fc44.src.rpm"]},
+    "flatpak": {"arch": "x86_64", "files": ["swipe-keyboard-{version}-{release}-x86_64.flatpak", "swipe-keyboard-{version}-{release}-flatpak-build-inputs.tar.gz"]}
+  }
+}

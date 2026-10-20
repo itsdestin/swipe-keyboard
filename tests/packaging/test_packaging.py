@@ -16,6 +16,7 @@ class Packaging(unittest.TestCase):
             (fixture/'scripts').mkdir()
             (fixture/'packaging').mkdir()
             shutil.copy2(ROOT/'scripts/package-source.sh', fixture/'scripts/package-source.sh')
+            shutil.copy2(ROOT/'packaging/release-targets.json', fixture/'packaging/release-targets.json')
             tracked = 'third_party/swipe-library/third_party/executorch/build/build_variables.bzl'
             generated = ('build/generated.o', 'third_party/swipe-library/build/generated.o',
                          'third_party/swipe-library/third_party/executorch/cmake-out-host/generated.a')
@@ -32,9 +33,9 @@ class Packaging(unittest.TestCase):
             output = pathlib.Path(tmp)/'dist'
             result = subprocess.run(['bash', str(fixture/'scripts/package-source.sh'), str(output)], text=True, capture_output=True)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            with tarfile.open(output/'swipe-keyboard-0.2.0.tar.gz') as archive:
+            with tarfile.open(output/'swipe-keyboard-0.2.1.tar.gz') as archive:
                 names = {name.replace('/./', '/') for name in archive.getnames()}
-            prefix = 'swipe-keyboard-0.2.0/'
+            prefix = 'swipe-keyboard-0.2.1/'
             self.assertNotIn(prefix + 'personal-secret.txt', names)
             self.assertIn(prefix + tracked, names)
             self.assertIn(prefix + shim_tracked, names)
@@ -86,7 +87,7 @@ include("{ROOT}/cmake/Install.cmake")
             for language in ('es', 'fr', 'de'):
                 self.assertTrue((stage/f'share/swipe-keyboard/language-packs/{language}.json').is_file())
             self.assertFalse((stage/'share/swipe-keyboard/eval').exists())
-            self.assertEqual((stage/'share/swipe-keyboard/runtime.json').read_text(), '{"qt": "6.10", "package": "0.2.0-1"}\n')
+            self.assertEqual((stage/'share/swipe-keyboard/runtime.json').read_text(), '{"qt": "6.10", "package": "0.2.1-1"}\n')
             self.assertTrue((stage/'bin/swipe-keyboard').stat().st_mode & 0o111)
             self.assertTrue((stage/'share/swipe-keyboard/qml/SwipeKeyboard/libswipekb_engine.so').stat().st_mode & 0o111,
                             'Native libraries must retain executable mode for RPM debug-info discovery')
@@ -204,7 +205,7 @@ include("{ROOT}/cmake/Install.cmake")
     def test_ci_extracts_main_arch_package_not_debug_archive_wildcard(self):
         workflow = (ROOT/'.github/workflows/packages.yml').read_text()
         self.assertNotIn('tar -xf dist/*.pkg.tar.zst', workflow)
-        self.assertIn('tar -xf dist/swipe-keyboard-0.2.0-1-x86_64.pkg.tar.zst', workflow)
+        self.assertIn('tar -xf dist/swipe-keyboard-$PACKAGE_VERSION-x86_64.pkg.tar.zst', workflow)
 
     def test_arch_ci_uses_older_baseline_and_retests_identical_bytes_on_current_runtime(self):
         workflow = (ROOT/'.github/workflows/packages.yml').read_text()
@@ -238,25 +239,37 @@ include("{ROOT}/cmake/Install.cmake")
             self.assertNotIn("package '' was not found", result.stderr)
 
     def test_arch_native_dependencies_merge_without_duplicate_provider_entries(self):
+        import json
+        import os
+        import shutil
+        import sys
         with tempfile.TemporaryDirectory() as tmp:
             p = pathlib.Path(tmp)
-            source = p/'src/swipe-keyboard-0.2.0/scripts'
+            version = json.loads((ROOT/'packaging/release-targets.json').read_text())['version']
+            source = p/f'src/swipe-keyboard-{version}/scripts'
             source.mkdir(parents=True)
             (source/'package-check.py').write_text('pass')
             command = '''
+set -e
 source "$1"
 srcdir="$2/src"; pkgdir="$2/pkg"
 cmake() { :; }
 python() {
   if [[ $1 == scripts/arch-dependencies.py ]]; then
     printf '%s\\n' 'qt6-base>=6.11' 'qt6-declarative>=6.11' 'kwindowsystem'
-  else command python "$@"; fi
+  else command python3 "$@"; fi
 }
 package
 printf '%s\\n' "${depends[@]}"
 '''
-            result = subprocess.run(['bash', '-c', command, 'test', str(ROOT/'packaging/arch/PKGBUILD'), str(p)],
-                                    check=True, text=True, capture_output=True)
+            # WHY: Fedora provides python3 without an unversioned python command.
+            # The shell shim must work in that environment too, not just on Arch.
+            binary = p/'bin'
+            binary.mkdir()
+            (binary/'python3').symlink_to(sys.executable)
+            result = subprocess.run([shutil.which('bash'), '-c', command, 'test', str(ROOT/'packaging/arch/PKGBUILD'), str(p)],
+                                    env={**os.environ, 'PATH': str(binary)}, text=True, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
             dependencies = result.stdout.splitlines()
             self.assertIn('qt6-base>=6.11', dependencies)
             self.assertIn('qt6-declarative>=6.11', dependencies)

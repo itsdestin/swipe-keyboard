@@ -35,7 +35,9 @@ def prepare_language_packs(assets, wheel=None, cc_license=None):
     if shutil.disk_usage(assets).free < 21 * 1024**3:
         raise ValueError('less than 21 GiB free')
     lock = json.loads((ROOT/'packaging/assets.lock.json').read_text())
-    cache = pathlib.Path(os.environ.get('SWIPEKB_BUILD_WHEEL_CACHE', pathlib.Path.home()/'.cache/swipe-keyboard/build-wheels'))
+    # WHY prepared source can be rebuilt without redownloading its authenticated tool wheels.
+    default_cache = ROOT/'wheelcache' if (ROOT/'wheelcache').is_dir() else pathlib.Path.home()/'.cache/swipe-keyboard/build-wheels'
+    cache = pathlib.Path(os.environ.get('SWIPEKB_BUILD_WHEEL_CACHE', default_cache))
     wheel = pathlib.Path(wheel) if wheel else cache/'wordfreq-3.1.1-py3-none-any.whl'
     cc_license = pathlib.Path(cc_license) if cc_license else assets/'licenses/CC-BY-SA-4.0.txt'
     fetch({**lock['wordfreq_wheel'], 'path': 'wordfreq wheel'}, wheel)
@@ -46,7 +48,7 @@ def prepare_language_packs(assets, wheel=None, cc_license=None):
         import subprocess
         import sys
         venv = assets/'dict-src/.venv'
-        subprocess.run([sys.executable, str(ROOT/'scripts/provision-build-deps.py'), 'dictionary', str(venv)], check=True)
+        subprocess.run([sys.executable, str(ROOT/'scripts/provision-build-deps.py'), 'dictionary', str(venv), '--cache', str(cache)], check=True)
         for language in ('es', 'fr', 'de'):
             subprocess.run([str(venv/'bin/python'), str(ROOT/'scripts/dict/language_pack.py'),
                             '--wheel', str(wheel), '--language', language, '--encoder-root', str(assets),

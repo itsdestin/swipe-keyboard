@@ -1,5 +1,5 @@
 Name: swipe-keyboard
-Version: 0.2.0
+Version: 0.2.1
 Release: 1%{?dist}
 Summary: Multilingual swipe input and English next-word suggestions for Plasma Keyboard
 License: GPL-3.0-or-later AND Apache-2.0 AND CC-BY-SA-4.0 AND LicenseRef-FUTO-Model-Weights-1.0

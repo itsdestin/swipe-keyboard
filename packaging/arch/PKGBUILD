@@ -1,6 +1,6 @@
 # Local build candidate only; no install hooks and no publication.
 pkgname=swipe-keyboard
-pkgver=0.2.0
+pkgver=0.2.1
 pkgrel=1
 pkgdesc='Multilingual swipe input and English next-word suggestions for Plasma Keyboard — Powered by FUTO Swipe'
 arch=('x86_64')

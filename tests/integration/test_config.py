@@ -129,6 +129,26 @@ class NativeConfig(unittest.TestCase):
                     finally:
                         fixture.doCleanups()
 
+    def test_empty_nested_groups_preserve_real_wayland_values(self):
+        # WHY: KWin legitimately writes [Tiling][output-id][]. These nested
+        # groups must not reject setup or alias the root Wayland ownership view.
+        path = self.user / 'kwinrc'
+        for header in ('[Tiling][synthetic-output][]', '[Wayland][]', '[Wayland][Nested][]'):
+            with self.subTest(header=header):
+                path.write_text('[Wayland]\nInputMethod=plain.desktop\nVirtualKeyboardMode=1\n'
+                                + header + '\nInputMethod[$e]=$HOME/unrelated.desktop\n')
+                before = path.read_bytes()
+                result = subprocess.run([self.helper], env=self.env, text=True, capture_output=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                state = json.loads(result.stdout)
+                self.assertEqual(state['InputMethod'],
+                                 {'raw': 'plain.desktop', 'effective': 'plain.desktop', 'immutable': False})
+                self.assertEqual(state['VirtualKeyboardMode']['raw'], '1')
+                self.assertEqual(path.read_bytes(), before)
+                path.write_text(path.read_text() + '[Wayland]\nInputMethod[$e]=$HOME/relevant.desktop\n')
+                refused = subprocess.run([self.helper], env=self.env, text=True, capture_output=True)
+                self.assertEqual(refused.returncode, 2)
+
     def test_nested_unrelated_groups_do_not_hide_later_relevant_flags(self):
         path = self.user / 'kwinrc'
         unrelated = BASELINE + '[Wayland][Nested]\nInputMethod[$e]=$HOME/unrelated\n'

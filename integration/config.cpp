@@ -24,7 +24,9 @@ static bool supportedUserSyntax(const QByteArray &bytes)
     // WHY classify only literal group identifiers: escaped/ambiguous headers might
     // alias Wayland, so refuse them instead of guessing KConfig's decoding rules.
     // KConfig remains authoritative for values, precedence and immutable flags.
-    const QRegularExpression group(QStringLiteral(R"(^(\[[A-Za-z0-9_ .:/-]+\])+(\[\$i\])?$)"));
+    // WHY: KWin writes empty nested Tiling groups. KConfig keeps empty child
+    // groups distinct from the root; require a named root but allow empty children.
+    const QRegularExpression group(QStringLiteral(R"(^\[[A-Za-z0-9_ .:/-]+\](\[[A-Za-z0-9_ .:/-]*\])*(\[\$i\])?$)"));
     const QRegularExpression key(QStringLiteral(R"(^[A-Za-z0-9_ .:/-]+(\[\$i\])?$)"));
     bool wayland = false;
     for (const auto &rawLine : bytes.split('\n')) {
