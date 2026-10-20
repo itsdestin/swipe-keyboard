@@ -38,8 +38,16 @@ Models, dictionaries and notices are included. You do not need a source build, s
 
    Allow Flatpak to install the required runtime. **Do not use `sudo`.**
 
-3. Open **System Settings**, search for **Virtual Keyboard**, and note the current selection—including **None**, if selected. Choose the **Swipe Keyboard** entry and apply.
-4. **Touch** a normal text field to open the keyboard. It is a keyboard input method, not an app you launch from the application menu.
+3. Read the setup disclosure and confirm whether you want to continue:
+
+   ```sh
+   flatpak run --user --command=swipe-keyboard-setup org.itsdestin.SwipeKeyboard
+   ```
+
+   **You may notice a different keyboard appearance, settings and suggestions.** This is a separate bundled Plasma Keyboard, not a replacement of SteamOS libraries or removal of Maliit. Installing it alone does not activate it. The guide defaults to **No** and never writes your host settings.
+
+4. If you choose to proceed, open **System Settings → Virtual Keyboard**, note the current selection—including **None**—then choose **Swipe Keyboard** and apply. This changes the Desktop Mode input method.
+5. **Touch** a normal text field to open the keyboard. Restore your previous selection before uninstalling.
 
 To enable languages, open the bundled keyboard settings:
 
@@ -81,6 +89,8 @@ After either native installation, **inside your logged-in KDE Wayland session**,
 swipe-keyboard check
 swipe-keyboard enable
 ```
+
+`enable` shows your current and proposed input-method/visibility settings and asks **[y/N]** before changing them. **You may notice different suggestions and whole-word Backspace behavior.** The native package keeps your existing system backend; it does not replace desktop libraries. Declining leaves settings untouched. Explicit automation can use `swipe-keyboard enable --yes`; do not use it to bypass compatibility checks.
 
 If dependencies or a compatibility check fail, stop and follow the error. Do not force installation or downgrade desktop libraries. Existing custom keyboard layouts are not overwritten; they need a separate migration.
 

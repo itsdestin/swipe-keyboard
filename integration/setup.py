@@ -395,9 +395,38 @@ class Controller:
         return env
 
 
+def confirm_activation(controller, assume_yes=False):
+    # WHY: package installation and desktop activation are different consent boundaries.
+    # Read current values before asking; declining must not create an overlay/journal or write settings.
+    state = controller.config_state()
+    print('Swipe Keyboard will change these per-user KDE settings:')
+    for key in ('InputMethod', 'VirtualKeyboardMode'):
+        print(f"  {key}: {state[key]['effective']!r} -> {controller.wanted[key]!r}")
+    print('Visibility mode 1 makes the touch keyboard available when needed.\n'
+          'You may notice different swipe suggestions and whole-word Backspace behavior.\n'
+          'The native package uses your existing system backend; it does not replace Qt, Plasma or Maliit.\n'
+          'Contextual next-word prediction stays disabled if that backend lacks the privacy interface.\n'
+          'Run swipe-keyboard disable before removal to restore settings still owned by setup; '
+          'legacy records without raw provenance may need an explicit manual choice.')
+    if assume_yes:
+        return True
+    if not sys.stdin.isatty():
+        print('No settings changed. Use an interactive terminal or pass --yes for explicit automation consent.')
+        return False
+    try:
+        answer = input('Enable Swipe Keyboard with these changes? [y/N] ').strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        answer = ''
+    if answer not in ('y', 'yes'):
+        print('No settings changed.')
+        return False
+    return True
+
+
 def main():
     parser = argparse.ArgumentParser(description='Standalone swipe typing — Powered by FUTO Swipe')
     parser.add_argument('action', choices=('check', 'enable', 'disable', 'launch'))
+    parser.add_argument('--yes', action='store_true', help='Explicitly accept the displayed activation changes without prompting')
     args = parser.parse_args()
     if os.geteuid() == 0:
         parser.error('Run as your normal desktop user, not root or sudo.')
@@ -410,6 +439,10 @@ def main():
                 print(f'Swipe Keyboard: {error}\nStarting the unmodified stock keyboard instead.', file=sys.stderr)
                 env = dict(os.environ)
             os.execvpe('plasma-keyboard', ['plasma-keyboard'], env)
+        if args.action == 'enable':
+            controller.check()  # Refuse incompatible systems before offering activation.
+            if not confirm_activation(controller, assume_yes=args.yes):
+                return 0
         report = getattr(controller, args.action)()
         if args.action == 'check':
             for label, value in report.items():
@@ -420,7 +453,6 @@ def main():
     except (SetupError, OSError) as error:
         print('Swipe Keyboard: ' + str(error), file=sys.stderr)
         print('Help: https://github.com/itsdestin/swipe-keyboard#troubleshooting\n'
-              'Optional AI-agent assistance: https://youcoded.ai (not required).\n'
               'Share the error and versions, not typing recordings or private logs. '
               'Do not force dependencies or overwrite custom layouts.', file=sys.stderr)
         return 1

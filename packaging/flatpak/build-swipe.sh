@@ -31,6 +31,7 @@ rm /app/bin/swipe-keyboard /app/share/applications/swipe-keyboard.desktop \
     /app/share/swipe-keyboard/integration/setup.py \
     /app/share/swipe-keyboard/integration/swipe-keyboard \
     /app/share/swipe-keyboard/integration/swipe-keyboard.desktop
+install -Dm755 packaging/flatpak/setup-guide.py /app/bin/swipe-keyboard-setup
 install -Dm755 packaging/flatpak/launcher.sh /app/bin/swipe-keyboard-flatpak
 install -Dm644 packaging/flatpak/launch.py /app/share/swipe-keyboard/flatpak/launch.py
 install -Dm644 packaging/flatpak/org.itsdestin.SwipeKeyboard.desktop /app/share/applications/org.itsdestin.SwipeKeyboard.desktop
