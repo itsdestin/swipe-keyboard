@@ -33,13 +33,18 @@ def apply_patch(root, patch):
     # WHY: archives lack .git. Upstream's `git -C executorch apply --check`
     # discovers CI's enclosing checkout and can silently skip every patch path,
     # returning success even for the reverse check on an unpatched tree.
-    # Absolute --directory paths bind checks and writes to the extracted input.
+    # Absolute --directory alone is insufficient: Git still prefix-filters when
+    # launched below the enclosing checkout. Start at the input root and forbid
+    # discovery above it; a real checkout at root remains supported. This is
+    # per-command isolation, not a change to the caller or global Git settings.
     command = ['git', 'apply', '--unsafe-paths', '--directory=' + str(root)]
+    options = {'cwd': root,
+               'env': {**os.environ, 'GIT_CEILING_DIRECTORIES': str(root.parent)}}
     if subprocess.run(command + ['--reverse', '--check', str(patch)],
-                      capture_output=True).returncode == 0:
+                      capture_output=True, **options).returncode == 0:
         return
-    subprocess.run(command + ['--check', str(patch)], check=True)
-    subprocess.run(command + [str(patch)], check=True)
+    subprocess.run(command + ['--check', str(patch)], check=True, **options)
+    subprocess.run(command + [str(patch)], check=True, **options)
 
 
 def apply_swipe(root):
