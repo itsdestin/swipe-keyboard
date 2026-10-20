@@ -9,7 +9,7 @@ import subprocess
 import tarfile
 
 ROOT = Path(__file__).resolve().parents[1]
-PRODUCERS = ('prepare', 'arch', 'fedora', 'flatpak')
+PRODUCERS = ('prepare', 'arch', 'fedora', 'fedora-arm64', 'flatpak')
 
 
 def parse_json(text):
@@ -134,13 +134,15 @@ def output(command):
 def inspect(target, directory, stage, sha, contract):
     """Producer-side package-manager metadata AND extracted embedded identity, before hashing."""
     names = [filename(n, contract) for n in contract['targets'][target]['files']]
-    if target in ('arch', 'fedora', 'flatpak'):
+    architecture = contract['targets'][target]['arch']
+    rpm_target = target in ('fedora', 'fedora-arm64')
+    if target in ('arch', 'flatpak') or rpm_target:
         if stage is None:
             raise ValueError('Extracted/installed package root required')
         prefix = 'files' if target == 'flatpak' else 'usr'
         runtime = parse_json((stage/prefix/'share/swipe-keyboard/runtime.json').read_text())
         identity = parse_json((stage/prefix/'share/swipe-keyboard/source-identity.json').read_text())
-        embedded = version(contract) + ('.fc44' if target == 'fedora' else '')
+        embedded = version(contract) + ('.fc44' if rpm_target else '')
         if runtime.get('package') != embedded or identity != {'source_sha': sha, 'version': version(contract)}:
             raise ValueError('Embedded package version/source mismatch')
     if target == 'arch':
@@ -148,9 +150,12 @@ def inspect(target, directory, stage, sha, contract):
         for key, value in [('pkgname', 'swipe-keyboard'), ('pkgver', version(contract)), ('arch', 'x86_64')]:
             if re.findall(r'^' + key + r' = (.+)$', metadata, re.M) != [value]:
                 raise ValueError('Arch package metadata mismatch: ' + key)
-    elif target == 'fedora':
-        # WHY SOURCEPACKAGE: an SRPM header can record its build host's ARCH, not literal 'src'.
-        for name, field, expected in zip(names, ('ARCH', 'SOURCEPACKAGE'), ('x86_64', '1')):
+    elif rpm_target:
+        # WHY one common SRPM: ARM publishes only its binary; publishing both
+        # same-named build-host-dependent SRPMs would overwrite merged artifacts.
+        # SOURCEPACKAGE checks source headers whose ARCH may be the build host.
+        for name in names:
+            field, expected = ('SOURCEPACKAGE', '1') if name.endswith('.src.rpm') else ('ARCH', architecture)
             actual = output(['rpm', '-qp', '--qf', '%{NAME} %{VERSION}-%{RELEASE} %{' + field + '}', str(directory/name)])
             if actual != f"swipe-keyboard {version(contract)}.fc44 {expected}":
                 raise ValueError('RPM package metadata mismatch')

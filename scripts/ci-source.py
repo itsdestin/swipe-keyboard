@@ -63,7 +63,9 @@ def prepare(output):
     source = work/('swipe-keyboard-' + contract['version'])
     (source/'packaging/source-identity.json').write_text(json.dumps({'source_sha': sha, 'version': release.version(contract)}) + '\n')
     wheels = module('wheels', ROOT/'scripts/provision-build-deps.py')
-    for profile in ('', 'kde-6.10'):
+    # WHY all profiles: the same authenticated source archive feeds both native
+    # architectures and the independent x86 SDK build, without online pip resolution.
+    for profile in ('', 'native-aarch64', 'kde-6.10'):
         lock = json.loads((ROOT/'requirements'/profile/'wheels.lock.json').read_text())
         for item in [*lock['wheels'].values(), lock['torchgen']]:
             wheels.fetch(item, source/'wheelcache')

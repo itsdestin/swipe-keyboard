@@ -33,10 +33,13 @@ def publish():
     # one to the stable/latest channel when replacing the former manual procedure.
     subprocess.run(['gh', 'release', 'create', tag, '--verify-tag', '--target', sha, '--draft', '--prerelease',
                     '--title', 'Swipe Keyboard ' + release.version(contract), '--notes',
-                    'Arch/CachyOS x86_64, Fedora 44 x86_64 and SteamOS Desktop Flatpak x86_64. '
+                    'Arch/CachyOS x86_64, Fedora 44 x86_64/aarch64 (ARM64 Linux Plasma Mobile) and SteamOS Desktop Flatpak x86_64. '
                     'Complete corresponding source and SHA256SUMS included. CI checks package/build/loader contracts; '
                     'physical compositor/input acceptance is separate and must identify package hashes. '
-                    'ARM phones and Gaming Mode are not newly supported.'], check=True)
+                    'ARM session acceptance is required; emulated ARM input does not certify physical-phone performance. '
+                    'Android, iOS, musl and Gaming Mode are not certified.\n\n'
+                    f'[Install and enable](https://github.com/itsdestin/swipe-keyboard/blob/{tag}/README.md#install) · '
+                    f'[Release scope](https://github.com/itsdestin/swipe-keyboard/blob/{tag}/docs/releases/{tag}.md)'], check=True)
     # Manifest-derived exact list, no glob, --clobber, rebuild, or unrelated run download.
     subprocess.run(['gh', 'release', 'upload', tag, *(str(directory/n) for n in names)], check=True)
     with tempfile.TemporaryDirectory() as tmp:

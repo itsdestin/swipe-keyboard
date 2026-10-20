@@ -97,6 +97,20 @@ class SetupTests(unittest.TestCase):
         self.commands = Commands()
         self.controller = self.module.Controller(self.root, self.env, self.commands)
 
+    def test_native_arm_passes_same_compatibility_and_load_gates_as_x86(self):
+        for machine in ('x86_64', 'aarch64'):
+            with self.subTest(machine=machine), mock.patch.object(self.module.platform, 'machine', return_value=machine):
+                self.controller.check()
+                self.assertTrue(any(Path(call[0]).name == 'swipekb-preflight' for call in self.commands.calls))
+                self.commands.preflight_error = 'native symbol unavailable'
+                with self.assertRaisesRegex(self.module.SetupError, 'Native plugin load failed'):
+                    self.controller.check()
+                self.commands.preflight_error = None
+        with mock.patch.object(self.module.platform, 'machine', return_value='riscv64'):
+            with self.assertRaisesRegex(self.module.SetupError, 'x86_64 or aarch64'):
+                self.controller.check()
+        self.assertFalse(self.controller.data.exists(), 'Read-only checks never activate the keyboard')
+
     def hold_setup_lock(self, release_after=None):
         self.controller.data.mkdir(parents=True, exist_ok=True)
         # WHY a separate process: exercise real flock contention, not a mocked lock result.

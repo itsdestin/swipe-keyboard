@@ -1,8 +1,18 @@
 # Python executable build-input locks
 
-These locks target CPython 3.14, Linux x86_64, glibc >= 2.28 (Fedora 44 and
-current Arch). Other interpreters/architectures fail closed; regenerate and
-review a separate wheel lock before supporting them.
+Native locks target CPython 3.14, Linux glibc >= 2.28: the root lock is x86_64
+(Fedora 44/current Arch); `native-aarch64/` is ARM64 (Fedora 44 Plasma Mobile).
+The provisioner selects the native lock from `platform.machine()`, and rejects
+other machines/interpreters before fetching. `kde-6.10/` remains a separate
+CPython 3.13 x86_64 SDK lock; ARM does not reuse its extension wheels.
+
+ARM CMake, PyYAML, msgpack, regex and wcwidth wheels are architecture-specific,
+with exact URLs and SHA256 values checked against their pinned PyPI release
+metadata. Pure Python wheels share existing pins. The pinned x86 torch wheel
+is only a container for `torchgen/` Python/templates: no torch import, installation,
+foreign native code or DSO adapter. Extraction rejects native/bytecode members.
+The complete source producer includes all three authenticated wheel profiles.
+Musl and other architectures are not covered.
 
 `wheels.lock.json` records exact PyPI artifact URLs and SHA-256 hashes (checked
 against PyPI release metadata), plus the PyTorch CPU wheel URL/hash from the

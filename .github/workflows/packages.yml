@@ -256,6 +256,88 @@ jobs:
           if-no-files-found: error
           retention-days: 7
           compression-level: 0
+  fedora-arm64:
+    needs: prepare
+    # Native hosted ARM, not cross-compilation or hours of local TCG compilation.
+    runs-on: ubuntu-24.04-arm
+    container: fedora:44
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      PACKAGE_VERSION: ${{ needs.prepare.outputs.package_version }}
+    steps:
+      - name: Verify native ARM runner and available build space
+        run: |
+          test "$(uname -m)" = aarch64
+          df -h . /home
+          # Fail early with actual runner capacity; never lower the asset safety floor.
+          test "$(df -Pk . | tail -1 | tr -s ' ' | cut -d' ' -f4)" -ge 22020096
+      - name: Install RPM tooling
+        run: dnf -y install git rpm-build rpmdevtools dnf-plugins-core cpio findutils
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: prepared
+          path: prepared
+      - name: Verify prepared input identity and hashes before executing source
+        run: python3 scripts/release.py verify-inputs --directory prepared --sha "$GITHUB_SHA"
+      - name: Resolve current Fedora 44 ARM build dependencies
+        run: |
+          if rpm -q systemd-standalone-tmpfiles >/dev/null 2>&1; then
+            dnf -y swap systemd-standalone-tmpfiles systemd
+          fi
+          dnf -y builddep packaging/fedora/swipe-keyboard.spec
+          rpm -q glibc libstdc++ qt6-qtbase qt6-qtdeclarative qt6-qtvirtualkeyboard plasma-keyboard python3 | tee packaging/BASELINE-VERSIONS.txt
+      - name: Build fresh ARM product, ExecuTorch and RPM as unprivileged builder
+        run: |
+          useradd -m builder
+          mkdir dist
+          mkdir -p /home/builder/rpmbuild/{SOURCES,SPECS,BUILD,BUILDROOT,RPMS,SRPMS}
+          cp "prepared/swipe-keyboard-$VERSION.tar.gz" /home/builder/rpmbuild/SOURCES/
+          cp packaging/fedora/swipe-keyboard.spec /home/builder/rpmbuild/SPECS/
+          chown -R builder:builder /home/builder/rpmbuild
+          # Same complete source/SRPM contract as x86; no second same-named SRPM upload.
+          # %check runs full native CTest plus packaging/integration suites on ARM.
+          su builder -c 'rpmbuild -bb --noclean /home/builder/rpmbuild/SPECS/swipe-keyboard.spec'
+          cp /home/builder/rpmbuild/RPMS/aarch64/*.rpm dist/
+      - name: Inspect actual ARM RPM ELF, language profiles, QRC and loader
+        run: |
+          mkdir dist/stage
+          cd dist/stage
+          rpm2cpio ../swipe-keyboard-$PACKAGE_VERSION.fc44.aarch64.rpm | cpio -idm
+          cd ../..
+          python3 scripts/package-check.py dist/stage
+          test_executable=$(find /home/builder/rpmbuild/BUILD -path '*/redhat-linux-build/plugin/tst_stocklayout' -type f -print -quit)
+          test -n "$test_executable"
+          python3 scripts/check-stock-layout.py "$test_executable" --runtime-root dist/stage/usr/share/swipe-keyboard
+          rpm -qp --requires dist/*aarch64.rpm > dist/package-requires.txt
+      - name: Verify installed ARM wrapper and dependency resolution, then remove
+        run: |
+          dnf -y --setopt=install_weak_deps=False install dist/swipe-keyboard-$PACKAGE_VERSION.fc44.aarch64.rpm
+          su builder -c 'XDG_SESSION_TYPE=wayland XDG_CURRENT_DESKTOP=KDE swipe-keyboard check'
+          dnf -y --setopt=clean_requirements_on_remove=False remove swipe-keyboard
+          test ! -e /usr/bin/swipe-keyboard
+          test ! -e /usr/share/swipe-keyboard
+      - name: Bind ARM RPM metadata and exact final bytes
+        run: |
+          mkdir release evidence
+          cp "dist/swipe-keyboard-$PACKAGE_VERSION.fc44.aarch64.rpm" release/
+          python3 scripts/release.py record --target fedora-arm64 --stage dist/stage --sha "$GITHUB_SHA"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fedora-arm64-files
+          path: release/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fedora-arm64-evidence
+          path: evidence/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
   flatpak:
     needs: prepare
     runs-on: ubuntu-24.04
@@ -321,7 +403,7 @@ jobs:
   keyboard-ci:
     name: Keyboard CI
     if: ${{ always() }}
-    needs: [prepare, arch, fedora, flatpak]
+    needs: [prepare, arch, fedora, fedora-arm64, flatpak]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4

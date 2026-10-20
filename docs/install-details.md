@@ -1,13 +1,13 @@
 # Setup and recovery details
 
-For download links and short installation steps, see the [main page](../README.md#install). This page describes the **v0.2.0** Deck Flatpak and Fedora package. [The r3 release notes](releases/v0.1.0-r3.md) describe the older, English-only native downloads.
+For download links and short installation steps, see the [main page](../README.md#install). This page describes **v0.2.1-1**: the Deck Flatpak, Arch/CachyOS package, and Fedora x86_64 and ARM64 packages. [The r3 release notes](releases/v0.1.0-r3.md) describe the older, English-only native downloads.
 
 ## Verify a download
 
-Download [SHA256SUMS.txt](https://github.com/itsdestin/swipe-keyboard/releases/download/v0.2.0/SHA256SUMS.txt) into the same folder as the package. Open a terminal there and run:
+Download [SHA256SUMS](https://github.com/itsdestin/swipe-keyboard/releases/download/v0.2.1-1/SHA256SUMS) into the same folder as the package. Open a terminal there and run:
 
 ```sh
-sha256sum --check --ignore-missing SHA256SUMS.txt
+sha256sum --check --ignore-missing SHA256SUMS
 ```
 
 Your downloaded package should report **OK**. Do not install a mismatching file. A checksum checks the file against the published list; it is not a package-signing service.
@@ -34,8 +34,8 @@ The bundle requests ordinary Wayland and inherited Wayland-socket access. It doe
 
 ### Updates and removal
 
-- **Keyboard update:** download the newer bundle and repeat `flatpak install --user ./org.itsdestin.SwipeKeyboard.flatpak`. Keep the existing selection unless release instructions say otherwise. The local bundle is not an automatic keyboard-update feed; `flatpak update` can update its runtime but is not a substitute for downloading a new keyboard release.
-- **SteamOS update:** use the ordinary supported SteamOS update mechanism. Do not unlock the root filesystem, install this project's native Arch package on SteamOS, or replace system libraries. The [release notes](releases/v0.2.0.md) distinguish tested reboot behavior from OS-update survival; do not assume the latter from the former.
+- **Keyboard update:** download the newer bundle and repeat `flatpak install --user ./swipe-keyboard-0.2.1-1-x86_64.flatpak`. Keep the existing selection unless release instructions say otherwise. The local bundle is not an automatic keyboard-update feed; `flatpak update` can update its runtime but is not a substitute for downloading a new keyboard release.
+- **SteamOS update:** use the ordinary supported SteamOS update mechanism. Do not unlock the root filesystem, install this project's native Arch package on SteamOS, or replace system libraries. The [release notes](releases/v0.2.1-1.md) distinguish tested reboot behavior from OS-update survival; do not assume the latter from the former.
 - **Removal:** restore the previous entry—or None, if that was the original setting—in **System Settings → Virtual Keyboard**, then run `flatpak uninstall --user org.itsdestin.SwipeKeyboard` without sudo. There is **no automatic selection restoration** for this bundle.
 - **Already uninstalled:** select the previous/stock input method manually in Settings. Reinstall the bundle if you want Swipe Keyboard again. Do not delete all KDE keyboard settings to recover one selection.
 
@@ -43,11 +43,11 @@ Private app data is under `~/.var/app/org.itsdestin.SwipeKeyboard/`; the keyboar
 
 **Gaming Mode is not supported.** Steam's built-in Gaming Mode keyboard is a different integration. Installing the Desktop bundle does not replace it. Physical Steam Deck hardware performance is not established by our virtual-machine checks.
 
-## Fedora and Plasma Mobile native package
+## Native packages: Arch/CachyOS and Fedora Plasma Mobile
 
-The supplied RPM is for **Fedora 44, x86_64**, with KDE Plasma Wayland and **Plasma Keyboard 6.7.x/6.8.x**. Maliit is not interchangeable with Plasma Keyboard. The current native build uses **Qt 6.11.2**; package dependencies and `swipe-keyboard check` must both succeed. Do not ignore library dependencies or force the plugin to load on an older desktop.
+Native packages require KDE Plasma Wayland and **Plasma Keyboard 6.7.x/6.8.x**, not Maliit. The release provides **Arch/CachyOS x86_64**, **Fedora 44 x86_64** and **Fedora 44 ARM64/aarch64** packages. The package records its build ABI; dependency resolution and `swipe-keyboard check` must both succeed. Do not ignore library dependencies or force a plugin onto an incompatible desktop.
 
-**Plasma Mobile** describes the KDE shell. It does not mean Android/iOS support or an ARM-phone build. No ARM package is supplied in this release, and x86 virtual-machine results do not certify phone hardware, battery use or touch ergonomics.
+For Plasma Mobile on ARM64, use the **aarch64 Fedora RPM** only on a compatible Fedora 44/glibc system. `uname -m` reports the CPU architecture. It is not an ARM32, Android/iOS or postmarketOS/Alpine APK package; other distributions, especially musl-based ones, need their own builds. ARM64 is a required release target and needs its own build/load and Plasma Mobile input acceptance, not an inference from x86 testing. Emulated ARM checks do not establish physical-phone performance, battery use or touch ergonomics.
 
 `swipe-keyboard check` reports versions, session and selection, then checks native loading before activation changes settings. It is not a touchscreen or universal application-compatibility test. Run both `check` and `enable` inside the logged-in KDE session, as the desktop user and without sudo.
 
@@ -71,7 +71,7 @@ For the **native package**, KDE may still be configured to start a missing launc
 
 If a desktop upgrade prevents reinstalling, select stock **Plasma Keyboard** in **System Settings → Virtual Keyboard**. That restores a usable selection but does not reconstruct all prior settings.
 
-Preserve `~/.local/share/swipe-keyboard/setup-state.json` (or its XDG equivalent). Do not delete the restoration record or guess previous values. Keep the exact error if disable fails and retry from the original user's KDE session without sudo. For Flatpak recovery, use the [Deck procedure above](#steam-deck-flatpak), not the native setup record.
+Preserve `~/.local/share/swipe-keyboard/setup-state.json` (or its XDG equivalent). Older setup records may contain effective values without proving whether a raw user key existed. If disable reports missing legacy provenance, it deliberately refuses to guess; retain the record and choose your intended keyboard preferences explicitly. Do not delete the restoration record or guess previous values. Keep the exact error if disable fails and retry from the original user's KDE session without sudo. For Flatpak recovery, use the [Deck procedure above](#steam-deck-flatpak), not the native setup record.
 
 ## Languages, suggestions and application limits
 
@@ -98,6 +98,6 @@ Never send passwords, personal typing, learned words, recordings or unreviewed l
 
 ## Source and licenses
 
-Use the complete corresponding-source archive attached to the [v0.2.0 release](https://github.com/itsdestin/swipe-keyboard/releases/tag/v0.2.0) for rebuilding. GitHub's automatic “Source code” ZIP/tar downloads omit submodules. The Fedora `.src.rpm`, when supplied, is for rebuilding, not installation. See [CONTRIBUTING.md](../CONTRIBUTING.md).
+Use the complete corresponding-source archive attached to the [v0.2.1-1 release](https://github.com/itsdestin/swipe-keyboard/releases/tag/v0.2.1-1) for rebuilding. GitHub's automatic “Source code” ZIP/tar downloads omit submodules. The Fedora `.src.rpm`, when supplied, is for rebuilding, not installation. See [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 FUTO's swipe-library is GPL-3.0; model weights use the separate FUTO Model Weights License 1.0. Dictionaries incorporate AOSP word lists (Apache-2.0) and wordfreq data (CC-BY-SA-4.0). Generated dictionary data retains CC-BY-SA attribution/terms, including language-pack transformation notices. Preserve all supplied terms, attribution and source obligations. See [NOTICE](../packaging/NOTICE) and each pack's notices. Qt/KDE components retain their licenses. Optional development models have separate terms and are not part of the base release.

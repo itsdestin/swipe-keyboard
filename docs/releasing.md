@@ -4,10 +4,15 @@
 
 `packaging/release-targets.json` is the authoritative version/release number and exact
 required file list. Current corrective release: **0.2.1-1** (tag **v0.2.1-1**).
-It requires Arch/CachyOS x86_64, Fedora **44** x86_64, SteamOS **Desktop** x86_64
-Flatpak, complete corresponding source, the Fedora source RPM, Flatpak build inputs,
+It requires Arch/CachyOS x86_64, Fedora **44** x86_64, Fedora **44 aarch64**
+for Linux ARM64 Plasma Mobile, SteamOS **Desktop** x86_64 Flatpak, complete
+corresponding source, one shared Fedora source RPM, Flatpak build inputs,
 `release-manifest.json`, and `SHA256SUMS`. There are no platform skip switches.
-ARM phones and Gaming Mode are not newly supported. Never replace v0.2.0 assets.
+ARM is a required build/package/acceptance target, not an optional canary.
+Source implementation alone is not ARM runtime acceptance: the exact native ARM
+package must pass a real ARM Plasma Mobile session before publication. This does
+not certify physical-phone performance, Android, iOS, musl, or Gaming Mode.
+Never replace v0.2.0 assets.
 
 ## One local check command
 
@@ -20,7 +25,7 @@ python3 scripts/release.py check-versions && python3 -m unittest discover -s tes
 
 `git submodule update --init --recursive` prepares the pinned source dependencies.
 Normal complete asset preparation is `python3 scripts/fetch-assets.py` (CPython
-3.14, Linux x86_64; preserves its existing 21 GiB free-space floor). Unit tests do
+3.14, Linux x86_64 or aarch64; preserves its existing 21 GiB free-space floor). Unit tests do
 not compile all third-party products. Integration tests without built native helpers
 can skip helper-dependent cases; the native package recipes build those helpers
 and run their real tests. Source-only checks are not proof that a package works.
@@ -34,7 +39,7 @@ status as required, including administrators, only after a real green run exists
 Repository rule changes and the initial remote runs are owner coordination, not
 something a local source test performs.
 
-Required producer jobs are `prepare`, `arch`, `fedora`, and `flatpak`.
+Required producer jobs are `prepare`, `arch`, `fedora`, `fedora-arm64`, and `flatpak`.
 `keyboard-ci` (`Keyboard CI`) runs with `always()` and checks every producer result;
 failed, cancelled, missing and unexpectedly skipped producers fail the gate.
 Read-only credentials apply throughout PR/build/gate jobs. No `pull_request_target`,
@@ -51,6 +56,16 @@ cross-run artifact promotion, optional platform bypass, or product build cache e
   disposable container to current Arch. No dependency bypass.
 - `fedora`: real Fedora 44 RPM/SRPM build, tests, extracted loader/ELF checks, and
   dependency-checked installation/removal in its disposable container.
+- `fedora-arm64`: mandatory native `ubuntu-24.04-arm` runner with the multiarch
+  Fedora 44 container, explicitly verifies `uname -m=aarch64` and actual free space.
+  Builds fresh ExecuTorch/product objects with `USE_MARCH_NATIVE=OFF`, full native
+  CTest and packaging/integration suites. Checks every shipped ELF machine,
+  dependencies, privacy contracts, English/ES/FR/DE profiles and packaged QRC/loader;
+  installs/checks/removes the exact RPM as for x86. Uploads only the `.aarch64.rpm`:
+  the identical corresponding source recipe is already represented by the required
+  shared source archive and x86-produced `.src.rpm`. Two host-dependent SRPMs with
+  the same basename must never collide in merged downloads. The ARM producer's
+  embedded source SHA/package version and RPM architecture are checked, not waived.
 - `flatpak`: signed upstream stable Flatpak tooling (1.16+; Ubuntu 24.04's stock
   1.14 lacks inherited Wayland-socket support), signed Flathub SDK/Platform 6.10
   installation followed by exact locked
@@ -111,6 +126,25 @@ gh workflow run packages.yml --ref ci/165-swipe-release-pipeline
 Then inspect the actual run and logs (`gh run view <run-id> --log-failed`), not just
 workflow syntax or local tests. Dispatch never publishes. Initial pipeline delivery
 still needs real remote Arch/Fedora/SDK builds before it can be called working.
+
+## Required ARM Plasma Mobile session acceptance
+
+Before approving the tag run, install its hash-bound `.aarch64.rpm` into the owned
+ARM Fedora 44 Plasma Mobile guest (or an explicitly authorized ARM device).
+Record `uname -m`, OS/Qt/Plasma versions, source SHA, package version and SHA256;
+verify native ELF/load/profile diagnostics and enable the keyboard using the
+ordinary supported wrapper. In the real Plasma Mobile session, exercise taps,
+swipe/commit, password/sensitive-field privacy, English plus ES/FR/DE profile
+selection and the current native backend's prediction-disabled policy. Disable
+and restore the exact prior keyboard configuration, then verify restoration and
+package removal. Save real session screenshots/input results, not just OS boot
+or a cross-compiled ELF. Owner environment approval must wait for this acceptance
+against the final tag bytes, alongside the existing x86/Deck acceptance.
+
+A QEMU-emulated ARM OS/session can establish bounded ARM Linux Plasma Mobile
+build/load/input support, **not physical phone performance or device certification**.
+Until native CI and that session have actually passed, ARM remains required but
+unverified; it is not grounds to publish the other targets alone.
 
 ## Physical acceptance is separate
 

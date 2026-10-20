@@ -2,7 +2,7 @@
 
 **Swipe across letters to type a word, tap an alternative to correct it, or type normally.** English (US/UK), Spanish, French and German. Recognition runs on your device; recording is off by default.
 
-[**Download v0.2.0**](https://github.com/itsdestin/swipe-keyboard/releases/tag/v0.2.0) · [Install](#install) · [Troubleshooting](#troubleshooting) · [Report a bug](https://github.com/itsdestin/swipe-keyboard/issues/new?template=bug.yml)
+[**Download v0.2.1-1**](https://github.com/itsdestin/swipe-keyboard/releases/tag/v0.2.1-1) · [Install](#install) · [Troubleshooting](#troubleshooting) · [Report a bug](https://github.com/itsdestin/swipe-keyboard/issues/new?template=bug.yml)
 
 ![Swipe typing and word alternatives in a Fedora KDE test VM](docs/images/swipe-typing.png)
 
@@ -12,13 +12,15 @@ This is a **test release for KDE Plasma Wayland**. Application text-input suppor
 
 | Your system | Package |
 |---|---|
-| **Steam Deck — Desktop Mode** | [org.itsdestin.SwipeKeyboard.flatpak](https://github.com/itsdestin/swipe-keyboard/releases/download/v0.2.0/org.itsdestin.SwipeKeyboard.flatpak) |
-| **Fedora 44 KDE / Plasma Mobile, x86_64** | [swipe-keyboard-0.2.0-1.fc44.x86_64.rpm](https://github.com/itsdestin/swipe-keyboard/releases/download/v0.2.0/swipe-keyboard-0.2.0-1.fc44.x86_64.rpm) |
+| **Arch / CachyOS, x86_64** | [swipe-keyboard-0.2.1-1-x86_64.pkg.tar.zst](https://github.com/itsdestin/swipe-keyboard/releases/download/v0.2.1-1/swipe-keyboard-0.2.1-1-x86_64.pkg.tar.zst) |
+| **Fedora 44 Plasma Mobile, ARM64 / aarch64** | [swipe-keyboard-0.2.1-1.fc44.aarch64.rpm](https://github.com/itsdestin/swipe-keyboard/releases/download/v0.2.1-1/swipe-keyboard-0.2.1-1.fc44.aarch64.rpm) |
+| **Steam Deck — Desktop Mode, x86_64** | [swipe-keyboard-0.2.1-1-x86_64.flatpak](https://github.com/itsdestin/swipe-keyboard/releases/download/v0.2.1-1/swipe-keyboard-0.2.1-1-x86_64.flatpak) |
+| **Fedora 44 KDE / Plasma Mobile, x86_64** | [swipe-keyboard-0.2.1-1.fc44.x86_64.rpm](https://github.com/itsdestin/swipe-keyboard/releases/download/v0.2.1-1/swipe-keyboard-0.2.1-1.fc44.x86_64.rpm) |
 
 - **Deck:** Desktop Mode only. **Gaming Mode is not supported.** Use the Flatpak, not the Fedora or Arch package. No SteamOS root unlock is needed.
-- **Fedora:** requires Plasma Keyboard 6.7.x/6.8.x—not Maliit—and compatible Qt/glibc libraries. The RPM does not install or upgrade your desktop.
-- **Mobile means Plasma Mobile**, not Android or iOS. These downloads are **x86_64 only; there is no ARM-phone package**. See [tested configurations and limitations](docs/releases/v0.2.0.md).
-- **Arch/CachyOS:** the [previous r3 packages](https://github.com/itsdestin/swipe-keyboard/releases/tag/v0.1.0-r3) remain available with their older English-only feature set. Do not install the Fedora RPM on Arch.
+- **Native packages:** require Plasma Keyboard 6.7.x/6.8.x—not Maliit—and compatible Qt/glibc libraries. Use the package for your distribution and CPU; do not install the Fedora RPM on Arch or an x86_64 package on ARM.
+- **Mobile means Plasma Mobile**, not Android or iOS. The ARM64 RPM is for **Fedora 44 / glibc**; it is not an APK for postmarketOS/Alpine, an ARM32 build or a universal phone installer. Physical-phone performance and other phone distributions need their own checks. See [release scope](docs/releases/v0.2.1-1.md).
+- Release publication requires **all four platform packages**. Source preparation or x86 Mobile tests alone do not qualify as ARM acceptance.
 
 Models, dictionaries and notices are included. You do not need a source build, source archive or `.src.rpm` to install. [Optional checksum verification](docs/install-details.md#verify-a-download).
 
@@ -31,7 +33,7 @@ Models, dictionaries and notices are included. You do not need a source build, s
 
    ```sh
    flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-   flatpak install --user ./org.itsdestin.SwipeKeyboard.flatpak
+   flatpak install --user ./swipe-keyboard-0.2.1-1-x86_64.flatpak
    ```
 
    Allow Flatpak to install the required runtime. **Do not use `sudo`.**
@@ -49,15 +51,31 @@ Select your languages there; maximize the window if the list is clipped. Then us
 
 If the new entry is missing, log out and back into Desktop Mode, then reopen Settings. Do not unlock SteamOS or change system libraries to make it appear. [Deck setup and removal details](docs/install-details.md#steam-deck-flatpak).
 
-### Fedora 44 KDE / Plasma Mobile — x86_64
+### Arch / CachyOS — x86_64
 
 Open a terminal in the download folder:
 
 ```sh
-sudo dnf install ./swipe-keyboard-0.2.0-1.fc44.x86_64.rpm
+sudo pacman -U ./swipe-keyboard-0.2.1-1-x86_64.pkg.tar.zst
 ```
 
-Then, **inside your logged-in KDE Wayland session**, run as your normal user, **without `sudo`**:
+### Fedora 44 KDE / Plasma Mobile — x86_64 or ARM64
+
+Use `uname -m` if you are unsure of the architecture. Run **one** matching command in the download folder:
+
+```sh
+# x86_64 computer
+sudo dnf install ./swipe-keyboard-0.2.1-1.fc44.x86_64.rpm
+```
+
+```sh
+# ARM64 / aarch64 system
+sudo dnf install ./swipe-keyboard-0.2.1-1.fc44.aarch64.rpm
+```
+
+### Enable the native package
+
+After either native installation, **inside your logged-in KDE Wayland session**, run as your normal user, **without `sudo`**:
 
 ```sh
 swipe-keyboard check
@@ -88,12 +106,10 @@ flatpak uninstall --user org.itsdestin.SwipeKeyboard
 
 Do not uninstall while Swipe Keyboard is still selected. The Flatpak does **not** automatically restore your previous selection. Its private data is retained unless you explicitly delete it.
 
-**Fedora removal:** as the same normal user who enabled it:
+**Native removal:** first run `swipe-keyboard disable` as the same normal user who enabled it. Then remove the package:
 
-```sh
-swipe-keyboard disable
-sudo dnf remove swipe-keyboard
-```
+- **Arch / CachyOS:** `sudo pacman -R swipe-keyboard`
+- **Fedora, either architecture:** `sudo dnf remove swipe-keyboard`
 
 Disable restores settings still owned by setup and preserves later manual keyboard choices. Personal options and opt-in recordings are not deleted. [Recovery after removing before disabling](docs/install-details.md#removed-the-package-before-disabling).
 
@@ -101,7 +117,7 @@ Disable restores settings still owned by setup and preserves later manual keyboa
 
 | Problem | What to try |
 |---|---|
-| Keyboard does not appear | Touch the field rather than clicking it. Check **System Settings → Virtual Keyboard** and try another native Wayland app. On Fedora, run `swipe-keyboard check` inside KDE, without sudo. |
+| Keyboard does not appear | Touch the field rather than clicking it. Check **System Settings → Virtual Keyboard** and try another native Wayland app. For native packages, run `swipe-keyboard check` inside KDE, without sudo. |
 | Taps work, but swipes do not | Select a supported language and a Latin letter layout. Password/restricted fields and unavailable language data can deliberately disable recognition. |
 | No next-word suggestions | Use English with the bundled Deck backend. Other languages and native backends without the privacy bridge intentionally have no contextual predictions. |
 | Works in one app but not another | Wayland text-input support varies. Include the app name/version and whether it is a Flatpak in a bug report. XWayland compatibility is not promised. |
@@ -110,12 +126,12 @@ Disable restores settings still owned by setup and preserves later manual keyboa
 
 **Known Firefox issue:** physical Ctrl+A/Delete can leave field information stale, causing an extra leading space on the next swipe.
 
-[**Report a bug**](https://github.com/itsdestin/swipe-keyboard/issues/new?template=bug.yml). Include your OS, app/version, package version and a short reproduction using made-up text; on Fedora, include `swipe-keyboard check`. **Do not attach passwords, typing recordings or unreviewed logs.**
+[**Report a bug**](https://github.com/itsdestin/swipe-keyboard/issues/new?template=bug.yml). Include your OS, app/version, package version and a short reproduction using made-up text; native users can include `swipe-keyboard check`. **Do not attach passwords, typing recordings or unreviewed logs.**
 
 ## Details and credits
 
 - [Setup, recovery and privacy](docs/install-details.md)
-- [Release scope and verification](docs/releases/v0.2.0.md)
+- [Release scope and verification](docs/releases/v0.2.1-1.md)
 - [Building from source and contributing](CONTRIBUTING.md)
 
 **Powered by [FUTO Swipe](https://gitlab.futo.org/keyboard/swipe-library).** Code is GPL-3.0; model weights use the FUTO Model Weights License 1.0. Dictionaries include AOSP/wordfreq data with separate attribution and CC-BY-SA terms. See [NOTICE](packaging/NOTICE) and the notices supplied with each language pack. Qt/KDE components retain their licenses. This project is not endorsed by Valve, FUTO, KDE or Google.

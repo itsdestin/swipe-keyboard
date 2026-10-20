@@ -197,7 +197,7 @@ printf generated-tool > "$SWIPEKB_ASSETS/dict-src/.venv/tool"
             (fixture/'packaging/assets.lock.json').write_text(json.dumps({'dictionary_sha256': hashlib.sha256(b'fixture-english').hexdigest()}))
             (fixture/'packaging/flatpak/org.itsdestin.SwipeKeyboard.json').write_text(json.dumps({'modules': [{'sources': [{'type': 'archive', 'path': 'swipe-source.tar.xz'}]}]}))
             shutil.copy2(ROOT/'packaging/flatpak/runtime-lock.json', fixture/'packaging/flatpak/runtime-lock.json')
-            for profile in ('', 'kde-6.10'):
+            for profile in ('', 'native-aarch64', 'kde-6.10'):
                 directory = fixture/'requirements'/profile
                 directory.mkdir(parents=True, exist_ok=True)
                 (directory/'wheels.lock.json').write_text('{"wheels": {}, "torchgen": {"filename": "fixture.whl"}}')
@@ -276,6 +276,43 @@ printf generated-tool > "$SWIPEKB_ASSETS/dict-src/.venv/tool"
         for values in ([prefix + 'aarch64', prefix + '1'], [prefix + 'x86_64', prefix + '(none)']):
             with mock.patch.object(release, 'output', side_effect=values), self.assertRaises(ValueError):
                 release.inspect('fedora', self.directory, stage, self.sha, self.contract)
+
+    def test_arm_is_mandatory_and_has_no_colliding_source_rpm(self):
+        self.assertIn('fedora-arm64', release.PRODUCERS)
+        target = self.contract['targets']['fedora-arm64']
+        self.assertEqual(target['arch'], 'aarch64')
+        self.assertEqual(target['files'], ['swipe-keyboard-{version}-{release}.fc44.aarch64.rpm'])
+        names = [name for target in self.contract['targets'].values() for name in target['files']]
+        self.assertEqual(len(names), len(set(names)))
+        self.assertEqual(sum(name.endswith('.src.rpm') for name in names), 1)
+        self.evidence = [e for e in self.evidence if e['target'] != 'fedora-arm64']
+        with self.assertRaises(ValueError):
+            self.validate()
+
+    def test_arm_rpm_inspection_requires_arch_version_and_embedded_identity(self):
+        stage = self.directory/'stage'
+        base = stage/'usr/share/swipe-keyboard'
+        base.mkdir(parents=True)
+        identity = base/'source-identity.json'
+        runtime = base/'runtime.json'
+        identity.write_text(json.dumps({'source_sha': self.sha, 'version': release.version(self.contract)}))
+        runtime.write_text(json.dumps({'package': release.version(self.contract) + '.fc44'}))
+        good = 'swipe-keyboard ' + release.version(self.contract) + '.fc44 aarch64'
+        with mock.patch.object(release, 'output', return_value=good) as query:
+            release.inspect('fedora-arm64', self.directory, stage, self.sha, self.contract)
+            self.assertEqual(query.call_count, 1)
+            self.assertIn('%{ARCH}', query.call_args.args[0][3])
+        for bad in (good.replace('aarch64', 'x86_64'), good.replace(release.version(self.contract), '0.2.0-1')):
+            with mock.patch.object(release, 'output', return_value=bad), self.assertRaises(ValueError):
+                release.inspect('fedora-arm64', self.directory, stage, self.sha, self.contract)
+        for path, content in [(identity, {'source_sha': 'b'*40, 'version': release.version(self.contract)}), (runtime, {'package': '0.2.0-1.fc44'})]:
+            original = path.read_text()
+            path.write_text(json.dumps(content))
+            with mock.patch.object(release, 'output', return_value=good), self.assertRaises(ValueError):
+                release.inspect('fedora-arm64', self.directory, stage, self.sha, self.contract)
+            path.write_text(original)
+        with self.assertRaises(ValueError):
+            release.inspect('fedora-arm64', self.directory, None, self.sha, self.contract)
 
     def test_cross_job_input_hashes_and_identity(self):
         with tempfile.TemporaryDirectory() as tmp:

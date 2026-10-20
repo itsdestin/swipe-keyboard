@@ -31,8 +31,9 @@ class BuildPatches(unittest.TestCase):
             target.write_text((upstream/'third_party/executorch/backends/xnnpack/CMakeLists.txt').read_text())
             patch = upstream/'patches/executorch-xnnpack-fexceptions.patch'
             reverse = ['git', 'apply', '--unsafe-paths', '--directory=' + str(root), '--reverse']
-            if subprocess.run(reverse + ['--check', str(patch)], capture_output=True).returncode == 0:
-                subprocess.run(reverse + [str(patch)], check=True)
+            if subprocess.run(reverse + ['--check', str(patch)], cwd=checkout,
+                              capture_output=True).returncode == 0:
+                subprocess.run(reverse + [str(patch)], cwd=checkout, check=True)
             self.assertNotIn('target_compile_options(xnnpack_backend PRIVATE -fexceptions)', target.read_text())
             # Reproduce the false reverse-check success of the upstream Makefile.
             skipped = subprocess.run(['git', '-C', str(root), 'apply', '--reverse',
@@ -67,6 +68,7 @@ class BuildPatches(unittest.TestCase):
                     swipe = project/'third_party/swipe-library'
                     et = swipe/'third_party/executorch'
                     names = ('CMakeLists.txt', 'tests/test_metadata.cpp',
+                             'src/model_metadata.cpp', 'include/swipe_decoder/model_metadata.hpp',
                              'patches/executorch-xnnpack-fexceptions.patch',
                              'third_party/executorch/backends/xnnpack/CMakeLists.txt')
                     for name in names:
@@ -103,6 +105,24 @@ class BuildPatches(unittest.TestCase):
                         self.assertEqual(target.read_text().count(flag), 1, f'cwd={project}')
                         self.assertNotEqual(metadata.read_text(), metadata_before, f'cwd={project}')
                         self.assertEqual(flatbuffers.read_text().count('-DCMAKE_POSITION_INDEPENDENT_CODE=ON'), 1)
+                    # Packaging tests execute AFTER production patches, from this
+                    # nested archive cwd. Exercise their real normalization too.
+                    shutil.copytree(upstream/'third_party/executorch/third-party/json/include',
+                                    et/'third-party/json/include')
+                    test_dir = project/'tests/packaging'
+                    test_dir.mkdir(parents=True)
+                    for name in ('test_build_patches.py', 'test_metadata_contract.py'):
+                        shutil.copyfile(ROOT/'tests/packaging'/name, test_dir/name)
+                    for model in ('honorable_sturgeon', 'magic_macaw', 'hungry_jellyfish'):
+                        asset = project/f'assets/models/{model}/metadata.json'
+                        asset.parent.mkdir(parents=True)
+                        shutil.copyfile(ROOT/f'assets/models/{model}/metadata.json', asset)
+                    for name, pattern in (('test_build_patches.py', 'xnnpack_patch_works'),
+                                          ('test_metadata_contract.py', 'real_contextlm_schema')):
+                        checked = subprocess.run([sys.executable, '-m', 'unittest', 'discover',
+                                                  '-s', str(test_dir), '-p', name, '-k', pattern, '-v'],
+                                                 cwd=project, capture_output=True, text=True)
+                        self.assertEqual(checked.returncode, 0, checked.stdout + checked.stderr)
                     patched_xnnpack = target.read_text()
                     for unknown in (target, metadata):
                         unknown.write_text('unknown upstream version')

@@ -107,8 +107,10 @@ class Controller:
         return {'status': 'queried', 'profiles': results}
 
     def check(self):
-        if platform.machine() not in ('x86_64', 'AMD64'):
-            raise SetupError('This package targets x86_64 computers only.')
+        # WHY ARM is explicit: the native Fedora aarch64 package has its own
+        # required build/load acceptance; other architectures still fail closed.
+        if platform.machine() not in ('x86_64', 'AMD64', 'aarch64'):
+            raise SetupError('This package targets x86_64 or aarch64 Linux only.')
         if self.env.get('XDG_SESSION_TYPE') != 'wayland' or 'KDE' not in self.env.get('XDG_CURRENT_DESKTOP', '').split(':'):
             raise SetupError('Use a KDE Plasma Wayland session. Other desktops/sessions are not supported.')
         # WHY: upstream skips its XDG layout search when this override is enabled, so our private

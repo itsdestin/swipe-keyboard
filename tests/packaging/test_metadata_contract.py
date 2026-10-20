@@ -2,6 +2,7 @@
 from pathlib import Path
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import tempfile
@@ -31,8 +32,12 @@ class MetadataContract(unittest.TestCase):
             shutil.copyfile(UPSTREAM / name, target)
         reverse = ['git', 'apply', '--unsafe-paths', '--directory=' + str(cls.source), '--reverse']
         patch = str(ROOT / 'scripts/patches/swipe-metadata.patch')
-        if subprocess.run(reverse + ['--check', patch], capture_output=True).returncode == 0:
-            subprocess.run(reverse + [patch], check=True, capture_output=True)
+        # Build() already patched these files. Normalize the private copy without
+        # letting a surrounding package checkout prefix-filter the reverse patch.
+        options = {'cwd': cls.source,
+                   'env': {**os.environ, 'GIT_CEILING_DIRECTORIES': str(cls.source.parent)}}
+        if subprocess.run(reverse + ['--check', patch], capture_output=True, **options).returncode == 0:
+            subprocess.run(reverse + [patch], check=True, capture_output=True, **options)
         for name, digest in PRISTINE_SHA256.items():
             actual = hashlib.sha256((cls.source / name).read_bytes()).hexdigest()
             if actual != digest:

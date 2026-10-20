@@ -6,6 +6,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -18,6 +19,22 @@ def load(name):
 
 
 class ElfCompatibility(unittest.TestCase):
+    def test_package_machine_matches_native_arm_or_x86_and_rejects_foreign_objects(self):
+        checker = load('package-check')
+        for machine, elf in [('aarch64', 'AArch64'), ('x86_64', 'Advanced Micro Devices X86-64')]:
+            with mock.patch.object(checker.platform, 'machine', return_value=machine):
+                with mock.patch.object(checker.subprocess, 'run', return_value=mock.Mock(stdout='  Machine: ' + elf + '\n')):
+                    checker.check_native_machine('fixture.so')
+                with mock.patch.object(checker.subprocess, 'run', return_value=mock.Mock(stdout='  Machine: RISC-V\n')):
+                    with self.assertRaisesRegex(ValueError, 'ELF architecture'):
+                        checker.check_native_machine('fixture.so')
+        # Also check an actual locally compiled ELF, not just readelf output fixtures.
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp)
+            (p/'native.c').write_text('void entry(void) {}')
+            subprocess.run(['cc', '-shared', '-fPIC', str(p/'native.c'), '-o', str(p/'native.so')], check=True)
+            checker.check_native_machine(p/'native.so')
+
     def test_direct_dependencies_ignore_recursive_and_injected_libraries(self):
         generator = load('arch-dependencies')
         with tempfile.TemporaryDirectory() as tmp:

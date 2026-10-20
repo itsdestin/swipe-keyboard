@@ -190,8 +190,9 @@ include("{ROOT}/cmake/Install.cmake")
 
     def test_ci_checks_installed_wrapper_as_ordinary_user(self):
         workflow = (ROOT/'.github/workflows/packages.yml').read_text()
-        self.assertEqual(workflow.count('XDG_SESSION_TYPE=wayland XDG_CURRENT_DESKTOP=KDE swipe-keyboard check'), 3)
-        self.assertEqual(workflow.count('test ! -e /usr/bin/swipe-keyboard'), 3)
+        # Arch baseline/current plus Fedora x86_64 and mandatory Fedora ARM64.
+        self.assertEqual(workflow.count('XDG_SESSION_TYPE=wayland XDG_CURRENT_DESKTOP=KDE swipe-keyboard check'), 4)
+        self.assertEqual(workflow.count('test ! -e /usr/bin/swipe-keyboard'), 4)
 
     def test_fedora_ci_retains_test_executable_until_package_probe(self):
         workflow = (ROOT/'.github/workflows/packages.yml').read_text()
@@ -199,8 +200,8 @@ include("{ROOT}/cmake/Install.cmake")
 
     def test_ci_loads_extracted_package_in_real_stock_inputpanel(self):
         workflow = (ROOT/'.github/workflows/packages.yml').read_text()
-        self.assertEqual(workflow.count('--runtime-root dist/stage/usr/share/swipe-keyboard'), 3)
-        self.assertEqual(workflow.count('python3 scripts/check-stock-layout.py'), 3)
+        self.assertEqual(workflow.count('--runtime-root dist/stage/usr/share/swipe-keyboard'), 4)
+        self.assertEqual(workflow.count('python3 scripts/check-stock-layout.py'), 4)
 
     def test_ci_extracts_main_arch_package_not_debug_archive_wildcard(self):
         workflow = (ROOT/'.github/workflows/packages.yml').read_text()

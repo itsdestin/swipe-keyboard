@@ -10,23 +10,58 @@ class WorkflowTests(unittest.TestCase):
     def setUp(self):
         self.workflow = (ROOT/'.github/workflows/packages.yml').read_text()
         # Job boundaries only; actionlint validates the actual YAML/expression schema.
-        self.jobs = dict(re.findall(r'^  ([a-z][a-z-]*):\n(.*?)(?=^  [a-z][a-z-]*:|\Z)',
+        self.jobs = dict(re.findall(r'^  ([a-z][a-z0-9-]*):\n(.*?)(?=^  [a-z][a-z0-9-]*:|\Z)',
                                     self.workflow.split('jobs:\n', 1)[1], re.M | re.S))
 
+    def test_download_guide_includes_every_required_installer_and_version(self):
+        import json
+        contract = json.loads((ROOT/'packaging/release-targets.json').read_text())
+        tag = f"v{contract['version']}-{contract['release']}"
+        guide = (ROOT/'README.md').read_text()
+        # WHY: a complete upload is not enough if instructions still send Arch
+        # or ARM users to an old release or omit their package altogether.
+        for name, target in contract['targets'].items():
+            if name == 'source':
+                continue
+            installer = target['files'][0].format(version=contract['version'], release=contract['release'])
+            with self.subTest(target=name):
+                self.assertIn(f'https://github.com/itsdestin/swipe-keyboard/releases/download/{tag}/{installer}', guide)
+        self.assertTrue((ROOT/'docs/releases'/f'{tag}.md').is_file())
+
     def test_real_producers_and_always_completion_gate(self):
-        self.assertEqual(set(self.jobs), {'prepare', 'arch', 'fedora', 'flatpak', 'keyboard-ci', 'publish'})
+        self.assertEqual(set(self.jobs), {'prepare', 'arch', 'fedora', 'fedora-arm64', 'flatpak', 'keyboard-ci', 'publish'})
         gate = self.jobs['keyboard-ci']
         self.assertIn('name: Keyboard CI', gate)
         self.assertIn('if: ${{ always() }}', gate)
-        self.assertIn('needs: [prepare, arch, fedora, flatpak]', gate)
+        self.assertIn('needs: [prepare, arch, fedora, fedora-arm64, flatpak]', gate)
         self.assertIn('${{ toJSON(needs) }}', gate)
         self.assertIn('scripts/release.py gate', gate)
-        for name, build in [('arch', 'makepkg --noconfirm'), ('fedora', 'rpmbuild -ba'), ('flatpak', 'packaging/flatpak/build.py')]:
+        for name, build in [('arch', 'makepkg --noconfirm'), ('fedora', 'rpmbuild -ba'), ('fedora-arm64', 'rpmbuild -bb'), ('flatpak', 'packaging/flatpak/build.py')]:
             producer = self.jobs[name]
             self.assertIn(build, producer)
             self.assertIn('--target ' + name, producer)
             self.assertNotIn('continue-on-error', producer)
             self.assertNotRegex(producer, r'(?m)^    if:', name)
+
+    def test_arm_is_native_full_recipe_build_and_collision_free_upload(self):
+        arm = self.jobs['fedora-arm64']
+        self.assertIn('runs-on: ubuntu-24.04-arm', arm)
+        self.assertIn('container: fedora:44', arm)
+        self.assertIn('test "$(uname -m)" = aarch64', arm)
+        self.assertIn('df -h', arm)
+        self.assertIn('rpmbuild -bb --noclean', arm)
+        self.assertNotIn('.src.rpm', arm)
+        self.assertIn('scripts/package-check.py dist/stage', arm)
+        self.assertIn('scripts/check-stock-layout.py', arm)
+        self.assertIn('swipe-keyboard check', arm)
+        self.assertIn('fedora-arm64-files', arm)
+        self.assertIn('fedora-arm64-evidence', arm)
+        recipe = (ROOT/'packaging/fedora/swipe-keyboard.spec').read_text()
+        self.assertIn('ExclusiveArch: x86_64 aarch64', recipe)
+        self.assertIn('-DUSE_MARCH_NATIVE=OFF', recipe)
+        self.assertIn('QT_QPA_PLATFORM=offscreen %ctest', recipe)
+        for suite in ('packaging', 'integration'):
+            self.assertIn('discover -s tests/' + suite + ' -v', recipe)
 
     def test_prepare_runs_only_host_independent_contract_tests(self):
         # WHY: the Ubuntu preparation runner has Python, not the distro Qt/KF

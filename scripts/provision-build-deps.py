@@ -54,10 +54,14 @@ def provision(group, destination, cache, profile='native'):
     # reuse its extension wheels merely because the build architecture matches.
     if profile not in ('native', 'kde-6.10'):
         raise RuntimeError('Unknown build dependency profile: ' + profile)
-    locks = LOCKS if profile == 'native' else LOCKS/profile
+    machine = platform.machine()
+    # WHY automatic native selection: never feed x86 extension/tool wheels to ARM,
+    # while the separately pinned KDE SDK remains explicitly x86_64/Python 3.13.
+    machines = ('x86_64', 'aarch64') if profile == 'native' else ('x86_64',)
     python_version = (3, 14) if profile == 'native' else (3, 13)
-    if sys.version_info[:2] != python_version or platform.machine() != 'x86_64' or sys.platform != 'linux':
-        raise RuntimeError(f'Locks target CPython {python_version[0]}.{python_version[1]} Linux x86_64 only')
+    if sys.version_info[:2] != python_version or machine not in machines or sys.platform != 'linux':
+        raise RuntimeError(f'Locks target CPython {python_version[0]}.{python_version[1]} Linux {machines} only')
+    locks = LOCKS/('native-aarch64' if machine == 'aarch64' else '') if profile == 'native' else LOCKS/profile
     manifest = json.loads((locks/'wheels.lock.json').read_text())
     requirements = locks/(group + '.txt')
     # Validate requirements and manifest agree before fetching or executing anything.

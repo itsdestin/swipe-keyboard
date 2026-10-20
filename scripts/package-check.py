@@ -7,6 +7,18 @@ import pathlib
 import subprocess
 import configparser
 import re
+import platform
+
+
+def check_native_machine(library):
+    # WHY ldd alone: a foreign object can fail obscurely or slip through payload
+    # inspection. Every shipped executable/DSO must match the native build runner.
+    expected = {'x86_64': 'Advanced Micro Devices X86-64', 'aarch64': 'AArch64'}.get(platform.machine())
+    if expected is None:
+        raise ValueError('Unsupported native package architecture: ' + platform.machine())
+    header = subprocess.run(['readelf', '-h', str(library)], check=True, text=True, capture_output=True).stdout
+    if re.findall(r'^\s*Machine:\s*(.+)$', header, re.M) != [expected]:
+        raise ValueError(f'{library}: ELF architecture does not match native {platform.machine()}')
 
 
 def check_public_qt_abi(library):
@@ -86,6 +98,7 @@ def check(root):
         if not locale.startswith('en'):
             assert not capability['nextWordCapable'], 'Non-English prediction is unavailable'
     for library in [helper, config_probe, profile_probe, *(base/'qml/SwipeKeyboard').glob('*.so*')]:
+        check_native_machine(library)
         check_public_qt_abi(library)
         result = subprocess.run(['ldd', str(library)], text=True, capture_output=True, check=True)
         assert 'not found' not in result.stdout, result.stdout

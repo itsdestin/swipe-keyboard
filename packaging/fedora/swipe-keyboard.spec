@@ -5,7 +5,7 @@ Summary: Multilingual swipe input and English next-word suggestions for Plasma K
 License: GPL-3.0-or-later AND Apache-2.0 AND CC-BY-SA-4.0 AND LicenseRef-FUTO-Model-Weights-1.0
 URL: https://github.com/itsdestin/swipe-keyboard
 Source0: %{name}-%{version}.tar.gz
-ExclusiveArch: x86_64
+ExclusiveArch: x86_64 aarch64
 BuildRequires: gcc-c++, binutils, cmake >= 3.29, ninja-build, make, git, curl, python3, python3-pip
 BuildRequires: qt6-qtbase-devel >= 6.8, qt6-qtdeclarative-devel, qt6-qtvirtualkeyboard-devel
 # Kirigami's QML module is required by the native accent-colour test.

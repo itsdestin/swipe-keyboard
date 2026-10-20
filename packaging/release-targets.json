@@ -5,6 +5,7 @@
     "source": {"arch": "source", "files": ["swipe-keyboard-{version}.tar.gz"]},
     "arch": {"arch": "x86_64", "files": ["swipe-keyboard-{version}-{release}-x86_64.pkg.tar.zst"]},
     "fedora": {"arch": "x86_64", "files": ["swipe-keyboard-{version}-{release}.fc44.x86_64.rpm", "swipe-keyboard-{version}-{release}.fc44.src.rpm"]},
+    "fedora-arm64": {"arch": "aarch64", "files": ["swipe-keyboard-{version}-{release}.fc44.aarch64.rpm"]},
     "flatpak": {"arch": "x86_64", "files": ["swipe-keyboard-{version}-{release}-x86_64.flatpak", "swipe-keyboard-{version}-{release}-flatpak-build-inputs.tar.gz"]}
   }
 }
