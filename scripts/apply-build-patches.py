@@ -27,18 +27,32 @@ def apply(root):
     os.replace(temporary, path)
 
 
-def apply_swipe(root):
-    # WHY: dependency commits/assets stay pinned. Persist the validator repair
-    # here so clean builds reproduce it; reverse-check makes reruns idempotent
-    # while unknown upstream inputs fail closed instead of silently skipping.
+def apply_patch(root, patch):
     root = Path(root).resolve()
-    patch = Path(__file__).resolve().parent / 'patches/swipe-metadata.patch'
+    patch = Path(patch).resolve()
+    # WHY: archives lack .git. Upstream's `git -C executorch apply --check`
+    # discovers CI's enclosing checkout and can silently skip every patch path,
+    # returning success even for the reverse check on an unpatched tree.
+    # Absolute --directory paths bind checks and writes to the extracted input.
     command = ['git', 'apply', '--unsafe-paths', '--directory=' + str(root)]
     if subprocess.run(command + ['--reverse', '--check', str(patch)],
                       capture_output=True).returncode == 0:
         return
     subprocess.run(command + ['--check', str(patch)], check=True)
     subprocess.run(command + [str(patch)], check=True)
+
+
+def apply_swipe(root):
+    # WHY: dependency commits/assets stay pinned. Persist the validator repair
+    # here so clean builds reproduce it; reverse-check makes reruns idempotent
+    # while unknown upstream inputs fail closed instead of silently skipping.
+    root = Path(root).resolve()
+    patch = Path(__file__).resolve().parent / 'patches/swipe-metadata.patch'
+    apply_patch(root, patch)
+    # Keep the pinned runtime's size optimization and its existing upstream
+    # target-local exception fix, rather than enabling exceptions globally.
+    apply_patch(root / 'third_party/executorch',
+                root / 'patches/executorch-xnnpack-fexceptions.patch')
 
 
 if __name__ == '__main__':

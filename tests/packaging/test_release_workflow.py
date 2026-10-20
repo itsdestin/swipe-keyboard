@@ -66,6 +66,14 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('git fetch --unshallow --no-tags origin', prepare)
         self.assertIn('git merge-base --is-ancestor', prepare)
 
+    def test_arch_initializes_container_keyring_before_baseline_downgrade(self):
+        arch = self.jobs['arch']
+        self.assertIn('container: archlinux:latest', arch)
+        self.assertLess(arch.index('pacman-key --init'), arch.index('pacman-key --populate archlinux'))
+        self.assertLess(arch.index('pacman-key --populate archlinux'), arch.index('pacman -Syyuu'))
+        self.assertNotIn('SigLevel', arch)
+        self.assertNotIn('--nosignature', arch)
+
     def test_fedora_resolves_systemd_conflict_before_build_dependencies(self):
         fedora = self.jobs['fedora']
         self.assertLess(fedora.index('dnf -y swap systemd-standalone-tmpfiles systemd'),
@@ -79,6 +87,13 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('dpkg --compare-versions', flatpak)
         self.assertIn('ge 1.16', flatpak)
         self.assertNotIn('--allow-unauthenticated', flatpak)
+
+    def test_installed_flatpak_loader_uses_bundled_stock_layouts(self):
+        build = (ROOT/'packaging/flatpak/build-swipe.sh').read_text()
+        loader = next(line for line in build.splitlines()
+                      if line.startswith('python3 scripts/check-stock-layout.py '))
+        self.assertIn('--stock-layouts /app/share/plasma/keyboard/layouts', loader)
+        self.assertIn('--runtime-root /app/share/swipe-keyboard', loader)
 
     def test_default_flatpak_lab_guard_still_exists(self):
         build = (ROOT/'packaging/flatpak/build.py').read_text()

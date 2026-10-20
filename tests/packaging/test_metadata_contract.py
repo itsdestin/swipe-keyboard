@@ -41,6 +41,12 @@ class MetadataContract(unittest.TestCase):
         target = cls.executor / 'third-party/CMakeLists.txt'
         target.parent.mkdir(parents=True)
         target.write_text('-DFLATBUFFERS_BUILD_TESTS=OFF\n             -DCMAKE_INSTALL_PREFIX:PATH=<INSTALL_DIR>')
+        # The production patch entry point also applies the pinned XNNPACK fix.
+        for name in ('patches/executorch-xnnpack-fexceptions.patch',
+                     'third_party/executorch/backends/xnnpack/CMakeLists.txt'):
+            target = cls.source / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(UPSTREAM / name, target)
         cls.patch_command = ['python3', str(ROOT / 'scripts/apply-build-patches.py'), str(cls.executor), '--swipe-library', str(cls.source)]
         subprocess.run(cls.patch_command, check=True, capture_output=True)
         cls.binary = cls.work / 'test_metadata'

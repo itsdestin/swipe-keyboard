@@ -93,6 +93,10 @@ jobs:
         run: |
           # WHY full downgrade: mixing archived Qt with current headers/libc would
           # silently stamp newer ABI requirements into a supposedly older build.
+          # The minimal disposable image has public keys but no local signing
+          # key; the archlinux-keyring downgrade hook must be able to sign trust.
+          pacman-key --init
+          pacman-key --populate archlinux
           cp /etc/pacman.d/mirrorlist /tmp/current-mirrorlist
           printf 'Server = https://archive.archlinux.org/repos/2026/07/01/$repo/os/$arch\n' > /etc/pacman.d/mirrorlist
           pacman -Syyuu --noconfirm
