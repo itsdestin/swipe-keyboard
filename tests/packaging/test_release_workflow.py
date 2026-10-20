@@ -57,6 +57,15 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotIn('actions/cache', self.workflow)
         self.assertNotIn('0.2.', self.workflow)
 
+    def test_prepare_shallows_dependencies_not_tag_ancestry(self):
+        # Fetching full history recursively pulls enormous unused upstream histories.
+        # Only the small root repository needs history for the trusted-tag check.
+        prepare = self.jobs['prepare']
+        self.assertIn('fetch-depth: 1', prepare)
+        self.assertNotIn('fetch-depth: 0', prepare)
+        self.assertIn('git fetch --unshallow --no-tags origin', prepare)
+        self.assertIn('git merge-base --is-ancestor', prepare)
+
     def test_fedora_resolves_systemd_conflict_before_build_dependencies(self):
         fedora = self.jobs['fedora']
         self.assertLess(fedora.index('dnf -y swap systemd-standalone-tmpfiles systemd'),

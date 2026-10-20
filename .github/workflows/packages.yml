@@ -23,7 +23,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-          fetch-depth: 0
+          # Pinned dependency trees are required, their complete Git histories are not.
+          fetch-depth: 1
           persist-credentials: false
       - uses: actions/setup-python@v5
         with:
@@ -38,6 +39,8 @@ jobs:
           echo "package_version=$(python3 scripts/release.py version)" >> "$GITHUB_OUTPUT"
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then
             test "$GITHUB_REF_NAME" = "v$(python3 scripts/release.py version)"
+            # Only root history is needed for ancestry; never fetch complete dependency histories.
+            git fetch --unshallow --no-tags origin +refs/heads/main:refs/remotes/origin/main
             # Build tags only from a source commit already on main. No cross-run artifact promotion.
             git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main
           fi
