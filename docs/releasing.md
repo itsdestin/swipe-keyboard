@@ -134,8 +134,9 @@ ARM Fedora 44 Plasma Mobile guest (or an explicitly authorized ARM device).
 Record `uname -m`, OS/Qt/Plasma versions, source SHA, package version and SHA256;
 verify native ELF/load/profile diagnostics and enable the keyboard using the
 ordinary supported wrapper. In the real Plasma Mobile session, exercise taps,
-swipe/commit, password/sensitive-field privacy, English plus ES/FR/DE profile
-selection and the current native backend's prediction-disabled policy. Disable
+swipe/commit, English plus ES/FR/DE profile selection, current-word completion,
+and real next-word insertion. Verify word correction and whole-word Backspace;
+use synthetic fields to check held-contact and stale-candidate privacy. Disable
 and restore the exact prior keyboard configuration, then verify restoration and
 package removal. Save real session screenshots/input results, not just OS boot
 or a cross-compiled ELF. Owner environment approval must wait for this acceptance

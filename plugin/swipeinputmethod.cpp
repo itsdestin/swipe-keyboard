@@ -15,6 +15,9 @@
 #include "profilediagnostics.h"
 #include <QPointer>
 #include <QQuickItem>
+#include <QQuickWindow>
+#include <QTimer>
+#include <QGuiApplication>
 #ifdef SWIPEKB_PRIVATE_FLAGS_DIAGNOSTIC
 #include <chrono>
 #endif
@@ -698,14 +701,76 @@ void SwipeInputMethod::clearAfterSwipe()
     m_afterSwipeCursorAfter = -1;
 }
 
+bool SwipeInputMethod::eventFilter(QObject *watched, QEvent *event)
+{
+    if (watched == m_exposureWindow && event->type() == QEvent::Expose && m_exposureWindow
+        && m_exposureWindow->isExposed() && !m_exposureRefreshQueued) {
+        m_exposureRefreshQueued = true;
+        QPointer<QVirtualKeyboardInputContext> context(inputContext());
+        QPointer<QQuickItem> item(m_exposureItem);
+        QPointer<QQuickWindow> window(m_exposureWindow);
+        const int generation = m_generation;
+        const quint64 profileEpoch = m_profiles.snapshot().epoch;
+        // WHY defer one event turn: Qt's Expose delivery can precede the proxy's exposed-state update.
+        QTimer::singleShot(0, this, [this, context, item, window, generation, profileEpoch] {
+            m_exposureRefreshQueued = false;
+            refreshExposedInputCache(context, item, window, generation, profileEpoch);
+        });
+    }
+    return QObject::eventFilter(watched, event);
+}
+
+void SwipeInputMethod::watchInputWindow()
+{
+    auto *ic = inputContext();
+    auto *item = ic ? qobject_cast<QQuickItem *>(ic->inputItem()) : nullptr;
+    auto *window = item ? item->window() : nullptr;
+    if (m_exposureWindow == window && m_exposureItem == item) return;
+    if (m_exposureWindow) m_exposureWindow->removeEventFilter(this);
+    m_exposureWindow = window;
+    m_exposureItem = item;
+    m_exposureRefreshQueued = false;
+    if (window) window->installEventFilter(this);
+}
+
+void SwipeInputMethod::refreshExposedInputCache(QPointer<QVirtualKeyboardInputContext> context,
+    QPointer<QQuickItem> item, QPointer<QQuickWindow> window, int generation, quint64 profileEpoch)
+{
+    if (!context || !item || !window || context != inputContext() || item != context->inputItem()
+        || window != item->window() || window != m_exposureWindow || item != m_exposureItem
+        || generation != m_generation || profileEpoch != m_profiles.snapshot().epoch || !window->isExposed()
+        || !context->inputEngine() || context->inputEngine()->inputMethod() != this
+        || QGuiApplication::focusObject() != item || predictionPolicy().source != PredictionPolicySource::OwnedHistory
+        || m_policySource != item || m_liveQueryActive) return;
+    QPointer<SwipeInputMethod> self(this);
+    if (!safePredictionContext() || !self) return;
+    // WHY revalidate after live policy queries: proxy callbacks may synchronously swap focus/profile.
+    if (!context || !item || !window || context != inputContext() || item != context->inputItem()
+        || window != item->window() || window != m_exposureWindow || item != m_exposureItem
+        || generation != m_generation || profileEpoch != m_profiles.snapshot().epoch || !window->isExposed()
+        || !context->inputEngine() || context->inputEngine()->inputMethod() != this
+        || QGuiApplication::focusObject() != item || predictionPolicy().source != PredictionPolicySource::OwnedHistory
+        || m_policySource != item || m_liveQueryActive) return;
+    auto *ime = QGuiApplication::inputMethod();
+    if (!ime) return;
+    ime->update(Qt::ImSurroundingText | Qt::ImCursorPosition | Qt::ImAnchorPosition);
+    if (!self || !context || !item || !window || generation != m_generation
+        || profileEpoch != m_profiles.snapshot().epoch || context != inputContext()
+        || item != context->inputItem() || window != item->window()
+        || !context->inputEngine() || context->inputEngine()->inputMethod() != this) return;
+}
+
 void SwipeInputMethod::ensureContextConnections()
 {
+    watchInputWindow();
     auto *ic = inputContext();
     if (!ic || m_contextConnected) return;
     // WHY first key/swipe, not construction: Qt attaches the input context later.
     connect(ic, &QVirtualKeyboardInputContext::inputItemChanged, this, [this, ic] {
         QPointer<SwipeInputMethod> self(this);
         setPredictionPolicySource(ic->inputItem());
+        if (!self) return;
+        watchInputWindow();
         if (self) reset();
     });
     connect(ic, &QVirtualKeyboardInputContext::inputMethodHintsChanged, this, &SwipeInputMethod::reset);

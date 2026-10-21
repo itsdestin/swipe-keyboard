@@ -2,6 +2,7 @@
 #include <QQmlEngine>
 #include <QQmlComponent>
 #include <QQuickWindow>
+#include <QExposeEvent>
 #include <QQuickItem>
 #include <QInputMethodEvent>
 #include <QTemporaryDir>
@@ -48,6 +49,7 @@ public:
     int cursor=text.size();
     Qt::InputMethodHints hints=Qt::ImhNoPredictiveText;
     mutable int surroundingQueries=0;
+    bool suppressInputMethodUpdate=false;
     InputListenerItem(QQuickItem *parent):QQuickItem(parent) { setFlag(ItemAcceptsInputMethod); setWidth(400);setHeight(100); }
     QVariant inputMethodQuery(Qt::InputMethodQuery q) const override {
         switch(q) {
@@ -63,13 +65,61 @@ public:
     void inputMethodEvent(QInputMethodEvent *event) override {
         text.replace(cursor+event->replacementStart(),event->replacementLength(),event->commitString());
         cursor+=event->replacementStart()+event->commitString().size();event->accept();
-        QGuiApplication::inputMethod()->update(Qt::ImQueryAll);
+        if(!suppressInputMethodUpdate) QGuiApplication::inputMethod()->update(Qt::ImQueryAll);
     }
 };
 
 class NextWordIntegrationTest : public QObject {
     Q_OBJECT
 private slots:
+    void exposeRefreshesMissedNativeProxyCache() {
+        QTemporaryDir data; qputenv("SWIPEKB_DATA",data.path().toUtf8());
+        qputenv("SWIPEKB_MODEL_DATA",qgetenv("SWIPEKB_TEST_PROFILE_ASSETS"));
+        qputenv("SWIPEKB_NATIVE_PREDICTION","owned-history-v1");
+        struct EnvReset { ~EnvReset(){qunsetenv("SWIPEKB_NATIVE_PREDICTION");} } envReset;
+        QQmlEngine engine; QQmlComponent fixture(&engine);
+        fixture.setData("import QtQuick; import QtQuick.VirtualKeyboard; Item {property var context: InputContext}",QUrl());
+        std::unique_ptr<QObject> root(fixture.create()); QVERIFY2(root,qPrintable(fixture.errorString()));
+        auto *item=qobject_cast<QQuickItem*>(root.get()); QQuickWindow window; window.resize(500,200);
+        item->setParentItem(window.contentItem()); InputListenerItem edit(item);
+        window.show(); window.requestActivate(); edit.forceActiveFocus();
+        auto *ic=qvariant_cast<QVirtualKeyboardInputContext*>(root->property("context")); QVERIFY(ic);
+        QSemaphore completed; QStringList captured;
+        SwipeInputMethod method(nullptr,[&](const PredictionJob &job){captured=job.context;completed.release();return QStringList{"world","again","today"};});
+        ic->inputEngine()->setInputMethod(&method); method.setInputMode("en_US",QVirtualKeyboardInputEngine::InputMode::Latin);
+        method.setPhysicalLayout("qwerty"); QGuiApplication::inputMethod()->update(Qt::ImQueryAll);
+        QTRY_VERIFY(ic->inputItem()==&edit);
+        for(auto c:QStringLiteral("hello")) {
+            const QString letter(c); QVERIFY(!method.keyEvent(Qt::Key(letter.front().toUpper().unicode()),letter,Qt::NoModifier));
+            ic->commit(letter); QGuiApplication::inputMethod()->update(Qt::ImQueryAll); method.update();
+        }
+        QVERIFY(!method.keyEvent(Qt::Key_Space," ",Qt::NoModifier));
+        edit.suppressInputMethodUpdate=true; ic->commit(" ");
+        QCOMPARE(ic->surroundingText(),QStringLiteral("preexisting sentinel hello"));
+        QVERIFY(window.isExposed()); QVERIFY(edit.hasActiveFocus());
+        // WHY synthetic Expose is confined to this offscreen fixture: it reproduces the compositor notification.
+        QExposeEvent expose{QRegion()}; QCoreApplication::sendEvent(&window,&expose);
+        QTRY_COMPARE_WITH_TIMEOUT(ic->surroundingText(),QStringLiteral("preexisting sentinel hello "),3000);
+        QVERIFY(completed.tryAcquire(1,15000)); QCOMPARE(captured,QStringList{QStringLiteral("hello")});
+        QTRY_COMPARE_WITH_TIMEOUT(method.selectionListItemCount(QVirtualKeyboardSelectionListModel::Type::WordCandidateList),3,15000);
+        method.beginPredictionSelection(method.predictionSelectionToken());
+        method.selectionListItemSelected(QVirtualKeyboardSelectionListModel::Type::WordCandidateList,0);
+        QTRY_COMPARE_WITH_TIMEOUT(edit.text,QStringLiteral("preexisting sentinel hello again"),5000);
+        edit.hints=Qt::ImhSensitiveData;
+        const int beforeSensitiveExpose=edit.surroundingQueries;
+        QExposeEvent sensitiveExpose{QRegion()}; QCoreApplication::sendEvent(&window,&sensitiveExpose);
+        QTest::qWait(20); QCOMPARE(edit.surroundingQueries,beforeSensitiveExpose);
+        edit.hints=Qt::ImhNoPredictiveText;
+        SwipeInputMethod replacement;
+        ic->inputEngine()->setInputMethod(&replacement);
+        const int beforeInactiveExpose=edit.surroundingQueries;
+        QExposeEvent inactiveExpose{QRegion()}; QCoreApplication::sendEvent(&window,&inactiveExpose);
+        QTest::qWait(20); QCOMPARE(edit.surroundingQueries,beforeInactiveExpose);
+        window.hide(); const int beforeHiddenExpose=edit.surroundingQueries;
+        QExposeEvent hiddenExpose{QRegion()}; QCoreApplication::sendEvent(&window,&hiddenExpose);
+        QTest::qWait(20); QCOMPARE(edit.surroundingQueries,beforeHiddenExpose);
+        ic->inputEngine()->setInputMethod(nullptr);
+    }
     void typedCompletionReplacesOnlyOwnedPrefix_data() {
         QTest::addColumn<bool>("native");QTest::addColumn<bool>("literal");QTest::addColumn<bool>("shiftedFirst");
         for(bool native:{false,true})for(bool literal:{false,true})for(bool shiftedFirst:{false,true})

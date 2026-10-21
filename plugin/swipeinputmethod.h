@@ -15,6 +15,9 @@
 #include "languageprofile.h"
 #include "predictiondiagnostics.h"
 #include <QPointer>
+#include <QQuickWindow>
+#include <QQuickItem>
+#include <QEvent>
 #include <memory>
 namespace swipekb { class Recognizer; }
 
@@ -35,6 +38,7 @@ public:
     bool setInputMode(const QString &locale, QVirtualKeyboardInputEngine::InputMode inputMode) override;
     bool setTextCase(QVirtualKeyboardInputEngine::TextCase textCase) override;
     bool keyEvent(Qt::Key key, const QString &text, Qt::KeyboardModifiers modifiers) override;
+    bool eventFilter(QObject *watched, QEvent *event) override;
 
     QList<QVirtualKeyboardSelectionListModel::Type> selectionLists() override;
     int selectionListItemCount(QVirtualKeyboardSelectionListModel::Type type) override;
@@ -102,6 +106,12 @@ private:
     QPointer<QObject> m_policySource;
     int m_generation = 0;
     bool m_contextConnected = false;
+    QPointer<QQuickWindow> m_exposureWindow;
+    QPointer<QQuickItem> m_exposureItem;
+    bool m_exposureRefreshQueued = false;
+    void watchInputWindow();
+    void refreshExposedInputCache(QPointer<QVirtualKeyboardInputContext>, QPointer<QQuickItem>,
+                                  QPointer<QQuickWindow>, int generation, quint64 profileEpoch);
     QString textBeforeCursor() const;
     void clearSession();
     void refreshGuessBar();
