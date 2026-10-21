@@ -9,6 +9,7 @@
 #include "swipeoutcome.h"
 #include "swipesession.h"
 #include "nextwordsession.h"
+#include "ownedhistory.h"
 #include "nextwordworker.h"
 #include "languageprofile.h"
 #include "predictiondiagnostics.h"
@@ -65,6 +66,8 @@ private slots:
     void predictionPolicyChanged();
 private:
     bool safeContext();
+    bool safePredictionContext();
+    void stageOwnedCommit(const CommitPlan &, bool correction = false);
     bool m_liveQueryActive = false;
 #ifdef SWIPEKB_PRIVATE_FLAGS_DIAGNOSTIC
     bool observeFlags(const char *phase);
@@ -89,6 +92,8 @@ private:
     quint64 m_predictionPressId = 0;
     std::optional<PredictionStamp> m_predictionTap;
     NextWordSession m_nextWord;
+    OwnedHistory m_ownedHistory;
+    quint64 m_nativePolicyEpoch = 1;
     NextWordWorker m_predictionWorker;
     swipekb::PredictionModelState m_predictionModelState=swipekb::PredictionModelState::NotRequested;
     QPointer<QObject> m_policySource;

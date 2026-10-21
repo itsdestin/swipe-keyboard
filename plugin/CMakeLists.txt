@@ -41,7 +41,7 @@ add_test(NAME plugin_outcome COMMAND tst_swipeoutcome)
 
 # WHY these tests are independent of a compositor/installed keyboard: prediction
 # insertion and policy authority must be pinned without activating a host backend.
-foreach(feature IN ITEMS nextwordsession predictionpolicy predictiondiagnostics)
+foreach(feature IN ITEMS nextwordsession predictionpolicy predictiondiagnostics ownedhistory)
     qt_add_executable(tst_${feature} tests/tst_${feature}.cpp)
     target_link_libraries(tst_${feature} PRIVATE swipekb_session Qt6::Test)
     add_test(NAME plugin_${feature} COMMAND tst_${feature})

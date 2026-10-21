@@ -617,6 +617,8 @@ class SetupTests(unittest.TestCase):
         settings = dict(self.commands.settings)
         env = self.controller.launch_environment()
         self.assertEqual(env.get('QML_NO_TOUCH_COMPRESSION'), '1')
+        self.assertEqual(env.get('SWIPEKB_NATIVE_PREDICTION'), 'owned-history-v1')
+        self.assertNotIn('SWIPEKB_NATIVE_PREDICTION', self.controller.env)
         self.assertEqual(dict(os.environ), before)
         self.assertNotIn('QML_NO_TOUCH_COMPRESSION', self.controller.env)
         self.assertEqual(self.commands.settings, settings)

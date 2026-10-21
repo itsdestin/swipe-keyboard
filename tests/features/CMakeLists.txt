@@ -86,7 +86,7 @@ if(SWIPEKB_READONLY_UPSTREAM)
     target_sources(feature_inputmethod PRIVATE ${ROOT}/plugin/nextwordsession.cpp
         ${ROOT}/plugin/nextwordworker.cpp ${ROOT}/plugin/nextwordworker.h
         ${ROOT}/plugin/predictionpolicy.cpp ${ROOT}/plugin/predictiondiagnostics.cpp)
-    foreach(name nextwordsession nextwordworker predictionpolicy predictiondiagnostics nextwordintegration)
+    foreach(name nextwordsession nextwordworker predictionpolicy predictiondiagnostics nextwordintegration ownedhistory)
         add_executable(tst_${name} ${ROOT}/plugin/tests/tst_${name}.cpp)
         target_link_libraries(tst_${name} PRIVATE feature_inputmethod Qt6::Test)
         add_test(NAME prediction_${name} COMMAND tst_${name})

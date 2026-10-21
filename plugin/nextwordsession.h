@@ -7,13 +7,15 @@ struct PredictionStamp {
     quint64 profileEpoch = 0, editorEpoch = 0, requestId = 0;
     bool operator==(const PredictionStamp &) const = default;
 };
-// Raw Wayland content purpose/hints, not the lossy Qt no-prediction bit.
+// OwnedHistory is deliberately NOT an affirmative raw Wayland content policy.
+enum class PredictionPolicySource { Unavailable, RawBridge, OwnedHistory };
 struct PredictionPolicy {
     int version = 0;
     quint64 contextId = 0, revision = 0;
     bool contentTypeReceived = false;
     int purpose = -1;
     bool completionAllowed = false, syntheticNoPredictiveText = false;
+    PredictionPolicySource source = PredictionPolicySource::RawBridge;
     bool operator==(const PredictionPolicy &) const = default;
 };
 struct EditorSnapshot {
@@ -21,6 +23,7 @@ struct EditorSnapshot {
     int cursor = -1, anchor = -1;
     bool focused = false;
     Qt::InputMethodHints hints;
+    bool preedit = false;
     bool operator==(const EditorSnapshot &) const = default;
 };
 

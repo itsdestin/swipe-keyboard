@@ -21,6 +21,18 @@ private slots:
         QVERIFY(s.observe(editor(), policy(), 4, true));
         QVERIFY(!s.observe(editor(), policy(), 4, true));
     }
+    void threeSlotsSelectTheirDisplayedRankWithCase() {
+        const QStringList displayed{"second","best","third"};
+        for(int slot=0;slot<3;++slot) for(auto mode:{CaseMode::AsIs,CaseMode::Capitalize,CaseMode::AllCaps}) {
+            NextWordSession s;auto stamp=ready(s);QVERIFY(s.accept(stamp,{"best","second","third","fourth"}));
+            QCOMPARE(s.candidates(),displayed);
+            auto plan=s.takePrediction(slot,stamp,editor(),policy(),4,mode);
+            auto expected=displayed[slot];
+            if(mode==CaseMode::Capitalize) expected=expected.left(1).toUpper()+expected.mid(1);
+            else if(mode==CaseMode::AllCaps) expected=expected.toUpper();
+            QCOMPARE(plan.text,expected);QCOMPARE(plan.replaceFrom,0);QCOMPARE(plan.replaceLength,0);
+        }
+    }
     void predictionOnlyInserts() {
         NextWordSession s; auto stamp = ready(s);
         QVERIFY(s.accept(stamp, {"world", "again"}));
@@ -140,7 +152,7 @@ private slots:
     void filtersUnsafeCandidates() {
         NextWordSession s; auto stamp = ready(s);
         QVERIFY(s.accept(stamp, {"world", "world", "", "two words", "<unk>", "fine", "third", "fourth"}));
-        QCOMPARE(s.candidates(), QStringList({"world", "fine", "third"}));
+        QCOMPARE(s.candidates(), QStringList({"fine", "world", "third"}));
     }
 };
 QTEST_GUILESS_MAIN(NextWordSessionTest)

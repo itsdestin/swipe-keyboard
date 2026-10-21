@@ -5,13 +5,15 @@ bool NextWordSession::allowed(const EditorSnapshot &e, const PredictionPolicy &p
 {
     const auto deny = Qt::ImhSensitiveData | Qt::ImhHiddenText | Qt::ImhUrlCharactersOnly
         | Qt::ImhEmailCharactersOnly | Qt::ImhDigitsOnly | Qt::ImhFormattedNumbersOnly
-        | Qt::ImhDialableCharactersOnly | Qt::ImhDate | Qt::ImhTime;
-    // WHY affirmative and versioned: Plasma synthesizes ImhNoPredictiveText. Only the
-    // backend which owns raw content_type can distinguish that bit from an app veto.
-    return p.version == 1 && p.contextId != 0 && p.contentTypeReceived && p.completionAllowed
-        && (p.purpose == 0 || p.purpose == 1) && e.focused && e.cursor >= 0
+        | Qt::ImhDialableCharactersOnly | Qt::ImhDate | Qt::ImhTime | Qt::ImhPreferNumbers;
+    // WHY separate modes: native stock Plasma cannot report raw completion vetoes.
+    // Its model sees only confirmed keyboard-owned words, never this validation buffer.
+    const bool native = p.source == PredictionPolicySource::OwnedHistory;
+    const bool bridge = p.source == PredictionPolicySource::RawBridge && p.version == 1
+        && p.contextId != 0 && p.contentTypeReceived && p.completionAllowed && (p.purpose == 0 || p.purpose == 1);
+    return (native || bridge) && e.focused && !e.preedit && e.cursor >= 0
         && e.cursor <= e.text.size() && e.cursor == e.anchor && !(e.hints & deny)
-        && (!(e.hints & Qt::ImhNoPredictiveText) || p.syntheticNoPredictiveText);
+        && (!(e.hints & Qt::ImhNoPredictiveText) || native || p.syntheticNoPredictiveText);
 }
 
 void NextWordSession::invalidate()
@@ -106,6 +108,10 @@ bool NextWordSession::accept(PredictionStamp stamp, const QStringList &words)
             m_candidates << word;
         if (m_candidates.size() == 3) break;
     }
+    // WHY one displayed list is also the selection authority: rank two goes left,
+    // strongest in the middle, rank three right; labels and callbacks cannot diverge.
+    // A genuinely short beam stays short, never padded with invented suggestions.
+    if (m_candidates.size()==3) m_candidates.swapItemsAt(0,1);
     return true;
 }
 

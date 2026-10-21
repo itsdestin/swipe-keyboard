@@ -100,7 +100,7 @@ If dependencies or a compatibility check fail, stop and follow the error. Do not
 
 1. Use the keyboard's globe/language key to choose **English (US/UK), Spanish, French or German**. Keep your preferred physical layout; changing language does not force QWERTY.
 2. Swipe a word and tap an alternative above the keys to correct it. Normal tapping, accents and symbols remain available. If the globe key has no languages to switch between, open **On-Screen Keyboard** settings and enable your languages; maximize that settings window if the list is clipped.
-3. In **English with the bundled Deck backend**, press Space to confirm a word, then tap a next-word suggestion to insert it. Native backends without the required privacy support keep next-word prediction disabled. Other languages do not receive English predictions.
+3. In **English**, tap or swipe a word, press Space, then tap a next-word suggestion to insert it. The three-suggestion bar puts the strongest choice in the middle, with dividers only between words. Native predictions use confirmed words entered through this keyboard; the bundled Deck backend also supports application-provided context. Other languages do not receive English predictions.
 
 The first Backspace can remove the whole swiped word when the application supplies reliable field information; otherwise it deletes normally. Cursor movement, selections or switching fields can clear suggestions to prevent changing the wrong text.
 
@@ -131,7 +131,7 @@ Disable restores settings still owned by setup and preserves later manual keyboa
 |---|---|
 | Keyboard does not appear | Touch the field rather than clicking it. Check **System Settings → Virtual Keyboard** and try another native Wayland app. For native packages, run `swipe-keyboard check` inside KDE, without sudo. |
 | Taps work, but swipes do not | Select a supported language and a Latin letter layout. Password/restricted fields and unavailable language data can deliberately disable recognition. |
-| No next-word suggestions | Use English with the bundled Deck backend. Other languages and native backends without the privacy bridge intentionally have no contextual predictions. |
+| No next-word suggestions | Select English, enter a word through this keyboard, then press Space. Native predictions start from confirmed keyboard-entered words, not pasted/preexisting text. Restricted fields, changed context or unavailable models can clear suggestions. Other languages do not use English predictions. |
 | Works in one app but not another | Wayland text-input support varies. Include the app name/version and whether it is a Flatpak in a bug report. XWayland compatibility is not promised. |
 | Alternatives or whole-word Backspace do not work | Cursor movement, selections or missing field information can prevent safe word replacement. Try a normal field with no selection. |
 | Custom layouts or a disable error | Keep your files and the exact error. Do not delete layouts, remove the setup record or force-reset settings. See [recovery details](docs/install-details.md). |

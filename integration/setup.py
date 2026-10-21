@@ -411,6 +411,10 @@ class Controller:
         # this dropped the middle of actual ARM swipes before recognition. Preserve
         # the trajectory from process startup; no desktop policy/global env changes.
         env['QML_NO_TOUCH_COMPRESSION'] = '1'
+        # WHY this distinct mode follows the checked stock Plasma 6.7/6.8 launch.
+        # It is NOT raw application completion permission: the plugin also checks
+        # the actual proxy class and gives any present raw bridge precedence.
+        env['SWIPEKB_NATIVE_PREDICTION'] = 'owned-history-v1'
         return env
 
 
@@ -429,7 +433,8 @@ def confirm_activation(controller, assume_yes=False, always_available=False):
     print(
           'You may notice different swipe suggestions and whole-word Backspace behavior.\n'
           'The native package uses your existing system backend; it does not replace Qt, Plasma or Maliit.\n'
-          'Contextual next-word prediction stays disabled if that backend lacks the privacy interface.\n'
+          'On stock Plasma, English next-word prediction uses only words this keyboard committed in the current field.\n'
+          'It validates editor state but cannot observe every raw application completion preference without a policy bridge.\n'
           'Run swipe-keyboard disable before removal to restore settings still owned by setup; '
           'legacy records without raw provenance may need an explicit manual choice.')
     if assume_yes:

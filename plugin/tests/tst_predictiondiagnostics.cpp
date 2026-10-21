@@ -47,6 +47,16 @@ private slots:
         d=swipekb::predictionDiagnostics(p,state);
         QCOMPARE(d["predictionStatus"].toString(),QStringLiteral("model-unavailable"));
     }
+    void nativeHistoryDoesNotInventRawPermission() {
+        auto p=profile();swipekb::PredictionDiagnosticContext state;
+        state.hasContext=state.fieldAllowed=state.ownedHistory=true;
+        auto d=swipekb::predictionDiagnostics(p,state);
+        QCOMPARE(d["predictionContextSource"].toString(),QStringLiteral("keyboard-owned-history"));
+        QCOMPARE(d["predictionStatus"].toString(),QStringLiteral("available-after-confirmation"));
+        QCOMPARE(d["activeFieldPolicy"].toString(),QStringLiteral("unknown"));
+        state.fieldAllowed=false;
+        QCOMPARE(swipekb::predictionDiagnostics(p,state)["predictionStatus"].toString(),QStringLiteral("disabled-for-field"));
+    }
     void failsClosedAndContainsOnlyWhitelistedValues() {
         auto p=profile(); swipekb::PredictionDiagnosticContext state;
         QCOMPARE(swipekb::predictionDiagnostics({},state)["predictionStatus"].toString(),QStringLiteral("profile-unavailable"));
@@ -62,7 +72,7 @@ private slots:
         p.capabilities.swipe=false;
         d=swipekb::predictionDiagnostics(p,state);
         QCOMPARE(d["predictionStatus"].toString(),QStringLiteral("profile-unavailable"));
-        QCOMPARE(d.keys(),QStringList({"activeFieldPolicy","predictionCapability","predictionModelState","predictionStatus"}));
+        QCOMPARE(d.keys(),QStringList({"activeFieldPolicy","predictionCapability","predictionContextSource","predictionModelState","predictionStatus"}));
         const auto json=QJsonDocument::fromVariant(d).toJson();
         QVERIFY(!json.contains("private")); QVERIFY(!json.contains("hash")); QVERIFY(!json.contains("path"));
     }
