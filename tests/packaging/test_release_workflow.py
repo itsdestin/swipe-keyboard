@@ -143,10 +143,13 @@ exit "$result"
                         fedora.index('dnf -y builddep packaging/fedora/swipe-keyboard.spec'))
 
     def test_flatpak_runner_supports_inherited_wayland_permission(self):
-        # Ubuntu 24.04's stock Flatpak 1.14 cannot express our unchanged
-        # inherit-wayland-socket permission; install signed upstream stable tools.
+        # WHY Ubuntu 26.04: its signed distribution tools support the unchanged
+        # inherit-wayland-socket permission without depending on the extra PPA.
         flatpak = self.jobs['flatpak']
-        self.assertIn('ppa:flatpak/stable', flatpak)
+        self.assertIn('runs-on: ubuntu-26.04', flatpak)
+        self.assertIn('sudo apt-get install -y flatpak flatpak-builder', flatpak)
+        self.assertNotIn('add-apt-repository', flatpak)
+        self.assertNotIn('ppa:flatpak/stable', flatpak)
         self.assertIn('dpkg --compare-versions', flatpak)
         self.assertIn('ge 1.16', flatpak)
         self.assertNotIn('--allow-unauthenticated', flatpak)

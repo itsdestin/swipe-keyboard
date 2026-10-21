@@ -1,0 +1,7 @@
+# WHY: GitHub officially offers ubuntu-26.04, but actionlint 1.7.12's built-in
+# runner catalog predates it. This declares only that additional known label;
+# the workflow still uses GitHub-hosted runners, not a self-hosted machine.
+# Source: https://github.com/actions/runner-images#available-images
+self-hosted-runner:
+  labels:
+    - ubuntu-26.04

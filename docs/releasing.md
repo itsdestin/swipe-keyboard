@@ -66,9 +66,9 @@ cross-run artifact promotion, optional platform bypass, or product build cache e
   shared source archive and x86-produced `.src.rpm`. Two host-dependent SRPMs with
   the same basename must never collide in merged downloads. The ARM producer's
   embedded source SHA/package version and RPM architecture are checked, not waived.
-- `flatpak`: signed upstream stable Flatpak tooling (1.16+; Ubuntu 24.04's stock
-  1.14 lacks inherited Wayland-socket support), signed Flathub SDK/Platform 6.10
-  installation followed by exact locked
+- `flatpak`: Ubuntu 26.04's signed distribution Flatpak tooling, checked to be
+  1.16+ for inherited Wayland-socket support; no additional PPA is needed. Signed
+  Flathub SDK/Platform 6.10 installation followed by exact locked
   commit selection and shared runtime verification. Builds its own objects in SDK
   Python 3.13/Qt, never reuses native distro objects. Tests installed `/app` loader,
   ELF imports and profile capability; installs the resulting exact bundle for
