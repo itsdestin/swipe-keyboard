@@ -33,7 +33,8 @@ target_link_libraries(test_normalize PRIVATE swipekb_engine GTest::gtest_main)
 add_test(NAME engine_normalize COMMAND test_normalize)
 
 add_executable(test_recognizer tests/test_recognizer.cpp)
-target_link_libraries(test_recognizer PRIVATE swipekb_engine GTest::gtest_main)
+# WHY explicit: the multilingual completion fixture uses QTemporaryDir; the engine's Qt dependency is private.
+target_link_libraries(test_recognizer PRIVATE swipekb_engine GTest::gtest_main Qt6::Core)
 add_test(NAME engine_recognizer COMMAND test_recognizer)
 set_tests_properties(engine_recognizer PROPERTIES ENVIRONMENT "SWIPEKB_ASSETS=${SWIPEKB_ASSETS}")
 
