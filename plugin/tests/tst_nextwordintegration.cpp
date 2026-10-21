@@ -68,6 +68,39 @@ public:
 class NextWordIntegrationTest : public QObject {
     Q_OBJECT
 private slots:
+    void typedCompletionReplacesOnlyOwnedPrefix_data() {
+        QTest::addColumn<bool>("native");QTest::addColumn<bool>("literal");
+        for(bool native:{false,true})for(bool literal:{false,true})QTest::newRow(qPrintable(QString("%1-%2").arg(native?"native":"bridge",literal?"literal":"completion")))<<native<<literal;
+    }
+    void typedCompletionReplacesOnlyOwnedPrefix() {
+        QFETCH(bool,native);QFETCH(bool,literal);
+        QTemporaryDir data;qputenv("SWIPEKB_DATA",data.path().toUtf8());qputenv("SWIPEKB_MODEL_DATA",qgetenv("SWIPEKB_TEST_PROFILE_ASSETS"));
+        if(native)qputenv("SWIPEKB_NATIVE_PREDICTION","owned-history-v1");
+        struct EnvReset{~EnvReset(){qunsetenv("SWIPEKB_NATIVE_PREDICTION");}} envReset;
+        QQmlEngine engine;QQmlComponent fixture(&engine);fixture.setData("import QtQuick; import QtQuick.VirtualKeyboard; Item {property var context:InputContext}",QUrl());
+        std::unique_ptr<QObject> root(fixture.create());QVERIFY(root);auto *item=qobject_cast<QQuickItem*>(root.get());
+        QQuickWindow window;window.resize(500,200);item->setParentItem(window.contentItem());InputListenerItem edit(item);
+        window.show();window.requestActivate();edit.forceActiveFocus();
+        auto *ic=qvariant_cast<QVirtualKeyboardInputContext*>(root->property("context"));QVERIFY(ic);
+        QStringList captured;QSemaphore done;
+        SwipeInputMethod method(nullptr,[&](const PredictionJob&job){captured=job.context;done.release();return QStringList{"world","again","today"};});
+        ic->inputEngine()->setInputMethod(&method);method.setInputMode("en_US",QVirtualKeyboardInputEngine::InputMode::Latin);method.setPhysicalLayout("qwerty");
+        TestPolicyBridge bridge;if(!native)method.setPredictionPolicySource(&bridge);
+        QGuiApplication::inputMethod()->update(Qt::ImQueryAll);QTRY_VERIFY(ic->inputItem()==&edit);
+        for(auto c:QString("hel")){method.keyEvent(Qt::Key(c.toUpper().unicode()),QString(c),Qt::NoModifier);ic->commit(QString(c));QGuiApplication::inputMethod()->update(Qt::ImQueryAll);method.update();}
+        QCOMPARE(method.selectionListItemCount(QVirtualKeyboardSelectionListModel::Type::WordCandidateList),3);
+        QStringList words;for(int i=0;i<3;++i)words<<method.selectionListData(QVirtualKeyboardSelectionListModel::Type::WordCandidateList,i,QVirtualKeyboardSelectionListModel::Role::Display).toString();
+        QVERIFY(words.contains("hel"));QVERIFY(!method.predictionSelectionToken().isEmpty());
+        int index=literal?words.indexOf("hel"):1;const auto selected=words[index];
+        method.beginPredictionSelection(method.predictionSelectionToken());method.selectionListItemSelected(QVirtualKeyboardSelectionListModel::Type::WordCandidateList,index);
+        QCOMPARE(edit.text,QString("preexisting sentinel ")+selected);
+        QGuiApplication::inputMethod()->update(Qt::ImQueryAll);method.update();
+        QCOMPARE(method.selectionListItemCount(QVirtualKeyboardSelectionListModel::Type::WordCandidateList),0);
+        method.keyEvent(Qt::Key_Space," ",Qt::NoModifier);ic->commit(" ");QGuiApplication::inputMethod()->update(Qt::ImQueryAll);method.update();
+        QVERIFY(done.tryAcquire(1,15000));
+        if(native)QCOMPARE(captured,QStringList{selected.toLower()});
+        QTRY_VERIFY(!method.predictionSelectionToken().isEmpty());ic->inputEngine()->setInputMethod(nullptr);
+    }
     void unbridgedNativeWordUsesOnlyOwnedHistoryAndInserts_data() {
         QTest::addColumn<bool>("swipe");QTest::addColumn<int>("slot");
         for(bool swipe:{false,true}) for(int slot=0;slot<3;++slot)

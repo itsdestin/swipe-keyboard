@@ -191,6 +191,8 @@ public:
     // when their files exist. Returns false (and stays not-ready) on any failure.
     bool init(const ModelPaths &paths, const RecognizerOptions &options = {});
     bool ready() const;
+    // Dictionary-only tap completion/correction; bounded traversal of the loaded profile trie.
+    std::vector<Candidate> complete(const std::string &ownedPrefix, int top_k = 3) const;
 
     // Best-first guesses, at most top_k. Empty when not ready, input invalid, or anything fails.
     // `context` = up to the last few words before the cursor, oldest first.

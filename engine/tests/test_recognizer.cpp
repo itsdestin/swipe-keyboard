@@ -4,6 +4,8 @@
 #include <cctype>
 #include <cstdlib>
 #include <fstream>
+#include <QTemporaryDir>
+#include <tuple>
 
 #include "swipekb/recognizer.hpp"
 
@@ -61,6 +63,34 @@ TEST(Recognizer, NotReadyReturnsNothing)
     EXPECT_FALSE(r.ready());
     auto keys = qwertyRects(0, 0, 1);
     EXPECT_TRUE(r.recognize(traceThrough("hello", keys), keys, {}, 3).empty());
+}
+
+TEST(Recognizer, OwnedTypedPrefixAndOneEditCorrection)
+{
+    if (!haveAssets()) GTEST_SKIP() << "explicit model fixture required";
+    Recognizer r;ASSERT_TRUE(r.init(ModelPaths::fromDir(assets())));
+    const auto completions=r.complete("hel",12);
+    EXPECT_TRUE(inTop(completions,"hello"));
+    const auto corrected=r.complete("helo",12);
+    ASSERT_FALSE(corrected.empty());EXPECT_EQ(corrected.front().word,"hello");
+    EXPECT_TRUE(r.complete("",3).empty());
+    EXPECT_TRUE(r.complete(std::string(65,'a'),3).empty());
+}
+
+TEST(Recognizer, CompletionUsesOnlyLoadedProfileDictionaryAndDisplayForms)
+{
+    if(!haveAssets())GTEST_SKIP()<<"explicit encoder fixture required";
+    const std::vector<std::tuple<std::string,std::string,std::string,std::string>> cases={
+        {"en","hello","hel","hello"},{"es","niño","ni","niño"},
+        {"fr","cœur","cœ","cœur"},{"de","Straße","stra","Straße"}};
+    for(const auto &[language,word,prefix,display]:cases) {
+        QTemporaryDir dir;ASSERT_TRUE(dir.isValid());const auto dictionary=dir.filePath("tiny.combined").toStdString();
+        {std::ofstream out(dictionary);out<<"dictionary=fixture,locale="<<language<<"\n word="<<word<<",f=200,flags=,originalFreq=200\n";}
+        auto paths=ModelPaths::fromDir(assets());paths.dictionary=dictionary;paths.decoder.clear();paths.lm_model.clear();paths.lm_vocab.clear();paths.ngram.clear();paths.nlm.clear();
+        RecognizerOptions options;options.language=language;options.alphabet="abcdefghijklmnopqrstuvwxyzñçàâæéèêëîïôœùûüÿäöß";
+        Recognizer r;ASSERT_TRUE(r.init(paths,options));const auto words=r.complete(prefix,3);ASSERT_FALSE(words.empty());
+        EXPECT_EQ(words.front().word,display);if(language!="en")EXPECT_TRUE(r.complete("hello",3).empty());
+    }
 }
 
 TEST(Recognizer, MissingEncoderFailsInit)

@@ -10,6 +10,7 @@
 #include "swipesession.h"
 #include "nextwordsession.h"
 #include "ownedhistory.h"
+#include "typedwordsession.h"
 #include "nextwordworker.h"
 #include "languageprofile.h"
 #include "predictiondiagnostics.h"
@@ -93,6 +94,8 @@ private:
     std::optional<PredictionStamp> m_predictionTap;
     NextWordSession m_nextWord;
     OwnedHistory m_ownedHistory;
+    TypedWordSession m_typedWord;
+    QString m_typedPress;
     quint64 m_nativePolicyEpoch = 1;
     NextWordWorker m_predictionWorker;
     swipekb::PredictionModelState m_predictionModelState=swipekb::PredictionModelState::NotRequested;
