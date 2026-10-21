@@ -11,7 +11,8 @@ endif()
 
 # The finished QML module (plugin + engine .so + qmldir) is assembled here; install.sh copies it.
 set(SWIPEKB_QML_DIR ${CMAKE_BINARY_DIR}/qml)
-set(SWIPEKB_ASSETS ${CMAKE_SOURCE_DIR}/assets)
+# WHY a cache path lets tests/builds select an explicit read-only fixture without changing the source tree's default.
+set(SWIPEKB_ASSETS ${CMAKE_SOURCE_DIR}/assets CACHE PATH "Swipe keyboard model and language-pack assets")
 
 # Distributable binaries must not inherit upstream's host-specific default.
 set(USE_MARCH_NATIVE OFF CACHE BOOL "Enable host-specific instructions (developer only)")

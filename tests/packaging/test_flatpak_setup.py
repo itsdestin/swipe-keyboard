@@ -32,6 +32,11 @@ class FlatpakSetup(unittest.TestCase):
         self.assertIn('You may notice', text)
         self.assertIn('separate bundled Plasma Keyboard', text)
         self.assertIn('does not replace', text)
+        self.assertIn('English, Spanish, French and German', text)
+        self.assertIn('raw application completion preference', text)
+        self.assertIn('sensitive and restricted fields remain blocked', text.lower())
+        self.assertIn('raw-policy bridge', text)
+        self.assertNotIn('predictions are English-only', text)
         self.assertIn('No settings changed', text)
         self.assertNotIn('Next steps:', text)
 

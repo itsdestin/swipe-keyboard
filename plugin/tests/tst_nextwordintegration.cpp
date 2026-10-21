@@ -5,6 +5,7 @@
 #include <QQuickItem>
 #include <QInputMethodEvent>
 #include <QTemporaryDir>
+#include <QFileInfo>
 #include <QSemaphore>
 #include <QJsonDocument>
 #include <future>
@@ -22,6 +23,7 @@ public:
             {"contentTypeReceived",true},{"purpose",0},{"completionAllowed",permitted},{"syntheticNoPredictiveText",true}};
     }
     void deny() { permitted = false; ++revision; emit swipePredictionPolicyChanged(); }
+    void allow() { permitted = true; ++revision; emit swipePredictionPolicyChanged(); }
 signals:
     void swipePredictionPolicyChanged();
 };
@@ -69,11 +71,13 @@ class NextWordIntegrationTest : public QObject {
     Q_OBJECT
 private slots:
     void typedCompletionReplacesOnlyOwnedPrefix_data() {
-        QTest::addColumn<bool>("native");QTest::addColumn<bool>("literal");
-        for(bool native:{false,true})for(bool literal:{false,true})QTest::newRow(qPrintable(QString("%1-%2").arg(native?"native":"bridge",literal?"literal":"completion")))<<native<<literal;
+        QTest::addColumn<bool>("native");QTest::addColumn<bool>("literal");QTest::addColumn<bool>("shiftedFirst");
+        for(bool native:{false,true})for(bool literal:{false,true})for(bool shiftedFirst:{false,true})
+            QTest::newRow(qPrintable(QString("%1-%2%3").arg(native?"native":"bridge",literal?"literal":"completion")
+                .arg(shiftedFirst?"-shifted-first":"")))<<native<<literal<<shiftedFirst;
     }
     void typedCompletionReplacesOnlyOwnedPrefix() {
-        QFETCH(bool,native);QFETCH(bool,literal);
+        QFETCH(bool,native);QFETCH(bool,literal);QFETCH(bool,shiftedFirst);
         QTemporaryDir data;qputenv("SWIPEKB_DATA",data.path().toUtf8());qputenv("SWIPEKB_MODEL_DATA",qgetenv("SWIPEKB_TEST_PROFILE_ASSETS"));
         if(native)qputenv("SWIPEKB_NATIVE_PREDICTION","owned-history-v1");
         struct EnvReset{~EnvReset(){qunsetenv("SWIPEKB_NATIVE_PREDICTION");}} envReset;
@@ -87,11 +91,17 @@ private slots:
         ic->inputEngine()->setInputMethod(&method);method.setInputMode("en_US",QVirtualKeyboardInputEngine::InputMode::Latin);method.setPhysicalLayout("qwerty");
         TestPolicyBridge bridge;if(!native)method.setPredictionPolicySource(&bridge);
         QGuiApplication::inputMethod()->update(Qt::ImQueryAll);QTRY_VERIFY(ic->inputItem()==&edit);
-        for(auto c:QString("hel")){method.keyEvent(Qt::Key(c.toUpper().unicode()),QString(c),Qt::NoModifier);ic->commit(QString(c));QGuiApplication::inputMethod()->update(Qt::ImQueryAll);method.update();}
+        int typedIndex=0;const QString literalWord=shiftedFirst?QStringLiteral("Hel"):QStringLiteral("hel");
+        for(auto c:QString("hel")){
+            const bool shifted=shiftedFirst&&typedIndex==0;const QString typed=shifted?QString(c).toUpper():QString(c);
+            const auto modifiers=shifted?Qt::KeyboardModifiers(Qt::ShiftModifier):Qt::KeyboardModifiers(Qt::NoModifier);
+            method.keyEvent(Qt::Key(typed.front().toUpper().unicode()),typed,modifiers);ic->commit(typed);
+            QGuiApplication::inputMethod()->update(Qt::ImQueryAll);method.update();++typedIndex;
+        }
         QCOMPARE(method.selectionListItemCount(QVirtualKeyboardSelectionListModel::Type::WordCandidateList),3);
         QStringList words;for(int i=0;i<3;++i)words<<method.selectionListData(QVirtualKeyboardSelectionListModel::Type::WordCandidateList,i,QVirtualKeyboardSelectionListModel::Role::Display).toString();
-        QVERIFY(words.contains("hel"));QVERIFY(!method.predictionSelectionToken().isEmpty());
-        int index=literal?words.indexOf("hel"):1;const auto selected=words[index];
+        QVERIFY(words.contains(literalWord));QVERIFY(!method.predictionSelectionToken().isEmpty());
+        int index=literal?words.indexOf(literalWord):1;const auto selected=words[index];
         method.beginPredictionSelection(method.predictionSelectionToken());method.selectionListItemSelected(QVirtualKeyboardSelectionListModel::Type::WordCandidateList,index);
         QCOMPARE(edit.text,QString("preexisting sentinel ")+selected);
         QGuiApplication::inputMethod()->update(Qt::ImQueryAll);method.update();
@@ -102,12 +112,14 @@ private slots:
         QTRY_VERIFY(!method.predictionSelectionToken().isEmpty());ic->inputEngine()->setInputMethod(nullptr);
     }
     void unbridgedNativeWordUsesOnlyOwnedHistoryAndInserts_data() {
-        QTest::addColumn<bool>("swipe");QTest::addColumn<int>("slot");
-        for(bool swipe:{false,true}) for(int slot=0;slot<3;++slot)
-            QTest::newRow(qPrintable(QStringLiteral("%1-slot%2").arg(swipe?"swipe":"tap").arg(slot)))<<swipe<<slot;
+        QTest::addColumn<bool>("swipe");QTest::addColumn<int>("slot");QTest::addColumn<bool>("shiftedFirst");
+        for(bool swipe:{false,true}) for(int slot=0;slot<3;++slot) for(bool shiftedFirst:{false,true})
+            if (!swipe || !shiftedFirst)
+                QTest::newRow(qPrintable(QStringLiteral("%1-slot%2%3").arg(swipe?"swipe":"tap").arg(slot)
+                    .arg(shiftedFirst?"-auto-capitalized":"")))<<swipe<<slot<<shiftedFirst;
     }
     void unbridgedNativeWordUsesOnlyOwnedHistoryAndInserts() {
-        QFETCH(bool,swipe);QFETCH(int,slot);
+        QFETCH(bool,swipe);QFETCH(int,slot);QFETCH(bool,shiftedFirst);
         const QStringList displayed{"again","world","today"};const auto inserted=displayed[slot];
         QTemporaryDir data;qputenv("SWIPEKB_DATA",data.path().toUtf8());
         qputenv("SWIPEKB_MODEL_DATA",qgetenv("SWIPEKB_TEST_PROFILE_ASSETS"));
@@ -139,9 +151,16 @@ private slots:
             }
             const int generation=method.beginSwipe();QVERIFY(generation>=0);method.finishSwipe(points,keys,generation);
             QGuiApplication::inputMethod()->update(Qt::ImQueryAll);method.update();
-        } else for(auto c:QStringLiteral("hello")) {
-            QVERIFY(!method.keyEvent(Qt::Key(c.toUpper().unicode()),QString(c),Qt::NoModifier));
-            ic->commit(QString(c));QGuiApplication::inputMethod()->update(Qt::ImQueryAll);method.update();
+        } else {
+            int characterIndex=0;
+            for(auto c:QStringLiteral("hello")) {
+                const bool shifted=shiftedFirst && characterIndex==0;
+                const QString typed=shifted ? QString(c).toUpper() : QString(c);
+                const auto modifiers=shifted ? Qt::KeyboardModifiers(Qt::ShiftModifier) : Qt::KeyboardModifiers(Qt::NoModifier);
+                QVERIFY(!method.keyEvent(Qt::Key(typed.front().toUpper().unicode()),typed,modifiers));
+                ic->commit(typed);QGuiApplication::inputMethod()->update(Qt::ImQueryAll);method.update();
+                ++characterIndex;
+            }
         }
         const auto owned=edit.text.mid(QStringLiteral("preexisting sentinel ").size()).trimmed();QVERIFY(!owned.isEmpty());
         QVERIFY(!method.keyEvent(Qt::Key_Space," ",Qt::NoModifier));ic->commit(" ");
@@ -260,6 +279,7 @@ private slots:
         QTemporaryDir data;
         qputenv("SWIPEKB_DATA", data.path().toUtf8());
         qputenv("SWIPEKB_MODEL_DATA", qgetenv("SWIPEKB_TEST_PROFILE_ASSETS"));
+        qputenv("SWIPEKB_LANGUAGE_PACKS",qgetenv("SWIPEKB_TEST_LANGUAGE_PACKS"));
         QQmlEngine engine;
         QQmlComponent fixture(&engine);
         fixture.setData(R"(
@@ -327,9 +347,10 @@ private slots:
         const auto epoch = method.profileSnapshot().epoch;
         QVERIFY(method.setInputMode("fr_FR", QVirtualKeyboardInputEngine::InputMode::Latin));
         QVERIFY(method.profileSnapshot().epoch > epoch);
-        QVERIFY(!method.profileSnapshot().capabilities.nextWord);
-        // WHY combined release: French swiping is owned by its profile; only English
-        // prediction is unavailable here, not the language's independent swipe capability.
+        QCOMPARE(method.profileSnapshot().capabilities.nextWord,
+            QFileInfo::exists(qEnvironmentVariable("SWIPEKB_TEST_LANGUAGE_PACKS")+"/fr.json"));
+        // WHY verified foreign context assets preserve the profile's prediction capability; the denied
+        // field policy above remains authoritative and keeps the visible suggestions cleared.
         QCOMPARE(method.profileSnapshot().effectiveLanguage, QStringLiteral("fr"));
         QCOMPARE(method.selectionListItemCount(QVirtualKeyboardSelectionListModel::Type::WordCandidateList),0);
         method.setInputMode("en_GB", QVirtualKeyboardInputEngine::InputMode::Latin);
@@ -339,6 +360,109 @@ private slots:
         method.setPhysicalLayout("azerty");
         QVERIFY(method.profileSnapshot().epoch > beforeLayout);
         QVERIFY(!method.profileSnapshot().assets.contains("decoder"));
+        ic->inputEngine()->setInputMethod(nullptr);
+    }
+    void frenchContextModelProducesThreeSelectableQtPredictions() {
+        if(qEnvironmentVariable("SWIPEKB_TEST_PROFILE_ASSETS").isEmpty() ||
+           !QFileInfo::exists(qEnvironmentVariable("SWIPEKB_TEST_LANGUAGE_PACKS")+"/fr.json"))
+            QSKIP("Explicit English runtime and verified French pack fixture required");
+        QTemporaryDir data; qputenv("SWIPEKB_DATA",data.path().toUtf8());
+        qputenv("SWIPEKB_MODEL_DATA",qgetenv("SWIPEKB_TEST_PROFILE_ASSETS"));
+        qputenv("SWIPEKB_LANGUAGE_PACKS",qgetenv("SWIPEKB_TEST_LANGUAGE_PACKS"));
+        QQmlEngine engine; QQmlComponent fixture(&engine);
+        fixture.setData(R"(
+            import QtQuick
+            import QtQuick.VirtualKeyboard
+            Item { width:500; height:200; property var context:InputContext
+                TextInput { objectName:"editor"; width:400; height:100; focus:true; text:"je suis"; inputMethodHints:Qt.ImhNoPredictiveText }
+            }
+        )",QUrl());
+        std::unique_ptr<QObject> root(fixture.create()); QVERIFY2(root,qPrintable(fixture.errorString()));
+        auto *item=qobject_cast<QQuickItem *>(root.get()); QQuickWindow window; window.resize(500,200);
+        item->setParentItem(window.contentItem()); window.show(); window.requestActivate();
+        auto *edit=root->findChild<QQuickItem *>("editor"); QVERIFY(edit); edit->forceActiveFocus();
+        auto *ic=qvariant_cast<QVirtualKeyboardInputContext *>(root->property("context")); QVERIFY(ic);
+        SwipeInputMethod method; ic->inputEngine()->setInputMethod(&method);
+        method.setPhysicalLayout("azerty"); QVERIFY(method.setInputMode("fr_FR",QVirtualKeyboardInputEngine::InputMode::Latin));
+        QVERIFY2(method.isReady(),qPrintable(method.profileSnapshot().unavailableReason));
+        QVERIFY(method.profileSnapshot().capabilities.nextWord);
+        TestPolicyBridge bridge; method.setPredictionPolicySource(&bridge);
+        edit->setProperty("cursorPosition",7); QGuiApplication::inputMethod()->update(Qt::ImQueryAll);
+        QTRY_VERIFY_WITH_TIMEOUT(ic->inputItem()==edit,15000);
+        QTRY_COMPARE_WITH_TIMEOUT(ic->surroundingText(),QStringLiteral("je suis"),15000);
+        QVERIFY(!method.keyEvent(Qt::Key_Space," ",Qt::NoModifier)); ic->sendKeyClick(Qt::Key_Space," ");
+        QGuiApplication::inputMethod()->update(Qt::ImQueryAll); method.update();
+        QTRY_COMPARE_WITH_TIMEOUT(method.diagnostics()["predictionModelState"].toString(),QStringLiteral("loaded"),15000);
+        QCOMPARE(method.diagnostics()["predictionStatus"].toString(),QStringLiteral("ready"));
+        QCOMPARE(method.selectionListItemCount(QVirtualKeyboardSelectionListModel::Type::WordCandidateList),3);
+        QStringList candidates;
+        for(int i=0;i<3;++i) candidates<<method.selectionListData(QVirtualKeyboardSelectionListModel::Type::WordCandidateList,i,
+            QVirtualKeyboardSelectionListModel::Role::Display).toString();
+        QVERIFY(!candidates[0].isEmpty() && !candidates[1].isEmpty() && !candidates[2].isEmpty());
+        const auto accepted=candidates[1];
+        method.beginPredictionSelection(method.predictionSelectionToken());
+        method.selectionListItemSelected(QVirtualKeyboardSelectionListModel::Type::WordCandidateList,1);
+        QTRY_VERIFY_WITH_TIMEOUT(edit->property("text").toString().contains(accepted),15000);
+        QVERIFY(!edit->property("text").toString().endsWith(accepted+" "));
+        ic->inputEngine()->setInputMethod(nullptr);
+    }
+    void languageSwitchesReplaceContextModelIdentityWithoutStaleCandidates() {
+        const QString english=qEnvironmentVariable("SWIPEKB_TEST_PROFILE_ASSETS");
+        const QString packs=qEnvironmentVariable("SWIPEKB_TEST_LANGUAGE_PACKS");
+        if(english.isEmpty() || !QFileInfo::exists(packs+"/es.json")) QSKIP("Pinned English and multilingual model fixtures required");
+        qputenv("SWIPEKB_MODEL_DATA",english.toUtf8()); qputenv("SWIPEKB_LANGUAGE_PACKS",packs.toUtf8());
+        SwipeInputMethod method; quint64 epoch=0; QString spanishHash;
+        for(const auto &entry:QList<QPair<QString,QString>>{{QStringLiteral("es_ES"),QStringLiteral("qwerty")},
+                {QStringLiteral("es_MX"),QStringLiteral("qwerty")},{QStringLiteral("fr_FR"),QStringLiteral("azerty")},
+                {QStringLiteral("de_DE"),QStringLiteral("qwertz")},{QStringLiteral("en_US"),QStringLiteral("qwerty")}}) {
+            method.setPhysicalLayout(entry.second);
+            QVERIFY(method.setInputMode(entry.first,QVirtualKeyboardInputEngine::InputMode::Latin));
+            const auto profile=method.profileSnapshot();
+            QVERIFY(profile.epoch>epoch); epoch=profile.epoch;
+            QVERIFY2(method.isReady(),qPrintable(profile.unavailableReason));
+            QVERIFY(profile.capabilities.nextWord);
+            QVERIFY(method.selectionListItemCount(QVirtualKeyboardSelectionListModel::Type::WordCandidateList)==0);
+            if(entry.first=="es_ES") spanishHash=profile.assets["contextModel"].sha256;
+            if(entry.first=="es_MX") QCOMPARE(profile.assets["contextModel"].sha256,spanishHash);
+            if(entry.first=="fr_FR" || entry.first=="de_DE") QVERIFY(profile.assets["contextModel"].sha256!=spanishHash);
+            if(entry.first=="en_US") QVERIFY(profile.assets["contextModel"].sha256!=profile.assets["contextVocab"].sha256);
+        }
+    }
+    void frenchContextModelUsesOnlyKeyboardOwnedNativeHistory() {
+        if(qEnvironmentVariable("SWIPEKB_TEST_PROFILE_ASSETS").isEmpty() ||
+           !QFileInfo::exists(qEnvironmentVariable("SWIPEKB_TEST_LANGUAGE_PACKS")+"/fr.json"))
+            QSKIP("Explicit English runtime and verified French pack fixture required");
+        QTemporaryDir data; qputenv("SWIPEKB_DATA",data.path().toUtf8());
+        qputenv("SWIPEKB_MODEL_DATA",qgetenv("SWIPEKB_TEST_PROFILE_ASSETS"));
+        qputenv("SWIPEKB_LANGUAGE_PACKS",qgetenv("SWIPEKB_TEST_LANGUAGE_PACKS"));
+        qputenv("SWIPEKB_NATIVE_PREDICTION","owned-history-v1");
+        struct EnvReset{~EnvReset(){qunsetenv("SWIPEKB_NATIVE_PREDICTION");}} envReset;
+        QQmlEngine engine; QQmlComponent fixture(&engine);
+        fixture.setData("import QtQuick; import QtQuick.VirtualKeyboard; Item {property var context:InputContext}",QUrl());
+        std::unique_ptr<QObject> root(fixture.create()); QVERIFY2(root,qPrintable(fixture.errorString()));
+        auto *item=qobject_cast<QQuickItem *>(root.get()); QQuickWindow window; window.resize(500,200);
+        item->setParentItem(window.contentItem()); InputListenerItem edit(item); window.show(); window.requestActivate(); edit.forceActiveFocus();
+        auto *ic=qvariant_cast<QVirtualKeyboardInputContext *>(root->property("context")); QVERIFY(ic);
+        SwipeInputMethod method; ic->inputEngine()->setInputMethod(&method);
+        method.setPhysicalLayout("azerty"); QVERIFY(method.setInputMode("fr_FR",QVirtualKeyboardInputEngine::InputMode::Latin));
+        QVERIFY(method.profileSnapshot().capabilities.nextWord);
+        QGuiApplication::inputMethod()->update(Qt::ImQueryAll); QTRY_VERIFY_WITH_TIMEOUT(ic->inputItem()==&edit,15000);
+        for(const auto c:QStringLiteral("je suis")) {
+            QVERIFY(!method.keyEvent(Qt::Key(c.toUpper().unicode()),QString(c),Qt::NoModifier));
+            ic->commit(QString(c)); QGuiApplication::inputMethod()->update(Qt::ImQueryAll); method.update();
+        }
+        QVERIFY(!method.keyEvent(Qt::Key_Space," ",Qt::NoModifier)); ic->commit(" ");
+        QGuiApplication::inputMethod()->update(Qt::ImQueryAll); method.update();
+        QTRY_COMPARE_WITH_TIMEOUT(method.diagnostics()["predictionModelState"].toString(),QStringLiteral("loaded"),15000);
+        QCOMPARE(method.diagnostics()["predictionContextSource"].toString(),QStringLiteral("keyboard-owned-history"));
+        QCOMPARE(method.diagnostics()["activeFieldPolicy"].toString(),QStringLiteral("unknown"));
+        QCOMPARE(method.selectionListItemCount(QVirtualKeyboardSelectionListModel::Type::WordCandidateList),3);
+        const auto accepted=method.selectionListData(QVirtualKeyboardSelectionListModel::Type::WordCandidateList,1,
+            QVirtualKeyboardSelectionListModel::Role::Display).toString(); QVERIFY(!accepted.isEmpty());
+        method.beginPredictionSelection(method.predictionSelectionToken());
+        method.selectionListItemSelected(QVirtualKeyboardSelectionListModel::Type::WordCandidateList,1);
+        QTRY_VERIFY_WITH_TIMEOUT(edit.text.contains(accepted),15000);
+        QVERIFY(!edit.text.endsWith(accepted+" "));
         ic->inputEngine()->setInputMethod(nullptr);
     }
 };

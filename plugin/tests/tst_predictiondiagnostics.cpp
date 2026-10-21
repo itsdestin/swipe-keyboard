@@ -62,11 +62,11 @@ private slots:
         QCOMPARE(swipekb::predictionDiagnostics({},state)["predictionStatus"].toString(),QStringLiteral("profile-unavailable"));
         state.hasContext=state.hasBridge=state.policyKnown=state.fieldAllowed=true;
         state.ngramOnly=true;
-        QCOMPARE(swipekb::predictionDiagnostics(p,state)["predictionStatus"].toString(),QStringLiteral("ngram-only-ranking"));
+        QCOMPARE(swipekb::predictionDiagnostics(p,state)["predictionStatus"].toString(),QStringLiteral("available-after-confirmation"));
         state.ngramOnly=false; p.effectiveLanguage="fr";
         auto d=swipekb::predictionDiagnostics(p,state);
-        QVERIFY(!d["predictionCapability"].toBool());
-        QCOMPARE(d["predictionStatus"].toString(),QStringLiteral("english-only"));
+        QVERIFY(d["predictionCapability"].toBool());
+        QCOMPARE(d["predictionStatus"].toString(),QStringLiteral("available-after-confirmation"));
         p=profile(); p.capabilities.nextWord=false;
         QCOMPARE(swipekb::predictionDiagnostics(p,state)["predictionStatus"].toString(),QStringLiteral("context-model-unavailable"));
         p.capabilities.swipe=false;

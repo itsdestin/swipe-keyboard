@@ -12,7 +12,7 @@ def main():
           'Installing the bundle does not activate it or change your selected input method.\n\n'
           'You may notice a different keyboard appearance, layout/settings, suggestions and '
           'Backspace behavior after selecting it. Its language settings are separate from '
-          'your previous keyboard. Contextual predictions are English-only.\n'
+          'your previous keyboard. With valid language packs, current-word completions and next-word suggestions are available for English, Spanish, French and German. On stock Plasma, next-word model input uses only words this keyboard confirmed in the current field; that backend does not expose every raw application completion preference. Sensitive and restricted fields remain blocked. The bundled Desktop backend keeps its raw-policy bridge.\n'
           'Desktop Mode only; Gaming Mode is not supported.\n'
           'Remember your previous selection so you can restore it before uninstalling.\n')
     if not sys.stdin.isatty():

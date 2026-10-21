@@ -127,13 +127,13 @@ If restoring the keyboard fails, removal stops. Follow the error or use the [rec
 - **Languages:** enable languages in **On-Screen Keyboard** settings, then switch with the globe key. Deck users should use the settings command in their section above. Maximize the settings window if the list is clipped.
 - **Swipe:** drag across letters and lift to enter a word. Tap an alternative above the keys to change it.
 - **Tap typing:** suggestions finish or correct the word you are typing. The strongest is centered, and your exact spelling remains available. Only tapping a suggestion changes the word; Space does not autocorrect it.
-- **Next-word suggestions:** in English, tap or swipe a word, then press Space. The strongest suggestion is in the middle. Tap a suggestion to insert it. Other languages do not yet have next-word predictions.
+- **Next-word suggestions:** in English, Spanish, French or German, tap or swipe a word, then press Space. The strongest suggestion is in the middle. Tap a suggestion to insert it. Spanish, French and German suggestions are an early baseline and can be repetitive or less natural.
 - **Backspace:** the first press can remove the whole swiped word. Moving the cursor or changing fields can clear suggestions.
 
 ## Help
 
 - **Keyboard not appearing?** Touch the field instead of clicking it. Native-package users can run `swipe-keyboard check`.
-- **No next-word suggestions?** Select English, enter a word through this keyboard and press Space. Native predictions start from keyboard-entered words, not pasted text. Password and restricted fields do not offer suggestions.
+- **No next-word suggestions?** Select a supported language, enter a word through this keyboard and press Space. Native predictions start from keyboard-entered words, not pasted text. Password and restricted fields do not offer suggestions.
 - **Only one app has trouble?** Try another KDE Wayland app; application support varies.
 
 [More help, recovery and privacy](docs/install-details.md) · [Report a bug](https://github.com/itsdestin/swipe-keyboard/issues/new?template=bug.yml) · [Release notes](docs/releases/v0.2.1-1.md)

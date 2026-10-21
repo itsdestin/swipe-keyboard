@@ -205,9 +205,10 @@ bool Recognizer::init(const ModelPaths &p, const RecognizerOptions &options)
 {
     impl_ = std::make_unique<Impl>();
     try {
-        // WHY defense in depth: callers outside the plugin must not attach English refinements to an experimental language.
+        // WHY defense in depth: foreign profiles may use only their authenticated language-specific n-gram;
+        // English neural/context/decoder refinements and an absent or unrequested n-gram fail closed.
         if (options.language!="en" && (!p.decoder.empty() || !p.lm_model.empty() || !p.lm_vocab.empty() ||
-            !p.ngram.empty() || !p.nlm.empty() || options.ngram || options.nlm)) return false;
+            !p.nlm.empty() || options.nlm || (!p.ngram.empty() && !options.ngram))) return false;
         if (!fileExists(p.encoder) || !fileExists(p.dictionary)) {
             std::fprintf(stderr, "swipekb: missing encoder or dictionary (%s, %s)\n", p.encoder.c_str(), p.dictionary.c_str());
             return false;
@@ -216,9 +217,11 @@ bool Recognizer::init(const ModelPaths &p, const RecognizerOptions &options)
         // WHY before FUTO's engine: if the n-gram file is missing or damaged we simply keep the old ranking
         // (FUTO's context model); nothing else depends on it.
         if (options.ngram && fileExists(p.ngram)) {
-            if (!impl_->ngram.load(p.ngram))
+            if (!impl_->ngram.load(p.ngram)) {
+                if (options.language!="en") return false;
                 std::fprintf(stderr, "swipekb: could not read n-gram model %s; using FUTO's ranking\n", p.ngram.c_str());
-        }
+            }
+        } else if (options.language!="en" && options.ngram) return false;
         // WHY here, before FUTO's engine, and never fatal: like the n-gram model, a missing model file or a
         // missing llama.cpp library only means the best guesses are not re-ordered.
         if (options.nlm) {

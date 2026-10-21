@@ -88,6 +88,11 @@ TEST(Recognizer, CompletionUsesOnlyLoadedProfileDictionaryAndDisplayForms)
         {std::ofstream out(dictionary);out<<"dictionary=fixture,locale="<<language<<"\n word="<<word<<",f=200,flags=,originalFreq=200\n";}
         auto paths=ModelPaths::fromDir(assets());paths.dictionary=dictionary;paths.decoder.clear();paths.lm_model.clear();paths.lm_vocab.clear();paths.ngram.clear();paths.nlm.clear();
         RecognizerOptions options;options.language=language;options.alphabet="abcdefghijklmnopqrstuvwxyzñçàâæéèêëîïôœùûüÿäöß";
+        if(language!="en") {
+            options.ngram=true; paths.ngram=dir.filePath("missing-context.ngram").toStdString();
+            Recognizer unavailable; EXPECT_FALSE(unavailable.init(paths,options));
+            options.ngram=false; paths.ngram.clear();
+        }
         Recognizer r;ASSERT_TRUE(r.init(paths,options));const auto words=r.complete(prefix,3);ASSERT_FALSE(words.empty());
         EXPECT_EQ(words.front().word,display);if(language!="en")EXPECT_TRUE(r.complete("hello",3).empty());
     }

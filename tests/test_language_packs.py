@@ -66,6 +66,18 @@ class LanguagePacks(unittest.TestCase):
             out = pathlib.Path(d)/'pack'
             self.module.generate(wheel, 'fr', assets, cc, out, 30)
             manifest = json.loads((out/'fr.json').read_text())
+            self.assertEqual(manifest['schema'],2)
+            self.assertEqual(manifest['contextFormat'],'swk-ngram-v2')
+            lock = json.loads((ROOT/'packaging/assets.lock.json').read_text())
+            context = lock['multilingual_context_models']['fr']
+            for role,pin in (('contextModel','modelSha256'),('contextVocab','vocabSha256')):
+                asset=manifest['assets'][role]
+                self.assertEqual(hashlib.sha256((out/asset['path']).read_bytes()).hexdigest(),context[pin])
+                self.assertEqual(asset['sha256'],context[pin])
+            self.assertEqual(manifest['contextLicense']['id'],'CC-BY-2.0-FR')
+            self.assertEqual(hashlib.sha256((out/manifest['contextLicense']['attributionPath']).read_bytes()).hexdigest(),context['contributorsSha256'])
+            context_terms=out/manifest['contextLicense']['termsPath']
+            self.assertEqual(hashlib.sha256(context_terms.read_bytes()).hexdigest(),lock['tatoeba_license_notice_sha256'])
             terms = out/manifest['license']['termsPath']
             self.assertEqual(terms.read_bytes(), cc.read_bytes())
             lock = json.loads((ROOT/'packaging/assets.lock.json').read_text())

@@ -25,4 +25,8 @@ is distributed under CC-BY-SA-4.0 with attribution to AOSP contributors and
 Robyn Speer/wordfreq contributors. Original input URLs/revisions/checksums
 are in assets.lock.json; wordfreq source and attribution/license information:
 https://github.com/rspeer/wordfreq and https://pypi.org/project/wordfreq/3.1.1/.
-Optional evaluation data, n-gram and neural reranking models are not included.
+The Spanish, French and German next-word n-gram models are compact baseline models trained from the pinned Tatoeba sentence exports, not foreign FUTO neural weights. Tatoeba's text uses CC BY 2.0 France; retain each language pack's full contributor list and attribution notice. The same Tatoeba notice is installed at /usr/share/licenses/swipe-keyboard/TATOEBA-CC-BY-2.0-FR.txt. Spanish Spain and Mexico share one Spanish model; model/data hashes and provenance are in assets.lock.json and packaging/language-models/README.md. This is a small general Spanish/French/German baseline and makes no region-specific Spanish or Gboard-parity claim.
+
+Contextual prediction is language-specific; an unavailable or corrupt pack never falls back to English. Current-word completion uses the selected profile's own dictionary; next-word suggestions use that profile's model when available. On stock Plasma, next-word model input is limited to words this keyboard confirmed in the current field because raw application completion preferences are not fully exposed. Sensitive and restricted fields remain blocked. The bundled Deck backend retains its raw-policy bridge and stricter application vetoes.
+
+Optional evaluation data and neural reranking models are not included.

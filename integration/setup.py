@@ -433,8 +433,8 @@ def confirm_activation(controller, assume_yes=False, always_available=False):
     print(
           'You may notice different swipe suggestions and whole-word Backspace behavior.\n'
           'The native package uses your existing system backend; it does not replace Qt, Plasma or Maliit.\n'
-          'On stock Plasma, English next-word prediction uses only words this keyboard committed in the current field.\n'
-          'It validates editor state but cannot observe every raw application completion preference without a policy bridge.\n'
+          'With verified language packs, current-word completions and next-word suggestions are available for English, Spanish, French and German.\n'
+          'On stock Plasma, next-word prediction uses only words this keyboard confirmed in the current field; the backend does not expose every raw application completion preference. Sensitive and restricted fields remain blocked.\n'
           'Run swipe-keyboard disable before removal to restore settings still owned by setup; '
           'legacy records without raw provenance may need an explicit manual choice.')
     if assume_yes:

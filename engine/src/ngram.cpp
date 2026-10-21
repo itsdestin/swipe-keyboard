@@ -1,4 +1,6 @@
 #include "swipekb/ngram.hpp"
+#include <QString>
+#include <QChar>
 
 #include <algorithm>
 #include <cmath>
@@ -67,23 +69,13 @@ struct Sizes {
 
 std::string NgramLM::alphaForm(std::string_view word)
 {
-    std::string out;
-    out.reserve(word.size());
-    for (size_t i = 0; i < word.size(); ++i) {
-        const unsigned char c = word[i];
-        if (c >= 'A' && c <= 'Z') out += char(c | 0x20);
-        else if (c >= 'a' && c <= 'z') out += char(c);
-        else if (c >= 0xC0) {
-            // A non-ASCII character: keep the whole UTF-8 sequence (the dictionary may hold "café").
-            // WHY not deeper: Unicode letter tables would be a lot of code for a handful of English words.
-            size_t len = (c >> 5) == 6 ? 2 : (c >> 4) == 14 ? 3 : (c >> 3) == 30 ? 4 : 1;
-            // Keep letters only; general punctuation (U+2000-U+206F, E2 80..81 xx) is dropped like ASCII ones.
-            const bool punct = c == 0xE2 && i + 1 < word.size() && (uint8_t(word[i + 1]) & 0xFE) == 0x80;
-            if (!punct) out.append(word.substr(i, len));
-            i += len - 1;
-        }
-    }
-    return out;
+    // WHY Qt's Unicode lowercase mapping and letter categories: accented words, ß and non-Latin
+    // punctuation must normalize identically in training, typed context and dictionary candidates.
+    const auto lower=QString::fromUtf8(word.data(),int(word.size())).toLower();
+    QString alpha;
+    alpha.reserve(lower.size());
+    for (const QChar c:lower) if (c.isLetter()) alpha.append(c);
+    return alpha.toUtf8().toStdString();
 }
 
 NgramLM::~NgramLM() { unload(); }

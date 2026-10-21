@@ -97,6 +97,44 @@ class SetupTests(unittest.TestCase):
         self.commands = Commands()
         self.controller = self.module.Controller(self.root, self.env, self.commands)
 
+    def test_activation_discloses_multilingual_prediction_and_native_privacy_boundary(self):
+        import contextlib
+        import io
+        output=io.StringIO()
+        with contextlib.redirect_stdout(output), mock.patch('builtins.input',return_value='n'):
+            accepted=self.module.confirm_activation(self.controller)
+        text=output.getvalue()
+        self.assertFalse(accepted)
+        for language in ('English','Spanish','French','German'):
+            self.assertIn(language,text)
+        self.assertIn('current-word completions',text)
+        self.assertIn('words this keyboard confirmed in the current field',text)
+        self.assertIn('raw application completion preference',text)
+        self.assertIn('Sensitive and restricted fields remain blocked',text)
+        self.assertIn('VirtualKeyboardMode',text)
+        self.assertIn('preserved',text)
+        self.assertFalse(self.controller.state_file.exists())
+        self.assertEqual(self.commands.settings['InputMethod'],'/old/keyboard.desktop')
+
+    def test_activation_consent_discloses_multilingual_prediction_and_native_limits(self):
+        import contextlib
+        import io
+        output=io.StringIO()
+        with contextlib.redirect_stdout(output), mock.patch('builtins.input',return_value='n'):
+            accepted=self.module.confirm_activation(self.controller)
+        text=output.getvalue()
+        self.assertFalse(accepted)
+        for language in ('English','Spanish','French','German'):
+            self.assertIn(language,text)
+        self.assertIn('current-word completions',text)
+        self.assertIn('words this keyboard confirmed in the current field',text)
+        self.assertIn('raw application completion preference',text)
+        self.assertIn('Sensitive and restricted fields remain blocked',text)
+        self.assertIn('VirtualKeyboardMode',text)
+        self.assertIn('preserved',text)
+        self.assertFalse(self.controller.state_file.exists())
+        self.assertEqual(self.commands.settings['InputMethod'],'/old/keyboard.desktop')
+
     def test_native_arm_passes_same_compatibility_and_load_gates_as_x86(self):
         for machine in ('x86_64', 'aarch64'):
             with self.subTest(machine=machine), mock.patch.object(self.module.platform, 'machine', return_value=machine):

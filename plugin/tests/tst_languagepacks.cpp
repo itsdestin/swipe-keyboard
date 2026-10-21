@@ -58,6 +58,30 @@ private slots:
         p=resolve(); QVERIFY(p.capabilities.swipe); QVERIFY(!p.capabilities.contextRanking); QVERIFY(!p.capabilities.nextWord);
         QVERIFY(!p.assets.contains("decoder")); QVERIFY(!p.assets.contains("contextModel")); QVERIFY(!p.assets.contains("contextVocab"));
     }
+    void multilingualContextRolesAreLocaleSharedAndFailClosedWhenDamaged() {
+        const QString source=qEnvironmentVariable("SWIPEKB_TEST_LANGUAGE_PACKS");
+        if(source.isEmpty()) QSKIP("Verified multilingual pack fixture required");
+        auto spain=resolveProfile("es_ES","qwerty","Latin",source);
+        auto mexico=resolveProfile("es_MX","qwerty","Latin",source);
+        QVERIFY2(spain.capabilities.nextWord,qPrintable(spain.unavailableReason));
+        QVERIFY(mexico.capabilities.nextWord); QCOMPARE(spain.requestedLocale,QString("es-ES"));
+        QCOMPARE(mexico.requestedLocale,QString("es-MX"));
+        QCOMPARE(spain.assets["contextModel"].sha256,mexico.assets["contextModel"].sha256);
+        QCOMPARE(spain.assets["contextModel"].compatibility,QString("es:context-ngram-v1"));
+        QTemporaryDir copy; QVERIFY(copy.isValid());
+        for(const auto &name:QDir(source).entryList(QDir::Files))
+            QVERIFY2(QFile::copy(QDir(source).filePath(name),copy.filePath(name)),qPrintable(name));
+        const QString model=spain.assets["contextModel"].path.section('/',-1);
+        const QString vocab=spain.assets["contextVocab"].path.section('/',-1);
+        auto bytes=languagefixtures::read(copy.filePath(model)); QVERIFY(!bytes.isEmpty());
+        QVERIFY(languagefixtures::write(copy.path(),model,bytes+"damage"));
+        auto broken=resolveProfile("es-MX","qwerty","Latin",copy.path());
+        QVERIFY(!broken.capabilities.swipe); QVERIFY(!broken.capabilities.nextWord); QVERIFY(broken.assets.isEmpty());
+        QVERIFY(languagefixtures::write(copy.path(),model,bytes));
+        QVERIFY(QFile::remove(copy.filePath(vocab)));
+        broken=resolveProfile("es-ES","qwerty","Latin",copy.path());
+        QVERIFY(!broken.capabilities.swipe); QVERIFY(broken.assets.isEmpty());
+    }
     void syntheticLanguageMechanics_data() {
         QTest::addColumn<QString>("language"); QTest::addColumn<QString>("layout"); QTest::addColumn<QString>("word");
         QTest::newRow("Spanish") << QString("es") << QString("qwerty") << QString("casa");
@@ -70,9 +94,10 @@ private slots:
         if (root.isEmpty()) QSKIP("Generated pack fixture not supplied");
         auto p=resolveProfile(language,layout,"Latin",root); // Normal selection needs no opt-in.
         QVERIFY2(p.capabilities.swipe,qPrintable(p.unavailableReason));
-        QVERIFY(!p.capabilities.nextWord); QVERIFY(!p.capabilities.contextRanking); QCOMPARE(p.assets.size(),2);
+        QVERIFY(p.capabilities.nextWord); QVERIFY(p.capabilities.contextRanking); QCOMPARE(p.assets.size(),4);
         ModelPaths paths; paths.encoder=p.assets["encoder"].path.toStdString(); paths.dictionary=p.assets["dictionary"].path.toStdString();
-        RecognizerOptions options; options.language=language.toStdString(); options.alphabet=languageAlphabet(language).toStdString();
+        paths.ngram=p.assets["contextModel"].path.toStdString();
+        RecognizerOptions options; options.language=language.toStdString(); options.ngram=true; options.alphabet=languageAlphabet(language).toStdString();
         std::vector<KeyRect> keys;
         QStringList rows=layout=="azerty" ? QStringList{"azertyuiop","qsdfghjklm","wxcvbn"} :
             layout=="qwertz" ? QStringList{"qwertzuiop","asdfghjkl","yxcvbnm"} : QStringList{"qwertyuiop","asdfghjkl","zxcvbnm"};

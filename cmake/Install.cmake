@@ -16,7 +16,8 @@ install(FILES "${SWIPEKB_ASSETS}/dict/en_swipe.combined" DESTINATION "${_runtime
 install(DIRECTORY "${SWIPEKB_ASSETS}/language-packs/" DESTINATION "${_runtime}/language-packs")
 install(DIRECTORY "${SWIPEKB_ASSETS}/licenses/" DESTINATION "${CMAKE_INSTALL_DATADIR}/licenses/swipe-keyboard")
 install(FILES "${SWIPEKB_SOURCE}/LICENSE" "${SWIPEKB_SOURCE}/packaging/assets.lock.json"
-    "${SWIPEKB_SOURCE}/packaging/NOTICE" DESTINATION "${CMAKE_INSTALL_DATADIR}/licenses/swipe-keyboard")
+    "${SWIPEKB_SOURCE}/packaging/NOTICE" "${SWIPEKB_SOURCE}/packaging/language-models/TATOEBA-CC-BY-2.0-FR.txt"
+    DESTINATION "${CMAKE_INSTALL_DATADIR}/licenses/swipe-keyboard")
 install(FILES "${SWIPEKB_SOURCE}/packaging/SOURCE-PROVENANCE.txt"
     DESTINATION "${CMAKE_INSTALL_DATADIR}/licenses/swipe-keyboard" OPTIONAL)
 install(FILES "${SWIPEKB_SOURCE}/integration/setup.py" "${SWIPEKB_SOURCE}/integration/layout.py"

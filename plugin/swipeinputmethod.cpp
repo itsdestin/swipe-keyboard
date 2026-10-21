@@ -99,10 +99,16 @@ void SwipeInputMethod::resolveCurrentProfile()
         swipekb::ModelPaths paths;
         auto path=[&](const QString &role) { return snapshot.assets.value(role).path.toStdString(); };
         paths.encoder=path("encoder"); paths.dictionary=path("dictionary"); paths.decoder=path("decoder");
-        paths.lm_model=path("contextModel"); paths.lm_vocab=path("contextVocab");
+        if (snapshot.effectiveLanguage==QStringLiteral("en")) {
+            paths.lm_model=path("contextModel"); paths.lm_vocab=path("contextVocab");
+        } else {
+            paths.ngram=path("contextModel");
+        }
         if (qEnvironmentVariableIntValue("SWIPEKB_NO_DECODER")) paths.decoder.clear();
         swipekb::RecognizerOptions options;
         options.language=snapshot.effectiveLanguage.toStdString();
+        // WHY foreign swipe ranking and completion share only that locale's pinned contextual n-gram.
+        options.ngram=snapshot.effectiveLanguage!=QStringLiteral("en");
         options.alphabet=swipekb::languageAlphabet(snapshot.effectiveLanguage).toStdString();
         options.popupAliases=popupAliases(snapshot.effectiveLanguage);
         // WHY a fresh runtime: never init() on an engine already owned by a consumer/worker.
@@ -155,6 +161,10 @@ bool SwipeInputMethod::keyEvent(Qt::Key key, const QString &text, Qt::KeyboardMo
     if (!alive) return false;
     if (!allowed) { reset(); return false; }
     const bool predictSafe=safePredictionContext();
+    // WHY accept only an unmodified key or a single Shift-letter for private history: stock
+    // sentence auto-capitalization supplies Shift on the first character of Hello/Ich/etc.
+    const bool shiftedLetter=modifiers==Qt::ShiftModifier && text.size()==1 && text.front().isLetter();
+    const bool predictionText=modifiers==Qt::NoModifier || shiftedLetter;
     if (!alive) return false;
     if (predictSafe) {
         const auto editor=predictionEditor();
@@ -246,9 +256,9 @@ bool SwipeInputMethod::keyEvent(Qt::Key key, const QString &text, Qt::KeyboardMo
         writeOutcome(m_outcome.keyTapped(key == Qt::Key_Backspace, text));
     else
         m_outcome.abandon();
-    if (predictSafe && modifiers==Qt::NoModifier) {
+    if (predictSafe && predictionText) {
         const auto previous=predictionEditor();auto expected=previous;
-        if(key==Qt::Key_Backspace && !m_typedWord.token().isEmpty() && expected.cursor>0) {
+        if(modifiers==Qt::NoModifier && key==Qt::Key_Backspace && !m_typedWord.token().isEmpty() && expected.cursor>0) {
             expected.text.remove(expected.cursor-1,1);--expected.cursor;expected.anchor=expected.cursor;
             m_typedWord.edit(previous,expected,predictionPolicy(),m_profiles.snapshot().epoch,{},true);
         } else if(text.size()==1 && (text.front().isLetter() || text=="'" || text=="’" || text=="-")) {
@@ -257,7 +267,7 @@ bool SwipeInputMethod::keyEvent(Qt::Key key, const QString &text, Qt::KeyboardMo
         } else m_typedWord.clear();
     } else m_typedWord.clear();
     if (predictSafe && predictionPolicy().source==PredictionPolicySource::OwnedHistory) {
-        if (key!=Qt::Key_Backspace && modifiers==Qt::NoModifier && text.size()==1 && text.front().isLetter()) {
+        if (key!=Qt::Key_Backspace && predictionText && text.size()==1 && text.front().isLetter()) {
             const auto previous=predictionEditor(); auto expected=previous;
             if (expected.cursor>=0 && expected.cursor<=expected.text.size()) {
                 expected.text.insert(expected.cursor,text); expected.cursor+=text.size(); expected.anchor=expected.cursor;
@@ -828,8 +838,8 @@ void SwipeInputMethod::invalidatePredictions()
 
 bool SwipeInputMethod::predictionCapable() const
 {
-    return isReady() && m_profiles.snapshot().effectiveLanguage == QStringLiteral("en") && m_profiles.snapshot().capabilities.nextWord
-        && !m_recognizer->usingNgram() && m_profiles.snapshot().assets.contains(QStringLiteral("contextModel"))
+    return isReady() && m_profiles.snapshot().capabilities.nextWord
+        && m_profiles.snapshot().assets.contains(QStringLiteral("contextModel"))
         && m_profiles.snapshot().assets.contains(QStringLiteral("contextVocab"));
 }
 

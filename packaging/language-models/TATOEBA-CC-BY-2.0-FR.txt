@@ -1,0 +1,17 @@
+Tatoeba sentence data: CC BY 2.0 France
+
+Source: https://tatoeba.org/en/downloads
+The per-language sentence exports used to build these models are listed with
+immutable URLs, SHA-256 digests, and byte sizes in packaging/assets.lock.json.
+The sentences are adapted into deterministic, locale-specific word n-gram
+models. The accompanying <language>-CONTRIBUTORS.txt files name every author
+whose sentence ID was included in the training split. Tatoeba's Terms of Use
+state that the BY condition requires citation of the sentence author's name:
+https://tatoeba.org/en/terms_of_use
+
+License text: https://creativecommons.org/licenses/by/2.0/fr/
+Tatoeba attribution guide: https://tatoeba.org/en/terms_of_use
+
+The models are compact baseline corpus models trained on Tatoeba; they are not
+claims of broad or region-specific language coverage. Spanish Spain and Mexico
+share the same Spanish model.

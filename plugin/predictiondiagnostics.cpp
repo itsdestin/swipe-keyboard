@@ -3,7 +3,7 @@
 namespace swipekb {
 QVariantMap predictionDiagnostics(const ProfileSnapshot &p, const PredictionDiagnosticContext &c)
 {
-    const bool capable=p.effectiveLanguage==QStringLiteral("en") && p.capabilities.swipe && p.capabilities.nextWord;
+    const bool capable=p.capabilities.swipe && p.capabilities.nextWord;
     QString model;
     switch (c.model) {
     case PredictionModelState::NotRequested: model=QStringLiteral("not-requested"); break;
@@ -13,10 +13,8 @@ QVariantMap predictionDiagnostics(const ProfileSnapshot &p, const PredictionDiag
     }
     QString status;
     if (p.effectiveLanguage.isEmpty()) status=QStringLiteral("profile-unavailable");
-    else if (p.effectiveLanguage!=QStringLiteral("en")) status=QStringLiteral("english-only");
     else if (!p.capabilities.swipe) status=QStringLiteral("profile-unavailable");
     else if (!p.capabilities.nextWord) status=QStringLiteral("context-model-unavailable");
-    else if (c.ngramOnly) status=QStringLiteral("ngram-only-ranking");
     else if (!c.hasContext) status=QStringLiteral("no-active-context");
     else if (!c.hasBridge && !c.ownedHistory) status=QStringLiteral("backend-policy-unavailable");
     else if (!c.policyKnown && !c.ownedHistory) status=QStringLiteral("content-policy-unavailable");

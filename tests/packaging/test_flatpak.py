@@ -145,6 +145,14 @@ class FlatpakContractTests(unittest.TestCase):
             self.assertIn('source-licenses/' + name + '/LICENSES', commands)
         self.assertIn('tcime-COPYING', commands)
 
+    def test_flatpak_bundle_checks_context_capabilities_for_every_supported_locale(self):
+        build=(BUNDLE/'build-swipe.sh').read_text()
+        for locale in ('es-ES','es-MX','fr-FR','de-DE'):
+            self.assertIn(locale,build)
+        self.assertIn('nextWordCapable',build)
+        self.assertIn('contextRankingCapable',build)
+        self.assertIn('wordfreq-es',build)
+
     def test_runtime_updates_fail_closed(self):
         spec = importlib.util.spec_from_file_location('flatpakbuild', BUNDLE / 'build.py')
         module = importlib.util.module_from_spec(spec)
@@ -206,7 +214,8 @@ class FlatpakContractTests(unittest.TestCase):
         self.assertIn('NoDisplay=true', desktop)
         self.assertIn('Exec=swipe-keyboard-flatpak', desktop)
         self.assertIn('\nName=Swipe Keyboard\n', desktop)
-        self.assertIn('Comment=Multilingual swipe typing and English next-word suggestions;', desktop)
+        self.assertIn('Comment=English, Spanish, French and German swipe typing, completions and next-word suggestions;', desktop)
+        self.assertNotIn('English-only', desktop)
         self.assertNotIn('Desktop build candidate', desktop)
         self.assertNotIn('--enable', desktop)
 
