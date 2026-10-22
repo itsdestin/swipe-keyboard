@@ -51,6 +51,22 @@ file (trained on other FineWeb-2 pages, so partly home ground) leads.
 Swipe, first guess right: English 93.3% (94.5% opt-in AI mode) on 2,000 real swipes (FUTO's MIT test
 split). Spanish/French/German: unknown. Gboard swipe: not measured.
 
+## Upstream moved (verified 2026-10-22)
+
+plasma-keyboard replaced Qt Virtual Keyboard with its own input engine (MR !109, merged 2026-10-15). Our
+`plugin/` is a Qt Virtual Keyboard input method, so it works with today's released plasma-keyboard but not
+with the next one, and cannot be what we offer upstream. Upstream's own plan: prediction as a new
+`AbstractTextComposer` (issue #77, Presage idea), swipe typing as work item #5. Our `engine/` (prediction,
+completion, context) carries over; the integration layer must be rewritten against the new engine. Public
+research: `docs/active/investigations/2026-10-22-kde-upstream-research.md` (maintainers not contacted, by
+Destin's choice). Also from it: keep weights/data out of git and download on demand (digiKam does this via
+files.kde.org), keep the keyboard fully usable with no pack, make any ML runtime optional, Qt 6.11 / KF6
+6.30 floors, `i18n()` strings, clang-format; KDE has no AI-contribution policy yet (a draft was withdrawn).
+
+Pack size (Destin 2026-10-22: shrink + separate download): XS packs (t2=20/t3=40) are 23/24/29 MB vs
+40/42/51 MB, cost ~0.5–1.5 points, and stay ≥ Gboard everywhere (worst: German everyday after 3 letters,
+level); XXS (13–16 MB) falls behind Gboard in German.
+
 ## License: follow KDE (decided by Destin 2026-10-22)
 
 Goal: eventual merge into KDE's plasma-keyboard, so the project uses KDE's licensing policy
