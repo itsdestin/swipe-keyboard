@@ -333,3 +333,11 @@ Rig: `start-gaming.sh` boots the SteamOS guest straight into real Gaming Mode (v
 ## 16. Acceptance of the whole plan
 
 Complete when M0 to M10 are green in the VM, M11 is done by the owner on a real Deck, the canary has run unattended for a week with at least one deliberate-failure test, the README states the terms warning and password limits in plain words, and the stock Steam keyboard has been shown to work after every injected failure.
+
+## M1 status (2026-10-22, branch `feature/168-gm-canary`)
+
+Built: contract `gaming/contract/gaming-contract.json`; canary `tools/steam-canary/` (safe unpacking, hash-checked fetch, contract engine, ledger, tracking issue, "canary dead" check); `.github/workflows/steam-canary.yml` (daily 05:17 UTC + manual) and `steam-canary-watchdog.yml` (daily 09:43 UTC + manual with an injectable date); tests in `tests/gaming/`.
+
+Facts found while building (they answer open question 14): the native check uses the package `bins_ubuntu12` (about 76 MB per new build). `ubuntu12_32/steamui.so` contains the marker-file name `.cef-enable-remote-debugging`; `ubuntu12_32/steamclient.so` contains `--remote-debugging-port=` and `--remote-allow-origins=`. All four channels passed on 2026-10-22 (stable build 1792618285, beta build 1792108788; the keyboard-region hash was identical across both builds).
+
+Not yet proven: the workflows have not run on GitHub (a manually started run needs the workflow file on the default branch first), so the ledger-branch push, the issue creation through `gh` and the schedule itself are untested outside local simulation. The watchdog lives in a second scheduled workflow, not in `packages.yml`; both stop if GitHub pauses scheduled workflows after 60 days without repository activity.

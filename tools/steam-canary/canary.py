@@ -215,5 +215,15 @@ def main(argv=None, fetcher_factory=fetch.Fetcher):
         return 0
 
 
+def cli():
+    # WHY exit 3 for "the canary itself is broken": 1 means "Steam no longer matches" (or "canary dead"),
+    # and those open issues with a specific meaning; a broken tool must not impersonate them.
+    try:
+        return main()
+    except (ledger_mod.LedgerError, check_contract.ContractError, ValueError, OSError) as e:
+        print(f'canary error: {e}', file=sys.stderr)
+        return 3
+
+
 if __name__ == '__main__':
-    sys.exit(main())
+    sys.exit(cli())

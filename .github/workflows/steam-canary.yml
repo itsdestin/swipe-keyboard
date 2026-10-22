@@ -68,6 +68,8 @@ jobs:
             --channels "$CHANNELS" \
             --summary-md "$RUNNER_TEMP/summary.md"
           echo "code=$?" >> "$GITHUB_OUTPUT"
+          # WHY the fallback text: if the canary itself broke (exit 3) there is no summary to post.
+          test -s "$RUNNER_TEMP/summary.md" || echo 'The canary itself could not run (see the workflow log). Steam may or may not be fine.' > "$RUNNER_TEMP/summary.md"
           cat "$RUNNER_TEMP/summary.md" >> "$GITHUB_STEP_SUMMARY"
       - name: Save the ledger
         if: env.PUBLISH == 'true' && always()

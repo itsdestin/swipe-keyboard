@@ -190,6 +190,13 @@ class CanaryCli(unittest.TestCase):
     def test_bad_date_is_a_usage_error_not_a_pass(self):
         self.assertEqual(self.cli('dead-check', '--ledger', str(self.path), '--now', 'yesterday').returncode, 2)
 
+    def test_corrupt_ledger_is_exit_3_with_a_message_not_a_traceback_or_a_false_dead_alarm(self):
+        self.path.write_text('{ broken')
+        r = self.cli('dead-check', '--ledger', str(self.path), '--now', '2026-10-26T00:00:00Z')
+        self.assertEqual(r.returncode, 3)
+        self.assertNotIn('Traceback', r.stderr)
+        self.assertIn('ledger', r.stderr.lower())
+
     def test_accept_drift_moves_the_baseline(self):
         l = ledger_mod.Ledger.load(self.path)
         l.record('deck-stable', '1', 'pass', 'c', 'r1', NOW)
