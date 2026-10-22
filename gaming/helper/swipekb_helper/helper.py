@@ -53,13 +53,15 @@ class PageSession:
 
 
 class Helper:
-    def __init__(self, cfg, steam_running=default_steam_running, exposure_check=None, exposure_interval=30.0):
+    def __init__(self, cfg, steam_running=default_steam_running, exposure_check=None, exposure_interval=30.0, exposure_choice=None):
         self.cfg = cfg
         # WHY a parameter that defaults to "no check": __main__ turns it on for the installed helper; tests leave it off so
         # whatever happens to be listening on a developer's machine cannot change their results.
         self.exposure_check = exposure_check
         self.exposure_interval = exposure_interval
+        self.exposure_choice = exposure_choice   # returns 'open' when the person chose to leave the door open
         self.exposed = False
+        self.open_by_choice = False
         self.steam_running = steam_running
         self.status = Status(cfg.state_dir)
         self.ledger = RetryLedger(cfg.state_dir / 'retry.json', cfg.max_failures)
@@ -187,6 +189,14 @@ class Helper:
     # ---- outside door ---------------------------------------------------------------------------------
     def _exposure_tick(self):
         doors = self.exposure_check()
+        now_open_by_choice = bool(doors) and self.exposure_choice is not None and self.exposure_choice() == 'open'
+        if now_open_by_choice != self.open_by_choice:
+            self.open_by_choice = now_open_by_choice
+            self.last_written = None          # the status reason changes, so say it again
+            if self.browser and not self.exposed:
+                self._publish_running()
+        if now_open_by_choice:
+            doors = []                        # the person chose this; the layer runs and the status only notes it
         if not doors:
             if self.exposed:
                 self.exposed = False
@@ -529,7 +539,7 @@ class Helper:
             self._publish('paused-steam-changed', 'Steam changed: ' + (self.ledger.detail or 'a needed part is missing') +
                           '. Stock keyboard in use.')
         elif self.pages:
-            self._publish('active', '')
+            self._publish('active', 'Outside access left open by your choice.' if self.open_by_choice else '')
         else:
             self._publish('waiting-for-steam', 'Steam is up; waiting for its keyboard page.')
 

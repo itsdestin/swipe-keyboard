@@ -47,3 +47,15 @@ def open_doors(proc_dir='/proc/net', ports=WATCHED_PORTS):
             if port in ports and not _is_loopback(addr.upper()):
                 found.add(port)
     return sorted(found)
+
+
+def read_choice(state_dir):
+    """What the person chose in the installer: 'open' (leave other devices able to reach Steam) or 'blocked'.
+
+    WHY anything unreadable or unexpected means 'blocked': the strict reading is the safe one, and only the
+    installer writes the word 'open', after the person picked it.
+    """
+    try:
+        return 'open' if (Path(state_dir) / 'outside-access').read_text().strip() == 'open' else 'blocked'
+    except OSError:
+        return 'blocked'

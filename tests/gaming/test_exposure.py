@@ -122,11 +122,48 @@ class HelperKeepsLayerOff(test_helper.Base):
         h.start()
         wait_for(lambda: r.status().get('state') == 'active', what='active')
 
+    def choice_rig(self, proc, choice):
+        r = self.rig()
+        b, s = r.steam_up()
+        h = test_helper.Helper(r.config(), steam_running=lambda: r.running,
+                               exposure_check=lambda: exposure.open_doors(proc.dir), exposure_interval=0.05,
+                               exposure_choice=lambda: choice[0])
+        r.helpers.append(h)
+        return r, b, h
+
+    def test_left_open_by_choice_the_layer_runs_and_the_status_says_so(self):
+        proc = Proc(self, v4=[(V4_ANY, 8081, '0A')])
+        r, b, h = self.choice_rig(proc, ['open'])
+        h.start()
+        wait_for(lambda: r.status().get('state') == 'active', what='active despite open door')
+        self.assertTrue(r.attr(b))
+        self.assertIn('left open by your choice', r.status()['reason'])
+
+    def test_changing_the_choice_back_to_blocked_takes_the_layer_out(self):
+        proc = Proc(self, v4=[(V4_ANY, 8081, '0A')])
+        choice = ['open']
+        r, b, h = self.choice_rig(proc, choice)
+        h.start()
+        wait_for(lambda: r.status().get('state') == 'active', what='active')
+        choice[0] = 'blocked'
+        wait_for(lambda: r.status().get('state') == 'blocked-outside-access', what='blocked after the choice changed')
+        wait_for(lambda: r.attr(b) is None, what='layer removed')
+
+    def test_read_choice_defaults_to_the_strict_reading(self):
+        d = Path(tempfile.mkdtemp(prefix='swipekb-choice-'))
+        self.addCleanup(shutil.rmtree, d, True)
+        self.assertEqual(exposure.read_choice(d), 'blocked')          # no file
+        (d / 'outside-access').write_text('open\n')
+        self.assertEqual(exposure.read_choice(d), 'open')
+        (d / 'outside-access').write_text('whatever')
+        self.assertEqual(exposure.read_choice(d), 'blocked')          # anything but exactly "open" keeps the door guarded
+
     def test_the_main_program_turns_the_check_on(self):
         # WHY a source check: tests build Helper without a check (so a developer machine's open ports cannot break them),
         # which means only __main__ guarantees the installed helper really performs it.
         text = (HERE.parents[1] / 'gaming/helper/swipekb_helper/__main__.py').read_text()
         self.assertIn('exposure_check=exposure.open_doors', text)
+        self.assertIn('exposure_choice=', text)
 
 
 if __name__ == '__main__':

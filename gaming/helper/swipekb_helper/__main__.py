@@ -15,7 +15,8 @@ def main():
                         **({'engine_socket': os.environ['SWIPEKB_ENGINE_SOCKET']} if 'SWIPEKB_ENGINE_SOCKET' in os.environ else {}),
                         **({'engine_token': os.environ['SWIPEKB_ENGINE_TOKEN']} if 'SWIPEKB_ENGINE_TOKEN' in os.environ else {}))
     # WHY the check is on here: the installed helper keeps the layer off while the debug port is open to the network.
-    h = Helper(cfg, exposure_check=exposure.open_doors)
+    h = Helper(cfg, exposure_check=exposure.open_doors,
+               exposure_choice=lambda: exposure.read_choice(cfg.state_dir))
 
     def stop(*_):
         # WHY: systemd stops us with SIGTERM; take the layer out of Steam before leaving.
