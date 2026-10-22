@@ -115,6 +115,21 @@ LAYER_JS = ("JSON.stringify(window.__swipekbLayer ? {v: window.__swipekbLayer.ve
             " attr: document.documentElement.getAttribute('data-swipekb-gestures')} : null)")
 
 
+def quiet(still=1.2, limit=12.0):
+    """Wait until Steam has stopped typing. WHY: in the VM Steam's typing sometimes stalls and then delivers a burst of
+    key presses 0.5 s late (seen with the layer off too), so a fixed sleep reads the field too early. We wait until the
+    page has seen no new key event for `still` seconds."""
+    end = time.time() + limit
+    last, since = -1, time.time()
+    while time.time() < end:
+        n = sum(1 for e in log()['ev'] if e[0] in ('keydown', 'keyup'))
+        if n != last:
+            last, since = n, time.time()
+        elif time.time() - since >= still:
+            return
+        time.sleep(0.1)
+
+
 def keys():
     return {k: v for k, v in json.loads(ev(KEYS_JS)).items()}
 
@@ -132,15 +147,12 @@ def layer():
 
 
 def pairs(events):
-    """-> list of (release time of the REAL finger-up, key pressed, ms from release to keydown) for letter keydowns."""
-    out, last_up = [], None
-    for e in events:
-        if e[0] == 'pointerup' and e[5]:
-            last_up = e[1]
-        elif e[0] == 'keydown' and last_up is not None:
-            out.append((last_up, e[2], round(e[1] - last_up, 1)))
-            last_up = None
-    return out
+    """-> list of (release time of the REAL finger-up, key pressed, ms from release to keydown), one per keydown.
+    WHY by order and not "the up just before": Steam sometimes types a burst late, so the n-th real finger-up is matched
+    with the n-th key press (every tap in these tests types exactly one key)."""
+    ups = [e[1] for e in events if e[0] == 'pointerup' and e[5]]
+    kds = [e for e in events if e[0] == 'keydown']
+    return [(u, k[2], round(k[1] - u, 1)) for u, k in zip(ups, kds)]
 
 
 def summarize(xs):
@@ -208,11 +220,16 @@ def open_field():
 
 def clear_field(max_taps=80):
     n = 0
-    while field().get('value') and n < max_taps:
-        tap_key('Backspace', 50)
-        time.sleep(0.12)
-        n += 1
-    time.sleep(0.2)
+    quiet()
+    for _ in range(4):
+        left = len(field().get('value') or '')
+        if not left:
+            break
+        for _i in range(min(left, max_taps)):
+            tap_key('Backspace', 90)
+            time.sleep(0.25)
+            n += 1
+        quiet()
     return {'cleared_with_backspaces': n, 'value': field().get('value')}
 
 
@@ -227,8 +244,8 @@ def cmd_taps(rounds):
         before = len(log()['ev'])
         for c in LETTERS:
             touch('tap %d %d 60' % (ks[c][0], ks[c][1]))
-            time.sleep(0.11)
-        time.sleep(0.4)
+            time.sleep(0.25)
+        quiet()
         v = field().get('value')
         if v == LETTERS:
             ok += 1
@@ -267,7 +284,7 @@ def cmd_swipes(n):
                     break
                 if m.get('method') == 'Runtime.bindingCalled' and m['params'].get('name') == '__swipekb':
                     strokes.append(json.loads(m['params']['payload']))
-        time.sleep(0.5)
+        quiet()
         while True:
             try:
                 m = c.next_event(timeout=0.2)
@@ -289,15 +306,15 @@ def cmd_shift():
     open_field(); ensure_logger(); ks = keys(); res = {}
     clear_field()
     # sequential: tap Shift, then tap h
-    touch('tap %d %d 60' % tuple(ks['Shift'][:2])); time.sleep(0.4); touch('tap %d %d 60' % tuple(ks['h'][:2])); time.sleep(0.5)
+    touch('tap %d %d 60' % tuple(ks['Shift'][:2])); quiet(0.3); touch('tap %d %d 60' % tuple(ks['h'][:2])); quiet()
     res['sequential_shift_then_h'] = field().get('value'); clear_field()
     # two fingers: finger 1 holds Shift, finger 2 taps h
     s, h = ks['Shift'], ks['h']
     touch('down 0 %d %d' % (s[0], s[1]), 'sleep 120', 'down 1 %d %d' % (h[0], h[1]), 'sleep 80', 'up 1', 'sleep 80', 'up 0')
-    time.sleep(0.6)
+    quiet()
     res['two_finger_shift_h'] = field().get('value'); clear_field()
     # latch must not stay armed: next plain tap is lowercase
-    touch('tap %d %d 60' % tuple(ks['i'][:2])); time.sleep(0.4)
+    touch('tap %d %d 60' % tuple(ks['i'][:2])); quiet()
     res['next_tap_after_two_finger'] = field().get('value'); clear_field()
     res['layer'] = layer()
     return res
@@ -306,15 +323,15 @@ def cmd_shift():
 def cmd_backspace():
     open_field(); ensure_logger(); ks = keys()
     for c in 'abc':
-        tap_key(c); time.sleep(0.15)
-    time.sleep(0.3)
+        tap_key(c); time.sleep(0.25)
+    quiet()
     ev(RESET_LOG)
     k = ks['Backspace']
-    touch('tap %d %d 60' % (k[0], k[1])); time.sleep(0.5)
+    touch('tap %d %d 60' % (k[0], k[1])); quiet()
     tapev = log()['ev']
     ev(RESET_LOG)
     t0 = log()['t0']
-    touch('down 0 %d %d' % (k[0], k[1]), 'sleep 1500', 'up 0'); time.sleep(0.5)
+    touch('down 0 %d %d' % (k[0], k[1]), 'sleep 1500', 'up 0'); quiet()
     hold = log()['ev']
     down = next(e[1] for e in hold if e[0] == 'pointerdown')
     kds = [round(e[1] - down, 1) for e in hold if e[0] == 'keydown']
@@ -334,7 +351,7 @@ def cmd_popup():
     snap = ev("""JSON.stringify((function(){var o=[...document.querySelectorAll('[data-key-is-literal]')].map(function(n){var r=n.getBoundingClientRect();
       return [n.getAttribute('data-key'), n.className, Math.round(r.left), Math.round(r.top), Math.round(r.width)]});
       var p=document.querySelector('[data-key-is-literal]'); return {items:o, parentClass: p&&p.parentElement? p.parentElement.className:null}})())""")
-    touch('up 0'); time.sleep(0.6)
+    touch('up 0'); quiet()
     lg = log()
     down = next(x[1] for x in lg['ev'] if x[0] == 'pointerdown' and x[5])
     appeared = [round(p[0] - down, 1) for p in lg['popup'] if p[1] > 0]
@@ -344,7 +361,7 @@ def cmd_popup():
     # slide onto the third item and release
     touch('down 0 %d %d' % (e[0], e[1]), 'sleep 950')
     third = json.loads(ev("JSON.stringify((function(){var n=document.querySelectorAll('[data-key-is-literal]')[2];var r=n.getBoundingClientRect();return [Math.round(r.left+r.width/2),Math.round(r.top+r.height/2),n.getAttribute('data-key')]})())"))
-    touch('move 0 %d %d' % (third[0], third[1]), 'sleep 150', 'up 0'); time.sleep(0.6)
+    touch('move 0 %d %d' % (third[0], third[1]), 'sleep 150', 'up 0'); quiet()
     res['slide_to'] = third[2]; res['value_after_slide'] = field().get('value')
     clear_field()
     return res
@@ -356,14 +373,14 @@ def cmd_longtouch():
     ev(RESET_LOG)
     t = time.time()
     touch('down 0 %d %d' % (d[0], d[1]), 'sleep 3000', 'up 0')
-    time.sleep(0.7)
+    quiet()
     res['still_3s_touch_value'] = field().get('value')
     res['elapsed_s'] = round(time.time() - t, 2)
     clear_field()
     a, l = ks['a'], ks['l']
-    touch('drag 3000 %d,%d %d,%d' % (a[0], a[1], l[0], l[1])); time.sleep(0.7)
+    touch('drag 3000 %d,%d %d,%d' % (a[0], a[1], l[0], l[1])); quiet()
     res['slow_3s_swipe_value'] = field().get('value')
-    f = ks['f']; touch('tap %d %d 60' % (f[0], f[1])); time.sleep(0.5)
+    f = ks['f']; touch('tap %d %d 60' % (f[0], f[1])); quiet()
     res['next_tap_value'] = field().get('value')
     res['layer'] = layer()
     clear_field()
@@ -373,11 +390,11 @@ def cmd_longtouch():
 def cmd_fault():
     open_field(); ensure_logger(); ks = keys(); clear_field(); res = {}
     ev('window.__swipekbLayer.gestures.injectFault()')
-    g = ks['g']; touch('tap %d %d 60' % (g[0], g[1])); time.sleep(0.6)
+    g = ks['g']; touch('tap %d %d 60' % (g[0], g[1])); quiet()
     res['tap_while_fault_fires'] = field().get('value')
     res['layer_after_fault'] = layer()
     res['reason'] = ev('window.__swipekbLayer.gestures.reason()')
-    h = ks['h']; touch('tap %d %d 60' % (h[0], h[1])); time.sleep(0.5)
+    h = ks['h']; touch('tap %d %d 60' % (h[0], h[1])); quiet()
     res['next_tap'] = field().get('value')
     # the frame stays (heartbeat keeps answering) and no new layer appears by itself
     time.sleep(2.5)

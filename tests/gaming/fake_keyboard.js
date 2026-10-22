@@ -234,6 +234,11 @@ function build(opts) {
   kb.addEventListener(types[0], onDown);
   kb.addEventListener(types[1], (e) => onUp(Object.assign(Object.create(e), pt(e), { type: e.type })));
   kb.addEventListener(types[2], onMove);
+  // WHY: on the real keyboard (VM, M4) Steam calls preventDefault on the touch-end, which stops the browser from
+  // adding its old-style mouse events (mousedown, mouseup, click) after a tap. A click handler that types stands in for
+  // anything in Steam that would type again if those mouse events appeared; stock never lets that happen.
+  kb.addEventListener('touchend', (e) => e.preventDefault());
+  kb.addEventListener('click', (e) => { S.log.push('click'); const k = keyAt(e.target); if (k && opts.clickTypes !== false) type(k.getAttribute('data-key')); });
   // every other event family just gets logged so tests can see what reached Steam
   const other = family === 'pointer' ? ['touchstart', 'touchend', 'touchmove'] : ['pointerdown', 'pointerup', 'pointermove'];
   other.forEach((t) => kb.addEventListener(t, (e) => S.log.push(e.type)));
@@ -262,11 +267,12 @@ function build(opts) {
     const mkP = (type) => new PointerEvent(type, { bubbles: true, cancelable: true, pointerId: id, pointerType: 'touch', isPrimary: true, clientX: f.x, clientY: f.y, button: 0, buttons: type === 'pointerup' ? 0 : 1 });
     const emit = (el, ev) => dispatch(el, ev, win, doc);
     f.down = (x, y) => {
-      f.x = x; f.y = y; f.isDown = true; f.target = doc.elementFromPoint(x, y) || root;
+      f.x = f.x0 = x; f.y = f.y0 = y; f.moved = false; f.isDown = true; f.target = doc.elementFromPoint(x, y) || root;
       if (!opts.touchOnly) emit(f.target, mkP('pointerdown'));
       if (!opts.pointerOnly) emit(f.target, mkT('touchstart'));
     };
     f.move = (x, y) => {
+      if (Math.hypot(x - f.x0, y - f.y0) > 10) f.moved = true;
       f.x = x; f.y = y; const pt2 = doc.elementFromPoint(x, y) || root;
       if (!opts.touchOnly) emit(pt2, mkP('pointermove'));
       if (!opts.pointerOnly) emit(f.target, mkT('touchmove'));
@@ -274,7 +280,11 @@ function build(opts) {
     f.up = () => {
       f.isDown = false; const pt2 = doc.elementFromPoint(f.x, f.y) || root;
       if (!opts.touchOnly) emit(pt2, mkP('pointerup'));
-      if (!opts.pointerOnly) emit(f.target, mkT('touchend'));
+      if (!opts.pointerOnly) {
+        const allowed = emit(f.target, mkT('touchend'));
+        // the browser's compatibility mouse events follow a tap whose touch-end was not cancelled
+        if (allowed && !f.moved) for (const t of ['mousedown', 'mouseup', 'click']) emit(f.target, new MouseEvent(t, { bubbles: true, cancelable: true, clientX: f.x, clientY: f.y }));
+      }
     };
     f.cancel = () => { f.isDown = false; if (!opts.touchOnly) emit(f.target, mkP('pointercancel')); if (!opts.pointerOnly) emit(f.target, mkT('touchcancel')); };
     return f;

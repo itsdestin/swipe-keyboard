@@ -88,7 +88,14 @@ function swipekbGestures(w, L, opts) {
     return 'p' + e.pointerId;
   }
   function owns(e) { return !!st && (isTouchEv(e) ? st.tid !== null && fid(e) === st.tid : st.pid !== null && fid(e) === st.pid); }
-  function swallow(e) { stats.swallowed++; e.stopImmediatePropagation(); }
+  function swallow(e) {
+    stats.swallowed++;
+    e.stopImmediatePropagation();
+    // WHY cancel the real touch-end: found in the VM. Steam itself cancels a touch-end, and that is what stops the browser
+    // from following every tap with old-style mouse events (mousedown, mouseup, click). Because Steam never sees our
+    // swallowed real touch-end, the browser did send those mouse events, and Steam typed each letter twice.
+    if (e.type === 'touchend' && e.cancelable) e.preventDefault();
+  }
 
   // ---- giving events to Steam -------------------------------------------------------------------------
   // WHY we rebuild both families: Steam's keyboard reacts to pointer events, but the spike showed the touch

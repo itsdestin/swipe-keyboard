@@ -41,7 +41,7 @@ test('every letter tapped once types exactly once, ten rounds, same as stock', a
   }
 });
 
-test('a tap reaches Steam as one down and one up of each family, not two', async () => {
+test('a tap reaches Steam as one down and one up of each family, and no browser mouse events follow (as stock)', async () => {
   const r = rig();
   await tap(r, 'g'); await settle();
   assert.deepEqual(r.S.log.slice().sort(), ['pointerdown', 'pointerup', 'touchend', 'touchstart']);
@@ -358,3 +358,13 @@ test('an exception while a tap is being held back still types that tap', async (
   await tap(r, 'b'); await settle();
   assert.deepEqual(r.S.typed, ['a', 'b']);
 });
+
+test('a letter touched while an accent pop-up is on screen goes straight to Steam', async () => {
+  const r = rig();
+  const p = r.page.doc.createElement('div'); r.page.kb.append(p);       // a pop-up left on screen
+  const item = r.page.doc.createElement('div'); p.append(item); item.setAttribute('data-key', 'é'); item.setAttribute(LIT, '1');
+  const f = r.f(); f.down(...r.c('s'));
+  assert.ok(r.S.log.includes('pointerdown'), 'reached Steam at once, nothing held back');
+  f.up(); await settle();
+});
+const LIT = 'data-key-is-literal';
