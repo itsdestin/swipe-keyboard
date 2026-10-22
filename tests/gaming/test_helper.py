@@ -596,5 +596,56 @@ class MarkerAndStatus(Base):
         self.assertGreater(r.fake.connections_seen, 0)  # it did connect, to our fake, on 127.0.0.1
 
 
+class GestureLayerInstall(Base):
+    """M4: the helper pastes the gesture arbiter (gaming/layer/gesture.js) into the frame it installs."""
+
+    def test_the_installed_source_contains_the_gesture_arbiter_and_the_knobs(self):
+        r = self.rig(gesture={'hold_ms': 222})
+        h = r.helper()
+        h._load_contract()
+        src = h._stub()
+        self.assertIn('function swipekbGestures', src)
+        self.assertIn('"hold_ms": 222', src)
+        self.assertNotIn('__CONFIG__', src)
+        self.assertNotIn('__GESTURES__', src)
+
+    def test_without_the_gesture_file_the_frame_still_installs_and_nothing_else_happens(self):
+        r = self.rig(layer_dir=Path(tempfile.mkdtemp(dir=str(r_tmp(self)))))
+        b, s = r.steam_up()
+        r.helper().start()
+        wait_for(lambda: r.attr(b) == LAYER_VERSION, what='frame alone')
+        self.assertEqual(r.fake.eval(b, 'String(window.__swipekbLayer.gestures)')[1], 'null')
+
+    def test_a_page_that_cannot_run_the_gestures_still_gets_the_frame(self):
+        # the fake page has no touch support at all: the arbiter declines, the frame is installed, no error
+        r = self.rig()
+        b, s = r.steam_up()
+        r.helper().start()
+        wait_for(lambda: r.attr(b) == LAYER_VERSION, what='frame')
+        self.assertEqual(r.fake.eval(b, 'String(window.__swipekbLayer.gestures)')[1], 'null')
+        self.assertEqual(r.fake.eval(b, 'String(window.__swipekbLayer.gestureError)')[1], 'undefined')
+
+    def test_layer_and_contract_are_found_in_a_source_checkout_and_in_the_flatpak_layout(self):
+        import subprocess
+        base = Path(tempfile.mkdtemp(prefix='swipekb-layout-'))
+        self.addCleanup(shutil.rmtree, base, True)
+        shutil.copytree(ROOT / 'gaming' / 'helper' / 'swipekb_helper', base / 'app' / 'lib' / 'swipekb-helper' / 'swipekb_helper',
+                        ignore=shutil.ignore_patterns('__pycache__'))
+        shutil.copytree(ROOT / 'gaming' / 'layer', base / 'app' / 'share' / 'swipekb-helper' / 'layer')
+        shutil.copy(CONTRACT, base / 'app' / 'share' / 'swipekb-helper' / 'gaming-contract.json')
+        code = ('import sys; sys.path.insert(0, %r); from swipekb_helper import config; '
+                'print(config.default_layer_dir()); print(config.default_contract_path())' % str(base / 'app' / 'lib' / 'swipekb-helper'))
+        out = subprocess.run([sys.executable, '-I', '-c', code], capture_output=True, text=True, check=True).stdout.split('\n')
+        self.assertEqual(out[0], str(base / 'app' / 'share' / 'swipekb-helper' / 'layer'))
+        self.assertEqual(out[1], str(base / 'app' / 'share' / 'swipekb-helper' / 'gaming-contract.json'))
+        self.assertEqual(cfgmod.default_layer_dir(), ROOT / 'gaming' / 'layer')
+
+
+def r_tmp(test):
+    d = Path(tempfile.mkdtemp(prefix='swipekb-nolayer-'))
+    test.addCleanup(shutil.rmtree, d, True)
+    return d
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)
