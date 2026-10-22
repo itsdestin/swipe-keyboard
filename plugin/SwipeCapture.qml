@@ -223,6 +223,12 @@ Item {
     // including the outer edge. Keep stock SelectionListItem input/selection, but
     // render only internal dividers and equal slots so rank one is truly centered.
     SystemPalette { id: candidatePalette; colorGroup: SystemPalette.Active }
+    // WHY Plasma's keyboard theme may differ from the desktop palette: desktop
+    // text can equal the stock strip background, hiding otherwise selectable words.
+    readonly property var candidateTheme: {
+        var keyboard = root.keyboardItem()
+        return keyboard && keyboard.style && keyboard.style.theme ? keyboard.style.theme : null
+    }
     Component {
         id: candidateDelegate
         SelectionListItem {
@@ -235,7 +241,8 @@ Item {
                 anchors.centerIn: parent
                 width: Math.max(0, parent.width - 24)
                 text: candidateItem.display
-                color: candidatePalette.text
+                color: root.candidateTheme && root.candidateTheme.selectionListTextColor !== undefined
+                    ? root.candidateTheme.selectionListTextColor : candidatePalette.text
                 horizontalAlignment: Text.AlignHCenter
                 elide: Text.ElideRight
                 font.family: Qt.application.font.family
@@ -248,7 +255,8 @@ Item {
                 anchors.verticalCenter: parent.verticalCenter
                 width: Math.max(1, parent.height * 0.025)
                 height: parent.height * 0.42
-                color: candidatePalette.mid
+                color: root.candidateTheme && root.candidateTheme.selectionListSeparatorColor !== undefined
+                    ? root.candidateTheme.selectionListSeparatorColor : candidatePalette.mid
             }
         }
     }

@@ -3,6 +3,8 @@
 #include <QQmlComponent>
 #include <QQuickItem>
 #include <QQuickWindow>
+#include <QScopeGuard>
+#include <QPalette>
 #include <QtVirtualKeyboard/QVirtualKeyboardAbstractInputMethod>
 #include <QtVirtualKeyboard/QVirtualKeyboardInputContext>
 
@@ -25,12 +27,36 @@ signals:
 class PredictionCaptureTest : public QObject {
     Q_OBJECT
 private slots:
+    void threeEqualSlotsHaveOnlyInternalDividersAndCorrectSelection_data() {
+        QTest::addColumn<QColor>("foreground");
+        QTest::addColumn<QColor>("background");
+        QTest::addColumn<QColor>("separator");
+        QTest::newRow("light-keyboard-dark-desktop") << QColor("#232629") << QColor("#eff0f1") << QColor("#a0a0a0");
+        QTest::newRow("dark-keyboard-light-desktop") << QColor("#eff0f1") << QColor("#232629") << QColor("#707070");
+    }
     void threeEqualSlotsHaveOnlyInternalDividersAndCorrectSelection() {
+        QFETCH(QColor,foreground);QFETCH(QColor,background);QFETCH(QColor,separator);
+        // WHY independent palettes: Plasma can show a light keyboard on a dark desktop.
+        // Desktop text then equals the keyboard background, making selectable words invisible.
+        const auto originalPalette=QGuiApplication::palette();
+        const auto restorePalette=qScopeGuard([&] {QGuiApplication::setPalette(originalPalette);});
+        auto desktopPalette=originalPalette;desktopPalette.setColor(QPalette::Text,background);
+        QGuiApplication::setPalette(desktopPalette);
         QQmlEngine engine;QQmlComponent fixture(&engine);
         fixture.setData(R"(
             import QtQuick
             import QtQuick.VirtualKeyboard
             Item { width:600; height:150
+                property QtObject style: QtObject {
+                    property QtObject theme: QtObject {
+                        id: keyboardTheme
+                        property color selectionListTextColor: "black"
+                        property color selectionListBackgroundColor: "white"
+                        property color selectionListSeparatorColor: "gray"
+                    }
+                }
+                property alias theme: keyboardTheme
+                Rectangle { width:600; height:50; color:keyboardTheme.selectionListBackgroundColor }
                 property var alternativeKeys: ({active:false})
                 property var context: InputContext
                 property alias bar: bar
@@ -53,6 +79,10 @@ private slots:
             }
         )",QUrl());
         std::unique_ptr<QObject> root(fixture.create());QVERIFY2(root,qPrintable(fixture.errorString()));
+        auto *theme=qvariant_cast<QObject*>(root->property("theme"));QVERIFY(theme);
+        QVERIFY(theme->setProperty("selectionListTextColor",foreground));
+        QVERIFY(theme->setProperty("selectionListBackgroundColor",background));
+        QVERIFY(theme->setProperty("selectionListSeparatorColor",separator));
         auto *item=qobject_cast<QQuickItem*>(root.get());QQuickWindow window;window.resize(600,150);item->setParentItem(window.contentItem());
         window.show();window.requestActivate();
         auto *ic=qvariant_cast<QVirtualKeyboardInputContext*>(root->property("context"));QVERIFY(ic);
@@ -72,6 +102,12 @@ private slots:
             QCOMPARE(delegate->property("display").toString(),displayed[slot]);QCOMPARE(delegate->width(),200.0);
             auto *divider=delegate->findChild<QQuickItem*>("swipeCandidateDivider");QVERIFY(divider);
             QCOMPARE(divider->isVisible(),slot>0);
+            QQuickItem *label=nullptr;
+            for(auto *child:delegate->childItems())
+                if(child->property("text").toString()==displayed[slot])label=child;
+            QVERIFY(label);
+            QCOMPARE(label->property("color").value<QColor>(),foreground);
+            QCOMPARE(divider->property("color").value<QColor>(),separator);
             const auto center=delegate->mapToScene(QPointF(100,25)).toPoint();QCOMPARE(center.x(),100+slot*200);
             QTest::mouseClick(&window,Qt::LeftButton,Qt::NoModifier,center);
             QTRY_COMPARE_WITH_TIMEOUT(root->property("selected").toInt(),slot,15000);
