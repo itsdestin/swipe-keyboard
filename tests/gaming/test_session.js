@@ -66,8 +66,8 @@ test('password box: a counting spy proves nothing is stopped, sent, drawn, remem
   } finally { FakeEvent.prototype.stopImmediatePropagation = orig; }
   assert.equal(stops, 0, 'zero stopImmediatePropagation calls');
   assert.equal(r.calls.length, 0, 'zero binding calls');
-  assert.equal(r.strip(), null, 'no strip in the page');
-  assert.equal(r.trail(), null, 'no trail canvas');
+  assert.ok(r.strip() === null, 'no strip in the page');
+  assert.ok(r.trail() === null, 'no trail canvas');
   assert.equal(r.L.lastStroke, undefined, 'no stroke recorded');
   assert.equal(r.sess.debug().bufferLength, 0, 'nothing remembered');
   assert.deepEqual(r.S.typed.slice(0, 6), [...'secret'], 'Steam typed the letters itself');
@@ -84,8 +84,10 @@ test('a strip that was showing disappears as soon as a password box takes focus'
   const r = setup({}, 'text'); await settle();
   assert.ok(r.strip(), 'strip shown for a plain text box');
   r.doc.activeElement = { tagName: 'INPUT', type: 'password' };
-  await tap(r, 'a'); await settle();
-  assert.equal(r.strip(), null);
+  await tap(r, 'a');        // no waiting: the touch itself must take the strip down, not the next tick
+  assert.ok(r.strip() === null);
+  await settle();
+  assert.ok(r.strip() === null);
 });
 
 // ---- the strip -------------------------------------------------------------------------------------------------
@@ -137,6 +139,15 @@ test('tapping a candidate asks for a replacement of exactly the word just typed'
   r.calls.length = 0;
   await swipe(r, ['w', 'o', 'r', 'l', 'd']); await settle();
   assert.deepEqual(r.calls[0].ctx, ['jello'], 'the memory now holds the replacement, not the first guess');
+});
+
+test('a very long stroke is cut to what the engine accepts (2000 points)', async () => {
+  const r = setup({}, 'text'); await settle();
+  const f = r.f(); const [x, y] = r.c('q'); f.down(x, y);
+  for (let i = 1; i <= 2600; i++) f.move(x + (i % 400), y + (i % 7));
+  f.up(); await settle();
+  assert.equal(r.calls.length, 1);
+  assert.ok(r.calls[0].trace.length <= 2000 && r.calls[0].trace.length > 100, 'trace length ' + r.calls[0].trace.length);
 });
 
 test('a double tap on a candidate asks only once until the answer arrives', async () => {
@@ -210,7 +221,7 @@ test('the memory is wiped when the keyboard closes, and the helper is told to ha
   for (const [el] of saved) el.rect = { left: 0, top: 0, width: 0, height: 0 };   // the keyboard closes
   await settle();
   assert.equal(r.sess.debug().bufferLength, 0);
-  assert.equal(r.strip(), null, 'strip gone with the keyboard');
+  assert.ok(r.strip() === null, 'strip gone with the keyboard');
   assert.equal(r.calls[r.calls.length - 1].type, 'closed');
   for (const [el, rect] of saved) el.rect = rect;   // opens again
   await settle(); await swipe(r, ['q', 'p']); await settle();
@@ -352,13 +363,13 @@ test('the Shift taps made by the layer do not feed back into the layer', async (
 test('a swipe draws a trail that is removed shortly after the stroke ends; taps draw nothing', async () => {
   const r = setup({}, 'text');
   await tap(r, 'g'); await settle();
-  assert.equal(r.trail(), null);
+  assert.ok(r.trail() === null);
   const f = await swipe(r, ['q', 'p'], 120);
   const c = r.trail(); assert.ok(c, 'canvas appeared during/after the stroke');
   assert.ok(c.ops.filter((o) => o[0] === 'lineTo').length >= 3, 'lines were drawn');
   assert.equal(c.style.pointerEvents, 'none');
   await sleep(250);
-  assert.equal(r.trail(), null, 'cleared after the trail time');
+  assert.ok(r.trail() === null, 'cleared after the trail time');
 });
 
 // ---- failure ----------------------------------------------------------------------------------------------
@@ -368,8 +379,22 @@ test('a fault inside the session removes the strip, the trail and the arbiter; t
   r.sess.hooks.keyDown = null; r.L.session.hooks.stroke = () => { throw new Error('boom'); };
   await swipe(r, ['q', 'p'], 60); await settle();
   assert.equal(r.L.gestures.state(), 'failed');
-  assert.equal(r.strip(), null);
+  assert.ok(r.strip() === null);
   assert.equal(r.page.win.listenerCount(), 0);
+  r.S.typed.length = 0; await tap(r, 'k'); await settle();
+  assert.deepEqual(r.S.typed, ['k']);
+});
+
+test('a fault found by the session itself (not the arbiter) takes the arbiter and the strip away with it', async () => {
+  const r = setup({}, 'text'); await settle();
+  assert.ok(r.strip());
+  const real = r.doc.querySelectorAll;
+  r.doc.querySelectorAll = () => { throw new Error('page broke'); };   // the session's next look at the page throws
+  await sleep(120);
+  r.doc.querySelectorAll = real;
+  assert.notEqual(r.L.gestures.state(), 'on', 'the arbiter was switched off too');
+  assert.equal(r.page.win.listenerCount(), 0);
+  assert.ok(r.strip() === null);
   r.S.typed.length = 0; await tap(r, 'k'); await settle();
   assert.deepEqual(r.S.typed, ['k']);
 });
@@ -378,15 +403,15 @@ test('when the arbiter fails, the session steps aside and takes its strip with i
   const r = setup({}, 'text'); await settle();
   r.L.gestures.injectFault(); await tap(r, 'a'); await settle();
   assert.equal(r.L.gestures.state(), 'failed');
-  assert.equal(r.strip(), null);
+  assert.ok(r.strip() === null);
 });
 
 test('removing the frame takes the strip, the trail and the timers with it', async () => {
   const r = setup({}, 'text'); await settle();
   await swipe(r, ['q', 'p'], 60);
   r.L.remove();
-  assert.equal(r.strip(), null);
-  assert.equal(r.trail(), null);
+  assert.ok(r.strip() === null);
+  assert.ok(r.trail() === null);
   assert.equal(r.page.win.listenerCount(), 0);
 });
 
@@ -395,4 +420,18 @@ test('with no helper binding the swipe does nothing and typing is unharmed', asy
   await swipe(r, ['q', 'p'], 60); await tap(r, 'x'); await settle();
   assert.deepEqual(r.S.typed, ['x']);
   assert.equal(r.L.gestures.state(), 'on');
+});
+
+test('the frame installed at document start (no page body yet) still gets its typing session', async () => {
+  // The helper also registers the layer to run at the start of every new document, when <body> does not exist yet.
+  assert.ok(process.env.SWIPEKB_STUB_LONG);
+  const page = build(); const body = page.doc.body;
+  page.doc.body = null;
+  vm.runInContext(fs.readFileSync(process.env.SWIPEKB_STUB_LONG, 'utf8'), page.ctx);
+  const L = page.win.__swipekbLayer; rigs.push({ L });
+  assert.ok(L.session, 'the session exists');
+  page.doc.body = body;
+  page.doc.activeElement = { tagName: 'INPUT', type: 'text' };
+  await settle();
+  assert.ok(page.doc.querySelector('[class=swipekb-strip]'), 'and draws its strip once the keyboard is on screen');
 });

@@ -77,9 +77,11 @@ function swipekbGestures(w, L, opts) {
   }
   function popupOpen() { return !!doc.querySelector('[' + LITERAL + ']'); }
   function passwordFocused() {
+    // WHY the session is asked first: it takes its own strip down at this very touch when the box is a password box, instead of
+    // leaving it on screen until its next timer tick.
+    if (hook('inert') === true) return true;     // the session's view: a password box, or the Private chip is on
     var a = doc.activeElement;
-    if (a && a.type === 'password') return true;   // plan Section 8: the inert signal; checked on every touch, no round trip
-    return hook('inert') === true;                 // the session can also step us aside (the Private chip, a secret-looking run)
+    return !!(a && a.type === 'password');       // plan Section 8: the inert signal; checked on every touch, no round trip
   }
 
   // ---- reading events ---------------------------------------------------------------------------------

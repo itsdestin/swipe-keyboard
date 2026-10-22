@@ -18,7 +18,7 @@ function swipekbSession(w, L, opts) {
   'use strict';
   opts = opts || {};
   var doc = w.document;
-  if (!doc || !doc.body) return null;
+  if (!doc) return null;   // (the page body may not exist yet at document start: it is looked up when the strip is first drawn)
   var dom = (L && L.config && L.config.keyboard_dom) || {};
   var KEY_SEL = dom.key_selector || '[data-key]';
   var LITERAL = 'data-key-is-literal';
@@ -120,8 +120,7 @@ function swipekbSession(w, L, opts) {
   // aside for the rest of this keyboard session AND wipe it from memory; the chip shows why and can undo it.
   function secretCheck() {
     if (privateOn || !looksLikeSecret(lastRun())) return;
-    buf = ''; cands = null;
-    goPrivate('secret');
+    goPrivate('secret');          // (which also wipes the memory)
   }
   function contextWords(kind) {
     var toks = buf.split(/\s+/), words = [];
@@ -252,6 +251,7 @@ function swipekbSession(w, L, opts) {
   }
 
   // ---- the strip --------------------------------------------------------------------------------------------
+  function host() { return doc.body || doc.documentElement; }
   function el(tag, cls) { var e = doc.createElement(tag); e.setAttribute('class', cls); return e; }
   function removeStrip() {
     if (strip) { try { strip.remove(); } catch (e) { /* page is going away */ } strip = null; slots = []; chip = null; }
@@ -287,7 +287,7 @@ function swipekbSession(w, L, opts) {
         else if (id && id.indexOf('slot') === 0) pick(Number(id.slice(4)));
       });
     });
-    doc.body.append(strip);
+    host().append(strip);
   }
   function place(list) {
     var r = kbRect(list);
@@ -326,7 +326,7 @@ function swipekbSession(w, L, opts) {
       s.position = 'fixed'; s.left = '0'; s.top = '0'; s.width = '100%'; s.height = '100%'; s.pointerEvents = 'none'; s.zIndex = '2147483645';
       ctx2d = canvas.getContext ? canvas.getContext('2d') : null;
       if (!ctx2d) { canvas = null; return; }
-      doc.body.append(canvas);
+      host().append(canvas);
     }
     ctx2d.clearRect(0, 0, canvas.width, canvas.height);
     ctx2d.lineWidth = 8; ctx2d.lineCap = 'round'; ctx2d.lineJoin = 'round'; ctx2d.strokeStyle = 'rgba(110,190,255,0.85)';

@@ -123,15 +123,33 @@ class Typing(unittest.TestCase):
     def test_tapping_a_candidate_erases_exactly_the_typed_word_and_types_the_other(self):
         self.start()
         self.send(stroke(1, caps='first')); a = self.wait_got(1)[0]
-        cand = a['cands'][2]['id']
-        self.send({'v': 1, 'type': 'pick', 'id': 1000001, 'req': a['req'], 'cand': cand, 'erase': 6})
+        self.send({'v': 1, 'type': 'pick', 'id': 1000001, 'req': a['req'], 'cand': a['cands'][1]['id'], 'erase': 6})
         b = self.wait_got(2)[1]
-        self.assertEqual(self.sent(), ['Hello ', '\b' * 6 + 'Jello '])
-        self.assertEqual((b['kind'], b['committed'], b['typed']), ('pick', True, 'Jello '))
-        # and the next replacement is measured against the NEW word
-        self.send({'v': 1, 'type': 'pick', 'id': 1000002, 'req': a['req'], 'cand': a['cands'][1]['id'], 'erase': 6})
+        self.assertEqual(self.sent(), ['Hello ', '\b' * 6 + 'Hell '])
+        self.assertEqual((b['kind'], b['committed'], b['typed']), ('pick', True, 'Hell '))
+        # and the next replacement is measured against the NEW, shorter word
+        self.send({'v': 1, 'type': 'pick', 'id': 1000002, 'req': a['req'], 'cand': a['cands'][2]['id'], 'erase': 5})
         self.wait_got(3)
-        self.assertEqual(self.sent()[-1], '\b' * 6 + 'Hell ')
+        self.assertEqual(self.sent()[-1], '\b' * 5 + 'Jello ')
+        self.send({'v': 1, 'type': 'pick', 'id': 1000003, 'req': a['req'], 'cand': a['cands'][0]['id'], 'erase': 5})   # the old length no longer fits
+        self.wait_got(4)
+        self.assertFalse(self.got()[3]['committed'])
+        self.assertEqual(len(self.sent()), 3)
+
+    def test_a_request_that_waited_too_long_is_dropped(self):
+        """The user has moved on; typing a word seconds late would put it in the wrong place."""
+        self.d.reply_delay = 0.25
+        old = bridgemod.STALE_S
+        bridgemod.STALE_S = 0.3
+        self.addCleanup(setattr, bridgemod, 'STALE_S', old)
+        h = self.start()
+        self.send(stroke(1))
+        time.sleep(0.05)
+        self.send(stroke(2))                    # waits behind the first one (about 1 s of engine calls), longer than the limit
+        wait_for(lambda: len(self.got()) >= 1, what='first answer')
+        wait_for(lambda: h.bridge.stats['dropped'] >= 1, what='the late one dropped')
+        self.assertEqual(len(self.d.ops('swipe')), 1)
+        self.assertEqual(self.sent(), ['hello '])
 
     # ---- only what the engine issued is ever typed
     def test_a_candidate_the_engine_did_not_issue_is_rejected_and_nothing_is_typed(self):
@@ -154,6 +172,7 @@ class Typing(unittest.TestCase):
         wait_for(lambda: len(self.got()) >= 3, what='refusal')
         self.assertEqual(len(self.sent()), n)
         self.assertFalse(self.got()[2]['committed'])
+        self.assertEqual(len(self.d.ops('commit')), 2, 'refused by the helper itself: the engine was not even asked')
 
     def test_the_erase_count_must_equal_what_was_typed_last(self):
         self.start()
