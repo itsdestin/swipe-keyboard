@@ -12,7 +12,10 @@ StartLimitBurst=30
 
 [Service]
 # WHY the Flatpak app id and not a path: see swipekb-engine.service.
-ExecStart=/usr/bin/flatpak run --user --command=swipekb-helper org.itsdestin.SwipeKeyboard.GamingHelper
+# WHY --die-with-parent (found in the SteamOS VM, M8): Flatpak puts the program in its own scope, outside this
+# service, so without it stopping or restarting the service left the old copy running. Copies piled up (three
+# helpers) and a new engine refused to start because "another is already running".
+ExecStart=/usr/bin/flatpak run --die-with-parent --user --command=swipekb-helper org.itsdestin.SwipeKeyboard.GamingHelper
 Restart=always
 RestartSec=3
 

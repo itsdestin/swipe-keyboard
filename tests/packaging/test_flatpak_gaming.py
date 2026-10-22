@@ -139,8 +139,8 @@ class SystemdUnitTests(unittest.TestCase):
         # would silently break on the next update (plan Section 5).
         engine = self.unit('swipekb-engine.service')
         helper = self.unit('swipekb-helper.service')
-        self.assertIn('ExecStart=/usr/bin/flatpak run --user --command=swipekb-gamingd ' + MAIN_ID + '\n', engine)
-        self.assertIn('ExecStart=/usr/bin/flatpak run --user --command=swipekb-helper ' + HELPER_ID + '\n', helper)
+        self.assertIn('ExecStart=/usr/bin/flatpak run --die-with-parent --user --command=swipekb-gamingd ' + MAIN_ID + '\n', engine)
+        self.assertIn('ExecStart=/usr/bin/flatpak run --die-with-parent --user --command=swipekb-helper ' + HELPER_ID + '\n', helper)
         for text in (engine, helper):
             self.assertNotRegex(text, r'/deploy|/var/lib/flatpak|/\.local/share/flatpak|[0-9a-f]{40}|/home/')
 
