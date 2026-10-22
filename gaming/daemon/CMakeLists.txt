@@ -38,3 +38,9 @@ set_tests_properties(gaming_daemon PROPERTIES TIMEOUT 600 ENVIRONMENT
 # WHY a fixture: the daemon test compares against what the real plugin shows, so the plugin test must run first.
 set_tests_properties(gaming_daemon PROPERTIES FIXTURES_REQUIRED plugin_oracle)
 add_dependencies(swipekb-gamingd swipekb-replay)
+
+# M5: the real helper talking to this daemon through a fake Steam (tests/gaming/test_commit_e2e.py). WHY here: it needs the built daemon.
+# The helper-only tests (test_commit.py, test_helper.py, test_layer.py) need no build and are run directly with python3 -I.
+add_test(NAME gaming_commit_e2e COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_SOURCE_DIR}/tests/gaming/test_commit_e2e.py)
+set_tests_properties(gaming_commit_e2e PROPERTIES TIMEOUT 600 ENVIRONMENT
+    "SWIPEKB_GAMINGD=$<TARGET_FILE:swipekb-gamingd>;SWIPEKB_REPLAY_EXE=$<TARGET_FILE:swipekb-replay>;SWIPEKB_ASSETS=${SWIPEKB_ASSETS};SWIPEKB_FUTO_LAYOUT=${CMAKE_SOURCE_DIR}/third_party/swipe-library/models/layouts/en_qwerty.json")

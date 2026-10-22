@@ -99,7 +99,26 @@ class Page:
         self.seq = 0
         self.scripts = {}        # session id -> [script, ...]   (gone when that session closes)
         self.eval_log = []       # expressions received, for assertions
+        self.bindings = {}       # binding name -> (session id, send function): where Runtime.bindingCalled goes
+        self.alive = True
         self._rpc({'op': 'init', 'steam': steam})
+        threading.Thread(target=self._drain, daemon=True).start()
+
+    def _drain(self):
+        """Chrome pushes a binding call to the session that registered it; here the page's calls are collected by polling."""
+        while self.alive:
+            time.sleep(0.004)
+            try:
+                got = self._rpc({'op': 'drain'}).get('out', [])
+            except (ValueError, OSError):
+                return
+            for name, payload in got:
+                b = self.bindings.get(name)
+                if b:
+                    try:
+                        b[1]({'method': 'Runtime.bindingCalled', 'params': {'name': name, 'payload': payload, 'executionContextId': 1}})
+                    except OSError:
+                        pass
 
     def _rpc(self, msg):
         with self.lock:
@@ -112,7 +131,10 @@ class Page:
     def eval(self, expr):
         """-> (ok, value_or_error). Logs the expression."""
         self.eval_log.append(expr)
-        r = self._rpc({'op': 'eval', 'expr': expr})
+        try:
+            r = self._rpc({'op': 'eval', 'expr': expr})
+        except (ValueError, OSError):
+            return False, 'page gone'      # the page process was killed while a client was still talking to it
         return r['ok'], r.get('value', r.get('error'))
 
     def reload(self, run_scripts=True):
@@ -121,8 +143,10 @@ class Page:
 
     def drop_session(self, session):
         self.scripts.pop(session, None)
+        self.bindings = {n: b for n, b in self.bindings.items() if b[0] != session}
 
     def kill(self):
+        self.alive = False
         try:
             self.proc.stdin.close()
             self.proc.terminate()
@@ -303,6 +327,12 @@ class FakeSteam:
             return
         page = t['page']
         session = id(c)
+        wlock = threading.Lock()
+
+        def send(obj):
+            # one writer at a time: answers and pushed events share this socket
+            with wlock:
+                c.sendall(frame(1, json.dumps(obj).encode()))
         self.page_sessions += 1
         try:
             while True:
@@ -310,7 +340,8 @@ class FakeSteam:
                 if op == 8:
                     return
                 if op == 9:
-                    c.sendall(frame(10, payload))
+                    with wlock:
+                        c.sendall(frame(10, payload))
                     continue
                 if op != 1:
                     continue
@@ -324,12 +355,17 @@ class FakeSteam:
                             res = {'result': {'type': 'undefined'}}
                     else:
                         res = {'result': {'type': 'object'}, 'exceptionDetails': {'text': 'Uncaught', 'exception': {'description': str(val)}}}
-                    c.sendall(frame(1, json.dumps({'id': m['id'], 'result': res}).encode()))
+                    send({'id': m['id'], 'result': res})
                 elif meth == 'Page.addScriptToEvaluateOnNewDocument':
                     page.scripts.setdefault(session, []).append(p['source'])
-                    c.sendall(frame(1, json.dumps({'id': m['id'], 'result': {'identifier': '1'}}).encode()))
+                    send({'id': m['id'], 'result': {'identifier': '1'}})
+                elif meth == 'Runtime.addBinding':
+                    page._rpc({'op': 'binding', 'name': p['name']})
+                    page.bindings[p['name']] = (session, send)
+                    page.binding_sessions = getattr(page, 'binding_sessions', 0) + 1
+                    send({'id': m['id'], 'result': {}})
                 else:
-                    c.sendall(frame(1, json.dumps({'id': m['id'], 'result': {}}).encode()))
+                    send({'id': m['id'], 'result': {}})
         finally:
             page.drop_session(session)
 

@@ -71,6 +71,12 @@ def default_layer_dir():
     return cands[0]
 
 
+def default_engine_paths():
+    # WHY XDG_RUNTIME_DIR/swipekb: the same folder the engine daemon makes (gaming/daemon/main.cpp); a folder only our user can open.
+    run = os.environ.get('XDG_RUNTIME_DIR') or '/tmp'
+    return Path(run) / 'swipekb' / 'engine.sock', Path(run) / 'swipekb' / 'engine.token'
+
+
 @dataclass
 class Config:
     port: int = DEFAULT_PORT
@@ -79,6 +85,9 @@ class Config:
     contract_path: Path = field(default_factory=default_contract_path)
     layer_dir: Path = field(default_factory=default_layer_dir)
     gesture: dict = field(default_factory=dict)   # hidden tuning knobs for the arbiter: swipe_px, hold_ms, stuck_ms (plan Section 7)
+    engine_socket: Path = field(default_factory=lambda: default_engine_paths()[0])
+    engine_token: Path = field(default_factory=lambda: default_engine_paths()[1])
+    session: dict = field(default_factory=dict)   # hidden knobs for the typing session in the page: tick_ms, trail_ms, steam_layout
     poll_interval: float = 0.5        # port-closed probe and event-loop tick; a connect to loopback costs ~nothing
     beat_interval: float = 1.0        # liveness ping to the stub; also the safety net that notices a lost stub
     layer_watchdog: float = 6.0       # stub removes itself if no ping arrives for this long (helper crashed)
@@ -93,4 +102,6 @@ class Config:
         self.state_dir = Path(self.state_dir)
         self.contract_path = Path(self.contract_path)
         self.layer_dir = Path(self.layer_dir)
+        self.engine_socket = Path(self.engine_socket)
+        self.engine_token = Path(self.engine_token)
         self.marker_dirs = [Path(p) for p in self.marker_dirs]

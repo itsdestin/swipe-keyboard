@@ -3,7 +3,7 @@
 // file has two halves. (1) A tiny DOM with REAL capture/bubble event propagation (the layer's whole job is to
 // stop events in the capture phase before Steam sees them). (2) A model of Steam's keyboard built from the M0
 // measurements (plan "M0 results"): types on pointer-UP, ~555 ms long-press popup with literal children,
-// one-shot Shift latch, only Backspace repeats (~460 ms then every ~200 ms). The model is used both with the
+// three-step Shift latch (one-shot, Caps Lock, off), only Backspace repeats (~460 ms then every ~200 ms). The model is used both with the
 // layer on and with it off, so "identical to stock" is a comparison, not an opinion.
 'use strict';
 const fs = require('fs');
@@ -60,7 +60,18 @@ class FakeElement extends FakeEventTarget {
     super();
     this.tagName = tag.toUpperCase(); this.attrs = new Map(); this.children = []; this.parentElement = null;
     this.ownerDocument = doc; this.rect = { left: 0, top: 0, width: 0, height: 0 }; this.text = ''; this.type = '';
+    this.style = {};                       // the strip and the trail are styled through this
+    if (tag.toLowerCase() === 'canvas') this.ops = [];
   }
+  // a canvas whose drawing calls are only recorded, so tests can see what was drawn
+  getContext() {
+    if (!this.ops) return null;
+    const ops = this.ops; const ctx = {};
+    for (const m of ['clearRect', 'beginPath', 'moveTo', 'lineTo', 'stroke']) ctx[m] = (...a) => ops.push([m, ...a]);
+    return ctx;
+  }
+  set textContent(v) { this.text = String(v); }
+  get textContent() { return this.text; }
   setAttribute(k, v) { this.attrs.set(k, String(v)); if (k === 'type') this.type = String(v); }
   getAttribute(k) { return this.attrs.has(k) ? this.attrs.get(k) : null; }
   hasAttribute(k) { return this.attrs.has(k); }
@@ -88,7 +99,6 @@ class FakeElement extends FakeEventTarget {
     return out;
   }
   querySelector(sel) { return this.querySelectorAll(sel)[0] || null; }
-  get textContent() { return this.text; }
   dispatchEvent(ev) { return dispatch(this, ev, this.ownerDocument.win, this.ownerDocument); }
 }
 
@@ -168,19 +178,20 @@ function build(opts) {
     ['1', '2', '3', '4', '5'].forEach((ch, c) => addKey(ch, X0 + c * KW, Y0, KW)); // a symbols page: too few letters
   }
   addKey('Shift', X0, Y0 + 3 * KH, 2 * KW);
-  addKey('Space', X0 + 2 * KW, Y0 + 3 * KH, 4 * KW);
+  addKey(' ', X0 + 2 * KW, Y0 + 3 * KH, 4 * KW);
   addKey('Backspace', X0 + 6 * KW, Y0 + 3 * KH, 2 * KW);
   addKey('Enter', X0 + 8 * KW, Y0 + 3 * KH, 2 * KW);
+  addKey('CapsLock', X0 + 10 * KW, Y0 + 3 * KH, 2 * KW);   // (Steam's real key names: ' ' for Space, 'CapsLock'; M5 VM)
 
   // ---- Steam model
-  const S = { typed: [], log: [], latch: false, downKey: null, popup: null, popupTimer: null, repTimer: null, repeats: 0, t0: Date.now(), keydownAt: [], upAt: [], downs: new Map() };
+  const S = { typed: [], log: [], latch: 0, downKey: null, popup: null, popupTimer: null, repTimer: null, repeats: 0, t0: Date.now(), keydownAt: [], upAt: [], downs: new Map() };
   const now = () => Date.now() - S.t0;
   function labelCase() { for (const [n, el] of Object.entries(keyEls)) if (n.length === 1) el.text = S.latch ? n.toUpperCase() : n; }
   labelCase();
   function type(key) { // Steam's own typing: uses the latch, clears it
     const ch = key.length === 1 && S.latch ? key.toUpperCase() : key;
-    if (key.length === 1 && S.latch) { S.latch = false; labelCase(); }
-    S.typed.push(ch === 'Space' ? ' ' : ch === 'Backspace' ? '\b' : ch === 'Enter' ? '\r' : ch);
+    if (key.length === 1 && S.latch === 1) { S.latch = 0; labelCase(); }   // a one-shot clears with the key it capitalised; Caps Lock stays
+    S.typed.push(ch === ' ' ? ' ' : ch === 'Backspace' ? '\b' : ch === 'Enter' ? '\r' : ch);
     S.keydownAt.push(now());
   }
   const family = opts.steamFamily || 'pointer';
@@ -224,7 +235,8 @@ function build(opts) {
     closePopup();
     if (lit) { setTimeout(() => type(lit.getAttribute('data-key')), typeDelay); return; }
     if (popupWasOpen) { setTimeout(() => type(name), typeDelay); return; }
-    if (name === 'Shift') { S.latch = !S.latch; labelCase(); return; }
+    if (name === 'CapsLock') { S.latch = S.latch === 2 ? 0 : 2; labelCase(); return; }
+    if (name === 'Shift') { S.latch = (S.latch + 1) % 3; labelCase(); return; }   // M0: tap = one-shot, tap again = Caps Lock, again = off
     if (name === 'Backspace' && S.repeatedThisPress) return;
     setTimeout(() => type(name), typeDelay);
   }

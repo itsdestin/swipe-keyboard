@@ -29,7 +29,11 @@ function swipekbGestures(w, L, opts) {
   var KEY_SEL = dom.key_selector || '[data-key]';
   var MIN_LETTERS = dom.min_letter_keys || 24;
   var LITERAL = 'data-key-is-literal';   // M0: accent pop-up items carry this; they are never keys of ours
-  var MAX_POINTS = 4000;
+  // WHY 2000: the engine accepts at most 2048 points per swipe (protocol.hpp); 2000 points is about 16 s of finger.
+  var MAX_POINTS = 2000;
+  // WHY optional: the typing session (session.js) plugs in here; without it this file behaves exactly as in M4.
+  var H = opts.hooks || {};
+  function hook(name, a, b) { if (typeof H[name] === 'function') return H[name](a, b); }
 
   // Only one gesture layer may exist per page: a newer install replaces the older, never stacks.
   if (w.__swipekbGestures) { try { w.__swipekbGestures.off(); } catch (e) { /* the old one is going away anyway */ } }
@@ -73,8 +77,11 @@ function swipekbGestures(w, L, opts) {
   }
   function popupOpen() { return !!doc.querySelector('[' + LITERAL + ']'); }
   function passwordFocused() {
+    // WHY the session is asked first: it takes its own strip down at this very touch when the box is a password box, instead of
+    // leaving it on screen until its next timer tick.
+    if (hook('inert') === true) return true;     // the session's view: a password box, or the Private chip is on
     var a = doc.activeElement;
-    return !!(a && a.type === 'password');   // plan Section 8: the inert signal; checked on every touch, no round trip
+    return !!(a && a.type === 'password');       // plan Section 8: the inert signal; checked on every touch, no round trip
   }
 
   // ---- reading events ---------------------------------------------------------------------------------
@@ -139,6 +146,7 @@ function swipekbGestures(w, L, opts) {
     clearTimers();
     s.mode = 'pass';
     stats[why]++;
+    hook('uncertain');   // Steam will type this key itself (maybe an accent): the session cannot know which character
     replay(s, 'down');
   }
 
@@ -163,6 +171,8 @@ function swipekbGestures(w, L, opts) {
       // a second finger: it passes at once; if the first is still waiting on a letter it is released first
       if (st && st.mode === 'pending') promote(st, 'second');
       stats.pass++;
+      var n2 = e.target && e.target.closest ? e.target.closest(KEY_SEL) : null;
+      if (n2 && !n2.hasAttribute(LITERAL)) { var nm = n2.getAttribute('data-key'); hook('keyDown', nm); }
       return;
     }
     var node = e.target && e.target.closest ? e.target.closest(KEY_SEL) : null;
@@ -176,7 +186,12 @@ function swipekbGestures(w, L, opts) {
     var letters = 0, list = keys();
     for (var i = 0; i < list.length; i++) if (list[i].letter) letters++;
     // non-letters, a pop-up on screen, or a layout that is not letters (numbers/symbols/other scripts): straight through
-    if (!isLetter(name, node) || popupOpen() || letters < MIN_LETTERS) { stats.pass++; return; }
+    if (!isLetter(name, node) || popupOpen() || letters < MIN_LETTERS) {
+      stats.pass++;
+      // the session keeps a memory of what was typed: a plain non-letter key is known, anything else makes it uncertain
+      if (!isLetter(name, node) && !popupOpen() && letters >= MIN_LETTERS) hook('keyDown', name); else hook('uncertain');
+      return;
+    }
     s.mode = 'pending';
     s.keyList = list.filter(function (k) { return k.letter; });
     s.pts.push([p[0], p[1], 0]);
@@ -198,7 +213,8 @@ function swipekbGestures(w, L, opts) {
     if (st.mode === 'pending' && Math.sqrt((p[0] - st.x0) * (p[0] - st.x0) + (p[1] - st.y0) * (p[1] - st.y0)) > SWIPE_PX) {
       st.mode = 'swipe';
       if (holdTimer !== null) { clearT(holdTimer); holdTimer = null; }
-    }
+      hook('swipeStart', st.pts);
+    } else if (st.mode === 'swipe') hook('swipePoint', p[0], p[1]);
     armStuck();
     swallow(e);
   }
@@ -211,10 +227,12 @@ function swipekbGestures(w, L, opts) {
     st = null;
     if (s.mode === 'pending') {
       stats.tap++;
+      hook('keyTyped', s.key);   // before the replay, so the session still sees the Shift state this letter was typed under
       replay(s, 'down');   // WHY at the release itself: Steam types on release, so the letter lands when it always did
       replay(s, 'up');
     } else if (s.mode === 'swipe') {
       stats.swipe++;
+      hook('swipeEnd');
       emit(s);
     }
   }
@@ -232,6 +250,7 @@ function swipekbGestures(w, L, opts) {
     }
     if (st.mode === 'pass') {
       // Steam is following this finger itself. We are done with it once its first "up" arrives.
+      hook('keyUp', st.key);
       st = null; delete active[id]; recount();
       return;
     }
@@ -248,6 +267,7 @@ function swipekbGestures(w, L, opts) {
     if (!owns(e)) { delete active[fid(e)]; recount(); return; }
     if (st.mode === 'pass') { st = null; delete active[fid(e)]; recount(); return; }
     swallow(e);   // a cancelled touch types nothing
+    if (st.mode === 'swipe') hook('swipeEnd');
     var s = st; clearTimers();
     tail = { id: isTouchEv(e) ? s.pid : s.tid, until: now() + 600 }; if (tail.id === null) tail = null;
     st = null; active = {}; activeN = 0;
@@ -258,7 +278,8 @@ function swipekbGestures(w, L, opts) {
   function emit(s) {
     var msg = { v: 1, type: 'stroke', id: ++strokeId, trace: s.pts, vw: w.innerWidth, vh: w.innerHeight,
       keys: s.keyList.map(function (k) { return { k: k.key, x: Math.round(k.x * 10) / 10, y: Math.round(k.y * 10) / 10, w: Math.round(k.w), h: Math.round(k.h) }; }) };
-    L.lastStroke = msg;   // kept in page memory only (M5 decides what else happens to it)
+    L.lastStroke = msg;   // kept in page memory only; the next stroke replaces it
+    if (typeof H.stroke === 'function') { H.stroke(msg); return; }   // the session adds context and policy, then sends it
     try { if (typeof w.__swipekb === 'function') w.__swipekb(JSON.stringify(msg)); } catch (err) { /* helper gone: the swipe just does nothing */ }
   }
 
@@ -302,7 +323,24 @@ function swipekbGestures(w, L, opts) {
     if (w.__swipekbGestures === api) delete w.__swipekbGestures;
   }
 
+  // A tap made by the layer itself (the session uses it to switch Steam's Shift latch off after a swiped word). Marked as ours,
+  // so the arbiter ignores it and Steam sees an ordinary tap on that key.
+  function tapKey(name) {
+    var list = doc.querySelectorAll(KEY_SEL);
+    for (var i = 0; i < list.length; i++) {
+      var n = list[i];
+      if (n.getAttribute('data-key') !== name || n.hasAttribute(LITERAL)) continue;
+      if (n.parentElement && n.parentElement.closest(KEY_SEL)) continue;
+      var r = n.getBoundingClientRect();
+      var s = { target: n, x0: r.left + r.width / 2, y0: r.top + r.height / 2, pidNum: 98, tidNum: 98, ptype: 'touch', sawPointer: true, sawTouch: true };
+      replay(s, 'down'); replay(s, 'up');
+      return true;
+    }
+    return false;
+  }
+
   var api = {
+    tapKey: tapKey,
     off: off,
     state: function () { return state; },
     reason: function () { return reason; },
