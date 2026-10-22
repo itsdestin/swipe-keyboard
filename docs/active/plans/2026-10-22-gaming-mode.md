@@ -333,3 +333,14 @@ Rig: `start-gaming.sh` boots the SteamOS guest straight into real Gaming Mode (v
 ## 16. Acceptance of the whole plan
 
 Complete when M0 to M10 are green in the VM, M11 is done by the owner on a real Deck, the canary has run unattended for a week with at least one deliberate-failure test, the README states the terms warning and password limits in plain words, and the stock Steam keyboard has been shown to work after every injected failure.
+
+## M2 status (engine daemon) - 2026-10-22
+
+Built on branch `feature/168-gm-engine-daemon`: `gaming/daemon/` (`protocol.hpp` holds the wire protocol, version 1, documented at the top of the file; `protocol.cpp`, `server.*`, `main.cpp`), tests in `tests/gaming/` (`test_protocol.cpp`, `test_daemon.py`), CTest names `gaming_protocol` and `gaming_daemon`. `tools/swipekb-replay` gained `--candidates-json` (exact guesses and scores) so it can serve as the equivalence oracle.
+
+Measured on the host (not the Deck): first 50 swipes of the bench corpus give identical candidates and scores from the daemon and `swipekb-replay`; idle memory 11.6 MB fresh, about 200 MB with models loaded, 16.2 MB after unload (budget 30 MB); idle CPU under 1%; daemon works under `unshare -rn`.
+
+Decisions and gaps for later milestones:
+- Protocol: a "mode" per connection (`unknown` default, `plain`). Neither stores or learns text. `unknown` accepts at most 12 context words and drops secret-looking text (swipe context dropped; next-word request answered empty). Candidate ids are random, valid only for the latest request on the same connection; `commit` returns the word text only for an issued id.
+- English only for now: the daemon loads the English model set. Spanish/French/German need the language-profile resolution the plugin does (M13 area). The daemon returns the engine's raw top-k; the plugin's regional re-ranking and "other spelling" insertion are not applied yet. Capitalisation is left to the layer.
+- Packaging for M10: the Flatpak build now passes `-DSWIPEKB_INSTALL_GAMINGD=ON` so `/app/bin/swipekb-gamingd` exists. NOT done: the `--filesystem=xdg-run/swipekb` finish-arg (without it the socket lives in the app's private runtime dir and the helper cannot reach it), the systemd unit, adding the binary to the ELF check list in `build-swipe.sh`, and a packaging test that native Arch/Fedora packages ship no daemon (the option is off by default, which keeps them clean).
