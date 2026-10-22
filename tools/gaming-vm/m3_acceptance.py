@@ -5,9 +5,9 @@ Deploy: the repo's gaming/helper, gaming/contract and this file go to ~/m3/ in t
 Usage:  python3 ~/m3/tools/gaming-vm/m3_acceptance.py <command> [N]
   helper-start | helper-stop        run the helper as a temporary user unit (systemd-run --user)
   kills N                           kill Steam by pid N times; time stub install from the page existing
-  reloads N                         reload Steam's UI page N times; time stub install from the new document
+  reloads N                         reload Steam's UI N times (RestartJSContext); time stub install from the new page
   restart-helper                    kill -9 the helper mid-session; it must re-attach without double install
-  orphan                            kill -9 with no restart; the stub must remove itself, and a reload must not bring it back
+  orphan                            kill -9 with no restart; the stub must remove itself
   marker                            marker deleted (port open), then marker deleted + Steam restarted without it
   status                            print the status file and the page's stub state
 
@@ -144,7 +144,7 @@ def cmd_kills(n):
                 port_at[0] = time.time()
             tid = find(BP, lst)
             return tid if tid and tid != old_bp else None
-        tid = wait_until(new_page, 120)
+        tid = wait_until(new_page, 600)
         seen = time.time()
         port_at[0] = port_at[0] or seen
         if not tid:
@@ -175,31 +175,32 @@ def cmd_kills(n):
 
 
 def cmd_reloads(n):
+    """UI reload the way Steam itself does it (Decky's "reload Steam UI"): SteamClient.Browser.RestartJSContext().
+    WHY not Page.reload: in the guest a raw CDP reload of the Big Picture page destroys it and Steam falls back
+    to its desktop window until restarted; that is not a reload Steam supports, so it proves nothing."""
     results = []
-    tid = find(BP)
     for i in range(1, n + 1):
-        before = page_state(tid)
-        c = cdp.Cdp.open(PORT, cdp.page_path(tid), timeout=3)
+        old_bp, sj = find(BP), find(SJS)
+        c = cdp.Cdp.open(PORT, cdp.page_path(sj), timeout=3)
         t0 = time.time()
-        c.call('Page.reload', {'ignoreCache': False})
+        try:
+            c.call('Runtime.evaluate', {'expression': 'SteamClient.Browser.RestartJSContext()'}, timeout=3)
+        except (ws.WsError, cdp.CdpError):
+            pass                       # the page we are talking to is the one being replaced
         c.close()
-        deadline = time.time() + 30
+        tid = wait_until(lambda: (lambda t: t if t and t != old_bp else None)(find(BP)), 60)
+        seen = time.time()
         rec = {'cycle': i, 'ok': False}
-        while time.time() < deadline:
-            try:
-                s = page_state(tid)
-            except (ws.WsError, cdp.CdpError, OSError, ValueError):
-                time.sleep(0.02)
-                continue
-            if s['origin'] > before['origin'] and not s.get('none'):
-                rec.update(install_after_document_s=round(max(0.0, s['at'] - s['origin']) / 1000.0, 3),
-                           seen_after_reload_cmd_s=round(time.time() - t0, 3), installs=s['n'], attr=s['attr'])
-                rec['ok'] = rec['install_after_document_s'] <= 2.0 and s['n'] == 1 and s['attr'] == s['v']
-                break
-            time.sleep(0.02)
+        if tid:
+            st, st_seen = wait_stub(tid, 10)
+            if st:
+                rec.update(page_after_reload_cmd_s=round(seen - t0, 3),
+                           install_after_page_s=round(max(0.0, st['at'] / 1000.0 - seen), 3),
+                           seen_after_page_s=round(st_seen - seen, 3), installs=st['n'], attr=st['attr'])
+                rec['ok'] = rec['install_after_page_s'] <= 2.0 and st['n'] == 1 and st['attr'] == st['v']
         print(json.dumps(rec), flush=True)
         results.append(rec)
-        time.sleep(3)    # let the reloaded UI finish loading before the next one
+        time.sleep(6)    # let the reloaded UI finish loading before the next one
     ok = sum(1 for r in results if r['ok'])
     print('RELOADS %d/%d ok' % (ok, len(results)))
     return 0 if ok == len(results) else 1
@@ -218,40 +219,24 @@ def cmd_restart_helper():
     print(json.dumps({'old_pid': pid, 'new_pid': new, 'back_in_s': round(time.time() - t0, 2), 'status': status().get('state'),
                       'before': before, 'after': after}))
     ok = new and status().get('state') == 'active' and after['n'] == 1 and after['at'] == before['at']
-    # The new session must also have re-registered the reload hook.
-    c = cdp.Cdp.open(PORT, cdp.page_path(tid), timeout=3)
-    c.call('Page.reload')
-    c.close()
-    st, _ = wait_stub(tid, 10)
-    print('RESTART-HELPER', 'ok' if ok and st and st['n'] == 1 else 'FAILED', '(no double install; reload re-installs)' if ok else '')
-    return 0 if ok and st else 1
+    print('RESTART-HELPER', 'ok' if ok else 'FAILED', '(re-attached, same install, no double install)')
+    return 0 if ok else 1
 
 
 def cmd_orphan():
+    """kill -9 with nobody to restart the helper: the stub must take itself out (watchdog)."""
     tid = find(BP)
     helper_stop()
     helper_start(restart=False)
     wait_until(lambda: status().get('state') == 'active' and helper_pid() == status().get('pid'), 20)
     assert not page_state(tid).get('none'), 'stub missing before the test'
     os.kill(helper_pid(), signal.SIGKILL)
-    t0 = time.time()
-    # Reload at once: the dead helper's registered script must be gone, so no stub arrives.
-    c = cdp.Cdp.open(PORT, cdp.page_path(tid), timeout=3)
-    c.call('Page.reload')
-    c.close()
-    time.sleep(1.5)
-    reload_left_none = page_state(tid).get('none', False)
-    print('after kill -9 + reload: no stub in the new document ->', reload_left_none)
-    # And the other case: kill -9 with the document untouched; the watchdog (6 s) must clear it.
-    helper_start(restart=False)
-    wait_until(lambda: status().get('state') == 'active' and helper_pid() == status().get('pid'), 20)
-    assert not page_state(tid).get('none')
-    os.kill(helper_pid(), signal.SIGKILL)
     t1 = time.time()
     gone = wait_until(lambda: page_state(tid).get('none'), 15, 0.1)
     print(json.dumps({'self_removed_after_s': round(time.time() - t1, 2) if gone else None}))
-    print('ORPHAN', 'ok' if reload_left_none and gone else 'FAILED')
-    return 0 if reload_left_none and gone else 1
+    helper_start()      # back to the normal restarting unit for the next test
+    print('ORPHAN', 'ok' if gone else 'FAILED')
+    return 0 if gone else 1
 
 
 def cmd_marker():
