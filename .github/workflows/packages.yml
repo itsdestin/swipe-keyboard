@@ -60,6 +60,7 @@ jobs:
           python3 -m unittest discover -s tests/packaging -p test_release.py -v
           python3 -m unittest discover -s tests/packaging -p test_publish.py -v
           python3 -m unittest discover -s tests/packaging -p test_release_workflow.py -v
+          python3 -m unittest discover -s tests/packaging -p test_release_steamos.py -v
       - uses: actions/upload-artifact@v4
         with:
           name: prepared
@@ -410,10 +411,79 @@ jobs:
           if-no-files-found: error
           retention-days: 7
           compression-level: 0
+  steamos:
+    # WHY its own producer: the single SteamOS download (both Flatpaks + install.sh + checksums, plan Section 15
+    # question 2) is a required release file like every other target, so it is built, checked and gated here.
+    needs: [prepare, flatpak]
+    runs-on: ubuntu-26.04
+    env:
+      PACKAGE_VERSION: ${{ needs.prepare.outputs.package_version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Free hosted-runner space and install isolated build tools
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder
+          flatpak_version=$(flatpak --version)
+          dpkg --compare-versions "${flatpak_version#Flatpak }" ge 1.16
+      # WHY the flatpak job's bundle and not a rebuild: the download must carry the very bytes released on their
+      # own. scripts/release.py gate compares the hash recorded here with the standalone Flatpak's.
+      - uses: actions/download-artifact@v4
+        with:
+          name: flatpak-files
+          path: flatpak-files
+      - name: Install signed exact SDK and platform commits
+        run: |
+          flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user --noninteractive -y flathub org.kde.Sdk//6.10 org.kde.Platform//6.10
+          python3 - <<'PY'
+          import json, subprocess
+          pins = json.load(open('packaging/flatpak/runtime-lock.json'))
+          for name in ('org.kde.Sdk', 'org.kde.Platform'):
+              subprocess.run(['flatpak', 'update', '--user', '--noninteractive', '-y', '--commit=' + pins[name], name + '//6.10'], check=True)
+          PY
+      - name: Build the GamingHelper Flatpak
+        run: |
+          # WHY a plain message first: the helper source is written separately; a missing folder must say so, not fail obscurely.
+          test -f gaming/helper/swipekb_helper/__main__.py || { echo 'gaming/helper/swipekb_helper/__main__.py is missing: the Gaming Mode helper is not in this commit.' >&2; exit 1; }
+          python3 packaging/flatpak/build.py helper-build --repo helper-repo --ci-manifest packaging/flatpak/org.itsdestin.SwipeKeyboard.GamingHelper.json
+          mkdir helper-bundle
+          flatpak build-bundle --arch=x86_64 helper-repo helper-bundle/helper.flatpak org.itsdestin.SwipeKeyboard.GamingHelper master
+      - name: Install the helper bundle and check its permissions
+        run: |
+          flatpak install --user --noninteractive -y helper-bundle/helper.flatpak
+          test "$(flatpak info --user --show-ref org.itsdestin.SwipeKeyboard.GamingHelper)" = app/org.itsdestin.SwipeKeyboard.GamingHelper/x86_64/master
+          # WHY: network is the helper's one extra permission (plan Section 9); fail if it gained anything else.
+          permissions=$(flatpak info --user --show-permissions org.itsdestin.SwipeKeyboard.GamingHelper)
+          echo "$permissions"
+          grep -qx 'shared=network;' <<<"$permissions"
+          ! grep -E '^(sockets|devices|features)=' <<<"$permissions"
+      - name: Assemble and check the single SteamOS download
+        run: |
+          mkdir release evidence
+          python3 scripts/steamos_bundle.py assemble --main-bundle "flatpak-files/swipe-keyboard-$PACKAGE_VERSION-x86_64.flatpak" --helper-bundle helper-bundle/helper.flatpak --version "$PACKAGE_VERSION" --out release
+          python3 scripts/release.py record --target steamos --sha "$GITHUB_SHA"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: steamos-files
+          path: release/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: steamos-evidence
+          path: evidence/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
   keyboard-ci:
     name: Keyboard CI
     if: ${{ always() }}
-    needs: [prepare, arch, fedora, fedora-arm64, flatpak]
+    needs: [prepare, arch, fedora, fedora-arm64, flatpak, steamos]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4

@@ -13,9 +13,11 @@ cmake -S . -B build-flatpak -G Ninja -DCMAKE_INSTALL_PREFIX=/app -DCMAKE_INSTALL
 cmake --build build-flatpak -j2
 QT_QPA_PLATFORM=offscreen ctest --test-dir build-flatpak --output-on-failure
 cmake --install build-flatpak
+# WHY swipekb-gamingd is in the ELF list: it is the Gaming Mode engine daemon (plan Section 4) and ships only
+# in this Flatpak, so this is the one place its installed bytes get the same Qt-ABI check as the plugin.
 # WHY installed bytes, not only build-tree ctest: catch broken RPATH/QML imports in the SDK.
 python3 scripts/check-stock-layout.py build-flatpak/plugin/tst_stocklayout --runtime-root /app/share/swipe-keyboard --stock-layouts /app/share/plasma/keyboard/layouts --backend-qml-dir /app/lib/qml
-python3 scripts/package-check.py --elf /app/share/swipe-keyboard/qml/SwipeKeyboard/*.so /app/share/swipe-keyboard/integration/swipekb-preflight /app/share/swipe-keyboard/integration/swipekb-config /app/share/swipe-keyboard/integration/swipekb-profilecheck
+python3 scripts/package-check.py --elf /app/share/swipe-keyboard/qml/SwipeKeyboard/*.so /app/share/swipe-keyboard/integration/swipekb-preflight /app/share/swipe-keyboard/integration/swipekb-config /app/share/swipe-keyboard/integration/swipekb-profilecheck /app/bin/swipekb-gamingd
 for library in /app/share/swipe-keyboard/qml/SwipeKeyboard/*.so; do
     ldd "$library" > /tmp/swipe-ldd
     if grep -q 'not found' /tmp/swipe-ldd; then cat /tmp/swipe-ldd; exit 1; fi

@@ -1,0 +1,19 @@
+# swipekb-gaming-managed
+# swipekb-gaming-version: @VERSION@
+# WHY the two lines above: install.sh and uninstall.sh only overwrite or delete a unit file that carries them,
+# so a file of yours with the same name is never touched.
+[Unit]
+Description=Swipe Keyboard Gaming Mode engine (word guessing; no network)
+StartLimitIntervalSec=300
+StartLimitBurst=30
+
+[Service]
+# WHY the Flatpak app id and not a path: a Flatpak update replaces the files this runs from, so a path would
+# go stale; the app id always points at the current version.
+# WHY no session settings: this starts at boot, before Gaming Mode exists (plan Section 6, M0 results).
+ExecStart=/usr/bin/flatpak run --user --command=swipekb-gamingd org.itsdestin.SwipeKeyboard
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=default.target

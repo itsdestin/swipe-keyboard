@@ -1,0 +1,34 @@
+#!/bin/sh
+# Installs the Gaming Mode helper (gaming/helper/swipekb_helper, plain Python, standard library only) into the
+# GamingHelper Flatpak. Run by flatpak-builder from the copied source tree; SWIPEKB_HELPER_PREFIX exists only so
+# the packaging tests can run this into a temporary folder instead of /app.
+set -eu
+PREFIX="${SWIPEKB_HELPER_PREFIX:-/app}"
+# WHY the check comes first: the helper is written on another branch. Until it lands the manifest still parses
+# (gaming/ always exists), so without this line the build would "succeed" with an empty app that does nothing.
+if [ ! -f gaming/helper/swipekb_helper/__main__.py ]; then
+    echo 'GamingHelper build: gaming/helper/swipekb_helper/__main__.py is missing. The helper source has not been merged into this branch yet; nothing was built.' >&2
+    exit 1
+fi
+install -d "$PREFIX/lib/swipekb-helper" "$PREFIX/share/swipekb-helper" "$PREFIX/bin"
+cp -a gaming/helper/swipekb_helper "$PREFIX/lib/swipekb-helper/"
+# WHY: never ship compiled leftovers from a developer checkout; /app is read-only at run time.
+find "$PREFIX/lib/swipekb-helper" -name __pycache__ -prune -exec rm -rf {} +
+# WHY: the same contract file the daily canary checks (plan Section 11); the helper reads it at run time.
+install -m644 gaming/contract/gaming-contract.json "$PREFIX/share/swipekb-helper/gaming-contract.json"
+# TODO(M10, layer author to confirm): the injected page layer (gaming/layer, plan Section 4) ships as data inside
+# this app. Its built location is not settled, so copy the folder when it exists and say so loudly when it does not.
+if [ -d gaming/layer ]; then
+    cp -a gaming/layer "$PREFIX/share/swipekb-helper/layer"
+else
+    echo 'GamingHelper build: note, gaming/layer is absent; the helper will have no page layer to inject.' >&2
+fi
+# WHY a fixed PYTHONPATH and -s: the helper talks to Steam's debug port, so it must never import code from a
+# path supplied by the caller's environment or the user's site folder. /app is read-only: no bytecode writes.
+cat > "$PREFIX/bin/swipekb-helper" <<'WRAPPER'
+#!/bin/sh
+export PYTHONPATH=/app/lib/swipekb-helper
+export PYTHONDONTWRITEBYTECODE=1
+exec python3 -s -m swipekb_helper "$@"
+WRAPPER
+chmod 755 "$PREFIX/bin/swipekb-helper"
