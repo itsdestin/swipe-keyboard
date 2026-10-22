@@ -35,9 +35,26 @@ case "$1" in
 esac
 exit 0
 '''
+# WHY the root marker: calls made through the stand-in sudo are logged as "root-systemctl", so a test can tell the
+# few administrator-level commands from the user-level ones.
+# The fake SteamOS: `cat` of the socket unit succeeds unless FAKE_NO_SOCKET is set, and restarting that socket makes
+# port 8081 listen on every interface (the SteamOS default) or, when our drop-in file exists, on this device only.
 SYSTEMCTL = '''#!/bin/sh
-printf 'systemctl %s\\n' "$*" >> "$FAKE_LOG"
+if [ -n "$FAKE_ROOT" ]; then printf 'root-systemctl %s\\n' "$*" >> "$FAKE_LOG"; else printf 'systemctl %s\\n' "$*" >> "$FAKE_LOG"; fi
+case "$1" in
+  cat) [ -z "$FAKE_NO_SOCKET" ]; exit $? ;;
+  restart) case "$2" in steam-web-debug-portforward.socket)
+      if [ -f "$SWIPEKB_SYSTEM_UNIT_DIR/steam-web-debug-portforward.socket.d/swipekb-loopback-only.conf" ] && [ -z "$FAKE_STUCK_OPEN" ]; then
+        a=0100007F; else a=00000000; fi
+      printf 'header\\n   0: %s:1F91 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 1 1 0 100 0 0 10 0\\n' "$a" > "$SWIPEKB_PROC_NET/tcp";; esac ;;
+esac
 exit 0
+'''
+SUDO = '''#!/bin/sh
+printf 'sudo %s\\n' "$*" >> "$FAKE_LOG"
+[ "$FAKE_SUDO" = deny ] && { echo 'sudo: a password is required' >&2; exit 1; }
+[ "$1" = -v ] && exit 0
+FAKE_ROOT=1 exec "$@"
 '''
 
 
@@ -54,7 +71,7 @@ class Fixture:
         self.apps.write_text('')
         shims, tools = base / 'shims', base / 'tools'
         shims.mkdir(), tools.mkdir()
-        for name, body in (('flatpak', FLATPAK), ('systemctl', SYSTEMCTL)):
+        for name, body in (('flatpak', FLATPAK), ('systemctl', SYSTEMCTL), ('sudo', SUDO)):
             (shims / name).write_text(body)
             (shims / name).chmod(0o755)
         for name in TOOLS:
@@ -62,6 +79,12 @@ class Fixture:
             if found:
                 (tools / name).symlink_to(found)
         self.shims, self.tools = shims, tools
+        self.sysdir = base / 'etc-systemd-system'          # stands in for /etc/systemd/system
+        self.sysdir.mkdir()
+        self.proc = base / 'proc-net'                       # stands in for /proc/net; starts like SteamOS: 8081 open to all
+        self.proc.mkdir()
+        (self.proc / 'tcp').write_text('header\n   0: 00000000:1F91 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 1 1 0 100 0 0 10 0\n')
+        (self.proc / 'tcp6').write_text('header\n')
         self.steam = self.home / '.local/share/Steam'
         if steam:
             self.steam.mkdir(parents=True)
@@ -90,8 +113,12 @@ class Fixture:
             lines.append(f'{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}\n')
         (self.bundle / 'SHA256SUMS').write_text(''.join(lines))
 
-    def run(self, script, *args, stdin='y\n', fail=None, shims=True):
-        env = {'HOME': str(self.home), 'PATH': (str(self.shims) + ':' if shims else '') + str(self.tools),
+    @property
+    def dropin(self):
+        return self.sysdir / 'steam-web-debug-portforward.socket.d/swipekb-loopback-only.conf'
+
+    def run(self, script, *args, stdin='y\n', fail=None, shims=True, extra=None):
+        env = {'SWIPEKB_SYSTEM_UNIT_DIR': str(self.sysdir), 'SWIPEKB_PROC_NET': str(self.proc), **(extra or {}), 'HOME': str(self.home), 'PATH': (str(self.shims) + ':' if shims else '') + str(self.tools),
                'LANG': 'C', 'FAKE_LOG': str(self.log), 'FAKE_APPS': str(self.apps), 'FAKE_FAIL': fail or ''}
         return subprocess.run(['bash', str(self.bundle / script), *args], input=stdin, env=env,
                               capture_output=True, text=True, timeout=60)
@@ -133,7 +160,7 @@ class InstallTests(unittest.TestCase):
         f = Fixture(self)
         out = f.run('install.sh', '--dry-run', stdin='').stdout
         for phrase in ('developer switch', 'other devices', '8081', 'has not approved this', 'Subscriber Agreement',
-                       'no administrator', 'Nothing is sent to the internet', 'Gaming Mode', 'uninstall.sh',
+                       'administrator password', 'Second question', 'Block other devices', 'Leave it open', 'Nothing is sent to the internet', 'Gaming Mode', 'uninstall.sh',
                        'restart Steam'):
             self.assertIn(phrase, out)
 
@@ -150,7 +177,7 @@ class InstallTests(unittest.TestCase):
 
     def test_install_creates_marker_units_record_and_runs_user_services(self):
         f = Fixture(self)
-        result = f.run('install.sh')
+        result = f.run('install.sh', '--gaming', '--block-outside')
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertTrue((f.steam / MARKER).is_file())
         engine = (f.units / 'swipekb-engine.service').read_text()
@@ -175,22 +202,28 @@ class InstallTests(unittest.TestCase):
     def test_only_user_scope_commands_are_ever_run(self):
         # WHY: no sudo, no system-wide Flatpak, no system service (plan Section 5).
         f = Fixture(self)
-        f.run('install.sh')
+        f.run('install.sh', '--gaming', '--block-outside')
         f.run('uninstall.sh', '--yes', '--remove-apps')
         for call in f.calls():
+            if call.startswith(('sudo ', 'root-systemctl ')) or call == 'systemctl cat steam-web-debug-portforward.socket':
+                continue   # the few administrator steps are pinned by the outside-door tests below
             self.assertIn('--user', call, call)
         for script in ('install.sh', 'uninstall.sh'):
             # WHY comments are skipped: the header says "No sudo"; only executable lines and messages matter.
             text = '\n'.join(l for l in (SETUP / script).read_text().splitlines() if not l.lstrip().startswith('#'))
-            for forbidden in ('sudo', 'pkexec', 'doas', 'firewall-cmd', 'nft ', 'iptables', 'steamos-readonly', '/usr/lib/systemd/system'):
+            for forbidden in ('pkexec', 'doas', 'firewall-cmd', 'nft ', 'iptables', 'steamos-readonly', '/usr/lib/systemd/system'):
                 self.assertNotIn(forbidden, text, f'{script} contains {forbidden}')
+            # WHY a whitelist: administrator rights are used for exactly these actions on our one drop-in file, nothing else.
+            for line in text.splitlines():
+                if 'sudo' in line:
+                    self.assertRegex(line.strip(), r'^(if ! |\{ )?(command -v sudo|sudo -v|sudo (mkdir -p|rm -f|rmdir|systemctl (daemon-reload|restart)|tee)\b)|sudo -v;|&& sudo|\| sudo tee|\{ sudo mkdir', f'{script}: {line}')
 
     def test_existing_marker_is_left_alone_and_recorded_as_not_ours(self):
         f = Fixture(self)
         marker = f.steam / MARKER
         marker.write_text('decky was here')
         os.utime(marker, (1000, 1000))
-        result = f.run('install.sh')
+        result = f.run('install.sh', '--gaming', '--block-outside')
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(marker.read_text(), 'decky was here')
         self.assertEqual(marker.stat().st_mtime, 1000)
@@ -202,9 +235,9 @@ class InstallTests(unittest.TestCase):
         # WHY: on the second run the marker exists because WE made it; the record must not flip to "not ours",
         # or uninstall would leave the developer switch on.
         f = Fixture(self)
-        f.run('install.sh')
+        f.run('install.sh', '--gaming', '--block-outside')
         first = {k: v for k, v in f.snapshot().items() if k != '.local/share/swipe-keyboard-gaming/install-record.json'}
-        result = f.run('install.sh')
+        result = f.run('install.sh', '--gaming', '--block-outside')
         self.assertEqual(result.returncode, 0, result.stderr)
         second = {k: v for k, v in f.snapshot().items() if k != '.local/share/swipe-keyboard-gaming/install-record.json'}
         self.assertEqual(first, second)
@@ -215,14 +248,14 @@ class InstallTests(unittest.TestCase):
 
     def test_steam_folder_reached_two_ways_gets_one_marker(self):
         f = Fixture(self, symlink=True)
-        result = f.run('install.sh')
+        result = f.run('install.sh', '--gaming', '--block-outside')
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(f.record()['created_markers'], [str(f.steam / MARKER)])
 
     def test_refuses_when_steam_has_never_run(self):
         f = Fixture(self, steam=False)
         before = f.snapshot()
-        result = f.run('install.sh')
+        result = f.run('install.sh', '--gaming', '--block-outside')
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('Steam', result.stderr)
         self.assertEqual(f.snapshot(), before)
@@ -232,7 +265,7 @@ class InstallTests(unittest.TestCase):
         f = Fixture(self)
         (f.bundle / 'swipe-keyboard-0.3.1-1-x86_64.flatpak').write_bytes(b'tampered')
         before = f.snapshot()
-        result = f.run('install.sh')
+        result = f.run('install.sh', '--gaming', '--block-outside')
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('checksum', result.stderr.lower())
         self.assertEqual(f.snapshot(), before)
@@ -240,7 +273,7 @@ class InstallTests(unittest.TestCase):
 
     def test_refuses_without_flatpak_or_systemctl(self):
         f = Fixture(self)
-        result = f.run('install.sh', shims=False)
+        result = f.run('install.sh', '--gaming', '--block-outside', shims=False)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('flatpak', result.stderr)
         self.assertEqual(f.snapshot(), {})
@@ -250,7 +283,7 @@ class InstallTests(unittest.TestCase):
         f.units.mkdir(parents=True)
         (f.units / 'swipekb-helper.service').write_text('[Service]\nExecStart=/bin/true\n')
         before = f.snapshot()
-        result = f.run('install.sh')
+        result = f.run('install.sh', '--gaming', '--block-outside')
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('swipekb-helper.service', result.stderr)
         self.assertEqual(f.snapshot(), before)  # refused up front: not even the marker was made
@@ -258,48 +291,298 @@ class InstallTests(unittest.TestCase):
     def test_flatpak_failure_leaves_no_marker_or_units(self):
         # WHY: the network-dependent step runs first so a failure cannot leave a half-installed system.
         f = Fixture(self)
-        result = f.run('install.sh', fail='install')
+        result = f.run('install.sh', '--gaming', '--block-outside', fail='install')
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse((f.steam / MARKER).exists())
         self.assertFalse(f.units.exists())
 
     def test_skip_flatpaks_installs_no_apps_and_records_none(self):
         f = Fixture(self)
-        result = f.run('install.sh', '--skip-flatpaks')
+        result = f.run('install.sh', '--gaming', '--block-outside', '--skip-flatpaks')
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual([c for c in f.calls() if c.startswith('flatpak install')], [])
         self.assertEqual(f.record()['installed_flatpaks'], [])
 
     def test_upgrade_rewrites_stamped_units_restarts_and_refuses_downgrade(self):
         f = Fixture(self)
-        f.run('install.sh')
+        f.run('install.sh', '--gaming', '--block-outside')
         f.make_bundle('0.3.2-1')
         f.log.write_text('')
-        result = f.run('install.sh')
+        result = f.run('install.sh', '--gaming', '--block-outside')
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual((f.units / 'swipekb-engine.service').read_text().splitlines()[1], '# swipekb-gaming-version: 0.3.2-1')
         self.assertIn('systemctl --user restart swipekb-engine.service swipekb-helper.service', f.calls())
         self.assertEqual(f.record()['version'], '0.3.2-1')
         self.assertEqual(f.record()['created_markers'], [str(f.steam / MARKER)])
         f.make_bundle('0.3.1-1')
-        result = f.run('install.sh')
+        result = f.run('install.sh', '--gaming', '--block-outside')
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('older', result.stderr)
         self.assertEqual(f.record()['version'], '0.3.2-1')
-        self.assertEqual(f.run('install.sh', '--force').returncode, 0)
+        self.assertEqual(f.run('install.sh', '--gaming', '--block-outside', '--force').returncode, 0)
         self.assertEqual(f.record()['version'], '0.3.1-1')
 
-    def test_network_exposure_hook_is_present_but_does_nothing(self):
-        # Plan Section 15 question 18 is an open owner decision: the 8081 hardening is NOT built yet.
-        text = (SETUP / 'install.sh').read_text()
-        self.assertIn('network_exposure_hook', text)
-        self.assertIn('OWNER DECISION', text)
-        self.assertIn('question 18', text)
-        body = text[text.index('network_exposure_hook() {'):]
-        body = body[:body.index('\n}\n')]
-        code = [l for l in body.splitlines()[1:] if l.strip() and not l.strip().startswith('#')]
-        self.assertEqual(code, ['    :'])
+def sys_files(f):
+    return sorted(str(p.relative_to(f.sysdir)) for p in f.sysdir.rglob('*') if p.is_file())
 
+
+def door_open(f):
+    """Is 8081 listening on every interface in the fake /proc/net/tcp (what SteamOS does by default)?"""
+    return '00000000:1F91' in (f.proc / 'tcp').read_text()
+
+
+class ChoiceTests(unittest.TestCase):
+    """The two owner choices (2026-10-22): Gaming Mode on or off, and, only with Gaming Mode, block other devices or leave open."""
+    def gaming_state_file(self, f):
+        return f.home / '.local/state/swipekb-gaming/outside-access'
+
+    def test_a_first_install_with_no_choice_is_desktop_only_and_asks_for_nothing(self):
+        # WHY: pressing Enter, or running with --yes, must never switch on a Valve developer feature or ask for a password.
+        for args, stdin in (((), '\ny\n'), (('--yes',), '')):
+            with self.subTest(args=args):
+                f = Fixture(self)
+                result = f.run('install.sh', *args, stdin=stdin)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertFalse((f.steam / MARKER).exists())
+                self.assertFalse(f.units.exists())
+                self.assertEqual(sys_files(f), [])
+                self.assertEqual([c for c in f.calls() if c.startswith(('sudo', 'root-', 'systemctl'))], [])
+                installs = [c for c in f.calls() if c.startswith('flatpak install')]
+                self.assertEqual(len(installs), 1)
+                self.assertIn('swipe-keyboard-0.3.1-1', installs[0])
+                self.assertEqual(f.record()['installed_flatpaks'], [MAIN_ID])
+                self.assertTrue(door_open(f))   # we changed nothing about the network
+
+    def test_desktop_only_works_even_when_steam_has_never_run(self):
+        f = Fixture(self, steam=False)
+        result = f.run('install.sh', '--desktop-only')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('Gaming Mode is not available', result.stdout)
+
+    def test_gaming_with_block_closes_the_door_before_the_switch_and_records_it(self):
+        f = Fixture(self)
+        result = f.run('install.sh', '--gaming', '--block-outside')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual((f.dropin).read_text(), '\n'.join([
+            '# swipekb-gaming-managed',
+            '# Written by the Swipe Keyboard installer. Makes SteamOS answer Steam debug requests from this Deck only,',
+            '# not from other devices on the network. Remove with: bash uninstall.sh (or delete this file, then',
+            '# run: systemctl daemon-reload && systemctl restart steam-web-debug-portforward.socket).',
+            '[Socket]', 'ListenStream=', 'ListenStream=127.0.0.1:8081', '']))
+        self.assertFalse(door_open(f))
+        record = f.record()
+        self.assertEqual(record['created_system_files'], [str(f.dropin)])
+        self.assertEqual(record['outside_access'], 'blocked')
+        self.assertEqual(self.gaming_state_file(f).read_text().strip(), 'blocked')
+        calls = f.calls()
+        restart = calls.index('root-systemctl restart steam-web-debug-portforward.socket')
+        self.assertIn('root-systemctl daemon-reload', calls[:restart])
+        # the door is shut before the helper app, the switch file or the services exist
+        self.assertLess(restart, next(i for i, c in enumerate(calls) if c.startswith('flatpak install') and 'GamingHelper' not in c and 'gaming-helper' in c))
+        self.assertTrue((f.steam / MARKER).is_file())
+
+    def test_gaming_with_leave_open_needs_no_password_and_changes_no_system_file(self):
+        f = Fixture(self)
+        result = f.run('install.sh', '--gaming', '--leave-open')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual([c for c in f.calls() if c.startswith(('sudo', 'root-'))], [])
+        self.assertEqual(sys_files(f), [])
+        self.assertTrue(door_open(f))
+        self.assertEqual(f.record()['outside_access'], 'open')
+        self.assertEqual(f.record()['created_system_files'], [])
+        self.assertEqual(self.gaming_state_file(f).read_text().strip(), 'open')
+        self.assertTrue((f.steam / MARKER).is_file())
+        self.assertIn('Other devices on your', result.stdout)   # the plan said so plainly
+
+    def test_no_password_with_block_does_not_silently_enable_gaming_mode(self):
+        f = Fixture(self)
+        result = f.run('install.sh', '--gaming', '--block-outside', '--yes', extra={'FAKE_SUDO': 'deny'})
+        self.assertEqual(result.returncode, 3, result.stdout + result.stderr)
+        self.assertIn('NOT closed', result.stderr)
+        self.assertIn('passwd', result.stderr)
+        self.assertFalse((f.steam / MARKER).exists())
+        self.assertFalse(f.units.exists())
+        self.assertEqual(sys_files(f), [])
+        self.assertEqual([c for c in f.calls() if c.startswith('flatpak install')], [c for c in f.calls() if c.startswith('flatpak install') and 'gaming-helper' not in c])
+        self.assertEqual(f.record()['installed_flatpaks'], [MAIN_ID])   # the Desktop keyboard still installed
+        self.assertEqual(f.record()['gaming'], 'no')
+
+    def test_declining_the_password_asks_again_and_skip_is_the_default(self):
+        for stdin, expect_gaming in (('y\n\n', False), ('y\n2\n', False), ('y\n1\n', True)):
+            with self.subTest(stdin=stdin):
+                f = Fixture(self)
+                result = f.run('install.sh', '--gaming', '--block-outside', stdin=stdin, extra={'FAKE_SUDO': 'deny'})
+                self.assertIn('What now?', result.stdout)
+                self.assertEqual((f.steam / MARKER).exists(), expect_gaming, result.stdout + result.stderr)
+                self.assertEqual(result.returncode, 0 if expect_gaming else 3)
+                if expect_gaming:
+                    self.assertEqual(f.record()['outside_access'], 'open')
+                    self.assertEqual(self.gaming_state_file(f).read_text().strip(), 'open')
+                    self.assertEqual(sys_files(f), [])
+
+    def test_a_door_that_stays_open_undoes_the_change_and_leaves_gaming_off(self):
+        f = Fixture(self)
+        result = f.run('install.sh', '--gaming', '--block-outside', '--yes', extra={'FAKE_STUCK_OPEN': '1'})
+        self.assertEqual(result.returncode, 3, result.stdout + result.stderr)
+        self.assertIn('still reachable', result.stderr)
+        self.assertEqual(sys_files(f), [])
+        self.assertFalse((f.steam / MARKER).exists())
+        self.assertEqual(f.record()['created_system_files'], [])
+
+    def test_a_drop_in_that_is_not_ours_is_never_touched(self):
+        f = Fixture(self)
+        f.dropin.parent.mkdir(parents=True)
+        f.dropin.write_text('[Socket]\nListenStream=\n')
+        result = f.run('install.sh', '--gaming', '--block-outside', '--yes')
+        self.assertEqual(result.returncode, 3)
+        self.assertEqual(f.dropin.read_text(), '[Socket]\nListenStream=\n')
+        self.assertFalse((f.steam / MARKER).exists())
+
+    def test_running_again_with_the_door_already_closed_asks_for_no_password(self):
+        f = Fixture(self)
+        f.run('install.sh', '--gaming', '--block-outside')
+        f.log.write_text('')
+        result = f.run('install.sh', '--gaming', '--block-outside', extra={'FAKE_SUDO': 'deny'})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual([c for c in f.calls() if c.startswith(('sudo', 'root-'))], [])
+        self.assertEqual(f.record()['created_system_files'], [str(f.dropin)])
+
+    def test_a_system_without_the_socket_and_with_nothing_exposed_needs_no_password(self):
+        f = Fixture(self)
+        (f.proc / 'tcp').write_text('header\n')
+        result = f.run('install.sh', '--gaming', '--block-outside', extra={'FAKE_NO_SOCKET': '1', 'FAKE_SUDO': 'deny'})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(sys_files(f), [])
+        self.assertTrue((f.steam / MARKER).is_file())
+
+    def test_interactive_answers_map_to_the_right_choices(self):
+        cases = (('2\n1\ny\n', True, 'blocked'), ('2\n2\ny\n', True, 'open'), ('2\n\ny\n', True, 'blocked'),
+                 ('1\ny\n', False, None), ('\ny\n', False, None))
+        for stdin, gaming, outside in cases:
+            with self.subTest(stdin=stdin):
+                f = Fixture(self)
+                result = f.run('install.sh', stdin=stdin)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertEqual((f.steam / MARKER).exists(), gaming)
+                if gaming:
+                    self.assertEqual(f.record()['outside_access'], outside)
+                    self.assertEqual(door_open(f), outside == 'open')
+
+    def test_the_second_question_only_appears_for_gaming_mode(self):
+        f = Fixture(self)
+        self.assertNotIn('Second question', f.run('install.sh', '--desktop-only', '--yes').stdout)
+        self.assertIn('Second question', Fixture(self).run('install.sh', '--gaming', '--leave-open', '--yes').stdout)
+
+    def test_a_rerun_can_turn_gaming_mode_off_and_keeps_the_desktop_keyboard(self):
+        f = Fixture(self)
+        f.run('install.sh', '--gaming', '--block-outside')
+        f.log.write_text('')
+        result = f.run('install.sh', '--desktop-only')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse((f.steam / MARKER).exists())           # we made it, so it goes
+        self.assertFalse(f.units.exists() and any(f.units.iterdir()))
+        self.assertEqual(sys_files(f), [])
+        self.assertTrue(door_open(f))                          # the block we added is gone again
+        removed = [c for c in f.calls() if c.startswith('flatpak uninstall')]
+        self.assertEqual(len(removed), 1)
+        self.assertTrue(removed[0].endswith(HELPER_ID))        # only the Gaming helper, never the Desktop keyboard
+        record = f.record()
+        self.assertEqual(record['gaming'], 'no')
+        self.assertEqual(record['installed_flatpaks'], [MAIN_ID])
+        self.assertEqual(record['created_system_files'], [])
+        self.assertFalse(self.gaming_state_file(f).exists())
+
+    def test_turning_gaming_off_leaves_a_marker_that_existed_before(self):
+        f = Fixture(self)
+        (f.steam / MARKER).write_text('decky')
+        f.run('install.sh', '--gaming', '--leave-open')
+        f.run('install.sh', '--desktop-only')
+        self.assertEqual((f.steam / MARKER).read_text(), 'decky')
+
+    def test_turning_gaming_off_without_the_password_keeps_the_harmless_block(self):
+        f = Fixture(self)
+        f.run('install.sh', '--gaming', '--block-outside')
+        result = f.run('install.sh', '--desktop-only', extra={'FAKE_SUDO': 'deny'})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue(f.dropin.is_file())
+        self.assertEqual(f.record()['gaming'], 'no')
+        self.assertFalse((f.steam / MARKER).exists())
+
+    def test_the_two_choices_change_independently_on_a_rerun(self):
+        f = Fixture(self)
+        f.run('install.sh', '--gaming', '--block-outside')
+        self.assertTrue(f.dropin.is_file())
+        result = f.run('install.sh', '--gaming', '--leave-open')       # block -> open: our block comes away
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(sys_files(f), [])
+        self.assertTrue(door_open(f))
+        self.assertEqual(f.record()['outside_access'], 'open')
+        self.assertEqual(self.gaming_state_file(f).read_text().strip(), 'open')
+        self.assertTrue((f.steam / MARKER).is_file())                  # Gaming Mode stayed on
+        result = f.run('install.sh', '--gaming', '--block-outside')    # open -> block
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue(f.dropin.is_file())
+        self.assertEqual(self.gaming_state_file(f).read_text().strip(), 'blocked')
+
+    def test_yes_alone_keeps_what_you_already_have(self):
+        f = Fixture(self)
+        f.run('install.sh', '--gaming', '--leave-open')
+        result = f.run('install.sh', '--yes')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(f.record()['gaming'], 'yes')
+        self.assertEqual(f.record()['outside_access'], 'open')
+        self.assertTrue((f.steam / MARKER).is_file())
+
+    def test_dry_run_with_no_choice_shows_both_plans_and_changes_nothing(self):
+        f = Fixture(self)
+        before = f.snapshot()
+        out = f.run('install.sh', '--dry-run', stdin='').stdout
+        for phrase in ('If you choose 2', 'administrator password', str(f.dropin), str(f.steam / MARKER), 'Second question'):
+            self.assertIn(phrase, out)
+        self.assertEqual(f.snapshot(), before)
+        self.assertEqual(f.calls(), [])
+        self.assertEqual(sys_files(f), [])
+        out = Fixture(self).run('install.sh', '--dry-run', '--gaming', '--leave-open', stdin='').stdout
+        self.assertIn('leave SteamOS', out)
+        self.assertNotIn('write one small file', out)
+
+
+class UninstallBlockTests(unittest.TestCase):
+    def test_uninstall_removes_the_block_it_made_and_restores_everything(self):
+        f = Fixture(self)
+        before = f.snapshot()
+        f.run('install.sh', '--gaming', '--block-outside')
+        result = f.run('uninstall.sh', '--yes')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(f.snapshot(), before)
+        self.assertEqual(sys_files(f), [])
+        self.assertFalse(f.dropin.parent.exists())      # the folder we made goes too, only because it is empty
+        self.assertTrue(door_open(f))
+
+    def test_uninstall_dry_run_names_the_block_and_changes_nothing(self):
+        f = Fixture(self)
+        f.run('install.sh', '--gaming', '--block-outside')
+        f.log.write_text('')
+        out = f.run('uninstall.sh', '--dry-run', stdin='').stdout
+        self.assertIn(str(f.dropin), out)
+        self.assertTrue(f.dropin.is_file())
+        self.assertEqual(f.calls(), [])
+
+    def test_uninstall_without_the_password_leaves_the_block_and_still_finishes(self):
+        f = Fixture(self)
+        f.run('install.sh', '--gaming', '--block-outside')
+        result = f.run('uninstall.sh', '--yes', extra={'FAKE_SUDO': 'deny'})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue(f.dropin.is_file())
+        self.assertIn('left in place', result.stderr)
+
+    def test_uninstall_never_removes_a_drop_in_that_is_not_recorded_as_ours(self):
+        f = Fixture(self)
+        f.run('install.sh', '--gaming', '--leave-open')     # no block made, nothing recorded
+        f.dropin.parent.mkdir(parents=True)
+        f.dropin.write_text('# swipekb-gaming-managed\n[Socket]\n')    # looks like ours, but the record does not list it
+        f.run('uninstall.sh', '--yes')
+        self.assertTrue(f.dropin.is_file())
 
 class RealDownloadTests(unittest.TestCase):
     def test_the_assembled_download_installs_with_its_own_checksums(self):
@@ -317,25 +600,24 @@ class RealDownloadTests(unittest.TestCase):
         with tarfile.open(archive) as tar:
             tar.extractall(parts / 'x', filter='data')
         f.bundle = parts / 'x' / 'swipe-keyboard-steamos-0.3.1-1'
-        result = f.run('install.sh', '--yes')
+        result = f.run('install.sh', '--gaming', '--block-outside', '--yes')
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(len([c for c in f.calls() if c.startswith('flatpak install')]), 2)
         (f.bundle / 'units/swipekb-helper.service').write_text('changed')
-        self.assertNotEqual(f.run('install.sh', '--yes').returncode, 0)
+        self.assertNotEqual(f.run('install.sh', '--gaming', '--block-outside', '--yes').returncode, 0)
 
 
 class UninstallTests(unittest.TestCase):
     def installed(self, **kwargs):
         f = Fixture(self, **kwargs)
-        self.assertEqual(f.run('install.sh').returncode, 0)
+        self.assertEqual(f.run('install.sh', '--gaming', '--block-outside').returncode, 0)
         f.log.write_text('')
         return f
 
     def test_install_then_uninstall_restores_the_home_folder_exactly(self):
         f = Fixture(self)
         before = f.snapshot()
-        f.run('install.sh')
-        (f.home / '.local/state/swipekb-gaming').mkdir(parents=True)
+        f.run('install.sh', '--gaming', '--block-outside')
         (f.home / '.local/state/swipekb-gaming/status.json').write_text('{}')  # what the helper writes
         result = f.run('uninstall.sh', '--yes')
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -350,7 +632,7 @@ class UninstallTests(unittest.TestCase):
     def test_pre_existing_marker_survives_uninstall(self):
         f = Fixture(self)
         (f.steam / MARKER).write_text('mine')
-        f.run('install.sh')
+        f.run('install.sh', '--gaming', '--block-outside')
         result = f.run('uninstall.sh', '--yes')
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual((f.steam / MARKER).read_text(), 'mine')
@@ -376,7 +658,7 @@ class UninstallTests(unittest.TestCase):
     def test_remove_apps_only_removes_apps_this_install_added(self):
         f = Fixture(self)
         f.apps.write_text(MAIN_ID + '\n')  # the keyboard was already there: not ours to remove
-        f.run('install.sh')
+        f.run('install.sh', '--gaming', '--block-outside')
         f.log.write_text('')
         f.run('uninstall.sh', '--yes', '--remove-apps')
         removed = [c for c in f.calls() if c.startswith('flatpak uninstall')]
@@ -391,6 +673,19 @@ class UninstallTests(unittest.TestCase):
         self.assertTrue((f.steam / MARKER).exists())
         self.assertFalse((f.units / 'swipekb-engine.service').exists())
         self.assertIn('install record', result.stdout)
+
+    def test_a_recorded_file_that_someone_replaced_is_not_removed(self):
+        # WHY: the stamp on its first line is what proves the file is still the one this installer wrote.
+        f = Fixture(self)
+        f.run('install.sh', '--gaming', '--block-outside')
+        f.dropin.write_text('[Socket]\nListenStream=\nListenStream=192.168.1.5:8081\n')    # edited by hand, stamp gone
+        f.run('uninstall.sh', '--yes')
+        self.assertTrue(f.dropin.is_file())
+        f2 = Fixture(self)
+        f2.run('install.sh', '--gaming', '--block-outside')
+        f2.dropin.write_text('[Socket]\nListenStream=\n')
+        f2.run('install.sh', '--gaming', '--leave-open')
+        self.assertTrue(f2.dropin.is_file())
 
 
 if __name__ == '__main__':

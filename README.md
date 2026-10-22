@@ -55,15 +55,31 @@ flatpak uninstall --user org.itsdestin.SwipeKeyboard
 
 Gaming Mode support keeps Steam's own on-screen keyboard exactly as it is and adds swipe typing and a row of word suggestions on top of it. It is a separate, opt-in step you take in Desktop Mode, and it can be undone completely.
 
-When it is released, it will be a single download for SteamOS with a short install script. In Desktop Mode, in Konsole, without `sudo`, you will:
+When it is released, it will be a single download for SteamOS with a short install script. In Desktop Mode, in Konsole, you will:
 
-1. Download the SteamOS file and run `bash install.sh`. It shows you everything it will change, in plain words, and asks before doing anything.
+1. Download the SteamOS file and run `bash install.sh`. It asks two plain-language questions and shows you everything it will change before doing anything.
 2. Restart Steam once if it was already open (the installer never restarts Steam while a game is running).
 3. Switch to Gaming Mode, touch a text field and swipe across the letters.
 
-To remove it, run `bash uninstall.sh` from the same download. It only removes what the installer added.
+**Choice 1: do you want Gaming Mode at all?** Pressing Enter picks the safer answer, the Desktop Mode keyboard only: nothing about Steam or your network changes and no password is asked.
 
-**How this works, and a warning.** Gaming Mode support works by attaching to Steam's own on-screen keyboard through a developer switch that Valve provides in Steam. It adds swipe typing and suggestions on top and leaves Steam's keyboard as it is. Steam's Subscriber Agreement says you may not modify or create derivative works of software accessed through Steam without Valve's written consent. Whether this counts is unclear. We do not change any Steam file, we do not touch games or anti-cheat, and a popular community tool (Decky Loader) uses the same switch, but Valve has not approved this and could stop it or object at any time. Turning the switch on lets other programs on your Deck, and other devices on your Wi-Fi or home network, control Steam's screens (SteamOS opens a second door, port 8081, to the whole network). You can turn this off at any time. We are not lawyers; use it only if you are comfortable with that.
+| | Desktop keyboard only (default) | Also Gaming Mode swipe |
+|---|---|---|
+| You get | Swipe typing in Desktop Mode | Swipe typing and suggestions over Steam and games too |
+| Cost | None | Turns on a Valve developer switch that Steam's rules arguably forbid using this way; Valve can break it at any time; Steam needs one restart |
+
+**Choice 2 (only if you chose Gaming Mode): who else may reach Steam's developer switch?** On SteamOS the switch can also be reached from other devices on your Wi-Fi or home network, who could then control Steam and run programs on your Deck.
+
+| | Block other devices (default) | Leave it open |
+|---|---|---|
+| You get | Only your Deck can use the switch; safe on shared or public Wi-Fi | No password prompt; keeps network access for people who use it on purpose, such as developer tools on another computer |
+| Cost | Asks for your Deck's administrator password once (if you never set one, run `passwd` in Konsole first). Network tools that use the switch stop working | Anyone on the same network can control Steam on your Deck. Do not use on public or shared Wi-Fi |
+
+If you choose to block and then skip or fail the password, the installer asks again: leave it open, or skip Gaming Mode. It never turns Gaming Mode on with the door open unless you say so. Blocking changes one small file in `/etc/systemd/system` and nothing else on your Deck.
+
+**Change your mind later.** Run `bash install.sh` again. It offers both choices again, independently: add Gaming Mode later, turn it off while keeping the Desktop keyboard, or switch between blocked and open. To remove everything, run `bash uninstall.sh` from the same download. It only removes what the installer added, including the block if the installer made it.
+
+**How this works, and a warning.** Gaming Mode support works by attaching to Steam's own on-screen keyboard through a developer switch that Valve provides in Steam. It adds swipe typing and suggestions on top and leaves Steam's keyboard as it is. Steam's Subscriber Agreement says you may not modify or create derivative works of software accessed through Steam without Valve's written consent. Whether this counts is unclear. We do not change any Steam file, we do not touch games or anti-cheat, and a popular community tool (Decky Loader) uses the same switch, but Valve has not approved this and could stop it or object at any time. Turning the switch on lets other programs on your Deck control Steam's screens, and, unless you block it in the second install question, so can other devices on your Wi-Fi or home network (SteamOS opens a second door, port 8081, to the whole network). You can turn this off at any time. We are not lawyers; use it only if you are comfortable with that.
 
 **Passwords.** Inside Steam's own password boxes the keyboard layer does nothing. Over games and other programs, Steam does not say whether a box is a password box, so nothing is learned or saved there and suggestions are kept only until you close the keyboard.
 

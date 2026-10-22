@@ -14,7 +14,7 @@ import threading
 import time
 from pathlib import Path
 
-from . import LAYER_VERSION, cdp, config, contract, ws
+from . import LAYER_VERSION, cdp, config, contract, exposure, ws
 from .bridge import Bridge, SendFailed
 from .retry import RetryLedger
 from .status import Status
@@ -56,8 +56,15 @@ class PageSession:
 
 
 class Helper:
-    def __init__(self, cfg, steam_running=default_steam_running):
+    def __init__(self, cfg, steam_running=default_steam_running, exposure_check=None, exposure_interval=30.0, exposure_choice=None):
         self.cfg = cfg
+        # WHY a parameter that defaults to "no check": __main__ turns it on for the installed helper; tests leave it off so
+        # whatever happens to be listening on a developer's machine cannot change their results.
+        self.exposure_check = exposure_check
+        self.exposure_interval = exposure_interval
+        self.exposure_choice = exposure_choice   # returns 'open' when the person chose to leave the door open
+        self.exposed = False
+        self.open_by_choice = False
         self.steam_running = steam_running
         self.status = Status(cfg.state_dir)
         self.ledger = RetryLedger(cfg.state_dir / 'retry.json', cfg.max_failures)
@@ -160,8 +167,16 @@ class Helper:
     # ---- main loop ------------------------------------------------------------------------------------
     def _loop(self):
         next_marker = 0.0
+        next_exposure = 0.0
         while not self._stop.is_set():
             now = time.monotonic()
+            if self.exposure_check and now >= next_exposure:
+                self._exposure_tick()
+                next_exposure = now + self.exposure_interval
+            if self.exposed:
+                # WHY nothing else runs: while Steam's debug port can be reached from other devices the layer stays out.
+                self._stop.wait(self.cfg.poll_interval)
+                continue
             if now >= next_marker:
                 self._marker_check()
                 next_marker = now + self.cfg.beat_interval
@@ -180,6 +195,35 @@ class Helper:
                 # Any trouble with Steam's side: forget the connection and look again. Never raise out.
                 self._disconnect()
                 self._stop.wait(self.cfg.poll_interval)
+
+    # ---- outside door ---------------------------------------------------------------------------------
+    def _exposure_tick(self):
+        doors = self.exposure_check()
+        now_open_by_choice = bool(doors) and self.exposure_choice is not None and self.exposure_choice() == 'open'
+        if now_open_by_choice != self.open_by_choice:
+            self.open_by_choice = now_open_by_choice
+            self.last_written = None          # the status reason changes, so say it again
+            if self.browser and not self.exposed:
+                self._publish_running()
+        if now_open_by_choice:
+            doors = []                        # the person chose this; the layer runs and the status only notes it
+        if not doors:
+            if self.exposed:
+                self.exposed = False
+                self.last_written = None      # say something new as soon as the normal loop resumes
+            return
+        if not self.exposed:
+            self.exposed = True
+            # Take our layer out of Steam if it was in; any trouble talking to Steam must not stop the status below.
+            try:
+                for pid in list(self.pages):
+                    self._detach(pid, remove=True)
+            except (ws.WsError, cdp.CdpError, OSError, ValueError):
+                pass
+            self._disconnect()
+        self._publish('blocked-outside-access',
+                      'Steam\'s debug port is open to other devices on the network (port %s). Gaming Mode swipe is off. '
+                      'Run the Swipe Keyboard installer again to close it.' % ', '.join(str(p) for p in doors))
 
     # ---- marker file ----------------------------------------------------------------------------------
     def _marker_check(self):
@@ -602,7 +646,7 @@ class Helper:
                 if kb.get('issue'):
                     self._publish('active', 'Note: ' + kb['issue'] + '.', kb)
                     return
-            self._publish('active', '')
+            self._publish('active', 'Outside access left open by your choice.' if self.open_by_choice else '')
         elif self.dead_pages:
             self._publish('error', next(iter(self.dead_pages.values())).capitalize() + '. Stock keyboard in use.')
         elif self.ledger.failures:

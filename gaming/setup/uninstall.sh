@@ -14,6 +14,11 @@ UNIT_DIR="$CONFIG_HOME/systemd/user"
 RECORD_DIR="$DATA_HOME/swipe-keyboard-gaming"
 STATE_DIR="$STATE_HOME/swipekb-gaming"
 RECORD="$RECORD_DIR/install-record.json"
+# Same test hook as install.sh; on a real Deck these are never set.
+SOCKET_UNIT=steam-web-debug-portforward.socket
+SYSTEM_UNIT_DIR="${SWIPEKB_SYSTEM_UNIT_DIR:-/etc/systemd/system}"
+DROPIN_DIR="$SYSTEM_UNIT_DIR/$SOCKET_UNIT.d"
+DROPIN="$DROPIN_DIR/swipekb-loopback-only.conf"
 UNITS=(swipekb-engine.service swipekb-helper.service)
 MAIN_ID=org.itsdestin.SwipeKeyboard
 HELPER_ID=org.itsdestin.SwipeKeyboard.GamingHelper
@@ -35,8 +40,9 @@ record_list() {
     sed -n "/^  \"$1\": \[/,/^  \]/p" "$RECORD" | grep '^    "' | sed 's/^    "//; s/",\{0,1\}$//' || true
 }
 
-CREATED_MARKERS=(); INSTALLED_APPS=()
+CREATED_MARKERS=(); CREATED_SYSTEM_FILES=(); INSTALLED_APPS=()
 while IFS= read -r line; do [ -n "$line" ] && CREATED_MARKERS+=("$line"); done < <(record_list created_markers)
+while IFS= read -r line; do [ -n "$line" ] && CREATED_SYSTEM_FILES+=("$line"); done < <(record_list created_system_files)
 while IFS= read -r line; do [ -n "$line" ] && INSTALLED_APPS+=("$line"); done < <(record_list installed_flatpaks)
 
 # WHY the stamp: a unit file is only ours to delete if install.sh wrote it (first line), never a file of yours that
@@ -51,6 +57,9 @@ if [ -f "$RECORD" ]; then
 else
     echo "  - leave Steam's developer-switch file alone: there is no install record, so it is not known whether this installer made it"
 fi
+for file in "${CREATED_SYSTEM_FILES[@]+"${CREATED_SYSTEM_FILES[@]}"}"; do
+    echo "  - remove the outside-access block $file (this installer made it; asks for your administrator password once, so other devices on your network can reach Steam's developer switch again if it is on)"
+done
 echo "  - delete $RECORD_DIR (the install record) and $STATE_DIR (status the helper wrote)"
 if [ "$REMOVE_APPS" = 1 ]; then
     for id in "${INSTALLED_APPS[@]+"${INSTALLED_APPS[@]}"}"; do echo "  - remove the app $id (it was added by this installer)"; done
@@ -85,6 +94,20 @@ systemctl --user daemon-reload || true
 for marker in "${CREATED_MARKERS[@]+"${CREATED_MARKERS[@]}"}"; do
     # WHY a regular file only: never follow a link or remove a folder because a path was edited by hand.
     if [ -f "$marker" ] && [ ! -L "$marker" ]; then rm -f "${marker:?}"; fi
+done
+
+# WHY only a recorded, stamped file: never remove a system file this installer did not make.
+for file in "${CREATED_SYSTEM_FILES[@]+"${CREATED_SYSTEM_FILES[@]}"}"; do
+    if [ "$file" = "$DROPIN" ] && [ -f "$file" ] && [ "$(head -n 1 "$file")" = '# swipekb-gaming-managed' ]; then
+        if sudo -v; then
+            sudo rm -f "$file"
+            sudo rmdir "$DROPIN_DIR" 2>/dev/null || true
+            sudo systemctl daemon-reload || true
+            sudo systemctl restart "$SOCKET_UNIT" || true
+        else
+            echo "Could not get administrator rights, so $file was left in place. It only keeps other devices out; delete it any time." >&2
+        fi
+    fi
 done
 
 if [ "$REMOVE_APPS" = 1 ]; then
