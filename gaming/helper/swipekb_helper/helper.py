@@ -6,6 +6,7 @@ layer stub -> keep it there (Steam restarts, UI reloads, our own restarts) -> re
 Failure rule everywhere: do nothing and leave Steam's own keyboard alone. We only ever ADD things to a page
 (one window property, one attribute, one timer) and can always remove them.
 """
+import collections
 import json
 import os
 import select
@@ -14,6 +15,7 @@ import time
 from pathlib import Path
 
 from . import LAYER_VERSION, cdp, config, contract, ws
+from .bridge import Bridge, SendFailed
 from .retry import RetryLedger
 from .status import Status
 
@@ -73,6 +75,16 @@ class Helper:
         self.last_written = None
         self.paused_reason = ''
         self._stub_source = None
+        # Typing (M5). The bridge has its own worker thread, because the first swipe loads the engine's models (seconds) and
+        # the main loop must keep the page's heartbeat going meanwhile. The worker never touches the page sockets: it hands
+        # finished answers to the main loop through this outbox, and the main loop is woken through a pipe.
+        self.bridge = None
+        self._outbox = collections.deque()
+        self._wake_r, self._wake_w = os.pipe()
+        os.set_blocking(self._wake_r, False)
+        os.set_blocking(self._wake_w, False)
+        self._sjs = None               # the worker's own socket to SharedJSContext
+        self._sjs_id = None
 
     # ---- lifecycle ------------------------------------------------------------------------------------
     def start(self):
@@ -94,12 +106,20 @@ class Helper:
         self._drop_connections()
 
     def run(self):
+        self.bridge = Bridge(self.cfg, self._send_text, self._deliver)
         try:
             self._load_contract()
             self._loop()
         finally:
+            self.bridge.stop()
+            self._close_sjs()
             if not self._abort:
                 self._shutdown_cleanly()
+            for fd in (self._wake_r, self._wake_w):
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
 
     # ---- contract / stub source -----------------------------------------------------------------------
     def _load_contract(self):
@@ -113,13 +133,17 @@ class Helper:
     def _stub(self):
         if self._stub_source is None:
             cfg = {'version': LAYER_VERSION, 'watchdog_ms': int(self.cfg.layer_watchdog * 1000),
-                   'device': self.device.page_config, 'gesture': dict(self.cfg.gesture)}
-            # WHY read at use, pasted in as text: the gesture arbiter ships as a data file beside the helper and is
-            # sent to Steam's page through the debug port; nothing is fetched and nothing is written into Steam.
-            try:
-                gestures = (self.cfg.layer_dir / 'gesture.js').read_text()
-            except OSError:
-                gestures = ''     # no gesture file: the frame installs alone and Steam's keyboard is left as it is
+                   'device': self.device.page_config, 'gesture': dict(self.cfg.gesture), 'session': dict(self.cfg.session)}
+            # WHY read at use, pasted in as text: the layer files ship as data beside the helper and are sent to
+            # Steam's page through the debug port; nothing is fetched and nothing is written into Steam.
+            # session.js (policy, strip, trail, commit) is pasted in front of gesture.js (the arbiter); the frame starts both.
+            parts = []
+            for name in ('session.js', 'gesture.js'):
+                try:
+                    parts.append((self.cfg.layer_dir / name).read_text())
+                except OSError:
+                    parts.append('')      # a missing file: that part simply does not start and Steam's keyboard is left as it is
+            gestures = '\n'.join(parts)
             self._stub_source = _STUB_JS.read_text().replace('/*__GESTURES__*/', gestures).replace('__CONFIG__', json.dumps(cfg))
         return self._stub_source
 
@@ -222,15 +246,19 @@ class Helper:
     # ---- connected: events, safety poll, heartbeat ----------------------------------------------------
     def _pump(self, now):
         socks = [self.browser.ws] + [p.cdp.ws for p in self.pages.values()]
-        if not any(s.has_buffered() for s in socks):
-            r, _, _ = select.select(socks, [], [], self.cfg.poll_interval)
+        if not any(s.has_buffered() for s in socks) and not any(p.cdp.events for p in self.pages.values()):
+            r, _, _ = select.select(socks + [self._wake_r], [], [], self.cfg.poll_interval)
         else:
             r = socks
         for s in r:
-            if s is self.browser.ws:
+            if s == self._wake_r:
+                self._flush_outbox()
+            elif s is self.browser.ws:
                 self._browser_events()
             else:
                 self._page_traffic(s)
+        for pid, p in list(self.pages.items()):
+            self._page_events(pid, p)       # events that arrived while we were waiting for an answer to a call
         now = time.monotonic()
         if now >= self.next_beat:
             self.next_beat = now + self.cfg.beat_interval
@@ -256,11 +284,72 @@ class Helper:
         for pid, p in list(self.pages.items()):
             if p.cdp.ws is sock:
                 try:
-                    p.cdp.next_event(timeout=0.5)   # we enable no events; this notices a closed socket
+                    self._page_event(pid, p.cdp.next_event(timeout=0.5))
+                    while p.cdp.ws.has_buffered():
+                        self._page_event(pid, p.cdp.next_event(timeout=0.5))
                 except ws.Timeout:
                     pass
                 except (ws.WsError, OSError, ValueError):
                     self._detach(pid, remove=False)
+
+    def _page_events(self, pid, p):
+        while p.cdp.events:
+            self._page_event(pid, p.cdp.events.pop(0))
+
+    def _page_event(self, pid, ev):
+        # The only event we act on: the layer calling window.__swipekb(json). Everything else Steam's page says is ignored.
+        if ev.get('method') == 'Runtime.bindingCalled':
+            params = ev.get('params') or {}
+            if params.get('name') == '__swipekb':
+                self.bridge.submit(pid, params.get('payload'))
+
+    # ---- typing: worker thread -> page ----------------------------------------------------------------
+    def _deliver(self, pid, js):
+        """Called from the bridge's worker: queue a statement for the page and wake the main loop."""
+        self._outbox.append((pid, js))
+        try:
+            os.write(self._wake_w, b'x')
+        except OSError:
+            pass
+
+    def _flush_outbox(self):
+        try:
+            os.read(self._wake_r, 4096)
+        except OSError:
+            pass
+        while self._outbox:
+            pid, js = self._outbox.popleft()
+            p = self.pages.get(pid)
+            if p is None:
+                continue
+            try:
+                p.cdp.evaluate(js)
+            except (ws.WsError, cdp.CdpError, OSError, ValueError):
+                self._detach(pid, remove=False)
+
+    def _send_text(self, text):
+        """Type `text` through Steam's own call (plan Section 7.4). Runs on the bridge's worker thread, on its own socket."""
+        sjs = next((i for i, t in list(self.targets.items()) if t['type'] == 'page' and self.device and t['title'] == self.device.client_title), None)
+        if sjs is None:
+            raise SendFailed()
+        try:
+            if self._sjs is None or self._sjs_id != sjs:
+                self._close_sjs()
+                self._sjs = cdp.Cdp.open(self.cfg.port, cdp.page_path(sjs), timeout=self.cfg.call_timeout)
+                self._sjs_id = sjs
+            self._sjs.evaluate('SteamClient.Input.ControllerKeyboardSendText(%s)' % json.dumps(text))
+        except (ws.WsError, cdp.CdpError, OSError, ValueError):
+            self._close_sjs()
+            raise SendFailed()
+
+    def _close_sjs(self):
+        if self._sjs is not None:
+            try:
+                self._sjs.close()
+            except Exception:
+                pass
+        self._sjs = None
+        self._sjs_id = None
 
     def _safety_poll(self):
         """WHY: the event stream is the fast path; this listing every second catches anything it dropped, and
@@ -279,6 +368,7 @@ class Helper:
                     # The page lost our stub (reload that skipped the registered script): put it back.
                     p.cdp.evaluate(self._stub())
                     self.last_inject = time.time()
+                self._page_events(pid, p)
             except (ws.WsError, cdp.CdpError, OSError, ValueError):
                 self._detach(pid, remove=False)
 
@@ -344,6 +434,11 @@ class Helper:
             # WHY both: the registration brings the stub back at the start of every later document in this
             # page (UI reload) with no round trip; the evaluate puts it into the page that is open right now.
             # The registration lives only as long as this socket, so a dead helper leaves none behind.
+            # The binding is how the layer talks to us: window.__swipekb(json) arrives here as Runtime.bindingCalled (it needs
+            # Runtime enabled to be delivered; M4's rig proved the pair works on Steam's page). It is made BEFORE the layer
+            # starts, so the layer finds it. It lives only as long as this socket, like the registration below.
+            c.call('Runtime.addBinding', {'name': '__swipekb'})
+            c.call('Runtime.enable')
             c.call('Page.addScriptToEvaluateOnNewDocument', {'source': self._stub()})
             c.evaluate(self._stub())
         except Exception:
@@ -356,6 +451,8 @@ class Helper:
         p = self.pages.pop(target_id, None)
         if not p:
             return
+        if self.bridge:
+            self.bridge.forget(target_id)      # the engine forgets that keyboard session at once
         if remove:
             try:
                 p.cdp.evaluate('(function(){var L=window.__swipekbLayer;if(L&&L.remove)L.remove();})()')

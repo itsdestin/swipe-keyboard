@@ -436,7 +436,8 @@ class Contract(Base):
         r.fake.add_target(SJS, steam='ok')
         r.helper().start()
         wait_for(lambda: r.attr(b) == LAYER_VERSION, what='install on the new build')
-        self.assertEqual(r.status()['state'], 'active')
+        # WHY wait: the status file is written just after the install, not at the same instant
+        wait_for(lambda: r.status().get('state') == 'active', what='status active on the new build')
 
     def test_steam_client_not_yet_defined_is_waited_for_not_counted(self):
         r = self.rig(not_ready_grace=60.0)

@@ -36,6 +36,7 @@
   L.remove = function () {
     // WHY first: taking the layer out must also take its touch listeners off, or Steam would keep being filtered.
     if (L.gestures) { try { L.gestures.off(); } catch (e) { /* already failed or gone */ } }
+    if (L.session) { try { L.session.off(); } catch (e) { /* already failed or gone */ } }
     if (L.timer !== null) { clearInterval(L.timer); L.timer = null; }
     var el = document.documentElement;
     if (el && el.getAttribute(ATTR) === L.version) el.removeAttribute(ATTR);
@@ -53,9 +54,19 @@
   // WHY a try: the gestures are an extra. If they cannot start (an odd page, a missing browser feature) the frame
   // still installs and Steam's keyboard is simply left alone.
   L.gestures = null;
+  L.session = null;
   try {
-    if (typeof swipekbGestures === 'function') L.gestures = swipekbGestures(w, L, CONFIG.gesture || {});
+    // WHY the session first: it supplies the hooks the gesture arbiter calls (policy, memory of typed text, trail, strip).
+    if (typeof swipekbSession === 'function') L.session = swipekbSession(w, L, CONFIG.session || {});
+  } catch (e) { L.sessionError = String((e && e.message) || e); L.session = null; }
+  try {
+    var gopts = CONFIG.gesture || {}, hooked = {};
+    for (var k in gopts) hooked[k] = gopts[k];
+    if (L.session) hooked.hooks = L.session.hooks;
+    if (typeof swipekbGestures === 'function') L.gestures = swipekbGestures(w, L, hooked);
   } catch (e) { L.gestureError = String((e && e.message) || e); }
+  // A session without its arbiter has nothing to do (and must not leave a strip on screen).
+  if (L.session && !L.gestures) { try { L.session.off(); } catch (e) { /* already gone */ } L.session = null; }
   // At document start there may be no <html> yet; mark again once the page has been built.
   if (!document.documentElement && document.addEventListener) document.addEventListener('DOMContentLoaded', mark);
 })(__CONFIG__);
