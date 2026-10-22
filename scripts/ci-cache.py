@@ -101,13 +101,21 @@ def pack_state(state, archive, identity):
 
 def ostree_fsck(repo):
     try:
+        # Output stays visible in the CI log so a rejection can be diagnosed.
         return subprocess.run(['ostree', 'fsck', '--repo=' + str(repo)]).returncode == 0
     except OSError:
         return False
 
 
 def unpack_state(archive, state, identity, fsck=ostree_fsck):
-    """Restore a stage cache only if layout, identity and object integrity all check out."""
+    return restore_state(archive, state, identity, fsck)[0]
+
+
+def restore_state(archive, state, identity, fsck=ostree_fsck):
+    """Restore a stage cache only if layout, identity and object integrity all check out.
+
+    Returns (usable, reason).
+    """
     archive = Path(archive).resolve()
     state = Path(state).resolve()
     parent = state.parent
@@ -118,21 +126,20 @@ def unpack_state(archive, state, identity, fsck=ostree_fsck):
         done = subprocess.run(['tar', '--xattrs', '--xattrs-include=user.*', '--no-same-owner',
                                '-xf', str(archive), '-C', str(scratch)], capture_output=True)
         if done.returncode != 0:
-            return False
-        if {p.name for p in scratch.iterdir()} != {IDENTITY, 'cache'}:
-            return False
+            return False, 'could not extract the archive: ' + done.stderr.decode(errors='replace')[:200]
+        found = sorted(p.name for p in scratch.iterdir())
+        if set(found) != {IDENTITY, 'cache'}:
+            return False, f'unexpected layout {found}'
         if (scratch/IDENTITY).read_text() != identity:
-            return False
-        if any(p.is_symlink() and not (Path(os.path.realpath(p)).is_relative_to(scratch.resolve()))
-               for p in (scratch/'cache').rglob('*')):
-            return False
+            return False, 'identity marker does not match the expected key'
+        # Symlinks inside the object store are file content (never followed here), so they are not checked.
         if not fsck(scratch/'cache'):
-            return False
+            return False, 'object integrity check (ostree fsck) failed'
         state.mkdir(parents=True, exist_ok=True)
         if (state/'cache').exists():
             shutil.rmtree(state/'cache')
         os.replace(scratch/'cache', state/'cache')
-        return True
+        return True, 'ok'
     finally:
         shutil.rmtree(scratch, ignore_errors=True)
         if state.exists() and not (state/'cache').exists():
@@ -168,9 +175,9 @@ def main(argv):
     elif command == 'pack-flatpak-state':
         pack_state(argv[2], argv[3], argv[4])
     elif command == 'unpack-flatpak-state':
-        ok = unpack_state(argv[2], argv[3], argv[4])
+        ok, reason = restore_state(argv[2], argv[3], argv[4])
         if not ok:
-            print('::warning::Cached Flatpak dependency stages failed validation; rebuilding them from source.')
+            print('::warning::Cached Flatpak dependency stages failed validation (' + reason + '); rebuilding them from source.')
         emit(usable=ok)
     else:
         raise SystemExit('usage: ci-cache.py policy|key NAME [SALT [LABEL]]|pack-flatpak-state STATE OUT ID|unpack-flatpak-state ARCHIVE STATE ID')

@@ -138,6 +138,32 @@ class FlatpakStateTests(unittest.TestCase):
                 os.chdir(previous)
             self.assertEqual((Path(directory)/'restored/.flatpak-builder/cache/object').read_bytes(), b'stage bytes')
 
+    def test_object_store_symlinks_with_any_target_are_data_not_a_failure(self):
+        # WHY (run 39850385056): a real flatpak-builder store holds installed Qt/Plasma symlinks such as
+        # absolute or ../ targets; they are file content and never followed, so they must not reject a restore.
+        with tempfile.TemporaryDirectory() as directory:
+            state = self.make_state(directory)
+            (state/'cache'/'abs').symlink_to('/usr/lib/libfoo.so.6')
+            (state/'cache'/'up').symlink_to('../../../outside')
+            archive = Path(directory)/'state.tar.zst'
+            cache.pack_state(state, archive, 'identity-1')
+            restored = Path(directory)/'restored'/'.flatpak-builder'
+            self.assertTrue(cache.unpack_state(archive, restored, 'identity-1', fsck=lambda repo: True))
+            self.assertTrue((restored/'cache'/'abs').is_symlink())
+
+    def test_discard_reasons_are_reported(self):
+        # WHY: the first CI failure only said "failed validation"; the reason must be in the log.
+        with tempfile.TemporaryDirectory() as directory:
+            archive = Path(directory)/'state.tar.zst'
+            cache.pack_state(self.make_state(directory), archive, 'identity-1')
+            restored = Path(directory)/'restored'/'.flatpak-builder'
+            self.assertIn('identity', cache.restore_state(archive, restored, 'other', fsck=lambda repo: True)[1])
+            self.assertIn('integrity', cache.restore_state(archive, restored, 'identity-1', fsck=lambda repo: False)[1])
+            garbage = Path(directory)/'g'
+            garbage.write_bytes(b'x')
+            self.assertIn('extract', cache.restore_state(garbage, restored, 'identity-1', fsck=lambda repo: True)[1])
+            self.assertEqual(cache.restore_state(archive, restored, 'identity-1', fsck=lambda repo: True), (True, 'ok'))
+
     def test_identity_mismatch_is_discarded(self):
         with tempfile.TemporaryDirectory() as directory:
             archive = Path(directory)/'state.tar.zst'
