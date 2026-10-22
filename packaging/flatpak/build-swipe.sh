@@ -10,19 +10,19 @@ python3 scripts/apply-build-patches.py third_party/swipe-library/third_party/exe
 python3 scripts/provision-build-deps.py futo third_party/swipe-library/.venv --profile kde-6.10 --cache wheelcache
 cmake -S third_party/swipe-library -B third_party/swipe-library/build -DCMAKE_BUILD_TYPE=Release -DUSE_MARCH_NATIVE=OFF
 if [ -n "${CCACHE_DIR:-}" ]; then
-    # WHY: set only when flatpak-builder --ccache supplies a persistent store (trusted CI). ccache
-    # hashes compiler contents, flags and preprocessed source, so a stale entry is just a miss.
+    # WHY: CCACHE_DIR is set only when flatpak-builder --ccache supplies a persistent store, i.e.
+    # trusted non-release CI runs; release tags never get it and compile everything cold.
+    # ccache keys each result on the compiler's contents, flags, defines and the preprocessed source
+    # (headers included), so a stale or foreign entry can only miss, never yield different bytes.
+    # It covers ExecuTorch, the FUTO engine and the keyboard's own objects; the language-asset QRC
+    # target opts out in CMake, and QRC generation, install output and packages are never cached.
     export CCACHE_COMPILERCHECK=content CCACHE_MAXSIZE=1500M
+    export CMAKE_C_COMPILER_LAUNCHER=ccache CMAKE_CXX_COMPILER_LAUNCHER=ccache
 fi
-# WHY the ExecuTorch archive alone, with ccache: it is third-party dependency code that ExecuTorch's
-# own CMake already routes through ccache. Everything after it is the keyboard's / FUTO engine's own
-# product code and is compiled fresh (ccache disabled below).
-make -C third_party/swipe-library third_party/executorch/cmake-out-host/libexecutorch.a JOBS=4
-if [ -n "${CCACHE_DIR:-}" ]; then ccache -s || true; fi
-export CCACHE_DISABLE=1
 make -C third_party/swipe-library host JOBS=4
 cmake -S . -B build-flatpak -G Ninja -DCMAKE_INSTALL_PREFIX=/app -DCMAKE_INSTALL_LIBDIR=lib -DSWIPEKB_PACKAGE_VERSION="$(python3 scripts/release.py version)" -DUSE_MARCH_NATIVE=OFF -DSWIPEKB_STOCK_LAYOUTS=/app/share/plasma/keyboard/layouts -DSWIPEKB_BACKEND_QML_DIR=/app/lib/qml -DSWIPEKB_BUNDLE_LIBDIR=/app/lib
 cmake --build build-flatpak -j4
+if [ -n "${CCACHE_DIR:-}" ]; then ccache -s || true; fi
 QT_QPA_PLATFORM=offscreen ctest --test-dir build-flatpak --output-on-failure
 cmake --install build-flatpak
 # WHY installed bytes, not only build-tree ctest: catch broken RPATH/QML imports in the SDK.

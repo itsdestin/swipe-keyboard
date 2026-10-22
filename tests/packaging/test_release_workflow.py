@@ -31,7 +31,9 @@ class WorkflowTests(unittest.TestCase):
     def test_real_producers_and_always_completion_gate(self):
         self.assertEqual(set(self.jobs), {'prepare', 'arch', 'fedora', 'fedora-arm64', 'flatpak', 'keyboard-ci', 'publish'})
         gate = self.jobs['keyboard-ci']
-        self.assertIn('name: Keyboard CI', gate)
+        # WHY changed: the required check keeps the exact name "Keyboard CI" only for full runs; the
+        # fast path reports under a different name and so can never satisfy the merge requirement.
+        self.assertIn("name: ${{ needs.prepare.outputs.mode == 'fast' && 'Keyboard CI (fast path, not mergeable)' || 'Keyboard CI' }}", gate)
         self.assertIn('if: ${{ always() }}', gate)
         self.assertIn('needs: [prepare, arch, fedora, fedora-arm64, flatpak]', gate)
         self.assertIn('${{ toJSON(needs) }}', gate)
@@ -41,7 +43,12 @@ class WorkflowTests(unittest.TestCase):
             self.assertIn(build, producer)
             self.assertIn('--target ' + name, producer)
             self.assertNotIn('continue-on-error', producer)
-            self.assertNotRegex(producer, r'(?m)^    if:', name)
+            if name in ('arch',):
+                self.assertNotRegex(producer, r'(?m)^    if:', name)
+            else:
+                # WHY changed from "no job-level if": these three are optional only in the fast path,
+                # and the gate requires them to be 'skipped' there and 'success' everywhere else.
+                self.assertIn("    if: ${{ needs.prepare.outputs.mode == 'full' }}", producer)
 
     def test_arm_is_native_full_recipe_build_and_collision_free_upload(self):
         arm = self.jobs['fedora-arm64']
@@ -141,6 +148,35 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('id: flatpakbuild', flatpak)
         save = flatpak[flatpak.index('Save ExecuTorch compiler cache'):]
         self.assertIn("steps.flatpakbuild.outcome == 'success'", save.split('uses:')[0])
+
+    def test_fast_path_is_arch_only_and_everything_else_needs_full(self):
+        self.assertIn('types: [opened, synchronize, reopened, ready_for_review]', self.workflow)
+        self.assertIn('full:', self.workflow.split('workflow_dispatch:', 1)[1].split('permissions:', 1)[0])
+        self.assertIn('scripts/release.py mode', self.jobs['prepare'])
+        self.assertIn('mode: ${{ steps.mode.outputs.mode }}', self.jobs['prepare'])
+        for name in ('fedora', 'fedora-arm64', 'flatpak'):
+            self.assertIn("needs.prepare.outputs.mode == 'full'", self.jobs[name].split('steps:')[0], name)
+        self.assertNotIn('mode ==', self.jobs['arch'])
+        # Publication is tag-only and tags are always full (run_mode), so the release set is unchanged.
+        self.assertIn("startsWith(github.ref, 'refs/tags/v')", self.jobs['publish'])
+
+    def test_gate_hashes_real_bytes_on_tags_and_uses_evidence_elsewhere(self):
+        gate = self.jobs['keyboard-ci']
+        self.assertEqual(gate.count("if: ${{ startsWith(github.ref, 'refs/tags/') }}"), 2)  # files download + verified-release upload
+        self.assertIn('--evidence-only', gate)
+        self.assertIn('refs/tags/*', gate)
+        self.assertIn('PR_DRAFT', gate)
+        self.assertIn('FULL_INPUT', gate)
+
+    def test_all_compiles_may_use_ccache_only_through_the_policy_gate(self):
+        # WHY: engine and product objects are now cached on non-release runs (content-hashed by ccache).
+        # Tags never get CCACHE_ON/CCACHE_DIR, and platform stores keep their own labels.
+        for name in ('arch', 'fedora', 'fedora-arm64'):
+            job = self.jobs[name]
+            self.assertIn('CMAKE_CXX_COMPILER_LAUNCHER=ccache', job, name)
+            self.assertIn('CCACHE_ON: ${{ steps.cachepolicy.outputs.restore }}', job, name)
+            self.assertIn('$GITHUB_SHA', job, name)
+        self.assertIn('policy', self.jobs['flatpak'])
 
     def test_flatpak_records_peak_memory_for_the_parallelism_bound(self):
         flatpak = self.jobs['flatpak']

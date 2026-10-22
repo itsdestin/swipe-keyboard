@@ -343,5 +343,132 @@ printf generated-tool > "$SWIPEKB_ASSETS/dict-src/.venv/tool"
             release.parse_json('{"arch": 1, "arch": 2}')
 
 
+class RunModeTests(unittest.TestCase):
+    """Fast path for drafts; the complete matrix for anything that can ship or merge."""
+    def mode(self, event, ref, draft='', full_input=''):
+        return release.run_mode({'GITHUB_EVENT_NAME': event, 'GITHUB_REF': ref,
+                                 'PR_DRAFT': draft, 'FULL_INPUT': full_input})
+
+    def test_tags_main_and_ready_pull_requests_run_everything(self):
+        self.assertEqual(self.mode('push', 'refs/tags/v0.3.1'), 'full')
+        self.assertEqual(self.mode('push', 'refs/heads/main'), 'full')
+        self.assertEqual(self.mode('workflow_dispatch', 'refs/heads/main'), 'full')
+        self.assertEqual(self.mode('pull_request', 'refs/pull/9/merge', draft='false'), 'full')
+
+    def test_a_tag_is_full_even_if_every_input_asks_for_fast(self):
+        self.assertEqual(self.mode('workflow_dispatch', 'refs/tags/v0.3.1', draft='true', full_input='false'), 'full')
+
+    def test_only_draft_pull_requests_and_plain_branch_dispatch_are_fast(self):
+        self.assertEqual(self.mode('pull_request', 'refs/pull/9/merge', draft='true'), 'fast')
+        self.assertEqual(self.mode('workflow_dispatch', 'refs/heads/feature/x'), 'fast')
+        self.assertEqual(self.mode('workflow_dispatch', 'refs/heads/feature/x', full_input='true'), 'full')
+
+    def test_unknown_or_missing_information_means_full(self):
+        # WHY: doubt must never shrink the required set.
+        self.assertEqual(self.mode('pull_request', 'refs/pull/9/merge', draft=''), 'full')
+        self.assertEqual(self.mode('schedule', 'refs/heads/x'), 'full')
+        self.assertEqual(release.run_mode({}), 'full')
+
+
+class FastGateTests(unittest.TestCase):
+    def setUp(self):
+        ReleaseTests.setUp(self)  # same fixture files and evidence, without re-running its tests
+        self.fast_status = {job: {'result': 'success' if job in release.FAST_PRODUCERS else 'skipped'}
+                            for job in release.PRODUCERS}
+        self.fast_evidence = [e for e in self.evidence if e['target'] in release.FAST_TARGETS]
+
+    def fast(self, **kw):
+        return release.validate(self.directory, self.fast_evidence, self.fast_status, self.sha, self.contract, mode='fast', **kw)
+
+    def test_fast_set_is_source_plus_arch_with_other_producers_skipped(self):
+        self.assertEqual(release.FAST_TARGETS, ('source', 'arch'))
+        self.fast()
+
+    def test_fast_run_cannot_claim_a_full_result_or_hide_a_failure(self):
+        for job in release.PRODUCERS:
+            for outcome in ('failure', 'cancelled', None):
+                with self.subTest(job=job, outcome=outcome):
+                    original = self.fast_status[job]['result']
+                    self.fast_status[job]['result'] = outcome
+                    with self.assertRaises(ValueError):
+                        self.fast()
+                    self.fast_status[job]['result'] = original
+        # A required fast producer may not be skipped, an optional one may not have run.
+        self.fast_status['arch']['result'] = 'skipped'
+        with self.assertRaises(ValueError):
+            self.fast()
+        self.fast_status['arch']['result'] = 'success'
+        self.fast_status['flatpak']['result'] = 'success'
+        with self.assertRaises(ValueError):
+            self.fast()
+
+    def test_full_validation_never_accepts_the_fast_shape(self):
+        with self.assertRaises(ValueError):
+            release.validate(self.directory, self.fast_evidence, self.fast_status, self.sha, self.contract)
+        with self.assertRaises(ValueError):
+            release.validate(self.directory, self.fast_evidence, self.status, self.sha, self.contract)
+
+    def test_fast_evidence_must_be_exactly_source_and_arch(self):
+        self.fast_evidence = self.evidence
+        with self.assertRaises(ValueError):
+            self.fast()
+        self.fast_evidence = [e for e in self.evidence if e['target'] == 'arch']
+        with self.assertRaises(ValueError):
+            self.fast()
+
+    def test_evidence_only_checks_shape_but_not_bytes(self):
+        (self.directory/self.evidence[0]['files'][0]['name']).write_bytes(b'changed after recording')
+        with self.assertRaises(ValueError):
+            self.fast()
+        self.fast(check_bytes=False)
+        # Still rejects malformed evidence.
+        self.fast_evidence[0]['files'][0]['sha256'] = 'nothex'
+        with self.assertRaises(ValueError):
+            self.fast(check_bytes=False)
+        self.fast_evidence[0]['files'][0]['sha256'] = 'a' * 64
+        self.fast_evidence[0]['files'][0]['size'] = 0
+        with self.assertRaises(ValueError):
+            self.fast(check_bytes=False)
+
+    def test_full_non_release_gate_can_use_evidence_only_but_tags_cannot(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp)
+            for entry in self.evidence:
+                (evidence/(entry['target'] + '.json')).write_text(json.dumps(entry))
+            empty = Path(self.tmp.name)/'none'
+            empty.mkdir()
+            command = [sys.executable, str(ROOT/'scripts/release.py'), 'gate', '--directory', str(empty),
+                       '--evidence', str(evidence), '--sha', self.sha, '--statuses', json.dumps(self.status), '--evidence-only']
+            import os
+            branch = subprocess.run(command, capture_output=True, text=True,
+                                    env={**os.environ, 'GITHUB_REF': 'refs/heads/main', 'GITHUB_EVENT_NAME': 'push'})
+            self.assertEqual(branch.returncode, 0, branch.stdout + branch.stderr)
+            tag = subprocess.run(command, capture_output=True, text=True,
+                                 env={**os.environ, 'GITHUB_REF': 'refs/tags/v0.3.1', 'GITHUB_EVENT_NAME': 'push'})
+            self.assertNotEqual(tag.returncode, 0)
+            self.assertIn('tag', tag.stderr.lower())
+            unknown = subprocess.run(command, capture_output=True, text=True,
+                                     env={k: v for k, v in os.environ.items() if k != 'GITHUB_REF'})
+            self.assertNotEqual(unknown.returncode, 0)
+
+    def test_cli_gate_in_fast_mode_checks_only_the_fast_set(self):
+        import os
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp)
+            for entry in self.fast_evidence:
+                (evidence/(entry['target'] + '.json')).write_text(json.dumps(entry))
+            command = [sys.executable, str(ROOT/'scripts/release.py'), 'gate', '--directory', str(self.directory),
+                       '--evidence', str(evidence), '--sha', self.sha, '--statuses', json.dumps(self.fast_status)]
+            fast_env = {**os.environ, 'GITHUB_REF': 'refs/pull/9/merge', 'GITHUB_EVENT_NAME': 'pull_request', 'PR_DRAFT': 'true'}
+            done = subprocess.run(command, capture_output=True, text=True, env=fast_env)
+            self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+            self.assertIn('fast', done.stdout.lower())
+            self.assertFalse((self.directory/'release-manifest.json').exists())
+            # The same fast-shaped inputs on a tag must fail: tags need the full set.
+            tag = subprocess.run(command, capture_output=True, text=True,
+                                 env={**os.environ, 'GITHUB_REF': 'refs/tags/v0.3.1', 'GITHUB_EVENT_NAME': 'push'})
+            self.assertNotEqual(tag.returncode, 0)
+
+
 if __name__ == '__main__':
     unittest.main()

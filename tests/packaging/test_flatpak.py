@@ -54,11 +54,18 @@ class FlatpakContractTests(unittest.TestCase):
         # WHY: a dependency-only run exports nothing, so nothing of the product can be saved.
         self.assertFalse([a for a in deps if a.startswith('--repo')])
 
-    def test_only_executorch_is_compiled_through_ccache(self):
+    def test_ccache_is_enabled_only_when_a_persistent_store_is_supplied(self):
+        # WHY changed from "ExecuTorch only": the approved scope now includes the engine and product
+        # objects on non-release runs. Release builds get no CCACHE_DIR, so none of this activates.
         script = (BUNDLE / 'build-swipe.sh').read_text()
-        self.assertLess(script.index('libexecutorch.a'), script.index('export CCACHE_DISABLE=1'))
-        self.assertLess(script.index('export CCACHE_DISABLE=1'), script.index('make -C third_party/swipe-library host'))
-        self.assertLess(script.index('export CCACHE_DISABLE=1'), script.index('cmake --build build-flatpak'))
+        guard = script.index('if [ -n "${CCACHE_DIR:-}" ]; then')
+        self.assertLess(guard, script.index('make -C third_party/swipe-library host'))
+        self.assertLess(guard, script.index('cmake -S . -B build-flatpak'))
+        self.assertIn('CMAKE_CXX_COMPILER_LAUNCHER=ccache', script)
+        self.assertNotIn('CCACHE_DISABLE', script)
+        # Language-asset QRC is always compiled fresh.
+        plugin = (ROOT / 'plugin/CMakeLists.txt').read_text()
+        self.assertIn('set_target_properties(swipekb_language PROPERTIES C_COMPILER_LAUNCHER "" CXX_COMPILER_LAUNCHER "")', plugin)
 
     def test_identity_sdk_prefix_and_parallel_bound(self):
         manifest = self.manifest()

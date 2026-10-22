@@ -10,6 +10,26 @@ import tarfile
 
 ROOT = Path(__file__).resolve().parents[1]
 PRODUCERS = ('prepare', 'arch', 'fedora', 'fedora-arm64', 'flatpak')
+# WHY: drafts and plain branch dispatch run one native system (Arch: dual old/new-library
+# verification and the whole native test suite). Anything that can merge or ship runs all.
+FAST_PRODUCERS = ('prepare', 'arch')
+FAST_TARGETS = ('source', 'arch')
+
+
+def run_mode(env):
+    """'fast' only for a draft pull request or a branch dispatch that did not ask for full.
+
+    Doubt always means 'full': tags, main, ready pull requests and unknown events.
+    """
+    ref = env.get('GITHUB_REF', '')
+    event = env.get('GITHUB_EVENT_NAME', '')
+    if ref.startswith('refs/tags/') or ref == 'refs/heads/main':
+        return 'full'
+    if event == 'pull_request':
+        return 'fast' if env.get('PR_DRAFT') == 'true' else 'full'
+    if event == 'workflow_dispatch':
+        return 'full' if env.get('FULL_INPUT') == 'true' else 'fast'
+    return 'full'
 
 
 def parse_json(text):
@@ -56,13 +76,29 @@ def check_files(directory, records, expected):
             raise ValueError('Empty or tampered artifact: ' + record['name'])
 
 
-def validate(directory, evidence, statuses, sha, contract):
+def check_records(records, expected):
+    """Evidence shape only (no bytes): exact names, non-empty size, well-formed digest."""
+    names = [r.get('name') for r in records]
+    if len(names) != len(set(names)) or set(names) != expected:
+        raise ValueError('Missing, duplicate or unexpected artifact metadata')
+    for record in records:
+        size, sha = record.get('size'), record.get('sha256')
+        if not isinstance(size, int) or size <= 0 or not isinstance(sha, str) or not re.fullmatch('[0-9a-f]{64}', sha):
+            raise ValueError('Malformed artifact metadata: ' + record['name'])
+
+
+def validate(directory, evidence, statuses, sha, contract, mode='full', check_bytes=True):
     if not re.fullmatch('[0-9a-f]{40}', sha):
         raise ValueError('Invalid source SHA')
-    if set(statuses) != set(PRODUCERS) or any(statuses[job].get('result') != 'success' for job in PRODUCERS):
+    required = PRODUCERS if mode == 'full' else FAST_PRODUCERS
+    # WHY exact: every producer must be present; required ones succeeded, optional ones were skipped
+    # (never failed, cancelled or quietly run in a different mode).
+    if mode not in ('full', 'fast') or set(statuses) != set(PRODUCERS) or any(
+            statuses[job].get('result') != ('success' if job in required else 'skipped') for job in PRODUCERS):
         raise ValueError('Every required producer must succeed (including prepare)')
+    wanted = set(contract['targets']) if mode == 'full' else set(FAST_TARGETS)
     targets = [e.get('target') for e in evidence]
-    if len(targets) != len(set(targets)) or set(targets) != set(contract['targets']):
+    if len(targets) != len(set(targets)) or set(targets) != wanted:
         raise ValueError('Missing, duplicate or unexpected target evidence')
     records = []
     for entry in evidence:
@@ -70,13 +106,16 @@ def validate(directory, evidence, statuses, sha, contract):
         if entry.get('version') != version(contract) or entry.get('source_sha') != sha or entry.get('arch') != target['arch']:
             raise ValueError('Target version/source SHA/architecture mismatch')
         files = entry.get('files', [])
-        check_files(directory, files, {filename(n, contract) for n in target['files']})
+        names = {filename(n, contract) for n in target['files']}
+        (check_files(directory, files, names) if check_bytes else check_records(files, names))
         records.extend(files)
-    check_files(directory, records, expected_files(contract))
+    expected = {filename(n, contract) for t in wanted for n in contract['targets'][t]['files']}
+    (check_files(directory, records, expected) if check_bytes else check_records(records, expected))
     # WHY exact directory: an uploader glob must never smuggle additional unchecked bytes.
-    allowed = expected_files(contract) | {'release-manifest.json', 'SHA256SUMS'}
-    if {p.name for p in directory.iterdir()} - allowed:
-        raise ValueError('Unexpected publication input')
+    if check_bytes and mode == 'full':
+        allowed = expected_files(contract) | {'release-manifest.json', 'SHA256SUMS'}
+        if {p.name for p in directory.iterdir()} - allowed:
+            raise ValueError('Unexpected publication input')
     return {'version': version(contract), 'source_sha': sha, 'evidence': evidence,
             'producers': statuses, 'files': sorted(records, key=lambda r: r['name'])}
 
@@ -177,17 +216,22 @@ def inspect(target, directory, stage, sha, contract):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=('version', 'check-versions', 'record', 'gate', 'verify', 'verify-inputs'))
+    parser.add_argument('command', choices=('version', 'check-versions', 'record', 'gate', 'verify', 'verify-inputs', 'mode'))
     parser.add_argument('--directory', type=Path, default=Path('release'))
     parser.add_argument('--evidence', type=Path, default=Path('evidence'))
     parser.add_argument('--target')
     parser.add_argument('--stage', type=Path)
     parser.add_argument('--sha')
+    parser.add_argument('--evidence-only', action='store_true',
+                        help='Non-release runs: trust each producer\'s recorded hashes; never allowed on tags')
     parser.add_argument('--statuses', help='GitHub needs JSON, supplied by the workflow, not an artifact')
     args = parser.parse_args()
     contract = load_contract()
     if args.command == 'version':
         print(version(contract))
+    elif args.command == 'mode':
+        import os
+        print(run_mode(os.environ))
     elif args.command == 'check-versions':
         check_versions(contract)
         print('Release recipe versions agree: ' + version(contract))
@@ -199,15 +243,29 @@ def main():
         args.evidence.mkdir(parents=True, exist_ok=True)
         (args.evidence/(args.target + '.json')).write_text(json.dumps(entry, indent=2) + '\n')
     elif args.command == 'gate':
+        import os
+        mode = run_mode(os.environ)
+        if args.evidence_only and os.environ.get('GITHUB_REF', 'refs/tags/unknown').startswith('refs/tags/'):
+            # WHY: a tag (or an unknown ref) publishes bytes, so the gate must hash the real bytes.
+            raise ValueError('Evidence-only gate is refused for tag or unknown refs; tags verify actual bytes')
+        if mode == 'fast' and os.environ.get('GITHUB_REF', '').startswith('refs/tags/'):
+            raise ValueError('A tag run cannot be fast')
+        targets = list(contract['targets']) if mode == 'full' else list(FAST_TARGETS)
         # Explicit target evidence names; do not infer support from what happened to download.
-        if {p.name for p in args.evidence.iterdir()} != {t + '.json' for t in contract['targets']}:
+        if {p.name for p in args.evidence.iterdir()} != {t + '.json' for t in targets}:
             raise ValueError('Exact required evidence set missing/duplicated/unexpected')
-        evidence = [parse_json((args.evidence/(t + '.json')).read_text()) for t in contract['targets']]
-        manifest = validate(args.directory, evidence, parse_json(args.statuses), args.sha, contract)
-        (args.directory/'release-manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
-        (args.directory/'SHA256SUMS').write_text(checksums(manifest))
-        verify(args.directory, args.sha, contract)
-        print('Verified complete release: ' + manifest['version'] + ' ' + args.sha)
+        evidence = [parse_json((args.evidence/(t + '.json')).read_text()) for t in targets]
+        manifest = validate(args.directory, evidence, parse_json(args.statuses), args.sha, contract,
+                            mode=mode, check_bytes=not args.evidence_only)
+        if mode == 'fast':
+            print('Verified fast-path run (one system only, NOT releasable or mergeable): ' + manifest['version'] + ' ' + args.sha)
+        elif args.evidence_only:
+            print('Verified complete non-release evidence: ' + manifest['version'] + ' ' + args.sha)
+        else:
+            (args.directory/'release-manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
+            (args.directory/'SHA256SUMS').write_text(checksums(manifest))
+            verify(args.directory, args.sha, contract)
+            print('Verified complete release: ' + manifest['version'] + ' ' + args.sha)
     else:
         verify(args.directory, args.sha, contract)
         print('Publication bytes verified: ' + args.sha)

@@ -173,8 +173,36 @@ Cold dependency work is cached, never the keyboard itself. Rules, enforced by
   doubt discards the cache and rebuilds the stages from source.
 - **ExecuTorch compiler results** (ccache) for Flatpak, Arch, Fedora and Fedora ARM64, one store
   per platform, never shared. ccache hashes the compiler, flags and preprocessed source itself, so a
-  stale entry is a miss, never different bytes. Only ExecuTorch is compiled through it; the
-  keyboard/FUTO engine compiles with ccache disabled. Keys start from the swipe-library commit
+  stale entry is a miss, never different bytes. (Engine and keyboard objects joined later; see
+  "Fast path and the merge guarantee".) Keys start from the swipe-library commit
   (which pins ExecuTorch) plus patches, recipes, build scripts and requirement locks.
 - Flatpak build parallelism is 4 (matching the 4-CPU hosted runner) in `build.py`, the manifest
   environment and `build-swipe.sh`; the job summary records peak memory.
+
+### Fast path and the merge guarantee
+
+- **Fast path** (Arch only, about 12-15 minutes): draft pull requests, and manual dispatch on a branch
+  unless `full: true` is chosen. Arch runs the whole native test suite and checks the same package
+  bytes against both the older and the current library set.
+- **Full matrix** (Arch, Fedora, Fedora ARM64, Flatpak): every tag, every push to `main`, every
+  pull request that is **not a draft** (marking a draft ready starts it), and dispatch with `full: true`
+  or on `main`. If the situation is unknown the full matrix runs; `scripts/release.py mode` is the
+  single rule and is unit-tested.
+- **Why a fast run cannot be merged by accident:** the gate job reports under the exact name
+  `Keyboard CI` only for full runs; a fast run reports as `Keyboard CI (fast path, not mergeable)`.
+  Require `Keyboard CI` in branch protection. A draft cannot be merged on GitHub, and a ready pull
+  request always gets a full run, so the required check only appears, and only passes, after all four
+  platforms built and passed. `main` re-runs the full matrix after every merge as a backstop.
+- The gate still demands an exact outcome per producer: required ones `success`, fast-path-optional
+  ones `skipped` (never failed, cancelled or missing); the fast-shaped result is rejected on tags.
+- **Gate bytes:** on tags the gate re-downloads the files and hashes the actual bytes, as before.
+  On other runs nothing is published, so it checks the evidence each producer recorded (hashes taken
+  when the file was made) and skips the re-download (~2.5 minutes).
+- **ccache now covers our own code** on non-release runs: ExecuTorch, the FUTO engine and the
+  keyboard's objects. ccache keys each result on the compiler's contents, flags, defines and the
+  preprocessed source including headers, so a stale or foreign entry only misses. The language-asset
+  QRC library opts out in CMake, and QRC generation, install output and packages are never cached.
+  Each platform has its own store and tags use none. Stores are saved per commit by trusted pushes
+  and dispatch only; pull requests read the newest `main` store.
+- Not changed: the 180 MB PyTorch wheel used only for `torchgen`. PyPI's `torchgen` is an unrelated
+  third-party package, and the official source is the full PyTorch repository, which is larger.

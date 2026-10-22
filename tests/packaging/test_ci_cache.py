@@ -86,7 +86,7 @@ class KeyTests(unittest.TestCase):
     def test_platform_labels_keep_compiled_caches_apart(self):
         arch = cache.cache_key('native-ccache', ROOT, 'x', 'arch')
         fedora = cache.cache_key('native-ccache', ROOT, 'x', 'fedora')
-        self.assertTrue(arch.startswith('native-ccache-arch-v1-'))
+        self.assertTrue(arch.startswith('native-ccache-arch-v2-'))
         self.assertFalse(fedora.startswith(cache.key_prefix('native-ccache', 'arch')))
         self.assertFalse(fedora.startswith(cache.key_prefix('native-ccache', 'fedora-arm64')))
 

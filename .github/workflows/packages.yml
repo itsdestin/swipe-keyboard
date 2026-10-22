@@ -1,10 +1,17 @@
 name: Keyboard packages
 on:
   pull_request:
+    # ready_for_review matters: a draft runs the fast path; marking it ready starts the full matrix.
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [main]
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      full:
+        description: 'Run all four platforms (branch dispatch is fast-path only by default)'
+        type: boolean
+        default: false
 permissions:
   contents: read
 defaults:
@@ -20,6 +27,7 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       package_version: ${{ steps.version.outputs.package_version }}
       swipe_library: ${{ steps.version.outputs.swipe_library }}
+      mode: ${{ steps.mode.outputs.mode }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -47,6 +55,15 @@ jobs:
             # Build tags only from a source commit already on main. No cross-run artifact promotion.
             git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main
           fi
+      - name: Choose fast path or full matrix
+        id: mode
+        env:
+          PR_DRAFT: ${{ github.event.pull_request.draft }}
+          FULL_INPUT: ${{ inputs.full }}
+        run: |
+          # WHY: fast = Arch only, for drafts and plain branch dispatch. Tags, main, ready pull requests
+          # and `full: true` run everything; unknown situations also run everything.
+          echo "mode=$(python3 scripts/release.py mode)" >> "$GITHUB_OUTPUT"
       - name: Prepare pinned complete source once
         run: |
           python3 scripts/ci-source.py prepared
@@ -138,11 +155,17 @@ jobs:
           for attempt in 1 2 3; do pacman -S --noconfirm --needed ccache && break; if [ "$attempt" = 3 ]; then exit 1; fi; sleep 15; done
           mkdir -p /var/tmp/ccache-et
           toolchain=$(pacman -Q gcc glibc binutils cmake ninja | tr '\n' ' ')
-          echo "key=$(python3 scripts/ci-cache.py key native-ccache "arch|$(uname -m)|$SWIPE_LIBRARY|$toolchain" arch)" >> "$GITHUB_OUTPUT"
+          digest=$(python3 scripts/ci-cache.py key native-ccache "arch|$(uname -m)|$SWIPE_LIBRARY|$toolchain" arch)
+          # WHY a per-commit key: GitHub keys are immutable, so each trusted run saves its own updated
+          # store and later runs start from the newest one (restore-keys), exact build-input match first.
+          echo "key=$digest-$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+          echo "digest=$digest-" >> "$GITHUB_OUTPUT"
           echo "prefix=$(python3 scripts/ci-cache.py key --prefix native-ccache arch)" >> "$GITHUB_OUTPUT"
-      # WHY a compiler-result cache only: ccache hashes the compiler, flags and preprocessed source,
-      # so a stale or mismatched entry is a miss (full recompile), never wrong bytes. The keyboard's
-      # own objects, QRC and install output are never cached.
+      # WHY a compiler-result cache only: ccache hashes the compiler's contents, flags, defines and the
+      # preprocessed source (headers included), so a stale or foreign entry is a miss (recompile), never
+      # different bytes. It covers ExecuTorch, the FUTO engine and our own objects on non-release runs;
+      # the language-asset QRC target opts out in CMake, and QRC generation, install output and
+      # packages are never cached. Release tags never reach these steps (policy output is false).
       - name: Restore ExecuTorch compiler cache
         id: ccacherestore
         if: ${{ steps.cachepolicy.outputs.restore == 'true' }}
@@ -150,7 +173,9 @@ jobs:
         with:
           path: /var/tmp/ccache-et
           key: ${{ steps.cachekey.outputs.key }}
-          restore-keys: ${{ steps.cachekey.outputs.prefix }}
+          restore-keys: |
+            ${{ steps.cachekey.outputs.digest }}
+            ${{ steps.cachekey.outputs.prefix }}
       - name: Let the unprivileged builder use the compiler cache
         if: ${{ steps.cachepolicy.outputs.restore == 'true' }}
         run: |
@@ -167,7 +192,7 @@ jobs:
           CCACHE_ON: ${{ steps.cachepolicy.outputs.restore }}
         run: |
           cache_env=''
-          if [ "$CCACHE_ON" = true ]; then cache_env='CCACHE_DIR=/var/tmp/ccache-et CCACHE_COMPILERCHECK=content CCACHE_MAXSIZE=1500M'; fi
+          if [ "$CCACHE_ON" = true ]; then cache_env='CCACHE_DIR=/var/tmp/ccache-et CCACHE_COMPILERCHECK=content CCACHE_MAXSIZE=1500M CMAKE_C_COMPILER_LAUNCHER=ccache CMAKE_CXX_COMPILER_LAUNCHER=ccache'; fi
           useradd -m builder
           mkdir dist
           cp "prepared/swipe-keyboard-$VERSION.tar.gz" dist/
@@ -240,6 +265,8 @@ jobs:
           compression-level: 0
   fedora:
     needs: prepare
+    # WHY: optional in the fast path; the Keyboard CI gate requires these to be skipped there and successful otherwise.
+    if: ${{ needs.prepare.outputs.mode == 'full' }}
     runs-on: ubuntu-24.04
     container: fedora:44
     env:
@@ -272,11 +299,17 @@ jobs:
           mkdir -p /var/tmp/ccache-et
           # WHY || true: compilers are installed later (builddep); ccache itself hashes compiler contents.
           toolchain=$(. /etc/os-release; echo "$VERSION_ID "; rpm -q gcc-c++ glibc-devel cmake ninja-build || true)
-          echo "key=$(python3 scripts/ci-cache.py key native-ccache "fedora|$(uname -m)|$SWIPE_LIBRARY|$toolchain" fedora)" >> "$GITHUB_OUTPUT"
+          digest=$(python3 scripts/ci-cache.py key native-ccache "fedora|$(uname -m)|$SWIPE_LIBRARY|$toolchain" fedora)
+          # WHY a per-commit key: GitHub keys are immutable, so each trusted run saves its own updated
+          # store and later runs start from the newest one (restore-keys), exact build-input match first.
+          echo "key=$digest-$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+          echo "digest=$digest-" >> "$GITHUB_OUTPUT"
           echo "prefix=$(python3 scripts/ci-cache.py key --prefix native-ccache fedora)" >> "$GITHUB_OUTPUT"
-      # WHY a compiler-result cache only: ccache hashes the compiler, flags and preprocessed source,
-      # so a stale or mismatched entry is a miss (full recompile), never wrong bytes. The keyboard's
-      # own objects, QRC and install output are never cached.
+      # WHY a compiler-result cache only: ccache hashes the compiler's contents, flags, defines and the
+      # preprocessed source (headers included), so a stale or foreign entry is a miss (recompile), never
+      # different bytes. It covers ExecuTorch, the FUTO engine and our own objects on non-release runs;
+      # the language-asset QRC target opts out in CMake, and QRC generation, install output and
+      # packages are never cached. Release tags never reach these steps (policy output is false).
       - name: Restore ExecuTorch compiler cache
         id: ccacherestore
         if: ${{ steps.cachepolicy.outputs.restore == 'true' }}
@@ -284,7 +317,9 @@ jobs:
         with:
           path: /var/tmp/ccache-et
           key: ${{ steps.cachekey.outputs.key }}
-          restore-keys: ${{ steps.cachekey.outputs.prefix }}
+          restore-keys: |
+            ${{ steps.cachekey.outputs.digest }}
+            ${{ steps.cachekey.outputs.prefix }}
       - name: Let the unprivileged builder use the compiler cache
         if: ${{ steps.cachepolicy.outputs.restore == 'true' }}
         run: |
@@ -305,7 +340,7 @@ jobs:
           CCACHE_ON: ${{ steps.cachepolicy.outputs.restore }}
         run: |
           cache_env=''
-          if [ "$CCACHE_ON" = true ]; then cache_env='CCACHE_DIR=/var/tmp/ccache-et CCACHE_COMPILERCHECK=content CCACHE_MAXSIZE=1500M'; fi
+          if [ "$CCACHE_ON" = true ]; then cache_env='CCACHE_DIR=/var/tmp/ccache-et CCACHE_COMPILERCHECK=content CCACHE_MAXSIZE=1500M CMAKE_C_COMPILER_LAUNCHER=ccache CMAKE_CXX_COMPILER_LAUNCHER=ccache'; fi
           useradd -m builder
           mkdir dist
           cp "prepared/swipe-keyboard-$VERSION.tar.gz" dist/
@@ -367,6 +402,8 @@ jobs:
           compression-level: 0
   fedora-arm64:
     needs: prepare
+    # WHY: optional in the fast path; the Keyboard CI gate requires these to be skipped there and successful otherwise.
+    if: ${{ needs.prepare.outputs.mode == 'full' }}
     # Native hosted ARM, not cross-compilation or hours of local TCG compilation.
     runs-on: ubuntu-24.04-arm
     container: fedora:44
@@ -406,11 +443,17 @@ jobs:
           mkdir -p /var/tmp/ccache-et
           # WHY || true: compilers are installed later (builddep); ccache itself hashes compiler contents.
           toolchain=$(. /etc/os-release; echo "$VERSION_ID "; rpm -q gcc-c++ glibc-devel cmake ninja-build || true)
-          echo "key=$(python3 scripts/ci-cache.py key native-ccache "fedora-arm64|$(uname -m)|$SWIPE_LIBRARY|$toolchain" fedora-arm64)" >> "$GITHUB_OUTPUT"
+          digest=$(python3 scripts/ci-cache.py key native-ccache "fedora-arm64|$(uname -m)|$SWIPE_LIBRARY|$toolchain" fedora-arm64)
+          # WHY a per-commit key: GitHub keys are immutable, so each trusted run saves its own updated
+          # store and later runs start from the newest one (restore-keys), exact build-input match first.
+          echo "key=$digest-$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+          echo "digest=$digest-" >> "$GITHUB_OUTPUT"
           echo "prefix=$(python3 scripts/ci-cache.py key --prefix native-ccache fedora-arm64)" >> "$GITHUB_OUTPUT"
-      # WHY a compiler-result cache only: ccache hashes the compiler, flags and preprocessed source,
-      # so a stale or mismatched entry is a miss (full recompile), never wrong bytes. The keyboard's
-      # own objects, QRC and install output are never cached.
+      # WHY a compiler-result cache only: ccache hashes the compiler's contents, flags, defines and the
+      # preprocessed source (headers included), so a stale or foreign entry is a miss (recompile), never
+      # different bytes. It covers ExecuTorch, the FUTO engine and our own objects on non-release runs;
+      # the language-asset QRC target opts out in CMake, and QRC generation, install output and
+      # packages are never cached. Release tags never reach these steps (policy output is false).
       - name: Restore ExecuTorch compiler cache
         id: ccacherestore
         if: ${{ steps.cachepolicy.outputs.restore == 'true' }}
@@ -418,7 +461,9 @@ jobs:
         with:
           path: /var/tmp/ccache-et
           key: ${{ steps.cachekey.outputs.key }}
-          restore-keys: ${{ steps.cachekey.outputs.prefix }}
+          restore-keys: |
+            ${{ steps.cachekey.outputs.digest }}
+            ${{ steps.cachekey.outputs.prefix }}
       - name: Let the unprivileged builder use the compiler cache
         if: ${{ steps.cachepolicy.outputs.restore == 'true' }}
         run: |
@@ -438,7 +483,7 @@ jobs:
           CCACHE_ON: ${{ steps.cachepolicy.outputs.restore }}
         run: |
           cache_env=''
-          if [ "$CCACHE_ON" = true ]; then cache_env='CCACHE_DIR=/var/tmp/ccache-et CCACHE_COMPILERCHECK=content CCACHE_MAXSIZE=1500M'; fi
+          if [ "$CCACHE_ON" = true ]; then cache_env='CCACHE_DIR=/var/tmp/ccache-et CCACHE_COMPILERCHECK=content CCACHE_MAXSIZE=1500M CMAKE_C_COMPILER_LAUNCHER=ccache CMAKE_CXX_COMPILER_LAUNCHER=ccache'; fi
           useradd -m builder
           mkdir dist
           mkdir -p /home/builder/rpmbuild/{SOURCES,SPECS,BUILD,BUILDROOT,RPMS,SRPMS}
@@ -497,6 +542,8 @@ jobs:
           compression-level: 0
   flatpak:
     needs: prepare
+    # WHY: optional in the fast path; the Keyboard CI gate requires these to be skipped there and successful otherwise.
+    if: ${{ needs.prepare.outputs.mode == 'full' }}
     runs-on: ubuntu-26.04
     env:
       PACKAGE_VERSION: ${{ needs.prepare.outputs.package_version }}
@@ -547,7 +594,10 @@ jobs:
           # WHY: stage keys cover manifest, SDK/runtime commits, patches, jobs/flags, tool versions and
           # runner image; flatpak-builder additionally chains a checksum of every module's sources.
           echo "stages=$(python3 scripts/ci-cache.py key flatpak-stages "$builder|x86_64|$ImageVersion" flatpak)" >> "$GITHUB_OUTPUT"
-          echo "ccache=$(python3 scripts/ci-cache.py key flatpak-ccache "x86_64|$SWIPE_LIBRARY" flatpak)" >> "$GITHUB_OUTPUT"
+          ccache_digest=$(python3 scripts/ci-cache.py key flatpak-ccache "x86_64|$SWIPE_LIBRARY" flatpak)
+          # WHY a per-commit key: immutable keys; each trusted run saves its updated store.
+          echo "ccache=$ccache_digest-$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+          echo "ccache_digest=$ccache_digest-" >> "$GITHUB_OUTPUT"
           echo "ccache_prefix=$(python3 scripts/ci-cache.py key --prefix flatpak-ccache flatpak)" >> "$GITHUB_OUTPUT"
       - name: Restore pinned Qt/Plasma dependency stages (exact key only)
         id: stagecache
@@ -565,7 +615,9 @@ jobs:
         with:
           path: .flatpak-builder/ccache
           key: ${{ steps.cachekeys.outputs.ccache }}
-          restore-keys: ${{ steps.cachekeys.outputs.ccache_prefix }}
+          restore-keys: |
+            ${{ steps.cachekeys.outputs.ccache_digest }}
+            ${{ steps.cachekeys.outputs.ccache_prefix }}
       - name: Validate restored dependency stages (any doubt rebuilds them from source)
         id: stagecheck
         if: ${{ steps.stagecache.outputs.cache-hit == 'true' }}
@@ -631,7 +683,10 @@ jobs:
           retention-days: 7
           compression-level: 0
   keyboard-ci:
-    name: Keyboard CI
+    # WHY the name changes with the mode: branch protection requires the exact check "Keyboard CI".
+    # A fast-path run reports under a different name, so it can never satisfy that requirement; only
+    # a run that built and verified every platform can. Tags are always the full set.
+    name: ${{ needs.prepare.outputs.mode == 'fast' && 'Keyboard CI (fast path, not mergeable)' || 'Keyboard CI' }}
     if: ${{ always() }}
     needs: [prepare, arch, fedora, fedora-arm64, flatpak]
     runs-on: ubuntu-24.04
@@ -640,7 +695,10 @@ jobs:
         with:
           persist-credentials: false
       # No run-id/repository override: downloads belong only to this workflow run.
+      # WHY tags only: files are re-downloaded to hash the exact bytes that get published. Non-release
+      # runs publish nothing, and every producer already recorded its own file hashes at creation.
       - uses: actions/download-artifact@v4
+        if: ${{ startsWith(github.ref, 'refs/tags/') }}
         with:
           pattern: '*-files'
           merge-multiple: true
@@ -654,14 +712,22 @@ jobs:
         if: ${{ always() }}
         env:
           PRODUCER_STATUSES: ${{ toJSON(needs) }}
-        run: python3 scripts/release.py gate --sha "$GITHUB_SHA" --statuses "$PRODUCER_STATUSES"
+          PR_DRAFT: ${{ github.event.pull_request.draft }}
+          FULL_INPUT: ${{ inputs.full }}
+        run: |
+          flag=''
+          # Tags always verify the real bytes (the script also refuses this flag on tags).
+          if [[ "$GITHUB_REF" != refs/tags/* ]]; then flag='--evidence-only'; fi
+          python3 scripts/release.py gate --sha "$GITHUB_SHA" --statuses "$PRODUCER_STATUSES" $flag
       - uses: actions/upload-artifact@v4
+        if: ${{ startsWith(github.ref, 'refs/tags/') }}
         with:
           name: verified-release
           path: release/
           if-no-files-found: error
           retention-days: 7
           compression-level: 0
+
   publish:
     if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && github.repository == 'itsdestin/swipe-keyboard' }}
     needs: [keyboard-ci]

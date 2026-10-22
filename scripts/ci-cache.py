@@ -73,8 +73,9 @@ def digest_files(root, entries, salt):
 
 
 # WHY flatpak-ccache is v2: run 39827309452 saved an essentially empty store under the v1 key
-# (the build had not run); GitHub keys are immutable, so v1 could never be refilled.
-KEY_VERSION = {'flatpak-ccache': 2}
+# (the build had not run); GitHub keys are immutable, so v1 could never be refilled. v3/v2: the stores
+# now also hold engine and product objects and use a per-commit key (see packages.yml).
+KEY_VERSION = {'flatpak-ccache': 3, 'native-ccache': 2}
 
 
 def key_prefix(name, label=''):
