@@ -318,7 +318,9 @@ std::vector<Candidate> Recognizer::complete(const std::string &prefix, int top_k
         int match=prefixDistance;
         if(row.back()==0)match=0;
         const int terminalDistance=std::min(match,row.back());
-        if(node->is_word && terminalDistance<=edits) {
+        // WHY no shorter corrections: dropping one of the person's letters (hel -> he) is never a
+        // completion, and a frequent short word would otherwise take the centre slot.
+        if(node->is_word && terminalDistance<=edits && (terminalDistance==0 || node->depth>=wanted.size())) {
             auto alpha=impl_->dict->reconstruct_word(index);
             auto word=impl_->spellings.spell(alpha);
             // Same-length substitutions are less specific than an omitted letter;

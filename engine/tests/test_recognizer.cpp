@@ -71,6 +71,8 @@ TEST(Recognizer, OwnedTypedPrefixAndOneEditCorrection)
     Recognizer r;ASSERT_TRUE(r.init(ModelPaths::fromDir(assets())));
     const auto completions=r.complete("hel",12);
     EXPECT_TRUE(inTop(completions,"hello"));
+    // Found on SteamOS: "he" (one letter removed) outranked every real completion of "hel".
+    for(const auto &c:completions) EXPECT_GE(c.word.size(),3u)<<c.word;
     const auto corrected=r.complete("helo",12);
     ASSERT_FALSE(corrected.empty());EXPECT_EQ(corrected.front().word,"hello");
     EXPECT_TRUE(r.complete("",3).empty());
