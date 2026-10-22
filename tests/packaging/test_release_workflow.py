@@ -135,6 +135,13 @@ class WorkflowTests(unittest.TestCase):
             self.assertIn('|| true)', self.jobs[name])
             self.assertLess(self.jobs[name].index('dnf -y install ccache'), self.jobs[name].index('rpm -q gcc-c++'))
 
+    def test_flatpak_compiler_cache_is_saved_only_after_the_build_succeeded(self):
+        # WHY: run 39827309452 saved an empty store after a failed step; keys are immutable.
+        flatpak = self.jobs['flatpak']
+        self.assertIn('id: flatpakbuild', flatpak)
+        save = flatpak[flatpak.index('Save ExecuTorch compiler cache'):]
+        self.assertIn("steps.flatpakbuild.outcome == 'success'", save.split('uses:')[0])
+
     def test_flatpak_records_peak_memory_for_the_parallelism_bound(self):
         flatpak = self.jobs['flatpak']
         self.assertIn('ci-memwatch.py sample', flatpak)

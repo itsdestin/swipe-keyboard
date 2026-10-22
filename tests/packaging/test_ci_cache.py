@@ -81,7 +81,7 @@ class KeyTests(unittest.TestCase):
         # WHY: a typo here would silently stop covering a build input.
         for name in cache.KEY_FILES:
             with self.subTest(name=name):
-                self.assertRegex(cache.cache_key(name, ROOT, 'x'), r'^' + name + r'-v1-[0-9a-f]{32}$')
+                self.assertRegex(cache.cache_key(name, ROOT, 'x'), r'^' + name + r'-v[0-9]+-[0-9a-f]{32}$')
 
     def test_platform_labels_keep_compiled_caches_apart(self):
         arch = cache.cache_key('native-ccache', ROOT, 'x', 'arch')
@@ -122,6 +122,21 @@ class FlatpakStateTests(unittest.TestCase):
             self.assertEqual((restored/'cache'/'object').read_bytes(), b'stage bytes')
             self.assertFalse((restored/'build').exists())
             self.assertFalse((restored/'ccache').exists())
+
+    def test_relative_paths_work_as_in_the_workflow(self):
+        # WHY (run 39827309452): the workflow passes relative paths; GNU tar's second -C is relative
+        # to the first, so an unresolved state path pointed inside the scratch directory.
+        import os
+        with tempfile.TemporaryDirectory() as directory:
+            self.make_state(directory)
+            previous = os.getcwd()
+            os.chdir(directory)
+            try:
+                cache.pack_state('.flatpak-builder', 'state.tar.zst', 'identity-1')
+                self.assertTrue(cache.unpack_state('state.tar.zst', 'restored/.flatpak-builder', 'identity-1', fsck=lambda repo: True))
+            finally:
+                os.chdir(previous)
+            self.assertEqual((Path(directory)/'restored/.flatpak-builder/cache/object').read_bytes(), b'stage bytes')
 
     def test_identity_mismatch_is_discarded(self):
         with tempfile.TemporaryDirectory() as directory:

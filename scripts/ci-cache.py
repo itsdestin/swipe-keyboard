@@ -72,9 +72,15 @@ def digest_files(root, entries, salt):
     return h.hexdigest()[:32]
 
 
+# WHY flatpak-ccache is v2: run 39827309452 saved an essentially empty store under the v1 key
+# (the build had not run); GitHub keys are immutable, so v1 could never be refilled.
+KEY_VERSION = {'flatpak-ccache': 2}
+
+
 def key_prefix(name, label=''):
     # WHY a per-platform label: compiled caches are never shared across Arch, Fedora, ARM or Flatpak.
-    return f'{name}-{label}-v1-' if label else f'{name}-v1-'
+    version = KEY_VERSION.get(name, 1)
+    return f'{name}-{label}-v{version}-' if label else f'{name}-v{version}-'
 
 
 def cache_key(name, root, salt, label=''):
@@ -83,6 +89,8 @@ def cache_key(name, root, salt, label=''):
 
 def pack_state(state, archive, identity):
     """Pack only flatpak-builder's stage cache (dependency stages), with an identity marker."""
+    # WHY resolve: GNU tar applies each -C relative to the previous one.
+    state, archive = Path(state).resolve(), Path(archive).resolve()
     with tempfile.TemporaryDirectory() as scratch:
         (Path(scratch)/IDENTITY).write_text(identity)
         # xattrs matter: ostree's bare-user stage store keeps ownership/mode in them.
@@ -99,7 +107,8 @@ def ostree_fsck(repo):
 
 def unpack_state(archive, state, identity, fsck=ostree_fsck):
     """Restore a stage cache only if layout, identity and object integrity all check out."""
-    state = Path(state)
+    archive = Path(archive).resolve()
+    state = Path(state).resolve()
     parent = state.parent
     parent.mkdir(parents=True, exist_ok=True)
     scratch = Path(tempfile.mkdtemp(dir=parent, prefix='.restore-'))

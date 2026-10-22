@@ -588,6 +588,7 @@ jobs:
           nohup python3 scripts/ci-memwatch.py sample "$RUNNER_TEMP/memory.log" 5 > /dev/null 2>&1 &
           echo $! > "$RUNNER_TEMP/memory.pid"
       - name: Build and test SDK-native objects and installed loader
+        id: flatpakbuild
         run: |
           tar -xzf "prepared/swipe-keyboard-$PACKAGE_VERSION-flatpak-build-inputs.tar.gz" -C prepared
           python3 packaging/flatpak/build.py flatpak-build --repo flatpak-repo --ci-manifest prepared/flatpak-inputs/manifest.json ${{ steps.cachepolicy.outputs.restore == 'true' && '--ccache' || '' }}
@@ -604,7 +605,7 @@ jobs:
           ls -la .flatpak-builder/ 2>/dev/null || true
           du -sh .flatpak-builder/ccache flatpak-stage-cache.tar.zst 2>/dev/null || true
       - name: Save ExecuTorch compiler cache (trusted pushes and dispatch only)
-        if: ${{ !cancelled() && steps.cachepolicy.outputs.save == 'true' && steps.ccacherestore.outputs.cache-hit != 'true' }}
+        if: ${{ !cancelled() && steps.flatpakbuild.outcome == 'success' && steps.cachepolicy.outputs.save == 'true' && steps.ccacherestore.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@v4
         with:
           path: .flatpak-builder/ccache
