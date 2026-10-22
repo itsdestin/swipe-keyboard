@@ -34,12 +34,13 @@ bool Predictor::init(const std::string &model, const std::string &vocab)
         m_impl = std::move(impl); return true;
     } catch (...) { return false; }
 }
-std::vector<std::string> Predictor::predict(const std::vector<std::string> &context, int topK)
+std::vector<std::string> Predictor::predict(const std::vector<std::string> &context, int topK, const std::string &prefix)
 {
     if (!ready() || topK <= 0) return {};
     try {
         topK = std::min(topK, 64);
-        if (m_impl->useNgram) return m_impl->ngram.predict(context, topK);
+        if (m_impl->useNgram) return m_impl->ngram.predict(context, topK, prefix);
+        if (!prefix.empty()) return {};
         return filterPredictedWords(m_impl->neural.predict_topk(boundedContext(context), std::min(128, topK * 4)), topK);
     } catch (...) { return {}; }
 }

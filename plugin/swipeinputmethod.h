@@ -91,6 +91,7 @@ private:
     PredictionPolicy predictionPolicy() const;
     void invalidatePredictions();
     void observePredictionEcho();
+    void requestContextCompletion(const EditorSnapshot &editor);
     bool predictionCapable() const;
     CaseMode caseMode() const;
     QStringList barCandidates() const;

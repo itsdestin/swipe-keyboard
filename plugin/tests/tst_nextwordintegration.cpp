@@ -202,6 +202,42 @@ private slots:
         if(native)QCOMPARE(captured,QStringList{selected.toLower()});
         QTRY_VERIFY(!method.predictionSelectionToken().isEmpty());ic->inputEngine()->setInputMethod(nullptr);
     }
+    void spanishCompletionRanksBySentenceBeforeTheWord() {
+        // WHY: n-gram languages re-rank completions by the words before the typed letters (card #170). The
+        // worker stub stands in for the model; the test pins the plumbing: right letters, right sentence,
+        // and the context answer replacing the dictionary's list with the typed letters still offered.
+        const QString packs=qEnvironmentVariable("SWIPEKB_TEST_LANGUAGE_PACKS");
+        if(packs.isEmpty())QSKIP("Explicit local language pack fixture not supplied");
+        qputenv("SWIPEKB_LANGUAGE_PACKS",packs.toUtf8());
+        struct EnvReset{~EnvReset(){qunsetenv("SWIPEKB_LANGUAGE_PACKS");}} envReset;
+        QTemporaryDir data;qputenv("SWIPEKB_DATA",data.path().toUtf8());
+        QQmlEngine engine;QQmlComponent fixture(&engine);fixture.setData("import QtQuick; import QtQuick.VirtualKeyboard; Item {property var context:InputContext}",QUrl());
+        std::unique_ptr<QObject> root(fixture.create());QVERIFY(root);auto *item=qobject_cast<QQuickItem*>(root.get());
+        QQuickWindow window;window.resize(500,200);item->setParentItem(window.contentItem());InputListenerItem edit(item);
+        edit.text=QStringLiteral("vivo en una ");edit.cursor=edit.text.size();
+        window.show();window.requestActivate();edit.forceActiveFocus();
+        auto *ic=qvariant_cast<QVirtualKeyboardInputContext*>(root->property("context"));QVERIFY(ic);
+        QStringList prefixes,contexts;QSemaphore completions;
+        SwipeInputMethod method(nullptr,[&](const PredictionJob&job){
+            if(job.prefix.isEmpty())return QStringList{"x","y","z"};
+            prefixes<<job.prefix;contexts=job.context;completions.release();
+            return job.prefix==QStringLiteral("cas")?QStringList{"casona","casa"}:QStringList{};});
+        ic->inputEngine()->setInputMethod(&method);method.setInputMode("es_ES",QVirtualKeyboardInputEngine::InputMode::Latin);method.setPhysicalLayout("qwerty");
+        TestPolicyBridge bridge;method.setPredictionPolicySource(&bridge);
+        QGuiApplication::inputMethod()->update(Qt::ImQueryAll);QTRY_VERIFY(ic->inputItem()==&edit);
+        for(auto c:QString("cas")){
+            method.keyEvent(Qt::Key(QChar(c).toUpper().unicode()),QString(c),Qt::NoModifier);ic->commit(QString(c));
+            QGuiApplication::inputMethod()->update(Qt::ImQueryAll);method.update();
+        }
+        QVERIFY(completions.tryAcquire(1,15000));
+        QCOMPARE(contexts,QStringList({"vivo","en","una"}));
+        auto shown=[&]{QStringList words;for(int i=0;i<method.selectionListItemCount(QVirtualKeyboardSelectionListModel::Type::WordCandidateList);++i)
+            words<<method.selectionListData(QVirtualKeyboardSelectionListModel::Type::WordCandidateList,i,QVirtualKeyboardSelectionListModel::Role::Display).toString();return words;};
+        // Best guess in the middle, the typed letters always offered, as with dictionary completion.
+        QTRY_COMPARE_WITH_TIMEOUT(shown(),QStringList({"casa","casona","cas"}),15000);
+        QCOMPARE(prefixes.last(),QStringLiteral("cas"));
+        ic->inputEngine()->setInputMethod(nullptr);
+    }
     void unbridgedNativeWordUsesOnlyOwnedHistoryAndInserts_data() {
         QTest::addColumn<bool>("swipe");QTest::addColumn<int>("slot");QTest::addColumn<bool>("shiftedFirst");
         for(bool swipe:{false,true}) for(int slot=0;slot<3;++slot) for(bool shiftedFirst:{false,true})

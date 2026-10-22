@@ -34,6 +34,7 @@ public:
         m_echo.editorChanged(e,p,epoch,true);if(!m_echo.pendingOrVisible())clear();
     }
     QString token()const{return m_token;}
+    PredictionStamp stamp()const{return m_stamp;}
     QStringList candidates()const{return m_candidates;}
     QString selectionToken()const {
         return m_candidates.isEmpty()?QString():QStringLiteral("typed:%1:%2:%3").arg(m_stamp.profileEpoch).arg(m_stamp.editorEpoch).arg(m_stamp.requestId);

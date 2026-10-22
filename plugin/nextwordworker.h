@@ -11,6 +11,9 @@ struct PredictionJob {
     QString model, vocab;
     QStringList context;
     QString modelIdentity;
+    // Letters typed so far of the current word: non-empty makes this a completion job, answered by
+    // completionReady instead of resultReady.
+    QString prefix;
 };
 // Serial, thread-confined inference with one latest pending request. No GUI-side
 // inference lock or synchronous profile drain; a changed identity reloads on run().
@@ -26,6 +29,7 @@ public:
     void stop();
 signals:
     void resultReady(PredictionStamp, QStringList);
+    void completionReady(PredictionStamp, QString prefix, QStringList);
     void requestSettled();
     void modelStateChanged(quint64 profileEpoch, bool loaded);
 protected:

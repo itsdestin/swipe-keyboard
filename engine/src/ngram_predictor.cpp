@@ -65,21 +65,24 @@ bool NgramPredictor::load(const std::string &model, const std::string &vocab)
     }
     if (!words.eof() || vocabulary_.empty()) { vocabulary_.clear(); return false; }
     // WHY resolve every word's model number once here: predict() used to lower-case and look up all
-    // ~100k words on every request (~100 ms each on a fast laptop). Unknown words keep their letters-only
-    // form for the dictionary fallback score, so rankings are unchanged.
-    wordIds_.clear(); unknownAlpha_.clear();
-    wordIds_.reserve(vocabulary_.size()); unknownAlpha_.resize(vocabulary_.size());
+    // ~100k words on every request (~100 ms each on a fast laptop). The letters-only form is kept for every
+    // word: unknown words score from it, and completion matches typed letters against it.
+    wordIds_.clear(); alpha_.clear();
+    wordIds_.reserve(vocabulary_.size()); alpha_.reserve(vocabulary_.size());
     for (size_t i = 0; i < vocabulary_.size(); ++i) {
-        auto alpha = NgramLM::alphaForm(vocabulary_[i]);
-        wordIds_.push_back(ngram_.id(alpha));
-        if (wordIds_.back() == NgramLM::kUnk) unknownAlpha_[i] = std::move(alpha);
+        alpha_.push_back(NgramLM::alphaForm(vocabulary_[i]));
+        wordIds_.push_back(ngram_.id(alpha_.back()));
     }
     return true;
 }
 
-std::vector<std::string> NgramPredictor::predict(const std::vector<std::string> &context, int topK) const
+std::vector<std::string> NgramPredictor::predict(const std::vector<std::string> &context, int topK,
+                                                 const std::string &prefix) const
 {
     if (!ready() || topK <= 0) return {};
+    // WHY letters-only: "l'" or "Stra" must match "l'homme"/"straße" the way the model spells words.
+    const std::string typed = prefix.empty() ? std::string() : NgramLM::alphaForm(prefix);
+    if (!prefix.empty() && typed.empty()) return {};
     topK = std::min(topK, 64);
     std::vector<std::string> history;
     for (const auto &word : boundedContext(context))
@@ -89,9 +92,11 @@ std::vector<std::string> NgramPredictor::predict(const std::vector<std::string> 
     // break on the spelling, exactly as before.
     std::vector<std::pair<float, uint32_t>> scored;
     scored.reserve(vocabulary_.size());
-    for (uint32_t i = 0; i < vocabulary_.size(); ++i)
-        scored.emplace_back(wordIds_[i] == NgramLM::kUnk ? ngram_.logProb(state, unknownAlpha_[i], 0)
+    for (uint32_t i = 0; i < vocabulary_.size(); ++i) {
+        if (!typed.empty() && alpha_[i].compare(0, typed.size(), typed) != 0) continue;
+        scored.emplace_back(wordIds_[i] == NgramLM::kUnk ? ngram_.logProb(state, alpha_[i], 0)
                                                         : ngram_.logProb(state, wordIds_[i]), i);
+    }
     const size_t keep = std::min<size_t>(scored.size(), size_t(topK) * 4);
     std::partial_sort(scored.begin(), scored.begin() + keep, scored.end(), [this](const auto &a, const auto &b) {
         return a.first == b.first ? vocabulary_[a.second] < vocabulary_[b.second] : a.first > b.first;

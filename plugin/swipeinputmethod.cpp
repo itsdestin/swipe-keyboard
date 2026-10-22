@@ -79,6 +79,22 @@ SwipeInputMethod::SwipeInputMethod(QObject *parent, NextWordWorker::Inference in
             if (!self) return;
             if (m_nextWord.accept(stamp, swipekb::rankRegionalCandidates(words, m_profiles.snapshot().requestedLocale, 12))) refreshGuessBar();
         });
+    connect(&m_predictionWorker, &NextWordWorker::completionReady, this,
+        [this](PredictionStamp stamp, const QString &prefix, const QStringList &ranked) {
+            QPointer<SwipeInputMethod> self(this);
+            observePredictionEcho();
+            if (!self || ranked.isEmpty() || !isReady()) return;
+            // WHY the same unchanged word only, and never while a suggestion is held down: a list that
+            // changes under the finger would type a different word than the one pressed.
+            if (!m_typedPress.isEmpty() || m_typedWord.token()!=prefix || !(m_typedWord.stamp()==stamp)) return;
+            // WHY context-ranked words first, dictionary after: the sentence picks among words that start with
+            // the typed letters; the dictionary still offers one-letter-off corrections when nothing matches.
+            QStringList words=ranked;
+            for (const auto &candidate:m_recognizer->complete(prefix.toStdString(),12)) words<<QString::fromStdString(candidate.word);
+            const auto old=m_typedWord.candidates();
+            m_typedWord.suggest(swipekb::rankRegionalCandidates(words,m_profiles.snapshot().requestedLocale,3));
+            if (old!=m_typedWord.candidates()) refreshGuessBar();
+        });
 }
 
 void SwipeInputMethod::resolveCurrentProfile()
@@ -979,10 +995,12 @@ void SwipeInputMethod::observePredictionEcho()
     const auto editor=predictionEditor();
     m_ownedHistory.observe(editor,predictionPolicy(),m_profiles.snapshot().epoch);
     const auto oldTyped=m_typedWord.candidates();
+    bool completionWanted=false;
     if(m_typedWord.observe(editor,predictionPolicy(),m_profiles.snapshot().epoch) && isReady()) {
         QStringList words;
         for(const auto &candidate:m_recognizer->complete(m_typedWord.token().toStdString(),12))words<<QString::fromStdString(candidate.word);
         m_typedWord.suggest(swipekb::rankRegionalCandidates(words,m_profiles.snapshot().requestedLocale,3));
+        completionWanted=true;
     }
     if(oldTyped!=m_typedWord.candidates())refreshGuessBar();
     if(!self)return;
@@ -1004,13 +1022,41 @@ void SwipeInputMethod::observePredictionEcho()
             emit diagnosticsChanged();
         }
     } else if (!m_nextWord.pendingOrVisible()) {
-        m_predictionWorker.invalidate();
+        // WHY not while a word is being typed: the running job is that word's completion, not a stale
+        // next-word request (those are refused by their stamp anyway).
+        if (m_typedWord.token().isEmpty()) m_predictionWorker.invalidate();
         if (m_predictionModelState==swipekb::PredictionModelState::Loading) {
             m_predictionModelState=swipekb::PredictionModelState::NotRequested;
             emit diagnosticsChanged();
         }
     }
+    // WHY after the next-word block: the worker keeps only the latest job, and mid-word the completion matters.
+    if (self && completionWanted) requestContextCompletion(editor);
     if (self && old != m_nextWord.candidates()) refreshGuessBar();
+}
+
+void SwipeInputMethod::requestContextCompletion(const EditorSnapshot &editor)
+{
+    // Dictionary completions are already showing; this re-ranks them by the sentence so far, on the worker
+    // thread, and replaces them when the answer arrives (a few milliseconds later).
+    // WHY n-gram packs only: English still predicts with FUTO's neural model, which cannot complete a word;
+    // English completion stays exactly as it was.
+    if (!predictionCapable() || m_profiles.snapshot().effectiveLanguage==QStringLiteral("en")) return;
+    const auto token=m_typedWord.token();
+    if (token.isEmpty()) return;
+    QStringList words;
+    if (predictionPolicy().source==PredictionPolicySource::OwnedHistory) {
+        words=m_ownedHistory.context();
+        if (!words.isEmpty() && words.last()==token.toLower()) words.removeLast();
+    } else {
+        const auto before=editor.text.left(qMax(0,editor.cursor));
+        // WHY context only when the letters sit right before the cursor: otherwise the text is not what the
+        // typed-word session confirmed, and the word is completed as a sentence start.
+        if (before.endsWith(token)) words=swipekb::textContextWords(before.chopped(token.size()).right(4096));
+    }
+    const auto model=m_profiles.snapshot().assets.value(QStringLiteral("contextModel"));
+    const auto vocab=m_profiles.snapshot().assets.value(QStringLiteral("contextVocab"));
+    m_predictionWorker.submit({m_typedWord.stamp(), model.path, vocab.path, words, model.sha256 + vocab.sha256, token});
 }
 
 CaseMode SwipeInputMethod::caseMode() const

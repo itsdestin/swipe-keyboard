@@ -22,14 +22,17 @@ public:
     bool load(const std::string &model, const std::string &vocab);
     bool ready() const { return ngram_.loaded() && !vocabulary_.empty(); }
     // Up to topK (max 64) display spellings, best first. May throw on allocation failure; callers catch.
-    std::vector<std::string> predict(const std::vector<std::string> &context, int topK) const;
+    // A non-empty prefix (the letters typed so far) keeps only words whose letters start with it: completion
+    // of a half-typed word, ranked by the same sentence context as the next word.
+    std::vector<std::string> predict(const std::vector<std::string> &context, int topK,
+                                     const std::string &prefix = {}) const;
     const std::vector<std::string> &vocabulary() const { return vocabulary_; }
 
 private:
     NgramLM ngram_;
     std::vector<std::string> vocabulary_;
     std::vector<uint32_t> wordIds_;            // model number per vocabulary word; kUnk when unknown
-    std::vector<std::string> unknownAlpha_;    // letters-only form, kept only for unknown words
+    std::vector<std::string> alpha_;           // letters-only lower-case form of every vocabulary word
 };
 
 }

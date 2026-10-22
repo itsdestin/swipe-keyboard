@@ -1,4 +1,5 @@
 #include "swipekb/prediction.hpp"
+#include "swipekb/ngram.hpp"
 #include "swipekb/recognizer.hpp"
 #include <atomic>
 #include <future>
@@ -6,6 +7,7 @@
 #include <QtTest>
 #include <QElapsedTimer>
 #include <QFile>
+#include <QTemporaryDir>
 #include <QTextStream>
 
 class PredictionTest : public QObject {
@@ -41,6 +43,33 @@ private slots:
         swipekb::Predictor unavailable;
         QVERIFY(!unavailable.init((root+"/es/corrupt.ngram").toStdString(),(root+"/es/vocab.tsv").toStdString()));
         QVERIFY(!unavailable.ready());
+    }
+    void completionKeepsTypedLettersAndRanksBySentence() {
+        // Words 3.. = yo, soy, sol, estoy. Alone, "sol" beats "soy"; after "yo", "soy" is far likelier.
+        using swipekb::NgramLM;
+        swipekb::NgramModelData d;
+        d.words = {"yo", "soy", "sol", "estoy"};
+        d.uni_lp = {-2.f, -99.f, -1.5f, -1.0f, -1.6f, -1.2f, -1.3f};
+        d.uni_bo = std::vector<float>(7, 0.f);
+        d.bi_keys = {NgramLM::key(NgramLM::kBos, 3), NgramLM::key(3, 4)};
+        d.bi_lp = {-0.1f, -0.1f};
+        d.bi_bo = {0.f, 0.f};
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const auto model = dir.filePath("es.ngram").toStdString(), vocab = dir.filePath("es.vocab.tsv").toStdString();
+        QVERIFY(NgramLM::write(model, d));
+        QFile v(QString::fromStdString(vocab));
+        QVERIFY(v.open(QIODevice::WriteOnly));
+        v.write("yo\t200\tyo\nsoy\t180\tsoy\nsol\t170\tsol\nestoy\t160\testoy\n");
+        v.close();
+        swipekb::Predictor predictor;
+        QVERIFY(predictor.init(model, vocab));
+        QCOMPARE(predictor.predict({"yo"}, 3, "so"), std::vector<std::string>({"soy", "sol"}));
+        QCOMPARE(predictor.predict({}, 3, "so"), std::vector<std::string>({"sol", "soy"}));
+        QCOMPARE(predictor.predict({"yo"}, 3, "So"), std::vector<std::string>({"soy", "sol"}));
+        QVERIFY(predictor.predict({"yo"}, 3, "x").empty());
+        QVERIFY(predictor.predict({"yo"}, 3, "'").empty());
+        QCOMPARE(predictor.predict({"yo"}, 1).front(), std::string("soy"));
     }
     void absentModelIsUnavailable() {
         swipekb::Predictor p;

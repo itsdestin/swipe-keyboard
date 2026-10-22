@@ -23,6 +23,17 @@ private slots:
         QTRY_COMPARE_WITH_TIMEOUT(spy.size(), 1, 15000);
         QCOMPARE(qvariant_cast<PredictionStamp>(spy.at(0).at(0)).requestId, quint64(3));
     }
+    void completionJobAnswersOnItsOwnSignal() {
+        NextWordWorker worker([](const PredictionJob &j) { return QStringList{j.prefix + "a"}; });
+        QSignalSpy next(&worker, &NextWordWorker::resultReady), completion(&worker, &NextWordWorker::completionReady);
+        PredictionJob job{{1, 1, 1}, "a", "b", {"hola"}};
+        job.prefix = "cas";
+        worker.submit(job);
+        QTRY_COMPARE_WITH_TIMEOUT(completion.size(), 1, 15000);
+        QCOMPARE(completion.at(0).at(1).toString(), QStringLiteral("cas"));
+        QCOMPARE(completion.at(0).at(2).toStringList(), QStringList{"casa"});
+        QCOMPARE(next.size(), 0);
+    }
     void invalidationSuppressesRunningResult() {
         QSemaphore started, finish;
         NextWordWorker worker([&](const PredictionJob &) { started.release(); finish.acquire(); return QStringList{"world"}; });
