@@ -653,7 +653,10 @@ class SetupTests(unittest.TestCase):
         before = dict(os.environ)
         self.controller.enable()
         settings = dict(self.commands.settings)
+        self.controller.env['QT_WAYLAND_RECONNECT'] = '1'  # Plasma session default
         env = self.controller.launch_environment()
+        self.assertNotIn('QT_WAYLAND_RECONNECT', env)
+        self.assertEqual(self.controller.env.pop('QT_WAYLAND_RECONNECT'), '1')
         self.assertEqual(env.get('QML_NO_TOUCH_COMPRESSION'), '1')
         self.assertEqual(env.get('QT_WAYLAND_FRAME_CALLBACK_TIMEOUT'), '5000')
         self.assertNotIn('QT_WAYLAND_FRAME_CALLBACK_TIMEOUT', self.controller.env)

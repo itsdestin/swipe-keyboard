@@ -177,7 +177,8 @@ class FlatpakContractTests(unittest.TestCase):
         self.addCleanup(right.close)
         with tempfile.TemporaryDirectory() as directory:
             environment = {'FLATPAK_ID': 'org.itsdestin.SwipeKeyboard',
-                           'WAYLAND_SOCKET': str(left.fileno()), 'XDG_DATA_HOME': directory}
+                           'WAYLAND_SOCKET': str(left.fileno()), 'XDG_DATA_HOME': directory,
+                           'QT_WAYLAND_RECONNECT': '1'}
             with mock.patch.dict(launcher.os.environ, environment, clear=True), \
                  mock.patch.object(launcher.Path, 'is_file', return_value=True), \
                  mock.patch.object(launcher.sys, 'argv', ['swipe-keyboard-flatpak']), \
@@ -188,6 +189,7 @@ class FlatpakContractTests(unittest.TestCase):
                 child = execute.call_args.args[2]
                 self.assertEqual(child.get('QML_NO_TOUCH_COMPRESSION'), '1')
                 self.assertEqual(child.get('QT_WAYLAND_FRAME_CALLBACK_TIMEOUT'), '5000')
+                self.assertNotIn('QT_WAYLAND_RECONNECT', child)
                 self.assertEqual(child['WAYLAND_SOCKET'], str(left.fileno()))
                 self.assertEqual(dict(launcher.os.environ), before)
                 os.fstat(left.fileno())  # Validation must not consume KWin's socket.

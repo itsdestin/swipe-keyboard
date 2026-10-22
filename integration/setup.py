@@ -415,6 +415,9 @@ class Controller:
         # then silently drops completions, corrections and text updates. Measured on ARM
         # Plasma Mobile: "Helo" -> tap "Hello" did nothing until this was raised.
         env.setdefault('QT_WAYLAND_FRAME_CALLBACK_TIMEOUT', '5000')
+        # WHY: Plasma's session QT_WAYLAND_RECONNECT=1 made a deselected keyboard reconnect as an
+        # ordinary app and keep running invisibly with its models loaded. KWin relaunches it itself.
+        env.pop('QT_WAYLAND_RECONNECT', None)
         # WHY this distinct mode follows the checked stock Plasma 6.7/6.8 launch.
         # It is NOT raw application completion permission: the plugin also checks
         # the actual proxy class and gives any present raw bridge precedence.
