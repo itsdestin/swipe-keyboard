@@ -45,7 +45,11 @@ std::vector<swipekb::KeyRect> keysFor(const QJsonObject &c) {
 std::vector<swipekb::TracePoint> traceFor(const QJsonObject &c,const std::vector<swipekb::KeyRect> &keys) {
     std::vector<swipekb::TracePoint> trace;
     const auto provenance=text(c,"provenance");
-    if(provenance=="supplied-human") {
+    // WHY synthetic-noisy-v1 shares the explicit-points path: its traces come from a noise model
+    // (bench/languages/make-noisy-swipes.py) but are replayed exactly like supplied points.
+    // It is never human, so the nativeReviewed check below rejects any claim of review.
+    if(provenance=="supplied-human" || provenance=="synthetic-noisy-v1") {
+        require(provenance!="synthetic-noisy-v1" || (c["nativeReviewed"].isBool() && !c["nativeReviewed"].toBool()));
         require(c["points"].isArray() && !c.contains("traceKeys"));
         double last=-1;
         for(const auto &v:c["points"].toArray()) {
@@ -125,7 +129,11 @@ int main(int argc,char **argv)
                     const auto &p=runtime->profile;
                     swipekb::ModelPaths paths; auto path=[&](const QString &role) { return p.assets.value(role).path.toStdString(); };
                     paths.encoder=path("encoder"); paths.dictionary=path("dictionary"); paths.decoder=path("decoder");
-                    paths.lm_model=path("contextModel"); paths.lm_vocab=path("contextVocab");
+                    // WHY mirror plugin/swipeinputmethod.cpp: Recognizer::init refuses foreign profiles that carry
+                    // English-style context files or lack their own n-gram, so without this every non-English case
+                    // came back "unavailable" ("Engine initialization failed").
+                    if(language=="en") { paths.lm_model=path("contextModel"); paths.lm_vocab=path("contextVocab"); }
+                    else { paths.ngram=path("contextModel"); options.ngram=true; }
                     runtime->dictionary=dictionaryFor(p.assets.value("dictionary").path);
                     runtime->engine=std::make_unique<swipekb::Recognizer>();
                     if(!runtime->engine->init(paths,options)) runtime->engine.reset();

@@ -71,6 +71,20 @@ class OfflineLanguageCLI(unittest.TestCase):
         case['points'][1]['t']=-1
         self.assertEqual(self.evaluate([case])['totals']['invalid'], 1)
 
+    def test_synthetic_noisy_points_accepted_but_never_native_reviewed(self):
+        case = self.seed(); case.pop('traceKeys')
+        case.update(provenance='synthetic-noisy-v1',points=[{'x':50,'y':50,'t':0},{'x':150,'y':50,'t':20}])
+        out = self.evaluate([case])
+        self.assertEqual(out['totals']['geometryCovered'], 1)
+        self.assertEqual(out['cases'][0]['provenance'], 'synthetic-noisy-v1')
+        self.assertFalse(out['cases'][0]['nativeReviewed'])
+        # WHY: a model-generated trace must not be able to claim a native speaker checked it.
+        reviewed = copy.deepcopy(case); reviewed['nativeReviewed']=True
+        self.assertEqual(self.evaluate([reviewed])['totals']['invalid'], 1)
+        # and generated points still may not be mixed with traceKeys
+        mixed = copy.deepcopy(case); mixed['traceKeys']='casa'
+        self.assertEqual(self.evaluate([mixed])['totals']['invalid'], 1)
+
     def test_conflicting_matching_policy_is_rejected_not_used_to_inflate_accuracy(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp)/'cases.json'

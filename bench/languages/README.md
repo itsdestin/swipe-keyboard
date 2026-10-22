@@ -53,3 +53,42 @@ profile's dictionary by lookup identity. `total` includes every input case;
 the denominator; dictionary absence and empty candidate lists are not exclusions.
 Native-reviewed held-out data, stock-layout journeys and device acceptance remain
 separate originating-session acceptance work.
+
+## Synthetic noisy swipes (`synthetic-noisy-v1`) - provisional, NOT human
+
+Roadmap 0.5 asks for real swipes from speakers of each language; until volunteers exist,
+`make-noisy-swipes.py` makes **model-generated** traces so Spanish, French and German get a
+provisional number. They are not human swipes and are never `nativeReviewed` (the bench
+rejects a `synthetic-noisy-v1` case that claims it). The bench replays their explicit
+`points` exactly like supplied ones; `traceKeys` is not allowed with them.
+
+How: `noisy-params-v1.json` holds a small noise model fitted on real English swipes
+(FUTO dataset, `dev.jsonl` only): where the finger lands and lifts relative to the key
+centre, how far it misses keys in between, speed (slow at sharp turns and at lift-off),
+sample gaps and jitter. The same model is applied to the es/fr/de layouts, so it assumes
+people swipe other languages like English. Words are sampled (seed 1, 400 each, with
+repeats) by how often they occur in `~/.cache/swipe-keyboard-train/<lang>/test/{everyday,web}.txt`;
+tokens whose spelling is not in the language dictionary are skipped (so out-of-dictionary
+words, which a real user would also type, are NOT measured). Accented letters are traced
+through their base key and apostrophes are not swiped (same rules as `make-seeds.py`).
+Regenerate: `make-noisy-swipes.py gen --lang es --params noisy-params-v1.json --text-dir <dir> --out ...`.
+
+Calibration (English words of `bench-2000.jsonl`, 1669 plain a-z words, English profile):
+
+| traces | first guess | top 3 |
+|---|---|---|
+| real swipes | 92.8% | 96.4% |
+| synthetic, calibrated (noise x0.45) | 92.3% | 96.0% |
+| synthetic, raw fit (noise x1.0, first 594 words) | 82.2% | 90.9% |
+
+The raw fit measured in key units is much harsher than the real swipes the recogniser
+actually sees, so one multiplier (0.45 on all spatial noise) was tuned against bench-2000
+(a scoring set; a single number, shape fitted on dev only). Calibration is English-only
+and aggregate: it says nothing about whether the errors are the same words, nor about
+real es/fr/de handwriting habits. Treat the language numbers as +/- several points and
+as a ceiling-ish estimate; replace with real volunteer swipes when available.
+
+First provisional results (installed packs, 400 words each, bench CPU about 2 ms/word):
+es first guess 85.0% / top 3 98.2%; fr 82.8% / 93.2%; de 86.8% / 96.5%. Most misses are short
+words and near-neighbour words; Spanish `que`/`qué`, `como`/`cómo` and French `ou`/`où` are
+accent-only confusions the swipe path cannot resolve (needs context).
