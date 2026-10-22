@@ -43,7 +43,21 @@ The bundle requests ordinary Wayland and inherited Wayland-socket access. It doe
 
 Private app data is under `~/.var/app/org.itsdestin.SwipeKeyboard/`; the keyboard uses its app-scoped data directory. Uninstalling without `--delete-data` retains that data. You do not need to remove shared Flatpak runtimes.
 
-**Gaming Mode is not supported.** Steam's built-in Gaming Mode keyboard is a different integration. Installing the Desktop bundle does not replace it. Physical Steam Deck hardware performance is not established by our virtual-machine checks.
+## Gaming Mode on Steam Deck (preview; not in any published release)
+
+The Desktop Mode bundle above does not change Steam's Gaming Mode keyboard. Gaming Mode support is a separate, opt-in add-on that is built and tested only in a SteamOS virtual machine so far; it has not run on a physical Deck, and physical-Deck performance is not established.
+
+**What it is.** A small background program (the helper) attaches to Steam's own on-screen keyboard through Steam's developer switch and adds swipe typing and a suggestion row; a second program (the engine) does the word guessing. Nothing is sent to the internet: the engine has no network access at all, and the helper's network access exists only to reach Steam on the same Deck. Steam's keyboard keeps working underneath at all times.
+
+**Consent and what the installer changes.** `install.sh` (in the SteamOS download) shows its text first and asks `[y/N]`; `--dry-run` shows the changes and does nothing. It installs the two Flatpaks (the main app and the Gaming Mode helper), creates Steam's developer-switch file `.cef-enable-remote-debugging` (it records whether the file already existed, for example from Decky Loader, so removal never deletes a file it did not create), writes two user-level systemd units to `~/.config/systemd/user/`, and records everything in `~/.local/share/swipe-keyboard-gaming/install-record.json`. It never uses `sudo`, never touches `/usr` or `/etc`, never changes a Steam file, and never restarts Steam while a game runs. The developer switch also exposes Steam to other devices on the same network through SteamOS's port 8081; the consent text says so.
+
+**Status.** The helper writes `~/.local/state/swipekb-gaming/status.json`. Meanings: `active` (the layer is on Steam's keyboard), `waiting-for-steam` (Steam is not running, is restarting, or its keyboard page is not up yet), `needs-steam-restart` (Steam is running without the developer switch; restart Steam once), `paused-steam-changed` (Steam's keyboard no longer matches what we depend on, so the layer is off and Steam's own keyboard is in use), `steam-not-found` (no Steam installation was found), `error` (the helper hit an unexpected problem; Steam's keyboard is unaffected) and `off`. A paused or waiting state never leaves you without a keyboard.
+
+**Fields and privacy.** Inside Steam's own password boxes the layer does nothing at all. Where Steam cannot say what kind of box it is (for example the keyboard opened over a game), swipe and suggestions work but nothing is learned or written to disk, and what is held is erased when the keyboard closes. Gaming Mode does no learning anywhere in the first version.
+
+**Restarts and updates.** Everything lives in your home folder. Designed to survive reboot, switching between Gaming and Desktop Mode, Steam restarts and updates; a reboot and mode-switch survival were measured in a virtual machine, while SteamOS image updates and the installer's real-Flatpak behaviour are not yet verified (see the plan's M8 results when they exist). The one case that may need a Steam restart is Steam forgetting the developer switch.
+
+**Updates and removal.** For now an update is the newer download plus running its `install.sh` again (a downgrade is refused unless `--force`). Removal is `bash uninstall.sh` from the download (`--remove-apps` also removes the two Flatpaks if the installer added them). Because the layer lives only in Steam's memory, nothing remains in Steam after its next restart. If you removed the Flatpaks without running `uninstall.sh`, the two units fail to start harmlessly and stop retrying; `uninstall.sh` still cleans them up.
 
 ## Native packages: Arch/CachyOS and Fedora Plasma Mobile
 

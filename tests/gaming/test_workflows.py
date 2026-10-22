@@ -49,7 +49,7 @@ class Workflows(unittest.TestCase):
         self.assertIn('contents: read', CANARY.split('jobs:')[0], 'default token is read-only')
         for text in (CANARY, WATCHDOG):
             for use in re.findall(r'uses:\s*(\S+)', text):
-                self.assertRegex(use, r'^actions/(checkout|setup-python)@v\d+$')
+                self.assertRegex(use, r'^actions/(checkout|setup-python|setup-node)@v\d+$')
 
     def test_failed_canary_opens_the_tracking_issue_and_fails_the_run(self):
         self.assertIn('canary.py issue --kind red', CANARY)

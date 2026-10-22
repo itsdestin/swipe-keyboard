@@ -13,7 +13,9 @@ Flatpaks, `install.sh`, `uninstall.sh`, the two systemd units and its own checks
 ARM is a required build/package/acceptance target, not an optional canary.
 Source implementation alone is not ARM runtime acceptance: the exact native ARM
 package must pass a real ARM Plasma Mobile session before publication. This does
-not certify physical-phone performance, Android, iOS, musl, or Gaming Mode.
+not certify physical-phone performance, Android, iOS, musl, or Gaming Mode on physical Steam Deck
+hardware (virtual-machine results only; the README labels Gaming Mode a preview until the owner's
+physical-Deck pass, plan Milestone 11, is done).
 Never replace v0.2.0 assets.
 
 ## One local check command
@@ -81,11 +83,18 @@ cross-run artifact promotion, optional platform bypass, or product build cache e
   if `gaming/helper/` is absent), installs it and checks it has network as its only extra
   permission, then assembles the download with `scripts/steamos_bundle.py`. The download
   embeds the `flatpak` job's own bundle; the gate rejects it unless its recorded hash equals
-  the standalone `.flatpak`. The download is built and gated but not yet advertised in the
-  README (the Gaming Mode docs milestone adds that). Native Arch/Fedora packages ship no Gaming
+  the standalone `.flatpak`. The download is built and gated but the README's Gaming Mode section carries no link yet:
+  the only published tag has no steamos asset and assets are never replaced, so the link and
+  the exemption in `tests/packaging/test_release_workflow.py` change together in the first
+  release that includes it (this needs a version bump in `release-targets.json` and the recipes). Native Arch/Fedora packages ship no Gaming
   Mode file; `scripts/package-check.py` fails them if one appears.
-- The hosted Flatpak update repository the owner approved (plan Section 15, question 1) is a
-  separate follow-up and is not part of this download.
+- `gaming-tests`: Python and Node tests for the helper, gesture layer, canary, installer and
+  SteamOS release contract; runs on every pull request and tag, and `publish` waits for it. The
+  daemon test (`test_daemon.py`) runs under CTest (`gaming_daemon`) in the native package builds.
+- `flatpak-repo`: publishes the hosted, signed Flatpak update repository (design and the owner's
+  one-time setup: plan, "Hosted Flatpak update repository"). It runs only for a release tag, after
+  `publish`, and only when the repository variable `FLATPAK_REPO_PUBLISH` is `true`; otherwise it is
+  skipped. It is not a release producer and is not part of the verified release set.
 
 Flatpak preparation generates an **external** `manifest.json`, replaces the source
 archive hash after archive creation, and materializes pinned upstream archives and

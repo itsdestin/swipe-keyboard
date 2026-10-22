@@ -4,7 +4,7 @@ Swipe across letters to type, or tap normally. English (US/UK), Spanish, French 
 
 **Test release v0.3.1-1 · KDE Plasma Wayland**
 
-Choose your platform: [Steam Deck](#steam-deck--desktop-mode) · [Arch / CachyOS](#arch--cachyos) · [Fedora 44 / Plasma Mobile](#fedora-44--plasma-mobile)
+Choose your platform: [Steam Deck](#steam-deck--desktop-mode) · [Gaming Mode (preview)](#steam-deck--gaming-mode-preview-not-yet-released) · [Arch / CachyOS](#arch--cachyos) · [Fedora 44 / Plasma Mobile](#fedora-44--plasma-mobile)
 
 ## Install
 
@@ -12,7 +12,7 @@ Choose your platform: [Steam Deck](#steam-deck--desktop-mode) · [Arch / CachyOS
 
 **[Download the Steam Deck Flatpak](https://github.com/itsdestin/swipe-keyboard/releases/download/v0.3.1-1/swipe-keyboard-0.3.1-1-x86_64.flatpak)**
 
-Desktop Mode only; this does not change Steam's Gaming Mode keyboard. Do not unlock SteamOS or install the Arch/Fedora packages on your Deck.
+Desktop Mode only; this does not change Steam's Gaming Mode keyboard (see the Gaming Mode preview below). Do not unlock SteamOS or install the Arch/Fedora packages on your Deck.
 
 1. Switch to **Desktop Mode**. Save the download to **Downloads**, then open **Konsole** (the terminal app) from the application menu.
 2. Install it; **do not use `sudo`**:
@@ -48,6 +48,28 @@ flatpak run --user --command=kcmshell6 org.itsdestin.SwipeKeyboard kcm_plasmakey
 ```sh
 flatpak uninstall --user org.itsdestin.SwipeKeyboard
 ```
+
+### Steam Deck — Gaming Mode (preview, not yet released)
+
+**Not available yet.** There is no download for this, and the release has not been tried on a real Steam Deck. This section describes what is being built so you can see what to expect. The Desktop Mode install above is unaffected.
+
+Gaming Mode support keeps Steam's own on-screen keyboard exactly as it is and adds swipe typing and a row of word suggestions on top of it. It is a separate, opt-in step you take in Desktop Mode, and it can be undone completely.
+
+When it is released, it will be a single download for SteamOS with a short install script. In Desktop Mode, in Konsole, without `sudo`, you will:
+
+1. Download the SteamOS file and run `bash install.sh`. It shows you everything it will change, in plain words, and asks before doing anything.
+2. Restart Steam once if it was already open (the installer never restarts Steam while a game is running).
+3. Switch to Gaming Mode, touch a text field and swipe across the letters.
+
+To remove it, run `bash uninstall.sh` from the same download. It only removes what the installer added.
+
+**How this works, and a warning.** Gaming Mode support works by attaching to Steam's own on-screen keyboard through a developer switch that Valve provides in Steam. It adds swipe typing and suggestions on top and leaves Steam's keyboard as it is. Steam's Subscriber Agreement says you may not modify or create derivative works of software accessed through Steam without Valve's written consent. Whether this counts is unclear. We do not change any Steam file, we do not touch games or anti-cheat, and a popular community tool (Decky Loader) uses the same switch, but Valve has not approved this and could stop it or object at any time. Turning the switch on lets other programs on your Deck, and other devices on your Wi-Fi or home network, control Steam's screens (SteamOS opens a second door, port 8081, to the whole network). You can turn this off at any time. We are not lawyers; use it only if you are comfortable with that.
+
+**Passwords.** Inside Steam's own password boxes the keyboard layer does nothing. Over games and other programs, Steam does not say whether a box is a password box, so nothing is learned or saved there and suggestions are kept only until you close the keyboard.
+
+**Swipes start on a letter key.** Steam's keyboard already types letters when you lift your finger, so taps should feel the same as before (to be measured on a real Deck). A finger that rests on a letter for a moment before moving can type that one letter; Backspace, Shift, Space and Enter are unchanged.
+
+**If Steam changes something we depend on, Gaming Mode support switches itself off and Steam's keyboard keeps working.** Updates are manual downloads.
 
 ### Arch / CachyOS
 
