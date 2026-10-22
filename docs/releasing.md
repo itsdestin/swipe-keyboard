@@ -90,7 +90,11 @@ cross-run artifact promotion, optional platform bypass, or product build cache e
   Mode file; `scripts/package-check.py` fails them if one appears.
 - `gaming-tests`: Python and Node tests for the helper, gesture layer, canary, installer and
   SteamOS release contract; runs on every pull request and tag, and `publish` waits for it. The
-  daemon test (`test_daemon.py`) runs under CTest (`gaming_daemon`) in the native package builds.
+  two tests that need the built daemon are left out of it by name and run under CTest in the package builds:
+  `test_daemon.py` (`gaming_daemon`, every build) and `test_commit_e2e.py` (`gaming_commit_e2e`, only where Node
+  is installed: the Arch and Fedora jobs). Both use synthetic swipes unless the developer-only recorded corpus is present.
+  The "no network" proof has two parts: a network-namespace test that is skipped (with its reason printed) where
+  `unshare -rn` is not allowed, and a socket check that runs everywhere.
 - `flatpak-repo`: publishes the hosted, signed Flatpak update repository (design and the owner's
   one-time setup: plan, "Hosted Flatpak update repository"). It runs only for a release tag, after
   `publish`, and only when the repository variable `FLATPAK_REPO_PUBLISH` is `true`; otherwise it is

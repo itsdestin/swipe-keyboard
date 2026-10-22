@@ -112,7 +112,9 @@ jobs:
             return 1
           }
           retry_pacman -Syyuu --noconfirm
-          retry_pacman -S --noconfirm --needed base-devel git cmake ninja python python-pip qt6-declarative qt6-virtualkeyboard qt6-tools kwindowsystem kconfig kirigami gtest curl plasma-keyboard
+          # WHY nodejs: the engine-daemon end-to-end test (CTest gaming_commit_e2e) drives a fake Steam page in Node; the
+          # package recipe itself stays free of it, so the tool is installed here, in the build image only.
+          retry_pacman -S --noconfirm --needed base-devel git cmake ninja python python-pip qt6-declarative qt6-virtualkeyboard qt6-tools kwindowsystem kconfig kirigami gtest curl plasma-keyboard nodejs
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
@@ -198,7 +200,8 @@ jobs:
       PACKAGE_VERSION: ${{ needs.prepare.outputs.package_version }}
     steps:
       - name: Install RPM tooling
-        run: dnf -y install git rpm-build rpmdevtools dnf-plugins-core cpio findutils
+        # WHY nodejs: see the Arch job; it is installed in the build image only, not required by the package.
+        run: dnf -y install git rpm-build rpmdevtools dnf-plugins-core cpio findutils nodejs
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
@@ -284,7 +287,8 @@ jobs:
           # Fail early with actual runner capacity; never lower the asset safety floor.
           test "$(df -Pk . | tail -1 | tr -s ' ' | cut -d' ' -f4)" -ge 22020096
       - name: Install RPM tooling
-        run: dnf -y install git rpm-build rpmdevtools dnf-plugins-core cpio findutils
+        # WHY nodejs: see the Arch job; it is installed in the build image only, not required by the package.
+        run: dnf -y install git rpm-build rpmdevtools dnf-plugins-core cpio findutils nodejs
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
@@ -483,8 +487,9 @@ jobs:
   gaming-tests:
     # WHY its own job: the Gaming Mode tests (helper, gesture layer, canary, installer, Flatpak and release wiring) used
     # to run only inside the daily Steam canary, which is no check on a pull request. They are plain Python plus Node,
-    # need no Flatpak or Qt and finish in about a minute. WHY the pattern: test_daemon.py needs the compiled daemon and
-    # model files, so it runs under CTest (test gaming_daemon) in the arch, fedora and flatpak package builds instead.
+    # need no Flatpak or Qt and finish in about a minute. WHY two files are left out by name: test_daemon.py and
+    # test_commit_e2e.py need the compiled daemon and the model files, which only the package builds have, so they run
+    # under CTest (tests gaming_daemon and gaming_commit_e2e) in the arch, fedora and flatpak jobs instead.
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -500,7 +505,16 @@ jobs:
         with:
           node-version: '22'
       - name: Helper, gesture layer, canary, fetch and ledger tests
-        run: python3 -I -m unittest discover -s tests/gaming -p 'test_[!d]*.py' -v
+        # WHY a loop and not one discover: every other test file is picked up automatically, only the two named files are
+        # skipped, and each file's result is reported (a failure in one does not hide the rest).
+        run: |
+          status=0
+          for file in tests/gaming/test_*.py; do
+            name=$(basename "$file")
+            case "$name" in test_daemon.py|test_commit_e2e.py) echo "skipped here (needs the built daemon, runs under CTest): $name"; continue;; esac
+            python3 -I -m unittest discover -s tests/gaming -p "$name" -v || status=1
+          done
+          exit $status
       - name: Installer, Flatpak and SteamOS release contract tests
         run: |
           python3 -I -m unittest discover -s tests/packaging -p test_gaming_setup.py -v

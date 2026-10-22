@@ -41,6 +41,14 @@ add_dependencies(swipekb-gamingd swipekb-replay)
 
 # M5: the real helper talking to this daemon through a fake Steam (tests/gaming/test_commit_e2e.py). WHY here: it needs the built daemon.
 # The helper-only tests (test_commit.py, test_helper.py, test_layer.py) need no build and are run directly with python3 -I.
-add_test(NAME gaming_commit_e2e COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_SOURCE_DIR}/tests/gaming/test_commit_e2e.py)
-set_tests_properties(gaming_commit_e2e PROPERTIES TIMEOUT 600 ENVIRONMENT
-    "SWIPEKB_GAMINGD=$<TARGET_FILE:swipekb-gamingd>;SWIPEKB_REPLAY_EXE=$<TARGET_FILE:swipekb-replay>;SWIPEKB_ASSETS=${SWIPEKB_ASSETS};SWIPEKB_FUTO_LAYOUT=${CMAKE_SOURCE_DIR}/third_party/swipe-library/models/layouts/en_qwerty.json")
+# WHY only when Node is found: the fake Steam page runs in Node, and a plain native-package build machine may not have it. A
+# missing tool must not turn the whole package build red, but it must not pass quietly either, so the gap is printed here and
+# the test runs in every job whose build has Node (see the arch and fedora jobs in .github/workflows/packages.yml).
+find_program(SWIPEKB_NODE node)
+if(SWIPEKB_NODE)
+    add_test(NAME gaming_commit_e2e COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_SOURCE_DIR}/tests/gaming/test_commit_e2e.py)
+    set_tests_properties(gaming_commit_e2e PROPERTIES TIMEOUT 600 ENVIRONMENT
+        "SWIPEKB_GAMINGD=$<TARGET_FILE:swipekb-gamingd>;SWIPEKB_REPLAY_EXE=$<TARGET_FILE:swipekb-replay>;SWIPEKB_ASSETS=${SWIPEKB_ASSETS};SWIPEKB_FUTO_LAYOUT=${CMAKE_SOURCE_DIR}/third_party/swipe-library/models/layouts/en_qwerty.json")
+else()
+    message(STATUS "gaming_commit_e2e NOT registered: Node.js was not found (the fake Steam page needs it)")
+endif()

@@ -145,8 +145,16 @@ target_compile_definitions(tst_languageoracle PRIVATE SWIPEKB_ORACLE_DATASET="${
 target_link_libraries(tst_languageoracle PRIVATE swipekeyboard Qt6::Quick Qt6::Qml Qt6::VirtualKeyboard Qt6::Test)
 set(SWIPEKB_ORACLE_JSON ${CMAKE_BINARY_DIR}/plugin-language-oracle.json)
 add_test(NAME plugin_languageoracle COMMAND tst_languageoracle)
+# WHY the oracle (and only the oracle) falls back to the build's own assets: it just records what the plugin shows for
+# swipes, using the packs every package build has already fetched. Without this it silently skipped in the package builds
+# (reported as passed, no output file) and gaming_daemon then failed on the missing file. The other language tests keep
+# their explicit opt-in because they exercise generation and licence checks that a plain build must not assume.
+set(_oracle_fixture_env "${_language_fixture_env}")
+if(NOT SWIPEKB_TEST_ENGLISH_ASSETS AND NOT SWIPEKB_TEST_LANGUAGE_PACKS AND IS_DIRECTORY "${SWIPEKB_ASSETS}/language-packs" AND IS_DIRECTORY "${SWIPEKB_ASSETS}/models")
+    set(_oracle_fixture_env "SWIPEKB_TEST_ENGLISH_ASSETS=${SWIPEKB_ASSETS};SWIPEKB_TEST_LANGUAGE_PACKS=${SWIPEKB_ASSETS}/language-packs")
+endif()
 set_tests_properties(plugin_languageoracle PROPERTIES FIXTURES_SETUP plugin_oracle ENVIRONMENT
-    "${_language_fixture_env};SWIPEKB_ORACLE_OUT=${SWIPEKB_ORACLE_JSON};QT_QPA_PLATFORM=offscreen;QT_IM_MODULE=qtvirtualkeyboard;QT_VIRTUALKEYBOARD_DESKTOP_DISABLE=1")
+    "${_oracle_fixture_env};SWIPEKB_ORACLE_OUT=${SWIPEKB_ORACLE_JSON};QT_QPA_PLATFORM=offscreen;QT_IM_MODULE=qtvirtualkeyboard;QT_VIRTUALKEYBOARD_DESKTOP_DISABLE=1")
 set_tests_properties(plugin_languageprofile plugin_languagepacks PROPERTIES ENVIRONMENT "${_language_fixture_env}")
 # WHY CTest must expose missing-fixture coverage as skipped, not a misleading green model gate.
 set_tests_properties(plugin_languageprofile plugin_languagepacks plugin_languageintegration PROPERTIES

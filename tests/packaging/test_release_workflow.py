@@ -107,12 +107,22 @@ class WorkflowTests(unittest.TestCase):
         # They now run on every pull request and push, and a release tag cannot publish while they fail.
         gaming = self.jobs['gaming-tests']
         self.assertIn('actions/setup-node@v4', gaming)  # the layer and helper tests drive Node
-        self.assertIn("-p 'test_[!d]*.py'", gaming)  # test_daemon.py needs the built daemon and runs under CTest
         for name in ('test_flatpak_gaming.py', 'test_gaming_setup.py', 'test_release_steamos.py'):
             self.assertIn(name, gaming)
         self.assertNotIn('continue-on-error', gaming)
-        # WHY: the daemon test is wired through CTest in the native package builds, never by name here.
-        self.assertIn('gaming_daemon', (ROOT/'gaming/daemon/CMakeLists.txt').read_text())
+        self.assertNotIn("test_[!d]", gaming)  # the old glob quietly depended on a file name's first letter
+        # WHY by name: the tests that need the compiled daemon cannot run in this job (no Qt 6.8 or models), so they are
+        # excluded explicitly. Which files those are is read from the tests themselves, so a new daemon-dependent test
+        # that is not excluded (or is excluded and never wired into CTest) fails here, not in a run on GitHub.
+        needs_daemon = sorted(f.name for f in (ROOT/'tests/gaming').glob('test_*.py')
+                              if re.search(r'SWIPEKB_GAMINGD|import test_daemon', f.read_text()) and f.name != 'test_daemon.py') + ['test_daemon.py']
+        self.assertEqual(sorted(needs_daemon), ['test_commit_e2e.py', 'test_daemon.py'])
+        cmake = (ROOT/'gaming/daemon/CMakeLists.txt').read_text()
+        for name in needs_daemon:
+            self.assertIn(name, gaming, f'{name} must be excluded from gaming-tests by name')
+            self.assertIn('tests/gaming/' + name, cmake, f'{name} must be registered with CTest, which the package builds run')
+        self.assertIn('add_test(NAME gaming_daemon', cmake)
+        self.assertIn('add_test(NAME gaming_commit_e2e', cmake)
         # The update repository can never run on a pull request, a branch or without the owner's switch.
         repo = self.jobs['flatpak-repo']
         self.assertIn("startsWith(github.ref, 'refs/tags/v')", repo)
