@@ -88,12 +88,16 @@ class Config:
     engine_socket: Path = field(default_factory=lambda: default_engine_paths()[0])
     engine_token: Path = field(default_factory=lambda: default_engine_paths()[1])
     session: dict = field(default_factory=dict)   # hidden knobs for the typing session in the page: tick_ms, trail_ms
+    failsafe: dict = field(default_factory=dict)  # hidden knobs for the fail-safe watcher in the page: tick_ms, limit, focus_ms
     poll_interval: float = 0.5        # port-closed probe and event-loop tick; a connect to loopback costs ~nothing
     beat_interval: float = 1.0        # liveness ping to the stub; also the safety net that notices a lost stub
     layer_watchdog: float = 6.0       # stub removes itself if no ping arrives for this long (helper crashed)
     call_timeout: float = 2.0         # any single request to Steam
     not_ready_grace: float = 15.0     # how long a page may lack SteamClient before that counts as "Steam changed"
     failure_spacing: float = 2.0      # failed contract checks closer together than this count once
+    recheck_interval: float = 10.0    # while the layer is installed, how often the helper re-asks Steam's hidden page for its text call
+    healthy_after: float = 30.0       # a layer must stay installed and answering this long before its past failures are forgiven
+    max_backoff: float = 60.0         # longest wait between two tries against the same Steam build
     max_failures: int = 3             # per Steam build; then the helper stops trying (plan Section 14, M9)
     steamui_probe: object = 'auto'    # file whose mtime joins the "which Steam build" fingerprint; None = off
 

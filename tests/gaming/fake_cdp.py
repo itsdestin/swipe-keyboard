@@ -101,6 +101,10 @@ class Page:
         self.eval_log = []       # expressions received, for assertions
         self.bindings = {}       # binding name -> (session id, send function): where Runtime.bindingCalled goes
         self.alive = True
+        # Failure injection (M9). eval_filter(expr) -> None, or the text of the error Chrome would give for a refused
+        # evaluation (a blocked-eval/CSP page). refuse: CDP methods answered with an error object instead of a result.
+        self.eval_filter = None
+        self.refuse = set()
         self._rpc({'op': 'init', 'steam': steam})
         threading.Thread(target=self._drain, daemon=True).start()
 
@@ -347,7 +351,13 @@ class FakeSteam:
                     continue
                 m = json.loads(payload)
                 meth, p = m['method'], m.get('params', {})
-                if meth == 'Runtime.evaluate':
+                if meth in page.refuse:
+                    send({'id': m['id'], 'error': {'code': -32000, 'message': 'Refused: %s is not allowed on this page' % meth}})
+                elif meth == 'Runtime.evaluate' and page.eval_filter and page.eval_filter(p['expression']):
+                    page.eval_log.append(p['expression'])
+                    send({'id': m['id'], 'result': {'result': {'type': 'object'}, 'exceptionDetails': {
+                        'text': 'Uncaught', 'exception': {'description': 'EvalError: ' + page.eval_filter(p['expression'])}}}})
+                elif meth == 'Runtime.evaluate':
                     ok, val = page.eval(p['expression'])
                     if ok:
                         res = {'result': {'type': type(val).__name__, 'value': val}}

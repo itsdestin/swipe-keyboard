@@ -38,6 +38,7 @@ class RetryLedger:
         """A different Steam build gets a fresh set of tries."""
         if fingerprint != self.fingerprint:
             self.fingerprint, self.failures, self.detail = fingerprint, 0, ''
+            self.last_failure_at = None
             self._save()
 
     @property
@@ -53,6 +54,11 @@ class RetryLedger:
         self.detail = detail
         self._save()
         return True
+
+    def backoff(self, spacing, cap):
+        """How long to wait before the next try: `spacing`, then twice that, then four times... up to `cap`.
+        WHY (M9): a Steam that keeps refusing is asked less and less often, and after `max` failures not at all."""
+        return min(cap, spacing * (2 ** max(0, self.failures - 1)))
 
     def record_success(self):
         if self.failures:

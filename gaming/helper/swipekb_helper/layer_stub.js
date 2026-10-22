@@ -27,6 +27,9 @@
   };
 
   function mark() {
+    // WHY the owner check (M9): at document start the marker is written again after DOMContentLoaded; if the layer was
+    // removed before that, the late write would leave a marker for a layer that is gone.
+    if (w.__swipekbLayer !== L) return;
     var el = document.documentElement;
     if (el) el.setAttribute(ATTR, L.version);
   }
@@ -37,6 +40,7 @@
     // WHY first: taking the layer out must also take its touch listeners off, or Steam would keep being filtered.
     if (L.gestures) { try { L.gestures.off(); } catch (e) { /* already failed or gone */ } }
     if (L.session) { try { L.session.off(); } catch (e) { /* already failed or gone */ } }
+    if (L.failsafe) { try { L.failsafe.off(); } catch (e) { /* already gone */ } }
     if (L.timer !== null) { clearInterval(L.timer); L.timer = null; }
     var el = document.documentElement;
     if (el && el.getAttribute(ATTR) === L.version) el.removeAttribute(ATTR);
@@ -48,6 +52,26 @@
   L.timer = setInterval(function () {
     if (Date.now() - L.lastBeat > CONFIG.watchdog_ms) L.remove();
   }, Math.max(100, Math.floor(CONFIG.watchdog_ms / 4)));
+
+  // What the helper reads with each ping (M9): one JSON string of states, reasons and counts. Never anything typed.
+  // WHY a function and not fields: the states change after install (an arbiter that fails later, a keyboard that looks
+  // different), and the helper must see the state of the moment.
+  // WHY every part guarded: the helper counts a ping that THROWS as "Steam refused to run the layer". A report that cannot be
+  // built (a part in an odd state) must come back as 'unknown', never as an error that takes the layer out of the page.
+  function part(o, fn) { try { return o && typeof o[fn] === 'function' ? String(o[fn]()) : (o ? 'unknown' : 'none'); } catch (e) { return 'unknown'; } }
+  L.report = function () {
+    var g = L.gestures, s = L.session, f = L.failsafe, kb = null;
+    try { kb = f ? f.report() : null; } catch (e) { kb = null; }
+    var greason = '';
+    try { greason = g ? (g.reason ? String(g.reason()) : '') : (L.gestureError || ''); } catch (e2) { greason = ''; }
+    return JSON.stringify({
+      gestures: part(g, 'state'),
+      gestures_reason: greason,
+      session: part(s, 'state'),
+      session_reason: L.sessionError || '',
+      keyboard: kb
+    });
+  };
 
   w.__swipekbLayer = L;
   mark();
@@ -65,6 +89,11 @@
     if (L.session) hooked.hooks = L.session.hooks;
     if (typeof swipekbGestures === 'function') L.gestures = swipekbGestures(w, L, hooked);
   } catch (e) { L.gestureError = String((e && e.message) || e); }
+  L.failsafe = null;
+  try {
+    // WHY last: it can only switch the other two off, so they must exist first.
+    if (typeof swipekbFailsafe === 'function') L.failsafe = swipekbFailsafe(w, L, CONFIG.failsafe || {});
+  } catch (e) { L.failsafeError = String((e && e.message) || e); L.failsafe = null; }
   // A session without its arbiter has nothing to do (and must not leave a strip on screen).
   if (L.session && !L.gestures) { try { L.session.off(); } catch (e) { /* already gone */ } L.session = null; }
   // At document start there may be no <html> yet; mark again once the page has been built.

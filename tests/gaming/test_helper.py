@@ -563,7 +563,7 @@ class MarkerAndStatus(Base):
         self.assertEqual(mode & 0o077, 0)
         # Section 8: states and counts only, never text typed or traced.
         self.assertEqual(set(st), {'state', 'reason', 'steam_browser', 'layer_version', 'last_inject', 'attached_pages',
-                                   'pid', 'updated'})
+                                   'keyboard', 'pid', 'updated'})   # keyboard (M9): counts from the layer, never text
 
     def test_status_follows_the_whole_lifecycle(self):
         r = self.rig()

@@ -50,6 +50,9 @@ class PageSession:
         self.id = target_id
         self.cdp = c
         self.last_beat = time.monotonic()
+        self.since = time.monotonic()   # when this copy of the layer went in; a layer that stays and answers is forgiven past failures
+        self.lost = []                  # times the layer was found missing and put back (M9: a page that keeps removing it is a failure)
+        self.report = {}                # what the layer said about itself at the last ping
 
 
 class Helper:
@@ -85,6 +88,13 @@ class Helper:
         os.set_blocking(self._wake_w, False)
         self._sjs = None               # the worker's own socket to SharedJSContext
         self._sjs_id = None
+        # M9 (failure handling). dead_pages: pages whose layer stopped itself, with why; they are not tried again until the page
+        # is replaced. kb_missing: Steam is up but has no page with the keyboard page's title. recheck: ask Steam's hidden page
+        # again whether the text call is still there (periodically, and at once when a typing call fails).
+        self.dead_pages = {}
+        self.kb_missing = False
+        self.next_recheck = 0.0
+        self._recheck_now = False
 
     # ---- lifecycle ------------------------------------------------------------------------------------
     def start(self):
@@ -133,12 +143,12 @@ class Helper:
     def _stub(self):
         if self._stub_source is None:
             cfg = {'version': LAYER_VERSION, 'watchdog_ms': int(self.cfg.layer_watchdog * 1000),
-                   'device': self.device.page_config, 'gesture': dict(self.cfg.gesture), 'session': dict(self.cfg.session)}
+                   'device': self.device.page_config, 'gesture': dict(self.cfg.gesture), 'session': dict(self.cfg.session), 'failsafe': dict(self.cfg.failsafe)}
             # WHY read at use, pasted in as text: the layer files ship as data beside the helper and are sent to
             # Steam's page through the debug port; nothing is fetched and nothing is written into Steam.
             # session.js (policy, strip, trail, commit) is pasted in front of gesture.js (the arbiter); the frame starts both.
             parts = []
-            for name in ('session.js', 'gesture.js'):
+            for name in ('failsafe.js', 'session.js', 'gesture.js'):
                 try:
                     parts.append((self.cfg.layer_dir / name).read_text())
                 except OSError:
@@ -263,7 +273,11 @@ class Helper:
         if now >= self.next_beat:
             self.next_beat = now + self.cfg.beat_interval
             self._safety_poll()
-            self._beat_all()
+            self._beat_all(now)
+        if self.pages and (self._recheck_now or now >= self.next_recheck):
+            self._recheck_now = False
+            self.next_recheck = now + self.cfg.recheck_interval
+            self._recheck_contract(now)
         self._reconcile(now)
         self._publish_running()
 
@@ -338,8 +352,12 @@ class Helper:
                 self._sjs = cdp.Cdp.open(self.cfg.port, cdp.page_path(sjs), timeout=self.cfg.call_timeout)
                 self._sjs_id = sjs
             self._sjs.evaluate('SteamClient.Input.ControllerKeyboardSendText(%s)' % json.dumps(text))
-        except (ws.WsError, cdp.CdpError, OSError, ValueError):
+        except (ws.WsError, cdp.CdpError, OSError, ValueError) as e:
             self._close_sjs()
+            # WHY (M9): Steam answered but refused (the call is gone or renamed). Every later swipe would be swallowed and
+            # typed nowhere; ask the main loop to look again now, so the layer comes off instead of waiting for the next check.
+            if isinstance(e, cdp.CdpError):
+                self._recheck_now = True
             raise SendFailed()
 
     def _close_sjs(self):
@@ -357,39 +375,106 @@ class Helper:
         lst = cdp.http_json(self.cfg.port, '/json/list', timeout=self.cfg.call_timeout)
         seen = {t['id']: {'type': t.get('type'), 'title': t.get('title', '')} for t in lst if 'id' in t}
         self.targets = seen
+        # WHY here (M9): the Steam build is otherwise only looked at when the port opens. A new Steam UI can arrive without the
+        # port ever closing; a helper that had given up on the old build must get its fresh tries then.
+        fp = self._fingerprint()
+        if fp != self.ledger.fingerprint:
+            self.ledger.use_build(fp)
+            self.next_attempt = 0.0
+            self.dead_pages = {}
 
-    def _beat_all(self):
+    _PING = ('(function(){var L=window.__swipekbLayer;return L&&L.version===%s?(L.beat(),L.report?L.report():"{}"):null})()'
+             % json.dumps(LAYER_VERSION))
+
+    def _beat_all(self, now):
         for pid, p in list(self.pages.items()):
             try:
-                alive = p.cdp.evaluate(
-                    '(function(){var L=window.__swipekbLayer;return L&&L.version===%s?L.beat():null})()'
-                    % json.dumps(LAYER_VERSION))
-                if alive != LAYER_VERSION:
-                    # The page lost our stub (reload that skipped the registered script): put it back.
+                raw = p.cdp.evaluate(self._PING)
+                if raw is None:
+                    # The page lost our stub (reload that skipped the registered script): put it back. WHY counted (M9): once
+                    # is a reload; a page that removes it again and again is not something to keep fighting.
+                    p.lost = [t for t in p.lost if now - t < self.cfg.healthy_after]
+                    if len(p.lost) >= self.cfg.max_failures:
+                        self._layer_trouble(pid, 'the layer keeps disappearing from the keyboard page', now)
+                        continue
+                    p.lost.append(now)
                     p.cdp.evaluate(self._stub())
                     self.last_inject = time.time()
+                    p.since = now
+                    continue
+                try:
+                    p.report = json.loads(raw)
+                except ValueError:
+                    p.report = {}
                 self._page_events(pid, p)
-            except (ws.WsError, cdp.CdpError, OSError, ValueError):
+            except cdp.CdpError as e:
+                # The page answered but would not run our script (blocked or broken): a Steam-side refusal, not a dropped link.
+                self._layer_trouble(pid, 'Steam refused to run the layer (%s)' % _short(e), now)
+                continue
+            except (ws.WsError, OSError, ValueError):
                 self._detach(pid, remove=False)
+                continue
+            self._judge_report(pid, p, now)
+
+    def _judge_report(self, pid, p, now):
+        r = p.report if isinstance(p.report, dict) else {}
+        for part in ('gestures', 'session'):
+            if r.get(part) == 'failed':
+                why = r.get(part + '_reason') or 'unknown error'
+                self.dead_pages[pid] = 'the layer stopped itself after an error: %s' % why
+                self._detach(pid, remove=True)
+                if self.ledger.record_failure(self.dead_pages[pid], now, self.cfg.failure_spacing):
+                    self.next_attempt = now + self.ledger.backoff(self.cfg.failure_spacing, self.cfg.max_backoff)
+                return
+        if now - p.since >= self.cfg.healthy_after:
+            self.ledger.record_success()      # it stayed and answered: earlier failures on this build no longer count
+
+    def _layer_trouble(self, pid, detail, now):
+        """The layer cannot be kept in this page: take it out, count it, and let the (capped, slowing) retry rules decide."""
+        self._detach(pid, remove=True)
+        if self.ledger.record_failure(detail, now, self.cfg.failure_spacing):
+            self.next_attempt = now + self.ledger.backoff(self.cfg.failure_spacing, self.cfg.max_backoff)
+
+    def _recheck_contract(self, now):
+        """With the layer installed: is Steam's text call still there? If not, take the layer out of every page."""
+        sjs = [i for i, t in self.targets.items() if t['type'] == 'page' and t['title'] == self.device.client_title]
+        if not sjs:
+            return
+        verdict, detail = self._check_contract(sjs[0])
+        if verdict != 'fail':
+            return        # 'notready' means Steam is reloading; the target events will bring the pages back
+        for pid in list(self.pages):
+            self._detach(pid, remove=True)
+        if self.ledger.record_failure(detail, now, self.cfg.failure_spacing):
+            self.next_attempt = now + self.ledger.backoff(self.cfg.failure_spacing, self.cfg.max_backoff)
 
     # ---- deciding what to attach ----------------------------------------------------------------------
     def _reconcile(self, now):
         if self.ledger.exhausted:
             self.paused_reason = self.ledger.detail
+            # WHY (M9): giving up must also mean "layer out". A page we were already in keeps its copy otherwise.
+            for pid in list(self.pages):
+                self._detach(pid, remove=True)
             return
         kb = self.device.keyboard_title
         wanted = [i for i, t in self.targets.items() if t['type'] == 'page' and t['title'] == kb]
         for pid in list(self.pages):
             if pid not in wanted:
                 self._detach(pid, remove=True)
-        pending = [i for i in wanted if i not in self.pages]
-        if not pending or now < self.next_attempt:
-            return
+        for pid in list(self.dead_pages):
+            if pid not in wanted:
+                del self.dead_pages[pid]
         sjs = [i for i, t in self.targets.items() if t['type'] == 'page' and t['title'] == self.device.client_title]
-        if not sjs:
-            return          # Steam's hidden page is not there yet; we are woken by its Target event
         for i in sjs:
             self.first_seen.setdefault(i, now)
+        # Steam is up (its hidden page is there) but nothing carries the keyboard page's title. Normal in Desktop Mode and during
+        # start-up; if it lasts in Gaming Mode, Valve renamed the page. Said in the status, not counted as a failure.
+        self.kb_missing = bool(sjs) and not wanted and now - min(self.first_seen[i] for i in sjs) >= self.cfg.not_ready_grace
+        pending = [i for i in wanted if i not in self.pages and i not in self.dead_pages]
+        if not pending or now < self.next_attempt:
+            return
+        if not sjs:
+            return          # Steam's hidden page is not there yet; we are woken by its Target event
         verdict, detail = self._check_contract(sjs[0])
         if verdict == 'notready':
             if now - self.first_seen[sjs[0]] < self.cfg.not_ready_grace:
@@ -397,16 +482,22 @@ class Helper:
             verdict, detail = 'fail', 'Steam page never finished loading SteamClient'
         if verdict == 'fail':
             if self.ledger.record_failure(detail, now, self.cfg.failure_spacing):
-                self.next_attempt = now + self.cfg.failure_spacing
+                self.next_attempt = now + self.ledger.backoff(self.cfg.failure_spacing, self.cfg.max_backoff)
             return
         for i in pending:
             try:
                 self._attach(i)
-            except (ws.WsError, cdp.CdpError, OSError, ValueError):
-                self.ledger.record_failure('could not install into the keyboard page', now, self.cfg.failure_spacing)
-                self.next_attempt = now + self.cfg.failure_spacing
+            except cdp.CdpError as e:
+                # Steam answered and said no (blocked script, refused registration): that is a Steam-side refusal.
+                self.ledger.record_failure('Steam refused to run the layer (%s)' % _short(e), now, self.cfg.failure_spacing)
+                self.next_attempt = now + self.ledger.backoff(self.cfg.failure_spacing, self.cfg.max_backoff)
                 return
-        self.ledger.record_success()
+            except (ws.WsError, OSError, ValueError):
+                self.ledger.record_failure('could not install into the keyboard page', now, self.cfg.failure_spacing)
+                self.next_attempt = now + self.ledger.backoff(self.cfg.failure_spacing, self.cfg.max_backoff)
+                return
+        # WHY no success is recorded here (M9): an install that works is not yet a layer that stays. A page that accepts the layer
+        # and drops it a second later would otherwise wipe the count every time and the helper would loop for ever.
 
     def _check_contract(self, sjs_id):
         """-> ('ok'|'notready'|'fail', detail). Opens a short-lived socket to Steam's hidden page."""
@@ -444,6 +535,10 @@ class Helper:
         except Exception:
             c.close()
             raise
+        if not self.pages:
+            # WHY (M9): the first look after an install is one full interval away, not "right now" (it was 0 at start), so the
+            # periodic check and the check forced by a failed typing call are different things.
+            self.next_recheck = time.monotonic() + self.cfg.recheck_interval
         self.pages[target_id] = PageSession(target_id, c)
         self.last_inject = time.time()
 
@@ -495,20 +590,45 @@ class Helper:
             self._publish('paused-steam-changed', 'Steam changed: ' + (self.ledger.detail or 'a needed part is missing') +
                           '. Stock keyboard in use.')
         elif self.pages:
+            # The layer's own view of the keyboard (M9): a keyboard that no longer matches switches the layer off in the page;
+            # counted oddities (too few letter keys, no keys found) are only reported.
+            for p in self.pages.values():
+                kb = (p.report or {}).get('keyboard') or {}
+                if kb.get('issue') and (p.report or {}).get('gestures') == 'off':
+                    self._publish('paused-steam-changed', 'Steam changed: ' + kb['issue'] + '. Stock keyboard in use.', kb)
+                    return
+            for p in self.pages.values():
+                kb = (p.report or {}).get('keyboard') or {}
+                if kb.get('issue'):
+                    self._publish('active', 'Note: ' + kb['issue'] + '.', kb)
+                    return
             self._publish('active', '')
+        elif self.dead_pages:
+            self._publish('error', next(iter(self.dead_pages.values())).capitalize() + '. Stock keyboard in use.')
+        elif self.ledger.failures:
+            self._publish('waiting-for-steam', 'Last try failed: ' + self.ledger.detail + '. Trying again shortly.')
+        elif self.kb_missing:
+            self._publish('waiting-for-steam', 'Steam is up but has no page named "%s". Normal in Desktop Mode; in Gaming Mode '
+                          'it means Steam renamed it. Stock keyboard in use.' % self.device.keyboard_title)
         else:
             self._publish('waiting-for-steam', 'Steam is up; waiting for its keyboard page.')
 
-    def _publish(self, state, reason):
-        self._write(state, reason)
+    def _publish(self, state, reason, keyboard=None):
+        self._write(state, reason, keyboard)
 
-    def _write(self, state, reason):
-        key = (state, reason, len(self.pages), self.last_inject, self.browser_string)
+    def _write(self, state, reason, keyboard=None):
+        key = (state, reason, len(self.pages), self.last_inject, self.browser_string, json.dumps(keyboard, sort_keys=True))
         if key == self.last_written:
             return
         self.last_written = key
         self.status.write(state, reason, steam_browser=self.browser_string, layer_version=LAYER_VERSION,
-                          last_inject=self.last_inject, attached_pages=len(self.pages))
+                          last_inject=self.last_inject, attached_pages=len(self.pages), keyboard=keyboard)
+
+
+def _short(e):
+    """A CDP error as one short line for the status file (Steam's own wording, trimmed)."""
+    t = ' '.join(str(e).split())
+    return t[:120]
 
 
 def _browser_id(ver, port):
