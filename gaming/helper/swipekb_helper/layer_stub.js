@@ -56,14 +56,20 @@
   // What the helper reads with each ping (M9): one JSON string of states, reasons and counts. Never anything typed.
   // WHY a function and not fields: the states change after install (an arbiter that fails later, a keyboard that looks
   // different), and the helper must see the state of the moment.
+  // WHY every part guarded: the helper counts a ping that THROWS as "Steam refused to run the layer". A report that cannot be
+  // built (a part in an odd state) must come back as 'unknown', never as an error that takes the layer out of the page.
+  function part(o, fn) { try { return o && typeof o[fn] === 'function' ? String(o[fn]()) : (o ? 'unknown' : 'none'); } catch (e) { return 'unknown'; } }
   L.report = function () {
-    var g = L.gestures, s = L.session, f = L.failsafe;
+    var g = L.gestures, s = L.session, f = L.failsafe, kb = null;
+    try { kb = f ? f.report() : null; } catch (e) { kb = null; }
+    var greason = '';
+    try { greason = g ? (g.reason ? String(g.reason()) : '') : (L.gestureError || ''); } catch (e2) { greason = ''; }
     return JSON.stringify({
-      gestures: g ? g.state() : 'none',
-      gestures_reason: g ? (g.reason ? g.reason() : '') : (L.gestureError || ''),
-      session: s ? s.state() : 'none',
+      gestures: part(g, 'state'),
+      gestures_reason: greason,
+      session: part(s, 'state'),
       session_reason: L.sessionError || '',
-      keyboard: f ? f.report() : null
+      keyboard: kb
     });
   };
 

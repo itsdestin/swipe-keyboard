@@ -156,16 +156,28 @@ class BlockedScripts(Base):
         b, s = r.steam_up()
         r.helper().start()
         wait_for(lambda: r.attr(b) == LAYER_VERSION, what='install')
-        r.fake.page(b).eval_filter = lambda e: 'Refused to evaluate a string as JavaScript (policy)'
+        # Only the once-a-second ping is refused: the install itself works every time, so the count can only come from the ping.
+        r.fake.page(b).eval_filter = lambda e: 'Refused to evaluate a string as JavaScript (policy)' if 'L.beat()' in e else None
         wait_for(lambda: r.status().get('state') == 'paused-steam-changed', what='pause')
         self.assertIn('refused', r.status()['reason'])
         r.fake.page(b).eval_filter = None
-        # The helper could not even send "remove"; with nobody pinging, the layer takes itself out.
-        wait_for(lambda: r.attr(b) is None, what='the watchdog to remove the layer')
+        wait_for(lambda: r.attr(b) is None, what='the layer to be out')
         quiet(self, r)
 
 
 class NoLoops(Base):
+    def test_giving_up_takes_the_layer_out_of_pages_it_is_still_in(self):
+        # Whatever pushed the count to the limit, the pause itself must empty the pages.
+        r = self.rig()
+        b, s = r.steam_up()
+        h = r.helper()
+        h.start()
+        wait_for(lambda: r.attr(b) == LAYER_VERSION and h.pages, what='install')
+        h.ledger.failures = h.ledger.max
+        wait_for(lambda: r.layer(b) is None, what='the layer to come out')
+        wait_for(lambda: r.status().get('state') == 'paused-steam-changed', what='pause')
+
+
     def test_a_page_that_keeps_removing_the_layer_ends_in_a_pause(self):
         r = self.rig(layer_watchdog=0.6)
         b, s = r.steam_up()
@@ -249,6 +261,15 @@ class LayerReports(Base):
         time.sleep(0.6)  # settle: it must stay out
         self.assertEqual(sum(1 for e in r.fake.page(b).eval_log if len(e) > 2000), n)
         self.assertIsNone(r.layer(b))
+
+    def test_a_layer_part_that_cannot_report_does_not_get_the_layer_taken_out(self):
+        # A ping that throws is read as "Steam refused"; a part in an odd state must come back as "unknown" instead.
+        r, b = self._active()
+        r.fake.eval(b, 'window.__swipekbLayer.session = {}; window.__swipekbLayer.gestures = {state: function(){ throw new Error("odd"); }}')
+        time.sleep(0.6)  # settle: several pings must pass and change nothing
+        self.assertEqual(r.attr(b), LAYER_VERSION)
+        self.assertEqual(r.status()['state'], 'active')
+        self.assertEqual(failures(r), 0)
 
     def test_a_counted_keyboard_oddity_is_a_note_and_changes_nothing(self):
         r, b = self._active()

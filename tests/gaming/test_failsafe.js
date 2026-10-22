@@ -109,11 +109,27 @@ test('a single odd key without an attribute does not switch the layer off (half 
   assert.equal(a.report().keyboard.issue, '');
 });
 
-test('pop-up items (no row) and the inner copy of a wide key are not judged', async () => {
+test('the inner copy of a wide key is not judged (its attributes were never measured)', async () => {
   const a = setup({ nestedWide: true }, true);
+  // 14 of the 31 outer keys lose the attribute (under half) and every inner copy does too: counting the inner ones would tip it over
+  LET.slice(0, 14).forEach((n) => a.page.keyEls[n].removeAttribute('data-key-row'));
   for (const el of Object.values(a.page.keyEls)) if (el.parentElement && el.parentElement.hasAttribute('data-key')) el.removeAttribute('data-key-row');
   await sleep(150);
   assert.equal(a.L.gestures.state(), 'on');
+});
+
+test('accent pop-up items are not keys of the layout: they do not count as letters and are not judged for attributes', async () => {
+  const a = setup({}, true);
+  const few = LET.slice(0, 18).concat(['Shift', ' ', 'Backspace', 'Enter', 'CapsLock']);
+  for (let i = 0; i < 3; i++) {
+    showKeys(a, few);
+    const pop = a.doc.createElement('div'); a.page.kb.append(pop);
+    const items = [...'éèêëēėęà'].map((ch) => { const c = a.doc.createElement('div'); pop.append(c); c.setAttribute('data-key', ch); c.setAttribute('data-key-is-literal', '1'); return c; });
+    await sleep(80);
+    pop.remove(); items.length = 0; showKeys(a, []); await sleep(80);
+  }
+  assert.match(a.report().keyboard.issue, /24 letter keys/, 'eight pop-up letters were counted as part of the layout');
+  assert.equal(a.L.gestures.state(), 'on', 'pop-up items without a row were judged as keys');
 });
 
 // ---- key count dropped ------------------------------------------------------------------------------------
@@ -132,7 +148,8 @@ test('fewer than 24 letter keys: stock events only, reported after three opening
 test('a symbols or number page between letters pages does not add up to a report', async () => {
   const a = setup({}, true);
   const sym = ['Shift', ' ', 'Backspace', 'Enter'];
-  for (let i = 0; i < 4; i++) { showKeys(a, 'all'); await sleep(80); showKeys(a, sym); await sleep(80); }
+  // each opening: letters first, then the symbols page, then the keyboard closes (a number-only opening is a different case)
+  for (let i = 0; i < 4; i++) { showKeys(a, 'all'); await sleep(80); showKeys(a, sym); await sleep(80); showKeys(a, []); await sleep(80); }
   showKeys(a, []); await sleep(80);
   assert.equal(a.report().keyboard.issue, '');
 });
@@ -248,4 +265,13 @@ test('the report is numbers and words about the keyboard, never anything typed',
   const rep = JSON.parse(raw);
   assert.deepEqual(Object.keys(rep).sort(), ['gestures', 'gestures_reason', 'keyboard', 'session', 'session_reason']);
   assert.deepEqual(Object.keys(rep.keyboard).sort(), ['issue', 'max_letters', 'no_keys_run', 'opens', 'short_run']);
+});
+
+test('a part that cannot report comes back as unknown, and the report is still valid', async () => {
+  const a = setup({}, true);
+  a.L.session = { state() { throw new Error('odd'); } };
+  a.L.gestures = {};
+  const rep = JSON.parse(a.L.report());
+  assert.equal(rep.session, 'unknown');
+  assert.equal(rep.gestures, 'unknown');
 });

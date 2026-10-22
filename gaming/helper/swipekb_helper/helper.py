@@ -535,6 +535,10 @@ class Helper:
         except Exception:
             c.close()
             raise
+        if not self.pages:
+            # WHY (M9): the first look after an install is one full interval away, not "right now" (it was 0 at start), so the
+            # periodic check and the check forced by a failed typing call are different things.
+            self.next_recheck = time.monotonic() + self.cfg.recheck_interval
         self.pages[target_id] = PageSession(target_id, c)
         self.last_inject = time.time()
 
