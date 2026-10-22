@@ -101,6 +101,11 @@ Phase 0 results (2026-10-22):
   geometric top ~20), so plan for the upper end of the estimate.
 - 0.3 done: `bench/gboard/` (probe, tap check, frozen answers).
 - 0.4 done: `bench/scoreboard.sh` (~2 min, 3 languages; swipe row when the swipe bench is built).
+- 0.5 provisional done (c2978a2): synthetic swipes with noise fitted on real English dev swipes, scaled
+  until synthetic English matched real (92.3 vs 92.8). Today's keyboard (FUTO engine), 400 words each:
+  Spanish 85.0 / 98.2, French 82.8 / 93.2, German 86.8 / 96.5 (first guess / top 3); optimistic
+  (dictionary words only). Main misses: accent twins (que/qué, ou/où) and words of ≤3 letters — both
+  need sentence context. Real volunteer swipes still needed.
 - 0.6: no Steam Deck/ARM device known; open question for Destin.
 
 ## Phase 1: quick wins (≈3–4 days)
