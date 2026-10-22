@@ -31,10 +31,12 @@ int main(int argc, char **argv)
         if (a == "--socket") { if (!val(o.socketPath)) return 2; }
         else if (a == "--token-file") { if (!val(o.tokenPath)) return 2; }
         else if (a == "--data") { if (!val(o.dataDir)) return 2; }
+        else if (a == "--settings-file") { if (!val(o.settingsFile)) return 2; }   // tests; the real default is the app's own plasmakeyboardrc
+        else if (a == "--system-locale") { if (!val(o.systemLocale)) return 2; }
         else if (a == "--idle-unload-ms") { if (!val(v) || (o.idleUnloadMs = std::atoi(v.c_str())) <= 0) return 2; }
         else if (a == "--frame-timeout-ms") { if (!val(v) || (o.frameTimeoutMs = std::atoi(v.c_str())) <= 0) return 2; }
         else {
-            std::fprintf(stderr, "usage: swipekb-gamingd [--socket P] [--token-file P] [--data DIR] [--idle-unload-ms N] [--frame-timeout-ms N]\n");
+            std::fprintf(stderr, "usage: swipekb-gamingd [--socket P] [--token-file P] [--data DIR] [--settings-file P] [--system-locale L] [--idle-unload-ms N] [--frame-timeout-ms N]\n");
             return 2;
         }
     }

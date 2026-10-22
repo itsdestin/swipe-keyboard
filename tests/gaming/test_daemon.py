@@ -28,6 +28,9 @@ REPLAY = os.environ.get("SWIPEKB_REPLAY_EXE", "")
 ASSETS = os.environ.get("SWIPEKB_ASSETS", "")
 LAYOUT = os.environ.get("SWIPEKB_FUTO_LAYOUT", "")
 BENCH = os.path.join(ASSETS, "eval", "bench-2000.jsonl")
+# M7 (multilingual): the authored swipes, and what the REAL plugin's guess bar shows for them (plugin_languageoracle).
+LANG_DATASET = os.environ.get("SWIPEKB_LANG_DATASET", "")
+ORACLE_JSON = os.environ.get("SWIPEKB_ORACLE_JSON", "")
 KEY_SCALE = 1000.0   # same scaling swipekb-bench uses: bench traces are 0..1 of the letter area
 
 # A word nothing in the product could produce by accident. Used to prove typed text never reaches logs.
@@ -127,6 +130,14 @@ class DaemonCase(unittest.TestCase):
         self.tokfile = os.path.join(self.tmp, "run", "engine.token")
         self.procs = []
         self.conns = []
+        # WHY a private settings file for every test: the daemon reads the user's enabled languages from the desktop
+        # keyboard's settings file; tests must never depend on (or read) the real one on this machine.
+        self.settings = os.path.join(self.tmp, "plasmakeyboardrc")
+        self.write_settings("en_US,es_ES,fr_FR,de_DE")
+
+    def write_settings(self, locales):
+        with open(self.settings, "w") as f:
+            f.write("[General]\nsoundEnabled=false\n" + (f"enabledLocales={locales}\n" if locales is not None else ""))
 
     def tearDown(self):
         for c in self.conns:
@@ -143,7 +154,8 @@ class DaemonCase(unittest.TestCase):
     def start(self, extra=(), wrapper=None):
         log = open(os.path.join(self.tmp, "daemon.log"), "ab")
         cmd = list(self.wrapper if wrapper is None else wrapper) + [
-            DAEMON, "--socket", self.sock, "--token-file", self.tokfile, "--data", ASSETS, *self.extra_args, *extra]
+            DAEMON, "--socket", self.sock, "--token-file", self.tokfile, "--data", ASSETS,
+            "--settings-file", self.settings, *self.extra_args, *extra]
         p = subprocess.Popen(cmd, stderr=log, stdout=log)
         self.procs.append(p)
         deadline = time.monotonic() + 20
@@ -461,7 +473,9 @@ class TestEquivalence(DaemonCase):
         for i, (word, pts, ctx) in enumerate(swipes):
             r = c.call("swipe", points=pts, context=ctx, top_k=3)
             self.assertTrue(r["ok"], r)
-            got = [(x["word"], x["score"]) for x in r["candidates"]]
+            # WHY "alt" entries are set aside: since M7 the daemon also offers the plugin's "other spelling" of the best
+            # guess (its / it's), marked "alt"; swipekb-replay prints only the ranked guesses.
+            got = [(x["word"], x["score"]) for x in r["candidates"] if not x.get("alt")]
             want = [(w, s) for w, s in oracle[i]]
             if got != want:
                 mismatches.append((i, got, want))
@@ -558,6 +572,346 @@ class TestNoNetwork(DaemonCase):
                 self.assertIsNone(banned.search(text), f"{name} mentions a network API")
         ldd = subprocess.run(["ldd", DAEMON], capture_output=True, text=True).stdout
         self.assertNotRegex(ldd, r"libcurl|libssl|libQt6Network|libQt6Gui")
+
+
+# ---- Milestone M7: multilingual ---------------------------------------------------------------------------------
+
+# Steam's layout id for each (language, physical keys) the plugin's profiles use.
+STEAM_ID = {("en", "qwerty"): "qwerty", ("es", "qwerty"): "spanish", ("fr", "azerty"): "french", ("de", "qwertz"): "german"}
+
+
+def dataset_cases():
+    return json.load(open(LANG_DATASET))["cases"]
+
+
+def case_keys(case):
+    return [{"c": k["letter"], "x": k["x"], "y": k["y"], "w": k["w"], "h": k["h"]} for k in case["keys"]]
+
+
+def case_points(case):
+    """Straight lines between key centres, 8 steps 16 ms apart: the same construction the plugin oracle used."""
+    centre = {k["letter"]: (k["x"] + k["w"] / 2, k["y"] + k["h"] / 2) for k in case["keys"]}
+    pts, prev = [], None
+    for ch in case["traceKeys"]:
+        x, y = centre[ch]
+        if not pts:
+            pts.append([x, y, 0])
+        else:
+            for step in range(1, 9):
+                pts.append([prev[0] + (x - prev[0]) * step / 8, prev[1] + (y - prev[1]) * step / 8, len(pts) * 16])
+        prev = (x, y)
+    return pts
+
+
+def steam_id_for(case):
+    return STEAM_ID[(case["locale"].split("-")[0], case["layout"])]
+
+
+class TestMultilingual(DaemonCase):
+    def setUp(self):
+        super().setUp()
+        for what, path in (("language dataset", LANG_DATASET), ("plugin oracle output", ORACLE_JSON),
+                           ("language packs", os.path.join(ASSETS, "language-packs"))):
+            self.assertTrue(path and os.path.exists(path), f"{what} missing: {path!r} (ctest runs plugin_languageoracle first)")
+
+    def layout_for(self, c, case):
+        return c.call("layout", keys=case_keys(case), steam_layout=steam_id_for(case))
+
+    def test_candidates_match_the_real_plugins_guess_bar_for_en_es_fr_de(self):
+        # The plugin's list (committed word + bar) for each authored swipe; compared ignoring case because the plugin
+        # capitalises the first word of an empty field and the daemon leaves capitals to its caller.
+        oracle = json.load(open(ORACLE_JSON))["cases"]
+        self.assertGreaterEqual(len(oracle), len(dataset_cases()) + 6)
+        self.start()
+        mismatches, seen_lang, with_alt = [], set(), 0
+        for case in oracle:
+            locale = case["locale"]
+            # WHY a settings rewrite per case: the daemon must re-read the user's choice, so en_GB vs en_US is decided
+            # by which English the user listed first, exactly as it will be live.
+            self.write_settings(",".join([locale.replace("-", "_")] + ["en_US", "es_ES", "fr_FR", "de_DE"]))
+            c = self.connect("plain")
+            r = c.call("layout", keys=case_keys(case), steam_layout=steam_id_for(case))
+            self.assertTrue(r["ok"], (case["id"], r))
+            self.assertEqual(r["locale"], locale)
+            got = c.call("swipe", points=case_points(case), top_k=3)
+            self.assertTrue(got["ok"], got)
+            c.call("close")
+            self.conns.remove(c)
+            words = [x["word"].lower() for x in got["candidates"]]
+            want = [w.lower() for w in case["words"]]
+            seen_lang.add(locale.split("-")[0])
+            with_alt += any(x.get("alt") for x in got["candidates"])
+            if words != want:
+                mismatches.append((case["id"], words, want))
+        self.assertEqual(seen_lang, {"en", "es", "fr", "de"})
+        self.assertGreaterEqual(with_alt, 1, "no swipe exercised the other-spelling rule")
+        self.assertEqual(mismatches, [], "daemon candidates differ from the plugin's for the same swipes")
+
+    def test_regional_spelling_follows_the_first_enabled_english(self):
+        # color/colour: en-US shows "color" first, en-GB "colour" (the plugin's regional re-ranking, reused).
+        case = next(c for c in dataset_cases() if c["id"] == "en-US-2")
+        self.start()
+        firsts = {}
+        for first in ("en_US", "en_GB"):
+            self.write_settings(f"{first},es_ES")
+            c = self.connect("plain")
+            self.assertTrue(self.layout_for(c, case)["ok"])
+            firsts[first] = c.call("swipe", points=case_points(case), top_k=3)["candidates"][0]["word"].lower()
+        self.assertEqual(firsts, {"en_US": "color", "en_GB": "colour"})
+
+    def test_other_spelling_is_offered_second_and_marked(self):
+        # "its" is swiped for it's too: the plugin inserts the dictionary's other spelling right after the best guess.
+        case = next(c for c in json.load(open(ORACLE_JSON))["cases"] if c["id"] == "en-US-extra-its")
+        self.assertEqual(len(case["words"]), 4, "the real plugin offers its + it's + two more")
+        self.start()
+        c = self.connect("plain")
+        c.call("layout", keys=case_keys(case), steam_layout="qwerty")
+        r = c.call("swipe", points=case_points(case), top_k=3)
+        self.assertEqual(len(r["candidates"]), 4, r)   # top 3 + the inserted alternative
+        alts = [x for x in r["candidates"] if x.get("alt")]
+        self.assertEqual([x["word"] for x in alts], ["it's"])
+        self.assertEqual(r["candidates"][1], alts[0])
+        self.assertEqual(sum("alt" in x for x in r["candidates"]), 1)
+        # the alternative is typeable like any other candidate, by id
+        self.assertEqual(c.call("commit", req=r["req"], cand=alts[0]["id"])["text"], "it's")
+
+    def test_unsupported_scripts_and_layouts_reply_unsupported_and_leave_the_layer_off(self):
+        self.start()
+        case = dataset_cases()[0]
+        c = self.connect("plain")
+        for sid in ("schinese", "tchinese", "tchinese_bopomofo", "japanese", "japanese_kana", "korean", "russian", "bulgarian",
+                    "ukrainian", "greek", "vietnamese", "czech", "dvorak", "colemak", "someday_valves_new_layout"):
+            r = c.call("layout", keys=case_keys(case), steam_layout=sid)
+            self.assertEqual(r, {"ok": False, "error": "unsupported"}, sid)
+            # off means off: nothing may be answered from a layout that was refused, and the connection survives
+            self.assertEqual(c.call("swipe", points=case_points(case))["error"], "unsupported", sid)
+            self.assertEqual(c.call("next_words", words=["the"])["error"], "unsupported", sid)
+        self.assertTrue(c.call("ping")["ok"])
+        self.assertEqual(c.call("status")["profiles_loaded"], 0, "refusing a layout must not load any model")
+
+    def test_a_cyrillic_key_table_is_refused_even_under_a_latin_layout_name(self):
+        # Belt and braces (plan Section 13: at least 24 of the language's letters must be present).
+        self.start()
+        c = self.connect("plain")
+        cyr = [{"c": chr(0x430 + i), "x": i * 10, "y": 0, "w": 10, "h": 10} for i in range(26)]
+        self.assertEqual(c.call("layout", keys=cyr, steam_layout="qwerty")["error"], "unsupported")
+        short = [k for k in case_keys(dataset_cases()[0]) if k["c"] not in "abc"]
+        self.assertEqual(c.call("layout", keys=short, steam_layout="qwerty")["error"], "unsupported")
+
+    def test_spanish_needs_its_n_tilde_key(self):
+        self.start()
+        c = self.connect("plain")
+        case = next(c for c in dataset_cases() if c["id"] == "es-ES-1")
+        no_ntilde = [k for k in case_keys(case) if k["c"] != "ñ"]
+        self.assertEqual(c.call("layout", keys=no_ntilde, steam_layout="spanish")["error"], "unsupported")
+        self.assertTrue(c.call("layout", keys=case_keys(case), steam_layout="spanish")["ok"])
+
+    def test_a_language_the_user_has_not_enabled_stays_off(self):
+        self.write_settings("es_ES")
+        self.start()
+        c = self.connect("plain")
+        en = dataset_cases()[0]
+        self.assertEqual(c.call("layout", keys=case_keys(en), steam_layout="qwerty"), {"ok": False, "error": "language_not_enabled"})
+        self.assertEqual(c.call("swipe", points=case_points(en))["error"], "language_not_enabled")
+        self.assertEqual(c.call("next_words", partial="ho")["error"], "language_not_enabled")
+        es = next(x for x in dataset_cases() if x["id"] == "es-ES-1")
+        self.assertTrue(self.layout_for(c, es)["ok"])
+        self.assertEqual(c.call("status")["profiles_loaded"], 0)
+
+    def test_enabling_a_language_takes_effect_without_restarting_the_daemon(self):
+        self.write_settings("en_US")
+        self.start()
+        c = self.connect("plain")
+        fr = next(x for x in dataset_cases() if x["id"] == "fr-FR-1")
+        self.assertEqual(self.layout_for(c, fr)["error"], "language_not_enabled")
+        self.write_settings("en_US,fr_FR")     # the user ticks French in Desktop Mode
+        self.assertTrue(self.layout_for(c, fr)["ok"])
+        self.write_settings("en_US")           # and unticks it again
+        self.assertEqual(self.layout_for(c, fr)["error"], "language_not_enabled")
+
+    def test_no_enabled_languages_means_the_system_language_like_the_desktop_keyboard(self):
+        self.write_settings(None)    # file exists, nothing enabled
+        self.start(["--system-locale", "de_DE.UTF-8"])
+        c = self.connect("plain")
+        de = next(x for x in dataset_cases() if x["id"] == "de-DE-1")
+        en = dataset_cases()[0]
+        self.assertTrue(self.layout_for(c, de)["ok"])
+        self.assertEqual(c.call("layout", keys=case_keys(en), steam_layout="qwerty")["error"], "language_not_enabled")
+        os.unlink(self.settings)     # no file at all: same rule
+        self.assertTrue(self.layout_for(c, de)["ok"])
+
+    def test_a_missing_language_pack_turns_that_language_off_not_english(self):
+        # WHY: the plugin never falls back to English silently, and neither may we.
+        os.environ["SWIPEKB_LANGUAGE_PACKS"] = os.path.join(self.tmp, "no-such-packs")
+        self.addCleanup(os.environ.pop, "SWIPEKB_LANGUAGE_PACKS", None)
+        self.start()
+        c = self.connect("plain")
+        es = next(x for x in dataset_cases() if x["id"] == "es-ES-1")
+        self.assertEqual(self.layout_for(c, es), {"ok": False, "error": "language_unavailable"})
+        self.assertEqual(c.call("swipe", points=case_points(es))["error"], "language_unavailable")
+        self.assertTrue(self.layout_for(c, dataset_cases()[0])["ok"], "English must be unaffected")
+
+    def test_switching_layout_mid_session_swaps_language_geometry_and_drops_old_candidates(self):
+        self.start()
+        c = self.connect("plain")
+        es = next(x for x in dataset_cases() if x["id"] == "es-ES-1")
+        de = next(x for x in dataset_cases() if x["id"] == "de-DE-3")
+        self.assertEqual(self.layout_for(c, es)["language"], "es")
+        r1 = c.call("swipe", points=case_points(es))
+        self.assertIn("casa", [x["word"] for x in r1["candidates"]], r1)
+        r = self.layout_for(c, de)
+        self.assertEqual((r["ok"], r["language"]), (True, "de"))
+        # the old request's ids are gone: a switch must not let a Spanish word be typed into a German session
+        self.assertEqual(c.call("commit", req=r1["req"], cand=r1["candidates"][0]["id"])["error"], "unknown_candidate")
+        r2 = c.call("swipe", points=case_points(de), top_k=3)
+        self.assertIn("straße", [x["word"].lower() for x in r2["candidates"]], r2)   # German geometry (QWERTZ) and German words
+        # and back to a refused layout: layer off again, nothing left over from German
+        self.assertEqual(c.call("layout", keys=case_keys(de), steam_layout="russian")["error"], "unsupported")
+        self.assertEqual(c.call("commit", req=r2["req"], cand=r2["candidates"][0]["id"])["error"], "unknown_candidate")
+
+    def test_n_tilde_acute_umlaut_and_eszett_words_round_trip_through_commit(self):
+        self.start()
+        c = self.connect("plain")
+        seen = {}
+        for cid, ch in (("es-ES-3", "í"), ("es-ES-4", "ñ"), ("fr-FR-1", "é"), ("de-DE-1", "ö"), ("de-DE-3", "ß")):
+            case = next(x for x in dataset_cases() if x["id"] == cid)
+            self.assertTrue(self.layout_for(c, case)["ok"])
+            r = c.call("swipe", points=case_points(case), top_k=10)
+            hit = [x for x in r["candidates"] if ch in x["word"]]
+            self.assertTrue(hit, (cid, [x["word"] for x in r["candidates"]]))
+            got = c.call("commit", req=r["req"], cand=hit[0]["id"])
+            self.assertEqual(got["text"], hit[0]["word"])
+            self.assertEqual(got["text"], __import__("unicodedata").normalize("NFC", got["text"]))
+            seen[ch] = got["text"]
+        self.assertEqual(set(seen), {"í", "ñ", "é", "ö", "ß"})
+
+    def test_ue_oe_ss_words_and_decomposed_input_work_in_next_words(self):
+        self.start()
+        c = self.connect("plain")
+        es = next(x for x in dataset_cases() if x["id"] == "es-ES-1")
+        self.layout_for(c, es)
+        composed = c.call("next_words", partial="pingü", top_k=5)
+        decomposed = c.call("next_words", partial="pingu\u0308", top_k=5)   # u + combining diaeresis
+        self.assertTrue(composed["ok"] and decomposed["ok"])
+        self.assertEqual([x["word"] for x in composed["candidates"]], [x["word"] for x in decomposed["candidates"]])
+        self.assertIn("pingüino", [x["word"] for x in composed["candidates"]])
+        de = next(x for x in dataset_cases() if x["id"] == "de-DE-1")
+        self.layout_for(c, de)
+        for partial, want in (("Straß", "Straße"), ("schö", "schön"), ("über", "über")):
+            words = [x["word"] for x in c.call("next_words", partial=partial, top_k=5)["candidates"]]
+            self.assertIn(want, words, partial)
+
+    def test_next_words_use_the_languages_own_model(self):
+        self.start()
+        c = self.connect("plain")
+        out = {}
+        for cid, ctx in (("es-ES-1", ["me", "gusta"]), ("fr-FR-1", ["je", "suis"]), ("de-DE-1", ["ich", "bin"])):
+            case = next(x for x in dataset_cases() if x["id"] == cid)
+            self.assertTrue(self.layout_for(c, case)["ok"])
+            r = c.call("next_words", words=ctx, top_k=5)
+            self.assertTrue(r["ok"] and r["candidates"], (cid, r))
+            out[cid] = [x["word"] for x in r["candidates"]]
+        self.assertEqual(len({tuple(v) for v in out.values()}), 3, out)
+
+    def test_at_most_two_languages_stay_loaded_and_all_unload_when_idle(self):
+        self.start(["--idle-unload-ms", "700"])
+        c = self.connect("plain")
+        for cid in ("en-US-1", "es-ES-1", "fr-FR-1"):
+            case = next(x for x in dataset_cases() if x["id"] == cid)
+            self.layout_for(c, case)
+            self.assertTrue(c.call("swipe", points=case_points(case))["ok"])
+            self.assertLessEqual(c.call("status")["profiles_loaded"], 2)
+        self.assertEqual(c.call("status")["profiles_loaded"], 2)
+        deadline = time.monotonic() + 30
+        while c.call("status")["profiles_loaded"] and time.monotonic() < deadline:
+            time.sleep(0.1)
+        s = c.call("status")
+        self.assertEqual((s["profiles_loaded"], s["recognizer_loaded"], s["predictor_loaded"]), (0, False, False))
+
+
+class TestMultilingualPrivacy(DaemonCase):
+    """The M2 privacy guarantees, repeated for accented, non-English text (plan Section 8)."""
+
+    def setUp(self):
+        super().setUp()
+        self.assertTrue(LANG_DATASET and os.path.exists(LANG_DATASET), LANG_DATASET)
+
+    def layout(self, c, cid):
+        case = next(x for x in dataset_cases() if x["id"] == cid)
+        r = c.call("layout", keys=case_keys(case), steam_layout=steam_id_for(case))
+        self.assertTrue(r["ok"], r)
+        return case
+
+    def test_commit_by_id_only_with_accented_words(self):
+        self.start()
+        c = self.connect("plain")
+        case = self.layout(c, "de-DE-3")
+        r = c.call("swipe", points=case_points(case), top_k=5)
+        word = next(x["word"] for x in r["candidates"] if "ß" in x["word"])
+        for bad in (word, word.encode("utf-8").hex(), "c" + word, "Straße"):
+            self.assertEqual(c.call("commit", req=r["req"], cand=bad).get("error"), "unknown_candidate", bad)
+
+    def test_unknown_mode_stores_nothing_in_any_language(self):
+        self.start()
+        a = self.connect("unknown")
+        case = self.layout(a, "es-ES-4")
+        a.call("swipe", points=case_points(case), context=["el", "niño", "pequeño"])
+        later = a.call("swipe", points=case_points(case))   # no context now: nothing may be remembered
+        fresh = self.connect("unknown")
+        self.layout(fresh, "es-ES-4")
+        baseline = fresh.call("swipe", points=case_points(case))
+        words = lambda r: [(x["word"], x["score"]) for x in r["candidates"]]
+        self.assertEqual(words(later), words(baseline))
+        a.call("next_words", words=["el", "niño"])
+        again = a.call("next_words")   # nothing given this time: the earlier words must not come back
+        fresh_again = fresh.call("next_words")
+        self.assertEqual([x["word"] for x in again["candidates"]], [x["word"] for x in fresh_again["candidates"]])
+
+    def test_unknown_mode_still_refuses_secret_looking_text_in_other_languages(self):
+        self.start()
+        u = self.connect("unknown")
+        self.layout(u, "fr-FR-1")
+        for secret in ("Xk9#mQ2$vLp", "Çà9é#Mq2$vLpé"):
+            r = u.call("next_words", words=[secret])
+            self.assertEqual((r["ok"], r["candidates"]), (True, []), secret)
+            self.assertEqual(u.call("next_words", partial=secret)["candidates"], [])
+        # while ordinary accented French is fine
+        self.assertTrue(u.call("next_words", partial="éco", top_k=3)["candidates"])
+
+    def test_logs_hold_no_words_locales_or_layout_names_in_any_language(self):
+        self.start()
+        c = self.connect("plain")
+        needles = ["zebracornflux", "señorita", "überfluß", "français", "straße"]
+        seen = set()
+        for cid in ("es-ES-4", "fr-FR-1", "de-DE-3"):
+            case = self.layout(c, cid)
+            r = c.call("swipe", points=case_points(case), context=needles, top_k=5)
+            seen |= {x["word"] for x in r["candidates"]} | {x["id"] for x in r["candidates"]}
+            c.call("next_words", words=needles, partial="señ")
+            c.call("commit", req=r["req"], cand=r["candidates"][0]["id"])
+        c.call("layout", keys=case_keys(case), steam_layout="russian")
+        c.call("layout", keys=case_keys(case), steam_layout="not a layout señor")
+        c.call("close")
+        time.sleep(0.2)
+        log = self.log()
+        self.assertTrue(log.strip())
+        for needle in needles + ["señ", self.token(), *seen, "spanish", "french", "german", "russian", "es-ES", "fr-FR", "de-DE", "plasmakeyboardrc"]:
+            self.assertNotIn(needle, log, f"typed text, language or secret leaked into the log: {needle!r}")
+
+    def test_the_settings_file_is_only_read_never_changed_or_created(self):
+        self.start()
+        before = open(self.settings).read()
+        mtime = os.stat(self.settings).st_mtime_ns
+        c = self.connect("plain")
+        self.layout(c, "es-ES-1")
+        missing = os.path.join(self.tmp, "absent-rc")
+        self.procs[0].send_signal(signal.SIGTERM)
+        self.procs[0].wait(10)
+        self.start(["--settings-file", missing])
+        c2 = self.connect("plain")
+        c2.call("layout", keys=case_keys(dataset_cases()[0]), steam_layout="qwerty")
+        self.assertFalse(os.path.exists(missing), "reading a missing settings file must not create it")
+        self.assertEqual((open(self.settings).read(), os.stat(self.settings).st_mtime_ns), (before, mtime))
 
 
 if __name__ == "__main__":

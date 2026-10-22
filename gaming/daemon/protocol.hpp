@@ -6,16 +6,37 @@
 //
 // REQUESTS ("v" must be 1, "op" names the call). The first request on a connection must be "hello".
 //   hello      {token, mode?: "unknown"|"plain"}           -> {session}
-//   layout     {keys:[{c:"q",x,y,w,h}, ...]}                -> {keys:N}
+//   layout     {keys:[{c:"q",x,y,w,h}, ...], steam_layout?:"qwerty"}
+//                                                           -> {keys:N, language, locale, layout}   (M7, see LANGUAGES)
 //   swipe      {points:[[x,y,t_ms], ...], context?:[word], top_k?:1..10}
-//                                                           -> {req, candidates:[{id,word,score}]}
+//                                                           -> {req, candidates:[{id,word,score,alt?}, ...]}
 //   next_words {words?:[word], partial?:"te", top_k?}       -> {req, candidates:[{id,word,score}]}
 //   commit     {req, cand}                                  -> {text}      (cand must be an id we issued for req)
-//   reset      {mode?}                                      -> {}          (wipes layout + issued candidates)
+//   reset      {mode?}                                      -> {}          (wipes layout + language + issued candidates)
 //   close      {}                                           -> {}          (then the daemon closes the socket)
 //   ping       {}                                           -> {}
-//   status     {}                                           -> {recognizer_loaded, predictor_loaded, connections}
+//   status     {}                                           -> {recognizer_loaded, predictor_loaded, profiles_loaded, connections}
 // RESPONSES: {"ok":true,"op":...,...} or {"ok":false,"error":CODE}. CODE is one of the kErr* strings below.
+//
+// LANGUAGES (plan Section 13, milestone M7). "layout" names Steam's own keyboard layout id in "steam_layout" (absent =
+// "qwerty", for callers older than M7). The daemon serves four: qwerty (English US), spanish, french (AZERTY), german
+// (QWERTZ); every other id is "unsupported". It then needs the user to have ENABLED that language in the desktop
+// keyboard's settings (plasmakeyboardrc, key enabledLocales, re-read on every "layout"; none enabled = the system
+// language, as Plasma Keyboard does), and a complete, checksum-verified language pack. A layout that fails any step is
+// answered {"ok":false,"error":CODE} and the connection stays on that refusal: swipe and next_words answer the same
+// CODE until the next accepted "layout". The layer must switch itself off on these three and leave stock typing alone:
+//   unsupported            a layout we do not serve (CJK, Cyrillic, Greek, other Latin layouts), or a key table
+//                          that lacks the language's letters (Spanish also needs its n-tilde key)
+//   language_not_enabled   supported, but not among the languages the user enabled
+//   language_unavailable   enabled, but its pack is missing or fails the plugin's own checks (never an English fallback)
+// A successful "layout" also wipes every candidate id issued before it. "language" is en/es/fr/de, "locale" the enabled
+// regional tag chosen (the first enabled of that language, e.g. en-GB), "layout" the plugin's physical layout id.
+// Before any "layout" the daemon assumes English (qwerty) so next_words keeps working for older callers.
+// Candidates are what the keyboard plugin shows for the same input: a wide search, the plugin's regional spelling
+// preference (color/colour), cut to top_k, then ONE extra entry marked "alt":true placed second when the dictionary has
+// another spelling of the best guess (its / it's). So a reply holds at most top_k entries plus that one. Words are
+// exact Unicode text (n-tilde, e-acute, u-umlaut, eszett); input is taken in composed form, so a decomposed letter
+// round-trips as the composed one. Capital letters are left to the caller.
 //
 // MODES (privacy, plan Section 8): "unknown" = we cannot tell what kind of text box this is; "plain" = the
 // caller knows it is an ordinary text box. Neither mode ever stores or learns text. They differ only in how

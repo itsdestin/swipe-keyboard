@@ -27,8 +27,17 @@ private slots:
         if (assets.isEmpty() || packs.isEmpty() || out.isEmpty()) QSKIP("Explicit English assets, language packs and SWIPEKB_ORACLE_OUT required");
         QFile dataset(SWIPEKB_ORACLE_DATASET);
         QVERIFY(dataset.open(QIODevice::ReadOnly));
-        const auto cases = QJsonDocument::fromJson(dataset.readAll()).object()["cases"].toArray();
+        auto cases = QJsonDocument::fromJson(dataset.readAll()).object()["cases"].toArray();
         QVERIFY(cases.size() >= 30);
+        // WHY extra swipes defined here: the authored set has no word whose dictionary spelling differs from its
+        // swiped letters (its / it's), which is the plugin's "other spelling" rule the daemon must also follow.
+        // They reuse the authored English keyboard so they need no new geometry.
+        const auto english = cases.first().toObject();
+        for (const char *word : {"its", "lets", "im", "dont", "were", "well"}) {
+            auto extra = english;
+            extra["id"] = QString("en-US-extra-") + word; extra["target"] = word; extra["traceKeys"] = word;
+            cases.append(extra);
+        }
 
         QTemporaryDir data;
         const QList<QByteArray> names{"SWIPEKB_MODEL_DATA", "SWIPEKB_LANGUAGE_PACKS", "SWIPEKB_DATA"};
@@ -100,7 +109,9 @@ private slots:
             for (int i = 0; i < n; ++i)
                 words.append(im.selectionListData(QVirtualKeyboardSelectionListModel::Type::WordCandidateList, i,
                                                   QVirtualKeyboardSelectionListModel::Role::Display).toString());
-            results.append(QJsonObject{{"id", c["id"]}, {"locale", locale}, {"layout", layout}, {"words", words}});
+            // The case itself is written out too, so the daemon test replays exactly what the plugin saw.
+            results.append(QJsonObject{{"id", c["id"]}, {"locale", locale}, {"layout", layout}, {"words", words},
+                                       {"keys", c["keys"]}, {"traceKeys", c["traceKeys"]}});
         }
         QFile file(out);
         QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
