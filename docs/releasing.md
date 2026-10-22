@@ -3,7 +3,7 @@
 ## Supported required set
 
 `packaging/release-targets.json` is the authoritative version/release number and exact
-required file list. Current release: **0.3.0-1** (tag **v0.3.0-1**).
+required file list. Current release: **0.3.1-1** (tag **v0.3.1-1**).
 It requires Arch/CachyOS x86_64, Fedora **44** x86_64, Fedora **44 aarch64**
 for Linux ARM64 Plasma Mobile, SteamOS **Desktop** x86_64 Flatpak, complete
 corresponding source, one shared Fedora source RPM, Flatpak build inputs,

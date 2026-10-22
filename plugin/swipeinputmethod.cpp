@@ -168,6 +168,23 @@ bool SwipeInputMethod::keyEvent(Qt::Key key, const QString &text, Qt::KeyboardMo
     if (!alive) return false;
     if (!allowed) { reset(); return false; }
     const bool predictSafe=safePredictionContext();
+    const int autoSpace=m_autoSpaceCursor; m_autoSpaceCursor=-1;
+    // WHY: "word" + automatic space + "." should read "word. ", not "word .". Only for the space this
+    // keyboard just added, with the cursor still right after it in a readable, allowed field.
+    if (predictSafe && autoSpace>0 && modifiers==Qt::NoModifier && text.size()==1
+        && QStringLiteral(".,!?;:").contains(text)) {
+        const auto editor=predictionEditor();
+        if (editor.cursor==autoSpace && editor.cursor==editor.anchor && editor.cursor<=editor.text.size()
+            && editor.text.at(editor.cursor-1)==QLatin1Char(' ')) {
+            QPointer<QVirtualKeyboardInputContext> ic(inputContext());
+            if (!ic) return false;
+            reset();
+            if (!alive || !ic) return true;
+            ic->commit(text+QLatin1Char(' '),-1,1);
+            if (alive) m_autoSpaceCursor=editor.cursor+1;
+            return true;
+        }
+    }
     // WHY accept only an unmodified key or a single Shift-letter for private history: stock
     // sentence auto-capitalization supplies Shift on the first character of Hello/Ich/etc.
     const bool shiftedLetter=modifiers==Qt::ShiftModifier && text.size()==1 && text.front().isLetter();
@@ -322,17 +339,29 @@ void SwipeInputMethod::selectionListItemSelected(Type type, int index)
         QPointer<SwipeInputMethod> self(this);
         if(!safePredictionContext() || !self || !ic) {qCInfo(lcSwipe)<<"typed tap refused: field not allowed";if(self)reset();return;}
         const bool pressed=!m_typedPress.isEmpty(), sameSet=m_typedPress==m_typedWord.selectionToken();
-        const auto plan=m_typedWord.take(index,m_typedPress,predictionEditor(),predictionPolicy(),m_profiles.snapshot().epoch);
+        const auto previous=predictionEditor();
+        const auto plan=m_typedWord.take(index,m_typedPress,previous,predictionPolicy(),m_profiles.snapshot().epoch);
         m_typedPress.clear();
         // WHY metadata only (never words): tells a failed device test which gate refused the tap.
         if(plan.isEmpty()) qCInfo(lcSwipe)<<"typed tap refused: press"<<pressed<<"same set"<<sameSet<<"index"<<index;
         if(!plan.isEmpty()) {
             QPointer<QObject> item(ic->inputItem());const int generation=m_generation;
+            // WHY arm like Space: the accepted word now ends with its automatic space, so the
+            // next-word bar should follow that exact echo just as it does after a typed Space.
+            if(plan.text.endsWith(QLatin1Char(' ')) && previous.cursor+plan.replaceFrom>=0) {
+                auto expected=previous;
+                expected.text.replace(previous.cursor+plan.replaceFrom,plan.replaceLength,plan.text);
+                expected.cursor=previous.cursor+plan.replaceFrom+plan.text.size();expected.anchor=expected.cursor;
+                m_nextWord.armExpectedEcho(expected,predictionPolicy(),m_profiles.snapshot().epoch,predictionCapable(),previous);
+            }
             stageOwnedCommit(plan,true);
             if(!self || !ic || !item || generation!=m_generation)return;
             ic->commit(plan.text,plan.replaceFrom,plan.replaceLength);
             if(!self)return;
             if(!ic || !item || ic!=inputContext() || item!=ic->inputItem() || generation!=m_generation){reset();return;}
+            m_autoSpaceCursor=plan.text.endsWith(QLatin1Char(' ')) ? previous.cursor+plan.replaceFrom+int(plan.text.size()) : -1;
+            observePredictionEcho();
+            if(!self)return;
         }
         refreshGuessBar();return;
     }
@@ -347,7 +376,10 @@ void SwipeInputMethod::selectionListItemSelected(Type type, int index)
         const auto previous = predictionEditor();
         const auto tap = m_predictionTap;
         m_predictionTap.reset();
-        const auto plan = tap ? m_nextWord.takePrediction(index, *tap, previous, predictionPolicy(), m_profiles.snapshot().epoch, caseMode()) : CommitPlan{};
+        auto plan = tap ? m_nextWord.takePrediction(index, *tap, previous, predictionPolicy(), m_profiles.snapshot().epoch, caseMode()) : CommitPlan{};
+        // WHY (owner decision, 0.3.1): a picked prediction ends with a space, ready for the next word.
+        if (!plan.isEmpty() && (previous.cursor >= previous.text.size() || !previous.text.at(previous.cursor).isSpace()))
+            plan.text += QLatin1Char(' ');
         if (plan.isEmpty()) qCInfo(lcSwipe) << "prediction tap refused: press" << tap.has_value() << "index" << index;
         if (!tap) m_nextWord.invalidate();
         m_predictionWorker.invalidate();
@@ -364,6 +396,7 @@ void SwipeInputMethod::selectionListItemSelected(Type type, int index)
             if (!self) return;
             if (!ic || !item || ic!=inputContext() || item!=ic->inputItem()
                 || generation!=m_generation) { reset(); return; }
+            m_autoSpaceCursor = plan.text.endsWith(QLatin1Char(' ')) ? previous.cursor + int(plan.text.size()) : -1;
             observePredictionEcho();
             if (!self) return;
         }
@@ -409,6 +442,7 @@ void SwipeInputMethod::selectionListItemSelected(Type type, int index)
 void SwipeInputMethod::reset()
 {
     ++m_nativePolicyEpoch;
+    m_autoSpaceCursor=-1;
     m_ownedHistory.clear();m_typedWord.clear();m_typedPress.clear();
     // WHY prediction-bar notifications are synchronous deletion boundaries too.
     QPointer<SwipeInputMethod> self(this);
