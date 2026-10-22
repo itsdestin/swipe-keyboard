@@ -22,7 +22,9 @@ bool finiteIn(const QJsonValue &v, double lo, double hi, double &out)
 std::optional<std::string> parseWord(const QJsonValue &v)
 {
     if (!v.isString()) return std::nullopt;
-    const QString s = v.toString();
+    // WHY composed form (NFC) first: "n" + combining tilde and "ñ" are the same word. The engine, the dictionaries and
+    // the plugin all use composed letters, so a decomposed spelling must not silently find nothing.
+    const QString s = v.toString().normalized(QString::NormalizationForm_C);
     const QByteArray utf8 = s.toUtf8();
     if (utf8.isEmpty() || size_t(utf8.size()) > kMaxWordBytes) return std::nullopt;
     for (const QChar c : s)
@@ -91,7 +93,7 @@ Parsed<std::vector<swipekb::KeyRect>> parseLayout(const QJsonObject &req)
     for (const QJsonValue &kv : a) {
         if (!kv.isObject()) return {std::nullopt, kErrBadRequest};
         const QJsonObject k = kv.toObject();
-        const QString letter = k.value("c").toString();
+        const QString letter = k.value("c").toString().normalized(QString::NormalizationForm_C);   // WHY NFC: see parseWord
         const auto cps = letter.toUcs4();
         if (cps.size() != 1 || !QChar::isLetter(cps[0])) return {std::nullopt, kErrBadRequest};
         double x, y, w, h;
@@ -104,6 +106,20 @@ Parsed<std::vector<swipekb::KeyRect>> parseLayout(const QJsonObject &req)
         keys.push_back({lower, float(x), float(y), float(w), float(h)});
     }
     return {std::move(keys), nullptr};
+}
+
+Parsed<std::string> parseSteamLayout(const QJsonObject &req)
+{
+    if (!req.contains("steam_layout")) return {std::string("qwerty"), nullptr};
+    const QJsonValue v = req.value("steam_layout");
+    if (!v.isString()) return {std::nullopt, kErrBadRequest};
+    const std::string id = v.toString().toStdString();
+    // WHY lower-case letters, digits and "_" only, at most 48: Steam's ids look like "tchinese_bopomofo". The id is
+    // only ever compared with a fixed list and never reaches a path, a log line or a shell.
+    if (id.empty() || id.size() > 48) return {std::nullopt, kErrBadRequest};
+    for (const char c : id)
+        if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_')) return {std::nullopt, kErrBadRequest};
+    return {id, nullptr};
 }
 
 Parsed<SwipeArgs> parseSwipe(const QJsonObject &req, Mode mode)
@@ -155,7 +171,11 @@ bool looksLikeSecret(const std::string &word)
         else if (c.isUpper()) upper = true;
         else if (c.isDigit()) digit = true;
         else if (c != QLatin1Char('\'') && c != QLatin1Char('-') && c != QChar(0x2019)) symbol = true;   // apostrophes/hyphens occur in real words
-        if (QStringLiteral("aeiouyAEIOUY").contains(c)) vowel = true;
+        // WHY the base letter, not the character: "é", "ü", "ï" are vowels too. Without this a long French or German word
+        // of accented vowels could be taken for a password.
+        if (QStringLiteral("aeiouy").contains(QString(c).normalized(QString::NormalizationForm_D).at(0).toLower())
+            || QStringLiteral("æœø").contains(c.toLower()))
+            vowel = true;
     }
     const int classes = int(lower) + int(upper) + int(digit) + int(symbol);
     if (s.size() >= 8 && classes >= 3) return true;

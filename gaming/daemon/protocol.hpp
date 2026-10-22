@@ -44,7 +44,11 @@ constexpr double kMaxCoord = 1e5, kMaxTimeMs = 1e7;
 constexpr const char *kErrBadFrame = "bad_frame", *kErrBadJson = "bad_json", *kErrBadRequest = "bad_request",
     *kErrUnauthorized = "unauthorized", *kErrUnknownOp = "unknown_op", *kErrNoLayout = "no_layout",
     *kErrUnknownCandidate = "unknown_candidate", *kErrModelUnavailable = "model_unavailable",
-    *kErrVersion = "unsupported_version", *kErrTooMany = "too_many_connections";
+    *kErrVersion = "unsupported_version", *kErrTooMany = "too_many_connections",
+    // Language answers to a "layout" request (plan Section 13): the layer treats each as "stay off, stock typing".
+    *kErrUnsupported = "unsupported",                  // a layout/script we do not serve (CJK, Cyrillic, other Latin layouts)
+    *kErrLanguageOff = "language_not_enabled",         // supported, but the user has not enabled that language
+    *kErrLanguageUnavailable = "language_unavailable"; // enabled, but its language pack is missing or fails its checks
 
 enum class Mode { Unknown, Plain };
 
@@ -57,6 +61,9 @@ template <class T> struct Parsed {
 // Frame body -> JSON object. Error is kErrBadJson (or kErrVersion when "v" is not 1).
 Parsed<QJsonObject> parseBody(const QByteArray &body);
 Parsed<std::vector<swipekb::KeyRect>> parseLayout(const QJsonObject &req);
+// Steam's keyboard layout id from a "layout" request ("qwerty", "french", "russian", ...). Absent means "qwerty" so
+// callers written before M7 keep working. Only the shape is checked here; whether we serve it is languages.hpp's call.
+Parsed<std::string> parseSteamLayout(const QJsonObject &req);
 
 struct SwipeArgs {
     std::vector<swipekb::TracePoint> trace;

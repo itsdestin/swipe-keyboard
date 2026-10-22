@@ -4,8 +4,14 @@ add_library(gamingd_protocol STATIC protocol.cpp)
 target_include_directories(gamingd_protocol PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(gamingd_protocol PUBLIC swipekb_engine Qt6::Core)
 
+# Language choice. WHY it links the plugin's swipekb_language / swipekb_session libraries: the daemon must resolve
+# profiles and rank candidates with the plugin's own code, not a copy (plan Section 13, milestone M7).
+add_library(gamingd_languages STATIC languages.cpp)
+target_include_directories(gamingd_languages PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(gamingd_languages PUBLIC gamingd_protocol swipekb_language swipekb_session)
+
 add_executable(swipekb-gamingd main.cpp server.cpp)
-target_link_libraries(swipekb-gamingd PRIVATE gamingd_protocol)
+target_link_libraries(swipekb-gamingd PRIVATE gamingd_protocol gamingd_languages)
 # WHY $ORIGIN paths: the engine library sits next to the Qt plugin in the module folder (build tree and install).
 set_target_properties(swipekb-gamingd PROPERTIES BUILD_WITH_INSTALL_RPATH TRUE
     INSTALL_RPATH "\$ORIGIN/../share/swipe-keyboard/qml/SwipeKeyboard;${SWIPEKB_QML_DIR}/SwipeKeyboard")
@@ -20,6 +26,10 @@ endif()
 add_executable(test_gamingd_protocol ${CMAKE_SOURCE_DIR}/tests/gaming/test_protocol.cpp)
 target_link_libraries(test_gamingd_protocol PRIVATE gamingd_protocol GTest::gtest_main)
 add_test(NAME gaming_protocol COMMAND test_gamingd_protocol)
+
+add_executable(test_gamingd_languages ${CMAKE_SOURCE_DIR}/tests/gaming/test_languages.cpp)
+target_link_libraries(test_gamingd_languages PRIVATE gamingd_languages GTest::gtest_main)
+add_test(NAME gaming_languages COMMAND test_gamingd_languages)
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 add_test(NAME gaming_daemon COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_SOURCE_DIR}/tests/gaming/test_daemon.py)
