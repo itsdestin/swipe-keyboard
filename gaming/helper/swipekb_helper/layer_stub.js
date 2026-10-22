@@ -1,7 +1,9 @@
-// Gaming Mode layer STUB (milestone M3). It does nothing a user can see: it only proves the install path.
+// Gaming Mode page layer FRAME (M3 stub + M4 gestures). The frame owns install/replace/heartbeat/removal; the
+// gesture arbiter (gaming/layer/gesture.js) is pasted in at the marker below by the helper and started here.
 // The helper replaces __CONFIG__ with JSON and runs this in Steam's keyboard page, both right now and at the
 // start of every new document in that page (so a UI reload brings it straight back).
 (function (CONFIG) {
+/*__GESTURES__*/
   var w = window;
   // WHY top frame only: the script also runs in any iframe the page makes; the marker belongs to the page itself.
   if (w.top !== w) return;
@@ -32,6 +34,8 @@
   L.beat = function () { L.lastBeat = Date.now(); mark(); return L.version; };
 
   L.remove = function () {
+    // WHY first: taking the layer out must also take its touch listeners off, or Steam would keep being filtered.
+    if (L.gestures) { try { L.gestures.off(); } catch (e) { /* already failed or gone */ } }
     if (L.timer !== null) { clearInterval(L.timer); L.timer = null; }
     var el = document.documentElement;
     if (el && el.getAttribute(ATTR) === L.version) el.removeAttribute(ATTR);
@@ -46,6 +50,12 @@
 
   w.__swipekbLayer = L;
   mark();
+  // WHY a try: the gestures are an extra. If they cannot start (an odd page, a missing browser feature) the frame
+  // still installs and Steam's keyboard is simply left alone.
+  L.gestures = null;
+  try {
+    if (typeof swipekbGestures === 'function') L.gestures = swipekbGestures(w, L, CONFIG.gesture || {});
+  } catch (e) { L.gestureError = String((e && e.message) || e); }
   // At document start there may be no <html> yet; mark again once the page has been built.
   if (!document.documentElement && document.addEventListener) document.addEventListener('DOMContentLoaded', mark);
 })(__CONFIG__);

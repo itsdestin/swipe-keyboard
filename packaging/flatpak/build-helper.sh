@@ -16,8 +16,9 @@ cp -a gaming/helper/swipekb_helper "$PREFIX/lib/swipekb-helper/"
 find "$PREFIX/lib/swipekb-helper" -name __pycache__ -prune -exec rm -rf {} +
 # WHY: the same contract file the daily canary checks (plan Section 11); the helper reads it at run time.
 install -m644 gaming/contract/gaming-contract.json "$PREFIX/share/swipekb-helper/gaming-contract.json"
-# TODO(M10, layer author to confirm): the injected page layer (gaming/layer, plan Section 4) ships as data inside
-# this app. Its built location is not settled, so copy the folder when it exists and say so loudly when it does not.
+# The injected page layer lives in gaming/layer/ (confirmed by M4; plan Section 4). The helper reads
+# $PREFIX/share/swipekb-helper/layer/gesture.js at run time (swipekb_helper/config.py default_layer_dir) and pastes it into
+# the frame it sends to Steam's page. Without it the helper still installs the frame but there are no gestures.
 if [ -d gaming/layer ]; then
     cp -a gaming/layer "$PREFIX/share/swipekb-helper/layer"
 else

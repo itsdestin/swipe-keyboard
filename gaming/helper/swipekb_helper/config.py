@@ -50,10 +50,25 @@ def default_marker_dirs():
 def default_contract_path():
     # Next to the package in a source checkout; the Flatpak build will put the contract beside the helper.
     here = Path(__file__).resolve()
-    for cand in (here.parent / 'gaming-contract.json', here.parents[2] / 'contract' / 'gaming-contract.json'):
+    cands = [here.parent / 'gaming-contract.json', here.parents[2] / 'contract' / 'gaming-contract.json']
+    if len(here.parents) > 3:
+        # the GamingHelper Flatpak: /app/share/swipekb-helper/gaming-contract.json (build-helper.sh)
+        cands.append(here.parents[3] / 'share' / 'swipekb-helper' / 'gaming-contract.json')
+    for cand in cands:
         if cand.exists():
             return cand
     return here.parent / 'gaming-contract.json'
+
+
+def default_layer_dir():
+    # WHY several places: a source checkout has gaming/layer next to gaming/helper; the GamingHelper Flatpak puts it
+    # at /app/share/swipekb-helper/layer while this package sits in /app/lib/swipekb-helper (packaging/flatpak/build-helper.sh).
+    here = Path(__file__).resolve()
+    cands = (here.parents[2] / 'layer', here.parents[3] / 'share' / 'swipekb-helper' / 'layer' if len(here.parents) > 3 else here.parent / 'layer')
+    for cand in cands:
+        if (cand / 'gesture.js').is_file():
+            return cand
+    return cands[0]
 
 
 @dataclass
@@ -62,6 +77,8 @@ class Config:
     state_dir: Path = field(default_factory=default_state_dir)
     marker_dirs: list = field(default_factory=default_marker_dirs)
     contract_path: Path = field(default_factory=default_contract_path)
+    layer_dir: Path = field(default_factory=default_layer_dir)
+    gesture: dict = field(default_factory=dict)   # hidden tuning knobs for the arbiter: swipe_px, hold_ms, stuck_ms (plan Section 7)
     poll_interval: float = 0.5        # port-closed probe and event-loop tick; a connect to loopback costs ~nothing
     beat_interval: float = 1.0        # liveness ping to the stub; also the safety net that notices a lost stub
     layer_watchdog: float = 6.0       # stub removes itself if no ping arrives for this long (helper crashed)
@@ -75,4 +92,5 @@ class Config:
         check_port(self.port)
         self.state_dir = Path(self.state_dir)
         self.contract_path = Path(self.contract_path)
+        self.layer_dir = Path(self.layer_dir)
         self.marker_dirs = [Path(p) for p in self.marker_dirs]

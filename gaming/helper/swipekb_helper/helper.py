@@ -113,8 +113,14 @@ class Helper:
     def _stub(self):
         if self._stub_source is None:
             cfg = {'version': LAYER_VERSION, 'watchdog_ms': int(self.cfg.layer_watchdog * 1000),
-                   'device': self.device.page_config}
-            self._stub_source = _STUB_JS.read_text().replace('__CONFIG__', json.dumps(cfg))
+                   'device': self.device.page_config, 'gesture': dict(self.cfg.gesture)}
+            # WHY read at use, pasted in as text: the gesture arbiter ships as a data file beside the helper and is
+            # sent to Steam's page through the debug port; nothing is fetched and nothing is written into Steam.
+            try:
+                gestures = (self.cfg.layer_dir / 'gesture.js').read_text()
+            except OSError:
+                gestures = ''     # no gesture file: the frame installs alone and Steam's keyboard is left as it is
+            self._stub_source = _STUB_JS.read_text().replace('/*__GESTURES__*/', gestures).replace('__CONFIG__', json.dumps(cfg))
         return self._stub_source
 
     # ---- main loop ------------------------------------------------------------------------------------
