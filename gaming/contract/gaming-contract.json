@@ -1,0 +1,105 @@
+{
+  "contract_version": 1,
+  "about": "Single source of truth for what Swipe Keyboard's Gaming Mode needs from Steam. The daily canary (tools/steam-canary) checks Valve's published files against 'checks'; the on-device check (built later) reads 'device' from this same file. Edit with care: changing a check changes what turns the canary red.",
+
+  "source": {
+    "base_url": "https://client-update.steamstatic.com/",
+    "channels": [
+      {"name": "desktop-stable", "manifest": "steam_client_ubuntu12"},
+      {"name": "desktop-beta", "manifest": "steam_client_publicbeta_ubuntu12"},
+      {"name": "deck-stable", "manifest": "steam_client_steamdeck_stable_ubuntu12"},
+      {"name": "deck-beta", "manifest": "steam_client_steamdeck_publicbeta_ubuntu12"}
+    ],
+    "packages": {
+      "ui": {"name": "steamui_websrc_all", "extract": null},
+      "native": {"name": "bins_ubuntu12", "extract": [
+        "ubuntu12_32/steamui.so",
+        "ubuntu12_32/steamclient.so"
+      ]}
+    },
+    "limits": {
+      "max_download_bytes": 200000000,
+      "max_manifest_bytes": 1000000
+    }
+  },
+
+  "checks": [
+    {"id": "send-text-call", "package": "ui", "file": "steamui/sp.js", "match": "regex",
+     "pattern": "SteamClient\\.Input\\.ControllerKeyboardSendText\\([A-Za-z_$][\\w$]*\\)", "min": 1, "severity": "fail",
+     "why": "The only way our helper types a word: Steam's own text call, still called with exactly one text argument."},
+    {"id": "keyboard-message-hooks", "package": "ui", "file": "steamui/sp.js", "match": "regex",
+     "pattern": "RegisterForUserKeyboardMessages|RegisterForGameKeyboardMessages|RegisterForUserDismissKeyboardMessages", "min": 3, "severity": "fail",
+     "why": "Steam's three keyboard open/close notifications still exist (user, game-requested, dismiss)."},
+    {"id": "key-attributes", "package": "ui", "file": "steamui/sp.js", "match": "regex",
+     "pattern": "\"data-key\":[\\w$]+,\"data-key-row\":[\\w$]+,\"data-key-col\":[\\w$]+,\"data-keycode\":", "min": 1, "severity": "fail",
+     "why": "Each on-screen key still carries data-key, data-key-row, data-key-col and data-keycode, which is how we find the letters."},
+    {"id": "key-extended-chars", "package": "ui", "file": "steamui/sp.js", "match": "literal",
+     "pattern": "\"data-extended-chars\"", "min": 1, "severity": "fail",
+     "why": "Keys with accent pop-ups are still marked, so we can leave long-press alone."},
+    {"id": "password-field", "package": "ui", "file": "steamui/sp.js", "match": "literal",
+     "pattern": "type:\"password\"", "min": 1, "severity": "fail",
+     "why": "Sign-in screens still use real password fields, the signal that makes us inert."},
+    {"id": "game-password-mode", "package": "ui", "file": "steamui/sp.js", "match": "regex",
+     "pattern": "\\.m_eInputMode!=0&&\\([\\w$]+=\"password\"\\)", "min": 1, "severity": "fail",
+     "why": "A game asking for a password still flips Steam's keyboard into password mode through m_eInputMode."},
+    {"id": "shared-context-name", "package": "ui", "file": "steamui/sp.js", "match": "literal",
+     "pattern": "SharedJSContext", "min": 1, "severity": "fail",
+     "why": "The hidden page that holds SteamClient keeps its name; our helper finds it by that title."},
+    {"id": "big-picture-title", "package": "ui", "file": "steamui/localization/steamui_english-json.js", "match": "literal",
+     "pattern": "Steam Big Picture Mode", "min": 1, "severity": "fail",
+     "why": "The keyboard page's window title is still produced by Steam's text; our helper finds the page by it."},
+    {"id": "developer-debug-setting", "package": "ui", "file": "steamui/localization/steamui_english-json.js", "match": "regex",
+     "pattern": "\"Settings_Developer_CefRemoteDebugging\":\"[^\"]+\"", "min": 1, "severity": "fail",
+     "why": "The Developer-menu switch for CEF remote debugging still exists, which our install text tells users about."},
+    {"id": "add-shortcut-api", "package": "ui", "file": "steamui/sp.js", "match": "literal",
+     "pattern": "AddShortcut(", "min": 1, "severity": "review",
+     "why": "Only our own test rig uses AddShortcut; its loss would not break users, so it asks for a look, not a red run."},
+    {"id": "free-form-input-context", "package": "ui", "file": "steamui/sp.js", "match": "regex",
+     "pattern": "set_content_type\\(IBus\\.InputPurpose\\.FREE_FORM", "min": 1, "severity": "review",
+     "why": "Steam still declares its text-input method context as free-form (matters for the IBus fallback design)."},
+    {"id": "no-swipe-in-keyboard", "package": "ui", "file": "steamui/sp.js", "scope": "region", "match": "regex",
+     "pattern": "swipe|autocorrect|glide", "flags": "i", "max": 0, "severity": "review",
+     "why": "Valve has not added swipe typing or autocorrect to its keyboard; if it does, the product question reopens."},
+    {"id": "native-marker-file", "package": "native", "file": "ubuntu12_32/steamui.so", "match": "literal",
+     "pattern": ".cef-enable-remote-debugging", "min": 1, "severity": "fail",
+     "why": "Steam's client still looks for the marker file that switches the debug port on."},
+    {"id": "native-debug-port-option", "package": "native", "file": "ubuntu12_32/steamclient.so", "match": "literal",
+     "pattern": "--remote-debugging-port=", "min": 1, "severity": "fail",
+     "why": "Steam's client still passes the remote-debugging port option to its browser engine."},
+    {"id": "native-allow-origins-option", "package": "native", "file": "ubuntu12_32/steamclient.so", "match": "literal",
+     "pattern": "--remote-allow-origins=", "min": 1, "severity": "fail",
+     "why": "Steam's client still passes the allow-origins option; without it, local tools may be refused by the debug port."}
+  ],
+
+  "region": {
+    "about": "Drift report: the parts of the UI bundle around the keyboard code, hashed after removing Valve's per-build number stamp. A change does not fail the canary; it raises 'review' and asks for the behavioural check.",
+    "package": "ui",
+    "file": "steamui/sp.js",
+    "anchors": [
+      "ControllerKeyboardSendText", "\"data-key-row\"", "\"data-extended-chars\"",
+      "set_content_type", "RegisterForUserKeyboardMessages", ".m_eInputMode"
+    ],
+    "window_chars": 1500,
+    "strip": [
+      {"regex": "\"\\d{7,9}\"", "with": "\"#\""}
+    ]
+  },
+
+  "device": {
+    "about": "Used by the on-device check (later milestone). Each entry names the static check that proves the same thing in Valve's files.",
+    "targets": [
+      {"title": "Steam Big Picture Mode", "role": "keyboard page", "static_check": "big-picture-title"},
+      {"title": "SharedJSContext", "role": "holds SteamClient", "static_check": "shared-context-name"}
+    ],
+    "steam_client_methods": [
+      {"target": "SharedJSContext", "object": "SteamClient.Input", "name": "ControllerKeyboardSendText", "static_check": "send-text-call"}
+    ],
+    "keyboard_dom": {
+      "key_selector": "[data-key]",
+      "required_attributes": ["data-key", "data-key-row", "data-key-col", "data-keycode"],
+      "min_letter_keys": 24,
+      "static_check": "key-attributes"
+    },
+    "password_signal": {"input_selector": "input[type=password]", "static_check": "password-field"}
+  }
+}
