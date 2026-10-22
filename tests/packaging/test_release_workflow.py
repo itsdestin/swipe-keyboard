@@ -126,6 +126,15 @@ class WorkflowTests(unittest.TestCase):
         policy = json.dumps(self.jobs['arch'])
         self.assertNotIn('refs/tags', policy)
 
+    def test_cache_steps_only_use_tools_that_are_already_installed(self):
+        # WHY (run 39822604368): the dependency build ran before the Flatpak runtimes were installed,
+        # and Fedora's toolchain query failed under pipefail before the compilers existed.
+        flatpak = self.jobs['flatpak']
+        self.assertLess(flatpak.index('Install signed exact SDK'), flatpak.index('--dependencies-only'))
+        for name in ('fedora', 'fedora-arm64'):
+            self.assertIn('|| true)', self.jobs[name])
+            self.assertLess(self.jobs[name].index('dnf -y install ccache'), self.jobs[name].index('rpm -q gcc-c++'))
+
     def test_flatpak_records_peak_memory_for_the_parallelism_bound(self):
         flatpak = self.jobs['flatpak']
         self.assertIn('ci-memwatch.py sample', flatpak)

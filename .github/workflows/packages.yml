@@ -270,7 +270,8 @@ jobs:
         run: |
           dnf -y install ccache tar zstd
           mkdir -p /var/tmp/ccache-et
-          toolchain=$(rpm -q gcc-c++ glibc-devel binutils cmake ninja-build | tr '\n' ' ')
+          # WHY || true: compilers are installed later (builddep); ccache itself hashes compiler contents.
+          toolchain=$(. /etc/os-release; echo "$VERSION_ID "; rpm -q gcc-c++ glibc-devel cmake ninja-build || true)
           echo "key=$(python3 scripts/ci-cache.py key native-ccache "fedora|$(uname -m)|$SWIPE_LIBRARY|$toolchain" fedora)" >> "$GITHUB_OUTPUT"
           echo "prefix=$(python3 scripts/ci-cache.py key --prefix native-ccache fedora)" >> "$GITHUB_OUTPUT"
       # WHY a compiler-result cache only: ccache hashes the compiler, flags and preprocessed source,
@@ -403,7 +404,8 @@ jobs:
         run: |
           dnf -y install ccache tar zstd
           mkdir -p /var/tmp/ccache-et
-          toolchain=$(rpm -q gcc-c++ glibc-devel binutils cmake ninja-build | tr '\n' ' ')
+          # WHY || true: compilers are installed later (builddep); ccache itself hashes compiler contents.
+          toolchain=$(. /etc/os-release; echo "$VERSION_ID "; rpm -q gcc-c++ glibc-devel cmake ninja-build || true)
           echo "key=$(python3 scripts/ci-cache.py key native-ccache "fedora-arm64|$(uname -m)|$SWIPE_LIBRARY|$toolchain" fedora-arm64)" >> "$GITHUB_OUTPUT"
           echo "prefix=$(python3 scripts/ci-cache.py key --prefix native-ccache fedora-arm64)" >> "$GITHUB_OUTPUT"
       # WHY a compiler-result cache only: ccache hashes the compiler, flags and preprocessed source,
@@ -517,6 +519,17 @@ jobs:
           path: prepared
       - name: Verify prepared input identity and hashes before executing source
         run: python3 scripts/release.py verify-inputs --directory prepared --sha "$GITHUB_SHA"
+      # WHY before the cache block: the dependencies-only build needs the pinned runtimes installed.
+      - name: Install signed exact SDK and platform commits
+        run: |
+          flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user --noninteractive -y flathub org.kde.Sdk//6.10 org.kde.Platform//6.10
+          python3 - <<'PY'
+          import json, subprocess
+          pins = json.load(open('packaging/flatpak/runtime-lock.json'))
+          for name in ('org.kde.Sdk', 'org.kde.Platform'):
+              subprocess.run(['flatpak', 'update', '--user', '--noninteractive', '-y', '--commit=' + pins[name], name + '//6.10'], check=True)
+          PY
       - name: Decide dependency-cache policy (release tags and forks never use caches)
         id: cachepolicy
         env:
@@ -574,16 +587,6 @@ jobs:
         run: |
           nohup python3 scripts/ci-memwatch.py sample "$RUNNER_TEMP/memory.log" 5 > /dev/null 2>&1 &
           echo $! > "$RUNNER_TEMP/memory.pid"
-      - name: Install signed exact SDK and platform commits
-        run: |
-          flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-          flatpak install --user --noninteractive -y flathub org.kde.Sdk//6.10 org.kde.Platform//6.10
-          python3 - <<'PY'
-          import json, subprocess
-          pins = json.load(open('packaging/flatpak/runtime-lock.json'))
-          for name in ('org.kde.Sdk', 'org.kde.Platform'):
-              subprocess.run(['flatpak', 'update', '--user', '--noninteractive', '-y', '--commit=' + pins[name], name + '//6.10'], check=True)
-          PY
       - name: Build and test SDK-native objects and installed loader
         run: |
           tar -xzf "prepared/swipe-keyboard-$PACKAGE_VERSION-flatpak-build-inputs.tar.gz" -C prepared
@@ -595,7 +598,9 @@ jobs:
         if: ${{ always() }}
         run: |
           kill "$(cat "$RUNNER_TEMP/memory.pid")" 2>/dev/null || true
-          echo "Flatpak build peak memory (KiB): $(python3 scripts/ci-memwatch.py summary "$RUNNER_TEMP/memory.log")" | tee -a "$GITHUB_STEP_SUMMARY"
+          if [ -f "$RUNNER_TEMP/memory.log" ]; then
+            echo "Flatpak build peak memory (KiB): $(python3 scripts/ci-memwatch.py summary "$RUNNER_TEMP/memory.log")" | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
           ls -la .flatpak-builder/ 2>/dev/null || true
           du -sh .flatpak-builder/ccache flatpak-stage-cache.tar.zst 2>/dev/null || true
       - name: Save ExecuTorch compiler cache (trusted pushes and dispatch only)
