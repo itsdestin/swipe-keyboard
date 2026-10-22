@@ -5,11 +5,13 @@ real Flatpak, systemd or Steam. The PATH given to the scripts contains only syml
 stand-ins, so a real `flatpak` or `systemctl` can never be reached by accident.
 """
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
 import shutil
 import subprocess
+import tarfile
 import tempfile
 import unittest
 
@@ -297,6 +299,29 @@ class InstallTests(unittest.TestCase):
         body = body[:body.index('\n}\n')]
         code = [l for l in body.splitlines()[1:] if l.strip() and not l.strip().startswith('#')]
         self.assertEqual(code, ['    :'])
+
+
+class RealDownloadTests(unittest.TestCase):
+    def test_the_assembled_download_installs_with_its_own_checksums(self):
+        # WHY: ties the packaging side (scripts/steamos_bundle.py) to the installer's checksum, file-name and
+        # layout expectations, so neither can drift without a failing test.
+        spec = importlib.util.spec_from_file_location('steamos_bundle', ROOT / 'scripts/steamos_bundle.py')
+        bundle = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(bundle)
+        f = Fixture(self)
+        (f.bundle).rename(f.bundle.with_name('unused'))
+        parts = f.bundle.with_name('parts')
+        parts.mkdir()
+        (parts / 'm').write_bytes(b'main'), (parts / 'h').write_bytes(b'helper')
+        archive = bundle.assemble(parts / 'm', parts / 'h', '0.3.1-1', parts)
+        with tarfile.open(archive) as tar:
+            tar.extractall(parts / 'x', filter='data')
+        f.bundle = parts / 'x' / 'swipe-keyboard-steamos-0.3.1-1'
+        result = f.run('install.sh', '--yes')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(len([c for c in f.calls() if c.startswith('flatpak install')]), 2)
+        (f.bundle / 'units/swipekb-helper.service').write_text('changed')
+        self.assertNotEqual(f.run('install.sh', '--yes').returncode, 0)
 
 
 class UninstallTests(unittest.TestCase):

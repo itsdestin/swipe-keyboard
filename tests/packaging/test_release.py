@@ -39,6 +39,9 @@ class ReleaseTests(unittest.TestCase):
             self.evidence.append({'target': target, 'version': release.version(self.contract),
                                   'source_sha': self.sha, 'arch': definition['arch'],
                                   'files': records})
+        # WHY: the SteamOS download must embed the released Flatpak; fixtures state that it does.
+        by_target = {e['target']: e for e in self.evidence}
+        by_target['steamos']['embedded_main_sha256'] = by_target['flatpak']['files'][0]['sha256']
 
     def validate(self):
         return release.validate(self.directory, self.evidence, self.status, self.sha, self.contract)

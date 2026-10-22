@@ -23,20 +23,25 @@ class WorkflowTests(unittest.TestCase):
         for name, target in contract['targets'].items():
             if name == 'source':
                 continue
+            if name == 'steamos':
+                # TODO(M10 docs): the Gaming Mode README section (owner-approved wording, plan Section 12) is
+                # written with the docs milestone and adds this link. Until then the download is built and
+                # gated but not yet advertised; remove this exemption in that change.
+                continue
             installer = target['files'][0].format(version=contract['version'], release=contract['release'])
             with self.subTest(target=name):
                 self.assertIn(f'https://github.com/itsdestin/swipe-keyboard/releases/download/{tag}/{installer}', guide)
         self.assertTrue((ROOT/'docs/releases'/f'{tag}.md').is_file())
 
     def test_real_producers_and_always_completion_gate(self):
-        self.assertEqual(set(self.jobs), {'prepare', 'arch', 'fedora', 'fedora-arm64', 'flatpak', 'keyboard-ci', 'publish'})
+        self.assertEqual(set(self.jobs), {'prepare', 'arch', 'fedora', 'fedora-arm64', 'flatpak', 'steamos', 'keyboard-ci', 'publish'})
         gate = self.jobs['keyboard-ci']
         self.assertIn('name: Keyboard CI', gate)
         self.assertIn('if: ${{ always() }}', gate)
-        self.assertIn('needs: [prepare, arch, fedora, fedora-arm64, flatpak]', gate)
+        self.assertIn('needs: [prepare, arch, fedora, fedora-arm64, flatpak, steamos]', gate)
         self.assertIn('${{ toJSON(needs) }}', gate)
         self.assertIn('scripts/release.py gate', gate)
-        for name, build in [('arch', 'makepkg --noconfirm'), ('fedora', 'rpmbuild -ba'), ('fedora-arm64', 'rpmbuild -bb'), ('flatpak', 'packaging/flatpak/build.py')]:
+        for name, build in [('arch', 'makepkg --noconfirm'), ('fedora', 'rpmbuild -ba'), ('fedora-arm64', 'rpmbuild -bb'), ('flatpak', 'packaging/flatpak/build.py'), ('steamos', 'scripts/steamos_bundle.py assemble')]:
             producer = self.jobs[name]
             self.assertIn(build, producer)
             self.assertIn('--target ' + name, producer)
@@ -141,6 +146,24 @@ exit "$result"
         fedora = self.jobs['fedora']
         self.assertLess(fedora.index('dnf -y swap systemd-standalone-tmpfiles systemd'),
                         fedora.index('dnf -y builddep packaging/fedora/swipe-keyboard.spec'))
+
+    def test_steamos_download_is_built_from_the_released_flatpak_and_a_fresh_helper_build(self):
+        steamos = self.jobs['steamos']
+        # WHY needs flatpak: the download embeds the very bundle the flatpak job released, not a rebuild.
+        self.assertIn('needs: [prepare, flatpak]', steamos)
+        self.assertIn('flatpak-files', steamos)
+        self.assertIn('org.itsdestin.SwipeKeyboard.GamingHelper.json', steamos)
+        self.assertIn('scripts/steamos_bundle.py assemble', steamos)
+        self.assertIn('scripts/release.py record --target steamos', steamos)
+        self.assertIn('steamos-files', steamos)
+        self.assertIn('steamos-evidence', steamos)
+        # WHY: the helper is installed from its own bundle and checked, as the main Flatpak is.
+        self.assertIn('flatpak install --user', steamos)
+        self.assertIn('--show-ref org.itsdestin.SwipeKeyboard.GamingHelper', steamos)
+        self.assertNotIn('continue-on-error', steamos)
+        self.assertNotRegex(steamos, r'(?m)^    if:')
+        self.assertIn('runs-on: ubuntu-26.04', steamos)
+        self.assertIn('runtime-lock.json', steamos)
 
     def test_flatpak_runner_supports_inherited_wayland_permission(self):
         # WHY Ubuntu 26.04: its signed distribution tools support the unchanged

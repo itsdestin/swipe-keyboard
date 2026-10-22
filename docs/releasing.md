@@ -7,6 +7,8 @@ required file list. Current release: **0.3.1-1** (tag **v0.3.1-1**).
 It requires Arch/CachyOS x86_64, Fedora **44** x86_64, Fedora **44 aarch64**
 for Linux ARM64 Plasma Mobile, SteamOS **Desktop** x86_64 Flatpak, complete
 corresponding source, one shared Fedora source RPM, Flatpak build inputs,
+the single SteamOS download (`swipe-keyboard-<version>-steamos-x86_64.tar.gz`: both
+Flatpaks, `install.sh`, `uninstall.sh`, the two systemd units and its own checksums),
 `release-manifest.json`, and `SHA256SUMS`. There are no platform skip switches.
 ARM is a required build/package/acceptance target, not an optional canary.
 Source implementation alone is not ARM runtime acceptance: the exact native ARM
@@ -39,7 +41,7 @@ status as required, including administrators, only after a real green run exists
 Repository rule changes and the initial remote runs are owner coordination, not
 something a local source test performs.
 
-Required producer jobs are `prepare`, `arch`, `fedora`, `fedora-arm64`, and `flatpak`.
+Required producer jobs are `prepare`, `arch`, `fedora`, `fedora-arm64`, `flatpak`, and `steamos`.
 `keyboard-ci` (`Keyboard CI`) runs with `always()` and checks every producer result;
 failed, cancelled, missing and unexpectedly skipped producers fail the gate.
 Read-only credentials apply throughout PR/build/gate jobs. No `pull_request_target`,
@@ -74,6 +76,16 @@ cross-run artifact promotion, optional platform bypass, or product build cache e
   ELF imports and profile capability; installs the resulting exact bundle for
   embedded identity/ref checks. Default local `build.py` still requires the owned
   QEMU lab. Only the explicit `--ci-manifest` entry is used on hosted CI.
+- `steamos`: needs the `flatpak` job. Builds the separate GamingHelper Flatpak from
+  `packaging/flatpak/org.itsdestin.SwipeKeyboard.GamingHelper.json` (fails with a plain message
+  if `gaming/helper/` is absent), installs it and checks it has network as its only extra
+  permission, then assembles the download with `scripts/steamos_bundle.py`. The download
+  embeds the `flatpak` job's own bundle; the gate rejects it unless its recorded hash equals
+  the standalone `.flatpak`. The download is built and gated but not yet advertised in the
+  README (the Gaming Mode docs milestone adds that). Native Arch/Fedora packages ship no Gaming
+  Mode file; `scripts/package-check.py` fails them if one appears.
+- The hosted Flatpak update repository the owner approved (plan Section 15, question 1) is a
+  separate follow-up and is not part of this download.
 
 Flatpak preparation generates an **external** `manifest.json`, replaces the source
 archive hash after archive creation, and materializes pinned upstream archives and

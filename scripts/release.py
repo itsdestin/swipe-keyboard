@@ -9,7 +9,7 @@ import subprocess
 import tarfile
 
 ROOT = Path(__file__).resolve().parents[1]
-PRODUCERS = ('prepare', 'arch', 'fedora', 'fedora-arm64', 'flatpak')
+PRODUCERS = ('prepare', 'arch', 'fedora', 'fedora-arm64', 'flatpak', 'steamos')
 
 
 def parse_json(text):
@@ -73,6 +73,13 @@ def validate(directory, evidence, statuses, sha, contract):
         check_files(directory, files, {filename(n, contract) for n in target['files']})
         records.extend(files)
     check_files(directory, records, expected_files(contract))
+    # WHY: the SteamOS download carries its own copy of the main Flatpak. It must be the very file released
+    # on its own, or Deck users and Desktop-only users would run different builds under one version number.
+    flatpak_main = next(r for e in evidence if e['target'] == 'flatpak' for r in e['files']
+                        if r['name'] == filename(contract['targets']['flatpak']['files'][0], contract))
+    steamos = next(e for e in evidence if e['target'] == 'steamos')
+    if steamos.get('embedded_main_sha256') != flatpak_main['sha256']:
+        raise ValueError('SteamOS download does not embed the released Flatpak bundle')
     # WHY exact directory: an uploader glob must never smuggle additional unchecked bytes.
     allowed = expected_files(contract) | {'release-manifest.json', 'SHA256SUMS'}
     if {p.name for p in directory.iterdir()} - allowed:
@@ -127,6 +134,15 @@ def check_versions(contract):
             raise ValueError('Version metadata drift: ' + path)
 
 
+def steamos_bundle():
+    # WHY loaded by path: this file is itself loaded by path in tests, so a plain import of a sibling would fail.
+    import importlib.util
+    spec = importlib.util.spec_from_file_location('steamos_bundle', ROOT/'scripts/steamos_bundle.py')
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def output(command):
     return subprocess.check_output(command, text=True).strip()
 
@@ -164,6 +180,9 @@ def inspect(target, directory, stage, sha, contract):
         metadata = (stage/'metadata').read_text()
         if 'runtime=org.kde.Platform/x86_64/6.10' not in metadata or 'name=org.itsdestin.SwipeKeyboard' not in metadata:
             raise ValueError('Flatpak metadata mismatch')
+    elif target == 'steamos':
+        # WHY check the real archive, not just its hash: it is what Deck users run install.sh from.
+        embedded = steamos_bundle().verify(directory/names[0], version(contract))
     elif target == 'source':
         with tarfile.open(directory/names[0]) as archive:
             member = archive.extractfile(f"swipe-keyboard-{contract['version']}/packaging/source-identity.json")
@@ -171,8 +190,11 @@ def inspect(target, directory, stage, sha, contract):
                 raise ValueError('Source archive identity mismatch')
     records = [{'name': n, 'size': (directory/n).stat().st_size, 'sha256': digest(directory/n)} for n in names]
     check_files(directory, records, set(names))
-    return {'target': target, 'version': version(contract), 'source_sha': sha,
-            'arch': contract['targets'][target]['arch'], 'files': records}
+    entry = {'target': target, 'version': version(contract), 'source_sha': sha,
+             'arch': contract['targets'][target]['arch'], 'files': records}
+    if target == 'steamos':
+        entry['embedded_main_sha256'] = embedded['main_sha256']
+    return entry
 
 
 def main():
