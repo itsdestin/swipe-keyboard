@@ -17,7 +17,7 @@ class Status:
         assert state in STATES, state
         doc = {'state': state, 'reason': reason, 'steam_browser': fields.get('steam_browser'),
                'layer_version': fields.get('layer_version'), 'last_inject': fields.get('last_inject'),
-               'attached_pages': fields.get('attached_pages', 0), 'pid': os.getpid(), 'updated': time.time()}
+               'attached_pages': fields.get('attached_pages', 0), 'keyboard': fields.get('keyboard'), 'pid': os.getpid(), 'updated': time.time()}
         try:
             self.dir.mkdir(parents=True, exist_ok=True)
             tmp = self.dir / ('.status.%d.tmp' % os.getpid())

@@ -31,12 +31,13 @@ class GestureLayer(unittest.TestCase):
         stub.write_text(h._stub())
         # A second frame for the typing-session tests: quick ticks, and a watchdog that will not fire during a test.
         h2 = Helper(Config(state_dir=tmp / 'state2', marker_dirs=[tmp], layer_watchdog=3600, session={'tick_ms': 20, 'trail_ms': 80},
+                           failsafe={'tick_ms': 20, 'focus_ms': 60},
                            contract_path=ROOT / 'gaming' / 'contract' / 'gaming-contract.json'))
         h2._load_contract()
         stub2 = tmp / 'frame-long.js'
         stub2.write_text(h2._stub())
         env = dict(os.environ, SWIPEKB_STUB_FILE=str(stub), SWIPEKB_STUB_LONG=str(stub2))
-        r = subprocess.run([node, '--test', '--test-reporter=spec', str(HERE / 'test_layer.js'), str(HERE / 'test_session.js')],
+        r = subprocess.run([node, '--test', '--test-reporter=spec', str(HERE / 'test_layer.js'), str(HERE / 'test_session.js'), str(HERE / 'test_failsafe.js')],
                            capture_output=True, text=True, timeout=300, env=env)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
 

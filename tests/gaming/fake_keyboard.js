@@ -302,7 +302,9 @@ function build(opts) {
     return f;
   }
   const centre = (name) => { const r = keyEls[name].rect; return [r.left + r.width / 2, r.top + r.height / 2]; };
-  return { win, doc, kb, keyEls, S, finger, centre, ctx: vm.createContext(win), now };
+  // opts.noEval (M9): a page whose content-security policy forbids eval and new Function, the way a locked-down Steam would be.
+  const ctx = vm.createContext(win, opts.noEval ? { codeGeneration: { strings: false, wasm: false } } : undefined);
+  return { win, doc, kb, keyEls, S, finger, centre, ctx, now };
 }
 
 const GESTURE_JS = process.env.SWIPEKB_LAYER_FILE || path.join(__dirname, '..', '..', 'gaming', 'layer', 'gesture.js');

@@ -146,8 +146,9 @@ function swipekbGestures(w, L, opts) {
     clearTimers();
     s.mode = 'pass';
     stats[why]++;
-    hook('uncertain');   // Steam will type this key itself (maybe an accent): the session cannot know which character
-    replay(s, 'down');
+    // WHY try/finally (M9): the session's hook must never be able to keep Steam from hearing a press it is owed. If the hook
+    // throws, the press still goes to Steam and the error then reaches the handler, which takes the layer out.
+    try { hook('uncertain'); } finally { replay(s, 'down'); }   // Steam will type this key itself (maybe an accent): the session cannot know which character
   }
 
   function track(e, s) {   // remember which ids belong to this finger as the two event families arrive
@@ -227,9 +228,13 @@ function swipekbGestures(w, L, opts) {
     st = null;
     if (s.mode === 'pending') {
       stats.tap++;
-      hook('keyTyped', s.key);   // before the replay, so the session still sees the Shift state this letter was typed under
-      replay(s, 'down');   // WHY at the release itself: Steam types on release, so the letter lands when it always did
-      replay(s, 'up');
+      // WHY try/finally (M9): a throwing hook must not swallow the tap. The finger is already lifted and the layer is about to
+      // take itself out, so nothing else would ever give Steam this letter.
+      try { hook('keyTyped', s.key); }   // before the replay, so the session still sees the Shift state this letter was typed under
+      finally {
+        replay(s, 'down');   // WHY at the release itself: Steam types on release, so the letter lands when it always did
+        replay(s, 'up');
+      }
     } else if (s.mode === 'swipe') {
       stats.swipe++;
       hook('swipeEnd');
