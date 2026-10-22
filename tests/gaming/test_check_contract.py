@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from support import FIXTURES, ROOT
+from support import FIXTURES, NATIVE_FILES, ROOT
 import check_contract as cc
 
 CONTRACT_PATH = ROOT / 'gaming/contract/gaming-contract.json'
@@ -14,12 +14,7 @@ SP = 'steamui/sp.js'
 
 
 def native_fixture(root, drop=()):
-    """Synthetic stand-ins for Valve's binaries: only the strings the contract looks for."""
-    files = {
-        'ubuntu12_32/steamui.so': b'\x7fELF....\x00.cef-enable-remote-debugging\x00more',
-        'ubuntu12_32/steamclient.so': b'\x00--remote-debugging-port=%s\x00--remote-allow-origins=*\x00',
-    }
-    for name, data in files.items():
+    for name, data in NATIVE_FILES.items():
         if name in drop:
             continue
         p = root / name
