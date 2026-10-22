@@ -41,8 +41,12 @@ file (trained on other FineWeb-2 pages, so partly home ground) leads.
   text-fill method in 27/30 cases (the 3 differences were single words, no direction).
 - Limits: one Gboard version (the clean-room study looked at 18.5); 100 sentences per language; Common
   Voice text is read-aloud style (a web-text set is running too).
-- Our completion figures come from the n-gram file filtered by typed letters (scratch tool). The
-  keyboard's real path is `Recognizer::complete()` (plugin/swipeinputmethod.cpp ~984); Phase 0 measures it.
+- Our completion figures above come from the n-gram file filtered by typed letters (scratch tool). The
+  keyboard's real path was `Recognizer::complete()`: dictionary frequency only, **no sentence context**.
+  Measured on the same Gboard queries (2 guesses, after 1 letter, everyday / web): Spanish 33 / 35,
+  French 30 / 27, German 26 / 25 — 10–17 points behind Gboard. **Fixed 2026-10-22 (b805430):**
+  Spanish/French/German completion now ranks by the sentence through the n-gram pack (English unchanged
+  until it has one). Gboard comparison through the real code is `bench/scoreboard.sh`.
 
 Swipe, first guess right: English 93.3% (94.5% opt-in AI mode) on 2,000 real swipes (FUTO's MIT test
 split). Spanish/French/German: unknown. Gboard swipe: not measured.
@@ -84,6 +88,20 @@ Facts verified in code:
 
 **Checkpoint 0:** one table — 4 languages × {next word, completion, swipe, speed, size} × {ours, Gboard
 where measured} — rebuilt by one command; maintainers asked; spike result known.
+
+Phase 0 results (2026-10-22):
+- 0.1 audit done: `docs/active/investigations/2026-10-22-authorship-audit.md` — 53 FUTO-derived files;
+  the n-gram, context, spelling and normalising code is clean; ~60% of `recognizer.cpp` is FUTO glue; its
+  default ranking weights equal FUTO's `scoring.json`. No SPDX headers anywhere yet. Maintainer contact: not
+  sent (Destin to approve the message).
+- 0.2 spike done (clean room, `RESULTS.md` kept in the session scratchpad): geometric decoder (DTW on key
+  positions + letter coverage + frequency) = **82.0% first guess / 90.0% top 3** on the 2,000 real English
+  test swipes vs FUTO's 93.3 / 96.6; ~23–46 ms per swipe in numpy. Expected ~86–88% with sentence context.
+  Conclusion: geometry alone will not reach 93%; Phase 3 needs a small trained model (re-ranker over the
+  geometric top ~20), so plan for the upper end of the estimate.
+- 0.3 done: `bench/gboard/` (probe, tap check, frozen answers).
+- 0.4 done: `bench/scoreboard.sh` (~2 min, 3 languages; swipe row when the swipe bench is built).
+- 0.6: no Steam Deck/ARM device known; open question for Destin.
 
 ## Phase 1: quick wins (≈3–4 days)
 
