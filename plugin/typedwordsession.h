@@ -59,10 +59,10 @@ public:
             && m_start>=0 && e.cursor==m_start+m_token.size() && e.text.mid(m_start,m_token.size())==m_token)
             out={m_candidates[index],-int(m_token.size()),int(m_token.size())};
         if(out.isEmpty()){clear();return out;}
-        auto expected=e;expected.text.replace(m_start,m_token.size(),out.text);
-        expected.cursor=m_start+out.text.size();expected.anchor=expected.cursor;
-        m_echo.armExpectedEcho(expected,p,epoch,true,e);m_pending=out.text;
-        m_candidates.clear();m_suppress=true; // accepted spelling stays owned, but don't immediately reopen the bar
+        // WHY (owner decision, 0.3.1): accepting a suggestion finishes the word like Gboard, so
+        // the next word can start immediately. Skip it when a space already follows the cursor.
+        if(e.cursor>=e.text.size() || !e.text.at(e.cursor).isSpace()) out.text+=QLatin1Char(' ');
+        clear(); // the finished word no longer accepts letters; the next tap starts a new word
         return out;
     }
 private:

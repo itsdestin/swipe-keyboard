@@ -164,6 +164,32 @@ Item {
         root.candidateView = root.findCandidateView()
         root.syncProfile()
         Qt.callLater(root.installPredictionCaptures)
+        root.installSymbolReturn()
+    }
+
+    // WHY (owner decision, 0.3.1): after one punctuation/symbol on the "&123" page, return to letters
+    // like phone keyboards. Digits and Space keep the page so numbers can be typed; number-preferring
+    // fields keep Qt's own behavior. Parented to the Keyboard because this layer is destroyed on the
+    // symbols page; created once and found again by objectName on later layer loads.
+    function installSymbolReturn() {
+        var kb = root.keyboardItem()
+        if (!kb || kb.symbolMode === undefined)
+            return
+        for (var i = 0; i < kb.children.length; ++i)
+            if (kb.children[i].objectName === "swipeSymbolReturn")
+                return
+        try {
+            Qt.createQmlObject('import QtQuick; import QtQuick.VirtualKeyboard; Item { id: symbolReturn; objectName: "swipeSymbolReturn"\n'
+                + ' Connections { target: InputContext.inputEngine\n'
+                + '  function onVirtualKeyClicked(key, text, modifiers, isAutoRepeat) {\n'
+                + '   var kb = symbolReturn.parent\n'
+                + '   if (!kb || !kb.symbolMode || isAutoRepeat || text.length !== 1 || /[0-9\\s]/.test(text)) return\n'
+                + '   if (InputContext.inputMethodHints & Qt.ImhPreferNumbers) return\n'
+                + '   Qt.callLater(function() { if (kb) kb.symbolMode = false })\n'
+                + '  }\n } }', kb, "swipe-symbol-return")
+        } catch (e) {
+            console.warn("Swipe Keyboard: symbol page will not return to letters automatically:", e)
+        }
     }
     // WHY: give the guess bar back its stock left alignment when this layer goes away (the "?123" page, or
     // swipe-keyboard uninstalled while running). The Binding below stops with us, but the last value it wrote

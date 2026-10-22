@@ -104,7 +104,7 @@ private slots:
         QTRY_COMPARE_WITH_TIMEOUT(method.selectionListItemCount(QVirtualKeyboardSelectionListModel::Type::WordCandidateList),3,15000);
         method.beginPredictionSelection(method.predictionSelectionToken());
         method.selectionListItemSelected(QVirtualKeyboardSelectionListModel::Type::WordCandidateList,0);
-        QTRY_COMPARE_WITH_TIMEOUT(edit.text,QStringLiteral("preexisting sentinel hello again"),5000);
+        QTRY_COMPARE_WITH_TIMEOUT(edit.text,QStringLiteral("preexisting sentinel hello again "),5000);
         edit.hints=Qt::ImhSensitiveData;
         const int beforeSensitiveExpose=edit.surroundingQueries;
         QExposeEvent sensitiveExpose{QRegion()}; QCoreApplication::sendEvent(&window,&sensitiveExpose);
@@ -159,7 +159,7 @@ private slots:
         QVERIFY(!chosen.isEmpty() && chosen!=QStringLiteral("hel"));
         method.beginPredictionSelection(method.predictionSelectionToken());
         method.selectionListItemSelected(QVirtualKeyboardSelectionListModel::Type::WordCandidateList,1);
-        QCOMPARE(edit.text,QStringLiteral("preexisting sentinel ")+chosen);
+        QCOMPARE(edit.text,QStringLiteral("preexisting sentinel ")+chosen+" ");
         ic->inputEngine()->setInputMethod(nullptr);
     }
     void typedCompletionReplacesOnlyOwnedPrefix_data() {
@@ -195,10 +195,9 @@ private slots:
         QVERIFY(words.contains(literalWord));QVERIFY(!method.predictionSelectionToken().isEmpty());
         int index=literal?words.indexOf(literalWord):1;const auto selected=words[index];
         method.beginPredictionSelection(method.predictionSelectionToken());method.selectionListItemSelected(QVirtualKeyboardSelectionListModel::Type::WordCandidateList,index);
-        QCOMPARE(edit.text,QString("preexisting sentinel ")+selected);
+        // 0.3.1: accepting a completion adds the space and requests next words like a typed Space.
+        QCOMPARE(edit.text,QString("preexisting sentinel ")+selected+" ");
         QGuiApplication::inputMethod()->update(Qt::ImQueryAll);method.update();
-        QCOMPARE(method.selectionListItemCount(QVirtualKeyboardSelectionListModel::Type::WordCandidateList),0);
-        method.keyEvent(Qt::Key_Space," ",Qt::NoModifier);ic->commit(" ");QGuiApplication::inputMethod()->update(Qt::ImQueryAll);method.update();
         QVERIFY(done.tryAcquire(1,15000));
         if(native)QCOMPARE(captured,QStringList{selected.toLower()});
         QTRY_VERIFY(!method.predictionSelectionToken().isEmpty());ic->inputEngine()->setInputMethod(nullptr);
@@ -266,7 +265,7 @@ private slots:
             QVirtualKeyboardSelectionListModel::Role::Display).toString(),displayed[i]);
         method.beginPredictionSelection(method.predictionSelectionToken());
         method.selectionListItemSelected(QVirtualKeyboardSelectionListModel::Type::WordCandidateList,slot);
-        QTRY_COMPARE_WITH_TIMEOUT(edit.text,QStringLiteral("preexisting sentinel ")+owned+" "+inserted,15000);
+        QTRY_COMPARE_WITH_TIMEOUT(edit.text,QStringLiteral("preexisting sentinel ")+owned+" "+inserted+" ",15000);
         QGuiApplication::inputMethod()->update(Qt::ImQueryAll);method.update();
         // Selected predictions automatically confirm their own insertion for chaining.
         QVERIFY(completed.tryAcquire(1,15000));QCOMPARE(captured,(QStringList{owned.toLower(),inserted}));
@@ -430,7 +429,7 @@ private slots:
             QVirtualKeyboardSelectionListModel::Role::Display).toString();
         method.beginPredictionSelection(method.predictionSelectionToken());
         method.selectionListItemSelected(QVirtualKeyboardSelectionListModel::Type::WordCandidateList,0);
-        QTRY_COMPARE_WITH_TIMEOUT(edit->property("text").toString(), QStringLiteral("hello  ") + nextPrediction, 15000);
+        QTRY_COMPARE_WITH_TIMEOUT(edit->property("text").toString(), QStringLiteral("hello  ") + nextPrediction + " ", 15000);
         QSignalSpy diagnosticsChanged(&method,&SwipeInputMethod::diagnosticsChanged);
         bridge.deny();
         QVERIFY(diagnosticsChanged.size()>0);
@@ -495,7 +494,7 @@ private slots:
         method.beginPredictionSelection(method.predictionSelectionToken());
         method.selectionListItemSelected(QVirtualKeyboardSelectionListModel::Type::WordCandidateList,1);
         QTRY_VERIFY_WITH_TIMEOUT(edit->property("text").toString().contains(accepted),15000);
-        QVERIFY(!edit->property("text").toString().endsWith(accepted+" "));
+        QVERIFY(edit->property("text").toString().endsWith(accepted+" "));
         ic->inputEngine()->setInputMethod(nullptr);
     }
     void languageSwitchesReplaceContextModelIdentityWithoutStaleCandidates() {
@@ -554,7 +553,7 @@ private slots:
         method.beginPredictionSelection(method.predictionSelectionToken());
         method.selectionListItemSelected(QVirtualKeyboardSelectionListModel::Type::WordCandidateList,1);
         QTRY_VERIFY_WITH_TIMEOUT(edit.text.contains(accepted),15000);
-        QVERIFY(!edit.text.endsWith(accepted+" "));
+        QVERIFY(edit.text.endsWith(accepted+" "));
         ic->inputEngine()->setInputMethod(nullptr);
     }
 };

@@ -9,7 +9,7 @@ private slots:
   TypedWordSession s;auto before=e("sentinel ");
   for(auto c:QString("hel")){auto after=e(before.text+c);s.edit(before,after,p(),1,QString(c));QVERIFY(s.observe(after,p(),1));before=after;}
   s.suggest({"hello","help","held"});QCOMPARE(s.candidates(),(QStringList{"help","hello","hel"}));
-  auto plan=s.take(1,s.selectionToken(),before,p(),1);QCOMPARE(plan.text,QString("hello"));QCOMPARE(plan.replaceFrom,-3);QCOMPARE(plan.replaceLength,3);
+  auto plan=s.take(1,s.selectionToken(),before,p(),1);QCOMPARE(plan.text,QString("hello "));QCOMPARE(plan.replaceFrom,-3);QCOMPARE(plan.replaceLength,3);
   before=e("");s.edit(before,e("h"),p(),1,"h");s.observe(e("h"),p(),1);s.suggest({"hello","help"});auto old=s.selectionToken();
   s.edit(e("h"),e("he"),p(),1,"e");s.observe(e("he"),p(),1);s.suggest({"hello","help"});QVERIFY(s.take(1,old,e("he"),p(),1).isEmpty());
  }
@@ -25,13 +25,14 @@ private slots:
    s.changed(changed,policy,epoch);QVERIFY(s.take(1,pressed,e("h"),p(),1).isEmpty());
   }
  }
- void literalAcceptCanContinueTypingWithoutAutomaticCorrection(){
+ void acceptedSpellingEndsWordWithOneSpace(){
   TypedWordSession s;auto before=e("");
   for(auto c:QString("hel")){auto next=e(before.text+c);s.edit(before,next,p(),1,QString(c));s.observe(next,p(),1);before=next;}
   s.suggest({"hello","help"});auto words=s.candidates();const int literal=words.indexOf("hel");QVERIFY(literal>=0);
-  auto plan=s.take(literal,s.selectionToken(),before,p(),1);QCOMPARE(plan.text,QString("hel"));
-  s.observe(before,p(),1);QVERIFY(s.candidates().isEmpty());
-  s.edit(before,e("help"),p(),1,"p");QVERIFY(s.observe(e("help"),p(),1));QCOMPARE(s.token(),QString("help"));
+  // 0.3.1: an accepted spelling (literal too) ends with a space and finishes the word.
+  auto plan=s.take(literal,s.selectionToken(),before,p(),1);QCOMPARE(plan.text,QString("hel "));
+  QVERIFY(s.candidates().isEmpty());QVERIFY(s.token().isEmpty());
+  s.edit(e("hel "),e("hel p"),p(),1,"p");QVERIFY(s.observe(e("hel p"),p(),1));QCOMPARE(s.token(),QString("p"));
  }
  void rejectsPastedPrefixAndBackspacesOnlyOwnedToken(){
   TypedWordSession s;s.edit(e("pasted"),e("pastedh"),p(),1,"h");s.observe(e("pastedh"),p(),1);QVERIFY(s.token().isEmpty());

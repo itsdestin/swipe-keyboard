@@ -100,6 +100,7 @@ private:
     OwnedHistory m_ownedHistory;
     TypedWordSession m_typedWord;
     QString m_typedPress;
+    int m_autoSpaceCursor = -1; // cursor just after a space this keyboard added automatically
     quint64 m_nativePolicyEpoch = 1;
     NextWordWorker m_predictionWorker;
     swipekb::PredictionModelState m_predictionModelState=swipekb::PredictionModelState::NotRequested;
