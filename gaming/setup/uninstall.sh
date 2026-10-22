@@ -1,0 +1,98 @@
+#!/usr/bin/env bash
+# Swipe Keyboard, Steam Deck Gaming Mode: uninstaller. Removes only what install.sh recorded as created.
+#
+#   bash uninstall.sh              show what will be removed, ask, then do it
+#   bash uninstall.sh --dry-run    show only
+#   bash uninstall.sh --yes        do not ask
+#   bash uninstall.sh --remove-apps   also remove the two Flatpak apps, if install.sh was the one that added them
+set -euo pipefail
+
+CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
+DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
+STATE_HOME="${XDG_STATE_HOME:-$HOME/.local/state}"
+UNIT_DIR="$CONFIG_HOME/systemd/user"
+RECORD_DIR="$DATA_HOME/swipe-keyboard-gaming"
+STATE_DIR="$STATE_HOME/swipekb-gaming"
+RECORD="$RECORD_DIR/install-record.json"
+UNITS=(swipekb-engine.service swipekb-helper.service)
+MAIN_ID=org.itsdestin.SwipeKeyboard
+HELPER_ID=org.itsdestin.SwipeKeyboard.GamingHelper
+
+DRY_RUN=0; ASSUME_YES=0; REMOVE_APPS=0
+for arg in "$@"; do
+    case "$arg" in
+        --dry-run) DRY_RUN=1 ;;
+        --yes) ASSUME_YES=1 ;;
+        --remove-apps) REMOVE_APPS=1 ;;
+        -h|--help) sed -n '2,7p' "${BASH_SOURCE[0]}"; exit 0 ;;
+        *) echo "Unknown option: $arg (try --help)" >&2; exit 2 ;;
+    esac
+done
+
+# Same fixed-layout reader as install.sh (kept in both so each script can be read on its own).
+record_list() {
+    [ -f "$RECORD" ] || return 0
+    sed -n "/^  \"$1\": \[/,/^  \]/p" "$RECORD" | grep '^    "' | sed 's/^    "//; s/",\{0,1\}$//' || true
+}
+
+CREATED_MARKERS=(); INSTALLED_APPS=()
+while IFS= read -r line; do [ -n "$line" ] && CREATED_MARKERS+=("$line"); done < <(record_list created_markers)
+while IFS= read -r line; do [ -n "$line" ] && INSTALLED_APPS+=("$line"); done < <(record_list installed_flatpaks)
+
+# WHY the stamp: a unit file is only ours to delete if install.sh wrote it (first line), never a file of yours that
+# happens to share the name.
+ours() { [ -f "$UNIT_DIR/$1" ] && [ "$(head -n 1 "$UNIT_DIR/$1")" = '# swipekb-gaming-managed' ]; }
+
+echo "Swipe Keyboard for Gaming Mode: removal. This will:"
+echo "  - stop and turn off the two background services, and delete their files from $UNIT_DIR (only files this installer wrote)"
+if [ -f "$RECORD" ]; then
+    for marker in "${CREATED_MARKERS[@]+"${CREATED_MARKERS[@]}"}"; do echo "  - delete the developer-switch file $marker (this installer created it)"; done
+    echo "  - leave any developer-switch file that existed before this install exactly as it is"
+else
+    echo "  - leave Steam's developer-switch file alone: there is no install record, so it is not known whether this installer made it"
+fi
+echo "  - delete $RECORD_DIR (the install record) and $STATE_DIR (status the helper wrote)"
+if [ "$REMOVE_APPS" = 1 ]; then
+    for id in "${INSTALLED_APPS[@]+"${INSTALLED_APPS[@]}"}"; do echo "  - remove the app $id (it was added by this installer)"; done
+else
+    echo "  - leave the two apps installed; to remove them yourself:"
+    echo "      flatpak uninstall --user $HELPER_ID"
+    echo "      flatpak uninstall --user $MAIN_ID"
+fi
+echo "Steam keeps nothing of ours on disk: the keyboard layer lives only in Steam's memory and is gone after Steam's next restart."
+
+if [ "$DRY_RUN" = 1 ]; then echo; echo "Dry run: nothing was changed."; exit 0; fi
+if [ "$ASSUME_YES" = 0 ]; then
+    printf '\nContinue? [y/N] '
+    answer=""; read -r answer || answer=""
+    case "$answer" in y|Y|yes|YES|Yes) ;; *) echo "Nothing was changed."; exit 1 ;; esac
+fi
+
+HAD_RECORD=0; [ -f "$RECORD" ] && HAD_RECORD=1
+
+# disable can complain if a unit is already gone; that is fine, we are removing it anyway.
+systemctl --user disable --now "${UNITS[@]}" || true
+for unit in "${UNITS[@]}"; do
+    if ours "$unit"; then
+        # ${VAR:?} makes the shell stop instead of deleting a wrong path if a name were ever empty.
+        rm -f "${UNIT_DIR:?}/${unit:?}"
+    elif [ -e "$UNIT_DIR/$unit" ]; then
+        echo "Left $UNIT_DIR/$unit alone: it was not written by this installer."
+    fi
+done
+systemctl --user daemon-reload || true
+
+for marker in "${CREATED_MARKERS[@]+"${CREATED_MARKERS[@]}"}"; do
+    # WHY a regular file only: never follow a link or remove a folder because a path was edited by hand.
+    if [ -f "$marker" ] && [ ! -L "$marker" ]; then rm -f "${marker:?}"; fi
+done
+
+if [ "$REMOVE_APPS" = 1 ]; then
+    for id in "${INSTALLED_APPS[@]+"${INSTALLED_APPS[@]}"}"; do flatpak uninstall --user -y "$id" || true; done
+fi
+rm -rf "${STATE_DIR:?}" "${RECORD_DIR:?}"
+
+if [ "$HAD_RECORD" = 0 ]; then
+    echo "Note: no install record was found, so Steam's developer-switch file (if any) was not touched."
+fi
+echo "Removed. The Steam developer switch change takes effect at Steam's next restart; until then Steam may still have its debug port open."
