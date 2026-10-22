@@ -14,7 +14,7 @@ import threading
 import time
 from pathlib import Path
 
-from . import LAYER_VERSION, cdp, config, contract, ws
+from . import LAYER_VERSION, cdp, config, contract, exposure, ws
 from .bridge import Bridge, SendFailed
 from .retry import RetryLedger
 from .status import Status
@@ -53,8 +53,13 @@ class PageSession:
 
 
 class Helper:
-    def __init__(self, cfg, steam_running=default_steam_running):
+    def __init__(self, cfg, steam_running=default_steam_running, exposure_check=None, exposure_interval=30.0):
         self.cfg = cfg
+        # WHY a parameter that defaults to "no check": __main__ turns it on for the installed helper; tests leave it off so
+        # whatever happens to be listening on a developer's machine cannot change their results.
+        self.exposure_check = exposure_check
+        self.exposure_interval = exposure_interval
+        self.exposed = False
         self.steam_running = steam_running
         self.status = Status(cfg.state_dir)
         self.ledger = RetryLedger(cfg.state_dir / 'retry.json', cfg.max_failures)
@@ -150,8 +155,16 @@ class Helper:
     # ---- main loop ------------------------------------------------------------------------------------
     def _loop(self):
         next_marker = 0.0
+        next_exposure = 0.0
         while not self._stop.is_set():
             now = time.monotonic()
+            if self.exposure_check and now >= next_exposure:
+                self._exposure_tick()
+                next_exposure = now + self.exposure_interval
+            if self.exposed:
+                # WHY nothing else runs: while Steam's debug port can be reached from other devices the layer stays out.
+                self._stop.wait(self.cfg.poll_interval)
+                continue
             if now >= next_marker:
                 self._marker_check()
                 next_marker = now + self.cfg.beat_interval
@@ -170,6 +183,27 @@ class Helper:
                 # Any trouble with Steam's side: forget the connection and look again. Never raise out.
                 self._disconnect()
                 self._stop.wait(self.cfg.poll_interval)
+
+    # ---- outside door ---------------------------------------------------------------------------------
+    def _exposure_tick(self):
+        doors = self.exposure_check()
+        if not doors:
+            if self.exposed:
+                self.exposed = False
+                self.last_written = None      # say something new as soon as the normal loop resumes
+            return
+        if not self.exposed:
+            self.exposed = True
+            # Take our layer out of Steam if it was in; any trouble talking to Steam must not stop the status below.
+            try:
+                for pid in list(self.pages):
+                    self._detach(pid, remove=True)
+            except (ws.WsError, cdp.CdpError, OSError, ValueError):
+                pass
+            self._disconnect()
+        self._publish('blocked-outside-access',
+                      'Steam\'s debug port is open to other devices on the network (port %s). Gaming Mode swipe is off. '
+                      'Run the Swipe Keyboard installer again to close it.' % ', '.join(str(p) for p in doors))
 
     # ---- marker file ----------------------------------------------------------------------------------
     def _marker_check(self):

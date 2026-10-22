@@ -5,7 +5,8 @@ import os
 import time
 
 STATES = ('waiting-for-steam', 'needs-steam-restart', 'active', 'paused-steam-changed',
-          'steam-not-found', 'error', 'off')
+          'steam-not-found', 'error', 'off',
+          'blocked-outside-access')   # the debug port is reachable from other devices; see exposure.py
 
 
 class Status:
