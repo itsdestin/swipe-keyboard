@@ -69,7 +69,6 @@ class Config:
     not_ready_grace: float = 15.0     # how long a page may lack SteamClient before that counts as "Steam changed"
     failure_spacing: float = 2.0      # failed contract checks closer together than this count once
     max_failures: int = 3             # per Steam build; then the helper stops trying (plan Section 14, M9)
-    restart_grace: float = 30.0       # port closed this long while Steam runs => "needs a Steam restart"
     steamui_probe: object = 'auto'    # file whose mtime joins the "which Steam build" fingerprint; None = off
 
     def __post_init__(self):

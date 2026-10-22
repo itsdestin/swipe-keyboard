@@ -56,8 +56,7 @@ class Rig:
     def config(self, **over):
         kw = dict(port=self.fake.port, state_dir=self.state, marker_dirs=[self.steam_dir],
                   contract_path=self.contract, poll_interval=0.02, beat_interval=0.1, layer_watchdog=3.0,
-                  call_timeout=3.0, not_ready_grace=0.3, failure_spacing=0.1, steamui_probe=None,
-                  restart_grace=0.4)
+                  call_timeout=3.0, not_ready_grace=0.3, failure_spacing=0.1, steamui_probe=None)
         kw.update(self.cfg_extra)
         kw.update(over)
         return Config(**kw)
@@ -492,7 +491,7 @@ class MarkerAndStatus(Base):
         self.assertEqual(int(r.marker.stat().st_mtime), 1000)
 
     def test_marker_recreated_with_port_closed_and_steam_running_needs_a_restart(self):
-        r = self.rig(restart_grace=60.0)     # the long wait must not be what triggers it
+        r = self.rig()
         r.fake.close_port()
         r.running = True
         r.helper().start()
@@ -509,16 +508,30 @@ class MarkerAndStatus(Base):
         time.sleep(0.3)  # settle
         self.assertEqual(r.status()['state'], 'waiting-for-steam')
 
-    def test_port_closed_for_long_with_steam_running_needs_a_restart(self):
-        r = self.rig(restart_grace=0.3)
+    def test_marker_newer_than_the_running_steam_needs_a_restart(self):
+        """Someone (an installer) made the marker after Steam started, so Steam never read it."""
+        r = self.rig()
         r.marker.write_text('')
+        r.running = time.time() - 1000          # Steam's start time
         r.fake.close_port()
-        r.running = True
         r.helper().start()
         wait_for(lambda: r.status().get('state') == 'needs-steam-restart', what='state')
 
+    def test_marker_older_than_the_running_steam_means_steam_is_just_busy(self):
+        """Steam read the marker at start; a closed port now is an update or a slow start, not a missing switch.
+        (Found for real in the guest: a Steam self-update held the port closed for minutes.)"""
+        r = self.rig()
+        r.marker.write_text('')
+        os.utime(r.marker, (time.time() - 1000, time.time() - 1000))
+        r.running = time.time()
+        r.fake.close_port()
+        r.helper().start()
+        wait_for(lambda: r.status().get('state') == 'waiting-for-steam', what='state')
+        time.sleep(0.4)  # settle: it must stay that way
+        self.assertEqual(r.status()['state'], 'waiting-for-steam')
+
     def test_quick_steam_restart_is_not_reported_as_needing_one(self):
-        r = self.rig(restart_grace=60.0)
+        r = self.rig()
         r.marker.write_text('')
         b, s = r.steam_up()
         r.helper().start()

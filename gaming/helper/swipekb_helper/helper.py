@@ -21,19 +21,24 @@ _STUB_JS = Path(__file__).with_name('layer_stub.js')
 
 
 def default_steam_running():
-    """Is a Steam process alive? Only used to tell 'Steam not started yet' from 'Steam started without the
-    debug switch' (so we can say 'needs a Steam restart')."""
+    """When did the oldest running Steam client start (epoch seconds)? None if no Steam is running.
+    Used only to tell 'Steam has not read our debug switch' from 'Steam is busy (starting, updating)'."""
     try:
+        hz = os.sysconf('SC_CLK_TCK')
+        boot = next(float(l.split()[1]) for l in Path('/proc/stat').read_text().splitlines() if l.startswith('btime'))
+        starts = []
         for p in Path('/proc').iterdir():
             if p.name.isdigit():
                 try:
-                    if (p / 'comm').read_text().strip() in ('steam', 'steamwebhelper'):
-                        return True
-                except OSError:
+                    if (p / 'comm').read_text().strip() == 'steam':
+                        # field 22 of /proc/<pid>/stat, counted after the ")" that ends the command name
+                        ticks = int((p / 'stat').read_text().rsplit(')', 1)[1].split()[19])
+                        starts.append(boot + ticks / hz)
+                except (OSError, ValueError, IndexError):
                     continue
-    except OSError:
-        pass
-    return False
+        return min(starts) if starts else None
+    except (OSError, StopIteration, ValueError):
+        return None
 
 
 class PageSession:
@@ -178,10 +183,23 @@ class Helper:
         running = self.steam_running()
         if not any(d.is_dir() for d in self.cfg.marker_dirs):
             self._publish('steam-not-found', 'No Steam folder found for this user.')
-        elif running and (self.marker_recreated or now - self.closed_since >= self.cfg.restart_grace):
+        elif running and (self.marker_recreated or self._marker_newer_than(running)):
             self._publish('needs-steam-restart', 'Steam is running without its debug switch; restart Steam once.')
         else:
             self._publish('waiting-for-steam', 'Steam is not running or is restarting.')
+
+    def _marker_newer_than(self, steam_start):
+        """True if the debug-switch file was made after Steam started (so Steam never read it).
+        WHY not 'port closed for a while': Steam updating itself keeps the port closed for minutes with the
+        switch perfectly fine, and telling the user to restart then would be wrong."""
+        if steam_start is True:
+            return False
+        for d in self.cfg.marker_dirs:
+            try:
+                return (d / '.cef-enable-remote-debugging').stat().st_mtime > steam_start
+            except OSError:
+                continue
+        return False
 
     def _fingerprint(self):
         probe = self.cfg.steamui_probe
