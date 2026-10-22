@@ -31,6 +31,12 @@ brackets).
 | German | same | 18 / 42 / 60 | 21 / 40 (48) / 55 (61) | — |
 | English | same | not measured | not measured | — |
 
+Web text (FineWeb-2 test pages, ~1,300–1,650 words per language), same layout — Gboard / ours today /
+ours new file (2-guess after letters):
+Spanish 22 / 22 / 28 · 42 / 42 / 51 · 56 / 53 / 68; French 23 / 20 · 41 / 36 · 61 / 50;
+German 16 / 14 · 38 / 32 · 54 / 47. Today's Tatoeba-only files trail Gboard on web text; the new Spanish
+file (trained on other FineWeb-2 pages, so partly home ground) leads.
+
 - Method check: 30 phrases typed with real key taps gave the same Gboard suggestions as the fast
   text-fill method in 27/30 cases (the 3 differences were single words, no direction).
 - Limits: one Gboard version (the clean-room study looked at 18.5); 100 sentences per language; Common
