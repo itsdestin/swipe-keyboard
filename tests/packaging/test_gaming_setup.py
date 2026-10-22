@@ -30,7 +30,10 @@ printf 'flatpak %s\\n' "$*" >> "$FAKE_LOG"
 case "$1" in
   info) grep -qx "$3" "$FAKE_APPS" 2>/dev/null; exit $? ;;
   install) [ "$FAKE_FAIL" = install ] && { echo 'fake: install failed' >&2; exit 1; }
-           case "$*" in *GamingHelper*) echo org.itsdestin.SwipeKeyboard.GamingHelper >> "$FAKE_APPS";; *) echo org.itsdestin.SwipeKeyboard >> "$FAKE_APPS";; esac ;;
+           case "$*" in *GamingHelper*|*gaming-helper*) id=org.itsdestin.SwipeKeyboard.GamingHelper;; *) id=org.itsdestin.SwipeKeyboard;; esac
+           # WHY: the real Flatpak refuses to install a bundle whose exact version is already here (seen on SteamOS in M8).
+           [ "$FAKE_FAIL" = same-version ] && grep -qx "$id" "$FAKE_APPS" 2>/dev/null && { echo "error: Failed to install bundle $id: $id already installed" >&2; exit 1; }
+           echo "$id" >> "$FAKE_APPS" ;;
   uninstall) for last; do :; done; grep -vx "$last" "$FAKE_APPS" > "$FAKE_APPS.new" 2>/dev/null; mv "$FAKE_APPS.new" "$FAKE_APPS" ;;
 esac
 exit 0
@@ -287,6 +290,22 @@ class InstallTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('swipekb-helper.service', result.stderr)
         self.assertEqual(f.snapshot(), before)  # refused up front: not even the marker was made
+
+    def test_rerun_with_the_same_version_already_installed_is_not_an_error(self):
+        # WHY: found in the real SteamOS VM (M8). `flatpak install --bundle` fails with "already installed" when the
+        # bundle is the version that is already here, so every re-run (the documented way to change a choice or
+        # upgrade) died before doing anything. That one message means "nothing to do", not "failed".
+        f = Fixture(self)
+        self.assertEqual(f.run('install.sh', '--gaming', '--block-outside').returncode, 0)
+        result = f.run('install.sh', '--gaming', '--leave-open', fail='same-version')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(f.record()['installed_flatpaks'], [MAIN_ID, HELPER_ID])
+
+    def test_a_real_install_failure_is_still_an_error_even_if_the_app_is_already_here(self):
+        f = Fixture(self)
+        f.run('install.sh', '--desktop-only')
+        result = f.run('install.sh', '--desktop-only', fail='install')
+        self.assertNotEqual(result.returncode, 0)
 
     def test_flatpak_failure_leaves_no_marker_or_units(self):
         # WHY: the network-dependent step runs first so a failure cannot leave a half-installed system.

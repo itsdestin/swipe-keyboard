@@ -452,7 +452,20 @@ EXIT_CODE=0
 install_app() { # install_app ID BUNDLE
     local id="$1" bundle="$2" already=0
     flatpak info --user "$id" >/dev/null 2>&1 && already=1
-    flatpak install --user --noninteractive -y "$bundle" || die "Installing $id failed. If it asked to download something, check your internet connection and run this again."
+    # WHY the output is kept: on a real SteamOS Deck (M8 VM run) Flatpak refuses to install a bundle whose exact version
+    # is already here ("... already installed", exit 1). That means "nothing to do", and without this every re-run
+    # (the way to change a choice or upgrade) stopped before doing anything. Any other failure is still fatal.
+    local log rc=0; log="$(mktemp)"
+    LC_ALL=C flatpak install --user --noninteractive -y "$bundle" 2>&1 | tee "$log" || rc=$?
+    if [ "$rc" != 0 ]; then
+        if [ "$already" = 1 ] && grep -qi 'already installed' "$log"; then
+            echo "$id is already installed at this version; nothing to do."
+        else
+            rm -f "$log"
+            die "Installing $id failed. If it asked to download something, check your internet connection and run this again."
+        fi
+    fi
+    rm -f "$log"
     # Only an app that was NOT here before is ours to remove later.
     if [ "$already" = 0 ] && ! in_list "$id" "${INSTALLED_APPS[@]+"${INSTALLED_APPS[@]}"}"; then
         INSTALLED_APPS+=("$id")
