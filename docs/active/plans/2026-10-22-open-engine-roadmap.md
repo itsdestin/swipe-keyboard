@@ -6,7 +6,7 @@ cards: 170, 179
 
 Owner goals (Destin, 2026-10-22):
 1. Typing feels at least as good as Gboard in English, Spanish, French and German.
-2. No FUTO code or model weights; as permissive a license as the host allows (Apache/MIT family).
+2. No FUTO code or model weights; KDE's licenses, so it can be merged into KDE's plasma-keyboard.
 3. Learn the most decision-useful facts first, so effort goes where the gap really is.
 
 Rules for every phase:
@@ -41,13 +41,24 @@ brackets).
 Swipe, first guess right: English 93.3% (94.5% opt-in AI mode) on 2,000 real swipes (FUTO's MIT test
 split). Spanish/French/German: unknown. Gboard swipe: not measured.
 
-## License facts that shape the plan (verified in code)
+## License: follow KDE (decided by Destin 2026-10-22)
 
+Goal: eventual merge into KDE's plasma-keyboard, so the project uses KDE's licensing policy
+(community.kde.org/Policies/Licensing_Policy):
+- Keyboard/plugin code: `GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL` (KDE's standard;
+  plasma-keyboard's own files use it, with some GPL-3.0-only parts derived from Qt).
+- Engine library (recognition, prediction): `LGPL-2.1-only OR LGPL-3.0-only OR LicenseRef-KDE-Accepted-LGPL`.
+- CMake files: BSD-2-Clause or BSD-3-Clause. Docs and images: CC-BY-SA-4.0. Trivial/generated data: CC0-1.0.
+- REUSE-compliant: every file has an SPDX header; `LICENSES/` holds exactly the licenses used.
+- KDE's policy says nothing about model weights or training data: ask the plasma-keyboard maintainers early.
+
+Why FUTO still has to go: its model weights use FUTO's own license (mandatory "powered by FUTO Swipe"
+notice, Texas-law contract terms) that is not a standard open-source license; FUTO's code is GPL-3 with no
+"or later" notice in its files, which does not fit KDE's GPL-2-or-3 standard; and it pulls in ExecuTorch.
+
+Facts verified in code:
 - The plugin includes and links Qt Virtual Keyboard (`plugin/CMakeLists.txt:1`,
-  `plugin/swipeinputmethod.h:7`), which is GPL-3 or paid-commercial. **The plugin layer therefore stays
-  GPL-3.** The engine (recognition, prediction, models, data tools) can be Apache-2.0 or MIT and is still
-  usable from the GPL plugin (Apache-2.0 is GPL-3 compatible). The engine also uses Qt Core (LGPL), fine
-  for a permissive library.
+  `plugin/swipeinputmethod.h:7`), as plasma-keyboard itself does.
 - `engine/src/recognizer.cpp` includes FUTO headers (lines 17–19) and reuses FUTO's path-fit formula
   (~53) and raw-shape guard (~68): it is FUTO-derived and must be replaced, not just unlinked.
 - Data: FineWeb-2 (ODC-BY), Tatoeba (CC-BY 2.0 FR), AOSP lists (Apache-2.0) are attribution-only.
@@ -58,7 +69,7 @@ split). Spanish/French/German: unknown. Gboard swipe: not measured.
 
 | # | Item | Why early | Done when |
 |---|---|---|---|
-| 0.1 | **Authorship audit + license decision.** Mark every engine file clean / FUTO-derived / unsure (`git log`, content). Destin picks the engine license; plugin stays GPL-3. | Everything in Phases 2–3 inherits it | List committed; license chosen |
+| 0.1 | **Authorship audit + upstream contact.** Mark every file clean / FUTO-derived / unsure. Open a conversation with the plasma-keyboard maintainers (shape of a merge: plugin vs built-in, model/data downloads, ExecuTorch-free requirement). | Their answers can change Phases 3–4; asking costs a message | File list committed; maintainers' answers recorded |
 | 0.2 | **Geometric swipe spike** (2–3 days): a simple shape scorer with no neural model (the approach the published papers describe), on the English real swipes. | Decides whether our own swipe engine is ~2 or ~6 weeks, and whether we need trained weights at all | Score vs FUTO's 93.3% recorded |
 | 0.3 | **Commit the Gboard rig** and freeze its results as reference files; add English; web-text set. | Gboard doesn't change; one-off cost | `bench/reference/` committed |
 | 0.4 | **Scoreboard command** (`bench/scoreboard.sh`): next word, completion through the real code path, swipe, speed, memory, file sizes, per language; `--check` with the noise tolerance. | Every later change is judged by it | One command, < 15 min |
@@ -66,7 +77,7 @@ split). Spanish/French/German: unknown. Gboard swipe: not measured.
 | 0.6 | **Steam Deck / ARM check:** speed and memory of today's keyboard and the new Spanish file. | Size/speed budgets must be numbers, not "agreed later" | Budget table: MB per language, ms per suggestion |
 
 **Checkpoint 0:** one table — 4 languages × {next word, completion, swipe, speed, size} × {ours, Gboard
-where measured} — rebuilt by one command; license chosen; spike result known.
+where measured} — rebuilt by one command; maintainers asked; spike result known.
 
 ## Phase 1: quick wins (≈3–4 days)
 
@@ -107,8 +118,8 @@ smaller download); ES/FR/DE ≥ FUTO's Phase 0 numbers on the real sets; within 
 ## Phase 4: remove FUTO (≈2 days)
 
 Delete `third_party/swipe-library`, FUTO downloads (`packaging/assets.lock.json`), ExecuTorch and the
-FUTO notice; apply the chosen engine license; data license manifest (attribution file per data package);
-license scan of source and packages.
+FUTO notice; apply KDE's licenses with REUSE headers (`reuse lint` clean); data license manifest
+(attribution file per data package); follow KDE coding style where it differs.
 
 **Checkpoint 4:** no FUTO file or dependency anywhere; full scoreboard green; card #179 done.
 
