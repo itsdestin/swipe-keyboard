@@ -19,6 +19,14 @@ release = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(release)
 
 
+def clean_env(**extra):
+    """Subprocess environment with no CI run context, so results never depend on where tests run."""
+    import os
+    base = {k: v for k, v in os.environ.items()
+            if k not in ('GITHUB_REF', 'GITHUB_EVENT_NAME', 'PR_DRAFT', 'FULL_INPUT')}
+    return {**base, **extra}
+
+
 class ReleaseTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -134,15 +142,16 @@ class ReleaseTests(unittest.TestCase):
                 (evidence/(entry['target'] + '.json')).write_text(json.dumps(entry))
             command = [sys.executable, str(ROOT/'scripts/release.py'), 'gate', '--directory', str(self.directory),
                        '--evidence', str(evidence), '--sha', self.sha, '--statuses', json.dumps(self.status)]
-            result = subprocess.run(command, capture_output=True, text=True)
+            # WHY clean env: the gate picks its mode from the CI event, which must not leak into this test.
+            result = subprocess.run(command, capture_output=True, text=True, env=clean_env())
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertIn('Verified complete release', result.stdout)
             release.verify(self.directory, self.sha, self.contract)
             (evidence/'arch.json').unlink()
-            self.assertNotEqual(subprocess.run(command, capture_output=True).returncode, 0)
+            self.assertNotEqual(subprocess.run(command, capture_output=True, env=clean_env()).returncode, 0)
             self.status['arch']['result'] = 'skipped'
             command[-1] = json.dumps(self.status)
-            self.assertNotEqual(subprocess.run(command, capture_output=True).returncode, 0)
+            self.assertNotEqual(subprocess.run(command, capture_output=True, env=clean_env()).returncode, 0)
 
     def test_flatpak_recipe_is_external_portable_and_hash_bound(self):
         spec = importlib.util.spec_from_file_location('ci_source', ROOT/'scripts/ci-source.py')
@@ -441,14 +450,14 @@ class FastGateTests(unittest.TestCase):
                        '--evidence', str(evidence), '--sha', self.sha, '--statuses', json.dumps(self.status), '--evidence-only']
             import os
             branch = subprocess.run(command, capture_output=True, text=True,
-                                    env={**os.environ, 'GITHUB_REF': 'refs/heads/main', 'GITHUB_EVENT_NAME': 'push'})
+                                    env=clean_env(GITHUB_REF='refs/heads/main', GITHUB_EVENT_NAME='push'))
             self.assertEqual(branch.returncode, 0, branch.stdout + branch.stderr)
             tag = subprocess.run(command, capture_output=True, text=True,
-                                 env={**os.environ, 'GITHUB_REF': 'refs/tags/v0.3.1', 'GITHUB_EVENT_NAME': 'push'})
+                                 env=clean_env(GITHUB_REF='refs/tags/v0.3.1', GITHUB_EVENT_NAME='push'))
             self.assertNotEqual(tag.returncode, 0)
             self.assertIn('tag', tag.stderr.lower())
             unknown = subprocess.run(command, capture_output=True, text=True,
-                                     env={k: v for k, v in os.environ.items() if k != 'GITHUB_REF'})
+                                     env=clean_env())
             self.assertNotEqual(unknown.returncode, 0)
 
     def test_cli_gate_in_fast_mode_checks_only_the_fast_set(self):
@@ -459,14 +468,14 @@ class FastGateTests(unittest.TestCase):
                 (evidence/(entry['target'] + '.json')).write_text(json.dumps(entry))
             command = [sys.executable, str(ROOT/'scripts/release.py'), 'gate', '--directory', str(self.directory),
                        '--evidence', str(evidence), '--sha', self.sha, '--statuses', json.dumps(self.fast_status)]
-            fast_env = {**os.environ, 'GITHUB_REF': 'refs/pull/9/merge', 'GITHUB_EVENT_NAME': 'pull_request', 'PR_DRAFT': 'true'}
+            fast_env = clean_env(GITHUB_REF='refs/pull/9/merge', GITHUB_EVENT_NAME='pull_request', PR_DRAFT='true')
             done = subprocess.run(command, capture_output=True, text=True, env=fast_env)
             self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
             self.assertIn('fast', done.stdout.lower())
             self.assertFalse((self.directory/'release-manifest.json').exists())
             # The same fast-shaped inputs on a tag must fail: tags need the full set.
             tag = subprocess.run(command, capture_output=True, text=True,
-                                 env={**os.environ, 'GITHUB_REF': 'refs/tags/v0.3.1', 'GITHUB_EVENT_NAME': 'push'})
+                                 env=clean_env(GITHUB_REF='refs/tags/v0.3.1', GITHUB_EVENT_NAME='push'))
             self.assertNotEqual(tag.returncode, 0)
 
 
