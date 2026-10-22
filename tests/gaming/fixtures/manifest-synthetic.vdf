@@ -1,0 +1,20 @@
+"ubuntu12"
+{
+	"version"		"1792618285"
+	"steamui_websrc_all"
+	{
+		"file"		"steamui_websrc_all.zip.24dd80531ce5c8cf19b5bfdd2e580ab55ebf8365"
+		"size"		"35647879"
+		"sha2"		"275f353463226631c3a43e90994f65a64262c30a961dccd257ccfc4b08f2f1a1"
+	}
+	"bins_ubuntu12"
+	{
+		"file"		"bins_ubuntu12.zip.f86d2980247827d0de3da59eb96f8885f3df5207"
+		"size"		"76110471"
+		"sha2"		"c2343282a34fe3da7400f39d1c26a57cdb3a8d320016b103092013246fd9ae65"
+	}
+}
+"kvsignatures"
+{
+	"ubuntu12"		"00"
+}

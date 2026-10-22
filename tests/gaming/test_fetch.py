@@ -10,7 +10,7 @@ import fetch
 
 class Manifest(unittest.TestCase):
     def test_real_manifest_parses(self):
-        m = fetch.parse_manifest((FIXTURES / 'manifest-deck-stable.vdf').read_text())
+        m = fetch.parse_manifest((FIXTURES / 'manifest-synthetic.vdf').read_text())
         self.assertEqual(m.version, '1792618285')
         info = m.package('steamui_websrc_all')
         self.assertEqual(info.file, 'steamui_websrc_all.zip.24dd80531ce5c8cf19b5bfdd2e580ab55ebf8365')
@@ -20,7 +20,7 @@ class Manifest(unittest.TestCase):
         self.assertEqual(m.package('bins_ubuntu12').size, 76110471)
 
     def test_missing_package_and_garbage_are_errors(self):
-        m = fetch.parse_manifest((FIXTURES / 'manifest-deck-stable.vdf').read_text())
+        m = fetch.parse_manifest((FIXTURES / 'manifest-synthetic.vdf').read_text())
         with self.assertRaises(fetch.FetchError):
             m.package('no_such_package')
         for bad in ('', 'not a manifest', '"a" { "version"', '{}'):
@@ -109,7 +109,7 @@ class Download(unittest.TestCase):
         self.assertEqual(len(server.calls), 1)
 
     def test_manifest_fetch_is_size_capped_and_parsed(self):
-        text = (FIXTURES / 'manifest-deck-stable.vdf').read_bytes()
+        text = (FIXTURES / 'manifest-synthetic.vdf').read_bytes()
         f, _ = self.fetcher({'steam_client_x': text})
         self.assertEqual(f.fetch_manifest('steam_client_x', max_bytes=100_000).version, '1792618285')
         with self.assertRaises(fetch.FetchError):
