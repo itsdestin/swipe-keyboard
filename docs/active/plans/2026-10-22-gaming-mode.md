@@ -310,6 +310,8 @@ Rig: `start-gaming.sh` boots the SteamOS guest straight into real Gaming Mode (v
 
 ## 15. Open questions (owner decisions or unverified facts)
 
+**Owner decisions, 2026-10-22:** all recommendations accepted for questions 1 (hosted Flatpak update repository before Gaming Mode ships), 2 (one SteamOS download), 3 (no learning in Gaming Mode v1), 4 ("Private" chip), 7 (Desktop Mode language settings), 8 (throwaway Steam account for automated tests) and 15 (Section 12 wording approved as drafted). The remaining questions are verified facts for M0 or later milestones.
+
 1. **How do fixes reach users?** Updates today are manual downloads (`flatpak update` does not fetch a new keyboard release). A hosted Flatpak repository would let normal software updates deliver a same-week fix; it needs only static hosting and is an update channel, not an app network feature. Recommend yes before Gaming Mode ships, otherwise canary speed does not reach users. Needs owner decision.
 2. **Installer shape.** Recommended: a single SteamOS download containing both Flatpaks, `install.sh` and checksums; the Desktop-only route stays as today. Alternative: keep two separate downloads. Needs owner decision.
 3. **Learning in Gaming Mode.** Recommend no learning anywhere in v1 (simplest and most private). The owner rule allows learning in known plain Steam fields; that can be v1.1.
