@@ -120,6 +120,41 @@ private slots:
         QTest::qWait(20); QCOMPARE(edit.surroundingQueries,beforeHiddenExpose);
         ic->inputEngine()->setInputMethod(nullptr);
     }
+    void keyPressRefreshesMissedEchoesForCurrentWordCompletion() {
+        // WHY: on ARM Plasma Mobile stock Plasma Keyboard dropped mid-word text notifications while
+        // the window stayed exposed, so the typed word was never confirmed and taps did nothing.
+        QTemporaryDir data; qputenv("SWIPEKB_DATA",data.path().toUtf8());
+        qputenv("SWIPEKB_MODEL_DATA",qgetenv("SWIPEKB_TEST_PROFILE_ASSETS"));
+        qputenv("SWIPEKB_NATIVE_PREDICTION","owned-history-v1");
+        struct EnvReset { ~EnvReset(){qunsetenv("SWIPEKB_NATIVE_PREDICTION");} } envReset;
+        QQmlEngine engine; QQmlComponent fixture(&engine);
+        fixture.setData("import QtQuick; import QtQuick.VirtualKeyboard; Item {property var context: InputContext}",QUrl());
+        std::unique_ptr<QObject> root(fixture.create()); QVERIFY2(root,qPrintable(fixture.errorString()));
+        auto *item=qobject_cast<QQuickItem*>(root.get()); QQuickWindow window; window.resize(500,200);
+        item->setParentItem(window.contentItem()); InputListenerItem edit(item);
+        window.show(); window.requestActivate(); edit.forceActiveFocus();
+        auto *ic=qvariant_cast<QVirtualKeyboardInputContext*>(root->property("context")); QVERIFY(ic);
+        SwipeInputMethod method(nullptr,[](const PredictionJob &){return QStringList{"world","again","today"};});
+        ic->inputEngine()->setInputMethod(&method); method.setInputMode("en_US",QVirtualKeyboardInputEngine::InputMode::Latin);
+        method.setPhysicalLayout("qwerty"); QGuiApplication::inputMethod()->update(Qt::ImQueryAll);
+        QTRY_VERIFY(ic->inputItem()==&edit); QVERIFY(window.isExposed());
+        edit.suppressInputMethodUpdate=true; // the app's echoes never reach Qt's cache by themselves
+        for(auto c:QStringLiteral("hel")) {
+            const QString letter(c); QVERIFY(!method.keyEvent(Qt::Key(letter.front().toUpper().unicode()),letter,Qt::NoModifier));
+            ic->commit(letter);
+        }
+        QCOMPARE(ic->surroundingText(),QStringLiteral("preexisting sentinel he")); // last echo still missing
+        // Only the final echo arrives normally; the earlier two were recovered at each key press.
+        QGuiApplication::inputMethod()->update(Qt::ImQueryAll); method.update();
+        QCOMPARE(method.selectionListItemCount(QVirtualKeyboardSelectionListModel::Type::WordCandidateList),3);
+        const auto chosen=method.selectionListData(QVirtualKeyboardSelectionListModel::Type::WordCandidateList,1,
+            QVirtualKeyboardSelectionListModel::Role::Display).toString();
+        QVERIFY(!chosen.isEmpty() && chosen!=QStringLiteral("hel"));
+        method.beginPredictionSelection(method.predictionSelectionToken());
+        method.selectionListItemSelected(QVirtualKeyboardSelectionListModel::Type::WordCandidateList,1);
+        QCOMPARE(edit.text,QStringLiteral("preexisting sentinel ")+chosen);
+        ic->inputEngine()->setInputMethod(nullptr);
+    }
     void typedCompletionReplacesOnlyOwnedPrefix_data() {
         QTest::addColumn<bool>("native");QTest::addColumn<bool>("literal");QTest::addColumn<bool>("shiftedFirst");
         for(bool native:{false,true})for(bool literal:{false,true})for(bool shiftedFirst:{false,true})

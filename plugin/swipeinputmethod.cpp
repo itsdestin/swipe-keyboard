@@ -160,6 +160,10 @@ bool SwipeInputMethod::keyEvent(Qt::Key key, const QString &text, Qt::KeyboardMo
     QPointer<SwipeInputMethod> alive(this);
     ensureContextConnections();
     if (!alive) return false;
+    // WHY before any snapshot below: a missed echo of the previous key would make this key's
+    // expected echo wrong, so the word under the cursor could never be confirmed.
+    syncInputCache();
+    if (!alive) return false;
     const bool allowed = safeContext();
     if (!alive) return false;
     if (!allowed) { reset(); return false; }
@@ -316,9 +320,12 @@ void SwipeInputMethod::selectionListItemSelected(Type type, int index)
         return;
     if (!m_typedWord.candidates().isEmpty()) {
         QPointer<SwipeInputMethod> self(this);
-        if(!safePredictionContext() || !self || !ic) {if(self)reset();return;}
+        if(!safePredictionContext() || !self || !ic) {qCInfo(lcSwipe)<<"typed tap refused: field not allowed";if(self)reset();return;}
+        const bool pressed=!m_typedPress.isEmpty(), sameSet=m_typedPress==m_typedWord.selectionToken();
         const auto plan=m_typedWord.take(index,m_typedPress,predictionEditor(),predictionPolicy(),m_profiles.snapshot().epoch);
         m_typedPress.clear();
+        // WHY metadata only (never words): tells a failed device test which gate refused the tap.
+        if(plan.isEmpty()) qCInfo(lcSwipe)<<"typed tap refused: press"<<pressed<<"same set"<<sameSet<<"index"<<index;
         if(!plan.isEmpty()) {
             QPointer<QObject> item(ic->inputItem());const int generation=m_generation;
             stageOwnedCommit(plan,true);
@@ -341,6 +348,7 @@ void SwipeInputMethod::selectionListItemSelected(Type type, int index)
         const auto tap = m_predictionTap;
         m_predictionTap.reset();
         const auto plan = tap ? m_nextWord.takePrediction(index, *tap, previous, predictionPolicy(), m_profiles.snapshot().epoch, caseMode()) : CommitPlan{};
+        if (plan.isEmpty()) qCInfo(lcSwipe) << "prediction tap refused: press" << tap.has_value() << "index" << index;
         if (!tap) m_nextWord.invalidate();
         m_predictionWorker.invalidate();
         clearSession(); clearAfterSwipe(); m_outcome.abandon(); m_lastRecordedSwipeTs = 0;
@@ -752,12 +760,28 @@ void SwipeInputMethod::refreshExposedInputCache(QPointer<QVirtualKeyboardInputCo
         || QGuiApplication::focusObject() != item || predictionPolicy().source != PredictionPolicySource::OwnedHistory
         || m_policySource != item || m_liveQueryActive) return;
     auto *ime = QGuiApplication::inputMethod();
-    if (!ime) return;
+    if (!ime || m_cacheSyncActive) return;
+    // WHY guard: Qt answers this update by calling our update(), which must not start another refresh.
+    m_cacheSyncActive = true;
     ime->update(Qt::ImSurroundingText | Qt::ImCursorPosition | Qt::ImAnchorPosition);
+    if (self) m_cacheSyncActive = false;
     if (!self || !context || !item || !window || generation != m_generation
         || profileEpoch != m_profiles.snapshot().epoch || context != inputContext()
         || item != context->inputItem() || window != item->window()
         || !context->inputEngine() || context->inputEngine()->inputMethod() != this) return;
+}
+
+// WHY at every owned input point, not only on Expose: stock Plasma Keyboard forwards an app's text
+// change to Qt only while its window is exposed. On ARM Plasma Mobile that drops echoes mid-word, so
+// Qt's cached copy lags the field: the typed word cannot be matched and current-word taps and
+// next-word predictions silently do nothing. Measured on the ARM guest: the same refresh at each key
+// press restored "hello" + Space -> "the | you | I" -> "hello you". All Expose-hook gates still apply.
+void SwipeInputMethod::syncInputCache()
+{
+    auto *ic = inputContext();
+    QPointer<QQuickItem> item(ic ? qobject_cast<QQuickItem *>(ic->inputItem()) : nullptr);
+    if (!ic || !item || item != m_exposureItem) return;
+    refreshExposedInputCache(ic, item, item->window(), m_generation, m_profiles.snapshot().epoch);
 }
 
 void SwipeInputMethod::ensureContextConnections()
@@ -999,9 +1023,17 @@ quint64 SwipeInputMethod::beginPredictionSelection(const QString &token)
     // WHY capture at pointer/key press, never synthesize a current stamp inside
     // the index-only Qt selection callback after a candidate refresh.
     ++m_predictionPressId;
+    const quint64 pressId=m_predictionPressId;
     m_typedPress=!token.isEmpty() && token==m_typedWord.selectionToken()?token:QString();
     m_predictionTap = !token.isEmpty() && token == predictionSelectionToken() ? m_nextWord.candidateStamp() : std::nullopt;
-    return m_predictionPressId;
+    // WHY after freezing the pressed set: the release check must compare against the live field. If
+    // the refresh changes the suggestions under the finger, the frozen token no longer matches and
+    // the tap is refused rather than inserting a word the person did not see.
+    QPointer<SwipeInputMethod> self(this);
+    syncInputCache();
+    if (!self) return 0;
+    qCInfo(lcSwipe) << "candidate press: typed" << !m_typedPress.isEmpty() << "next" << m_predictionTap.has_value();
+    return pressId;
 }
 
 void SwipeInputMethod::endPredictionSelection(quint64 pressId)

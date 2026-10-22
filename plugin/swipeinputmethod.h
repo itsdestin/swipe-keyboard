@@ -112,6 +112,9 @@ private:
     void watchInputWindow();
     void refreshExposedInputCache(QPointer<QVirtualKeyboardInputContext>, QPointer<QQuickItem>,
                                   QPointer<QQuickWindow>, int generation, quint64 profileEpoch);
+    // Same guarded public refresh, run synchronously at our own input points (key press, candidate press).
+    void syncInputCache();
+    bool m_cacheSyncActive = false;
     QString textBeforeCursor() const;
     void clearSession();
     void refreshGuessBar();
