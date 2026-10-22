@@ -3,6 +3,8 @@
 #include <QQmlComponent>
 #include <QQuickItem>
 #include <QQuickWindow>
+#include <QScopeGuard>
+#include <QPalette>
 #include <QtVirtualKeyboard/QVirtualKeyboardAbstractInputMethod>
 #include <QtVirtualKeyboard/QVirtualKeyboardInputContext>
 
@@ -25,6 +27,99 @@ signals:
 class PredictionCaptureTest : public QObject {
     Q_OBJECT
 private slots:
+    void threeEqualSlotsHaveOnlyInternalDividersAndCorrectSelection_data() {
+        QTest::addColumn<QColor>("foreground");
+        QTest::addColumn<QColor>("background");
+        QTest::addColumn<QColor>("separator");
+        QTest::newRow("light-keyboard-dark-desktop") << QColor("#232629") << QColor("#eff0f1") << QColor("#a0a0a0");
+        QTest::newRow("dark-keyboard-light-desktop") << QColor("#eff0f1") << QColor("#232629") << QColor("#707070");
+    }
+    void threeEqualSlotsHaveOnlyInternalDividersAndCorrectSelection() {
+        QFETCH(QColor,foreground);QFETCH(QColor,background);QFETCH(QColor,separator);
+        // WHY independent palettes: Plasma can show a light keyboard on a dark desktop.
+        // Desktop text then equals the keyboard background, making selectable words invisible.
+        const auto originalPalette=QGuiApplication::palette();
+        const auto restorePalette=qScopeGuard([&] {QGuiApplication::setPalette(originalPalette);});
+        auto desktopPalette=originalPalette;desktopPalette.setColor(QPalette::Text,background);
+        QGuiApplication::setPalette(desktopPalette);
+        QQmlEngine engine;QQmlComponent fixture(&engine);
+        fixture.setData(R"(
+            import QtQuick
+            import QtQuick.VirtualKeyboard
+            Item { width:600; height:150
+                property QtObject style: QtObject {
+                    property QtObject theme: QtObject {
+                        id: keyboardTheme
+                        property color selectionListTextColor: "black"
+                        property color selectionListBackgroundColor: "white"
+                        property color selectionListSeparatorColor: "gray"
+                    }
+                }
+                property alias theme: keyboardTheme
+                Rectangle { width:600; height:50; color:keyboardTheme.selectionListBackgroundColor }
+                property var alternativeKeys: ({active:false})
+                property var context: InputContext
+                property alias bar: bar
+                property alias touch: touch
+                property int selected: -1
+                property int clicked: 0
+                ListModel { id: words
+                    function selectItem(i) { bar.parent.selected=i; ++bar.parent.clicked }
+                    ListElement { display:"second" }
+                    ListElement { display:"best" }
+                    ListElement { display:"third" }
+                }
+                ListView { id: bar; objectName:"wordCandidateView"; width:600; height:50
+                    orientation:ListView.Horizontal; model:words
+                    delegate:Item { width:100; height:50 }
+                }
+                Item { id:touch; y:60; width:600; height:90
+                    signal pressed(var points); signal updated(var points); signal released(var points); signal canceled(var points)
+                    function reset() {} }
+            }
+        )",QUrl());
+        std::unique_ptr<QObject> root(fixture.create());QVERIFY2(root,qPrintable(fixture.errorString()));
+        auto *theme=qvariant_cast<QObject*>(root->property("theme"));QVERIFY(theme);
+        QVERIFY(theme->setProperty("selectionListTextColor",foreground));
+        QVERIFY(theme->setProperty("selectionListBackgroundColor",background));
+        QVERIFY(theme->setProperty("selectionListSeparatorColor",separator));
+        auto *item=qobject_cast<QQuickItem*>(root.get());QQuickWindow window;window.resize(600,150);item->setParentItem(window.contentItem());
+        window.show();window.requestActivate();
+        auto *ic=qvariant_cast<QVirtualKeyboardInputContext*>(root->property("context"));QVERIFY(ic);
+        CaptureMethod method;ic->inputEngine()->setInputMethod(&method);
+        auto *bar=qvariant_cast<QQuickItem*>(root->property("bar"));auto *touch=qvariant_cast<QQuickItem*>(root->property("touch"));
+        QQmlComponent capture(&engine,QUrl::fromLocalFile(QStringLiteral(SWIPEKB_CAPTURE_SOURCE)));
+        std::unique_ptr<QObject> layer(capture.createWithInitialProperties({{"layoutItem",QVariant::fromValue(touch)},{"touchArea",QVariant::fromValue(touch)}}));
+        QVERIFY2(layer,qPrintable(capture.errorString()));
+        QVERIFY(QMetaObject::invokeMethod(bar,"forceLayout"));
+        auto at=[bar](int index) {QQuickItem *out=nullptr;QMetaObject::invokeMethod(bar,"itemAtIndex",Q_RETURN_ARG(QQuickItem*,out),Q_ARG(int,index));return out;};
+        QTRY_VERIFY_WITH_TIMEOUT(at(2) && at(2)->objectName()==QStringLiteral("swipeCandidate2"),15000);
+        QTRY_VERIFY_WITH_TIMEOUT(layer->property("predictionTapCapture").value<QObject*>(),15000);
+        QSignalSpy captured(&method,&CaptureMethod::capturedChanged);
+        const QStringList displayed{"second","best","third"};
+        for(int slot=0;slot<3;++slot) {
+            auto *delegate=at(slot);QVERIFY(delegate);
+            QCOMPARE(delegate->property("display").toString(),displayed[slot]);QCOMPARE(delegate->width(),200.0);
+            auto *divider=delegate->findChild<QQuickItem*>("swipeCandidateDivider");QVERIFY(divider);
+            QCOMPARE(divider->isVisible(),slot>0);
+            QQuickItem *label=nullptr;
+            for(auto *child:delegate->childItems())
+                if(child->property("text").toString()==displayed[slot])label=child;
+            QVERIFY(label);
+            QCOMPARE(label->property("color").value<QColor>(),foreground);
+            QCOMPARE(divider->property("color").value<QColor>(),separator);
+            const auto center=delegate->mapToScene(QPointF(100,25)).toPoint();QCOMPARE(center.x(),100+slot*200);
+            QTest::mouseClick(&window,Qt::LeftButton,Qt::NoModifier,center);
+            QTRY_COMPARE_WITH_TIMEOUT(root->property("selected").toInt(),slot,15000);
+            QTRY_COMPARE_WITH_TIMEOUT(captured.size(),slot+1,15000);
+            QCOMPARE(method.captured,QStringLiteral("1:2:3"));
+            QTRY_VERIFY_WITH_TIMEOUT(!method.selectionAuthorized,15000);
+        }
+        QCOMPARE(root->property("clicked").toInt(),3);
+        const auto shot=qEnvironmentVariable("SWIPEKB_PREDICTION_BAR_SHOT");
+        if(!shot.isEmpty()) {QTest::qWait(100);QVERIFY(window.grabWindow().save(shot));}
+        ic->inputEngine()->setInputMethod(nullptr);
+    }
     void passivePressCapturesStampWithoutSwallowingStockClick() {
         QQmlEngine engine;
         QQmlComponent fixture(&engine);

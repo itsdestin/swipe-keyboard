@@ -16,6 +16,32 @@ private slots:
             {"Word",1}, {"can't",1}, {"-bad",1}, {"bad-",1}, {"<unk>",1}, {"third",1}}, 3);
         QCOMPARE(words, std::vector<std::string>({"word", "can't", "third"}));
     }
+    void preservesSupportedLanguageOrthography() {
+        const auto words = swipekb::filterPredictedWords({{"niño",1}, {"pingüino",1}, {"¿Cómo",1},
+            {"école",1}, {"l’école",1}, {"d'accord",1}, {"œuvre",1}, {"Ärger",1},
+            {"Straße",1}, {"Strasse",1}, {"123",1}, {"<unk>",1}}, 20);
+        QCOMPARE(words, std::vector<std::string>({"niño", "pingüino", "école", "l’école",
+            "d'accord", "œuvre", "Ärger", "Straße", "Strasse"}));
+    }
+    void bundledForeignContextModelsAreLanguageSpecificAndContextual() {
+        const QString root=qEnvironmentVariable("SWIPEKB_TEST_MULTILINGUAL_MODELS");
+        if(root.isEmpty()) QSKIP("Explicit verified multilingual model fixture not supplied");
+        for(const auto &language:QStringList{"es","fr","de"}) {
+            swipekb::Predictor predictor;
+            const auto base=(root+"/"+language).toStdString();
+            QVERIFY2(predictor.init(base+"/context.ngram",base+"/vocab.tsv"),qPrintable(language));
+            QVERIFY(predictor.ready());
+            const auto first=predictor.predict(language=="es" ? std::vector<std::string>{"me","gusta"} :
+                language=="fr" ? std::vector<std::string>{"je","suis"} : std::vector<std::string>{"ich","bin"},5);
+            const auto second=predictor.predict(language=="es" ? std::vector<std::string>{"por","favor"} :
+                language=="fr" ? std::vector<std::string>{"de","la"} : std::vector<std::string>{"die","Zeit"},5);
+            QVERIFY(!first.empty()); QVERIFY(!second.empty()); QVERIFY(first!=second);
+            for(const auto &word:first) QVERIFY(!word.empty());
+        }
+        swipekb::Predictor unavailable;
+        QVERIFY(!unavailable.init((root+"/es/corrupt.ngram").toStdString(),(root+"/es/vocab.tsv").toStdString()));
+        QVERIFY(!unavailable.ready());
+    }
     void absentModelIsUnavailable() {
         swipekb::Predictor p;
         QVERIFY(!p.init("/missing/model", "/missing/vocab"));

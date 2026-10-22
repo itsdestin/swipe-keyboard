@@ -3,6 +3,8 @@ find_package(Qt6 6.8 REQUIRED COMPONENTS Core Gui Qml Quick VirtualKeyboard Test
 # panels use. It ships with Plasma, so it is always there wherever Plasma Keyboard runs.
 find_package(KF6WindowSystem REQUIRED)
 qt_standard_project_setup(REQUIRES 6.8)
+set(SWIPEKB_TEST_MULTILINGUAL_MODELS "" CACHE PATH "Explicit read-only multilingual context model fixture")
+set(SWIPEKB_TEST_LANGUAGE_PACKS "" CACHE PATH "Explicit generated multilingual pack fixture")
 
 # WHY Core-only: activation must validate Qt metadata and all ELF relocations
 # without a compositor, QML engine or access to the user's running keyboard.
@@ -41,7 +43,7 @@ add_test(NAME plugin_outcome COMMAND tst_swipeoutcome)
 
 # WHY these tests are independent of a compositor/installed keyboard: prediction
 # insertion and policy authority must be pinned without activating a host backend.
-foreach(feature IN ITEMS nextwordsession predictionpolicy predictiondiagnostics)
+foreach(feature IN ITEMS nextwordsession predictionpolicy predictiondiagnostics ownedhistory typedwordsession)
     qt_add_executable(tst_${feature} tests/tst_${feature}.cpp)
     target_link_libraries(tst_${feature} PRIVATE swipekb_session Qt6::Test)
     add_test(NAME plugin_${feature} COMMAND tst_${feature})
@@ -62,7 +64,11 @@ set_tests_properties(plugin_predictioncapture PROPERTIES ENVIRONMENT "QT_QPA_PLA
 qt_add_executable(test_prediction ../engine/tests/test_prediction.cpp)
 target_link_libraries(test_prediction PRIVATE swipekb_engine Qt6::Test)
 add_test(NAME engine_prediction COMMAND test_prediction)
-set_tests_properties(engine_prediction PROPERTIES ENVIRONMENT "SWIPEKB_TEST_ASSETS=${SWIPEKB_ASSETS}")
+set(_engine_prediction_env "SWIPEKB_TEST_ASSETS=${SWIPEKB_ASSETS}")
+if(SWIPEKB_TEST_MULTILINGUAL_MODELS)
+    list(APPEND _engine_prediction_env "SWIPEKB_TEST_MULTILINGUAL_MODELS=${SWIPEKB_TEST_MULTILINGUAL_MODELS}")
+endif()
+set_tests_properties(engine_prediction PROPERTIES ENVIRONMENT "${_engine_prediction_env}")
 
 # Opt-in swipe recorder (writes swipes.jsonl for offline tuning). Separate so it is tested without a keyboard.
 add_library(swipekb_recorder STATIC swiperecorder.cpp)
@@ -104,7 +110,7 @@ target_include_directories(tst_nextwordintegration PRIVATE ${CMAKE_CURRENT_SOURC
 target_link_libraries(tst_nextwordintegration PRIVATE swipekeyboard Qt6::Quick Qt6::Qml Qt6::VirtualKeyboard Qt6::Test)
 add_test(NAME plugin_nextwordintegration COMMAND tst_nextwordintegration)
 set_tests_properties(plugin_nextwordintegration PROPERTIES ENVIRONMENT
-    "QT_QPA_PLATFORM=offscreen;QT_IM_MODULE=qtvirtualkeyboard;SWIPEKB_TEST_ASSETS=${SWIPEKB_ASSETS};SWIPEKB_TEST_PROFILE_ASSETS=${SWIPEKB_ASSETS}")
+    "QT_QPA_PLATFORM=offscreen;QT_IM_MODULE=qtvirtualkeyboard;SWIPEKB_TEST_ASSETS=${SWIPEKB_ASSETS};SWIPEKB_TEST_PROFILE_ASSETS=${SWIPEKB_ASSETS};SWIPEKB_TEST_LANGUAGE_PACKS=${SWIPEKB_TEST_LANGUAGE_PACKS}")
 
 # WHY register in the ordinary build too: the lightweight feature project is not the normal CTest gate.
 # Fixtures are explicit opt-ins. Tests QSKIP when absent, but supplied invalid fixtures fail rather than pass.

@@ -9,10 +9,15 @@
 #include "swipeoutcome.h"
 #include "swipesession.h"
 #include "nextwordsession.h"
+#include "ownedhistory.h"
+#include "typedwordsession.h"
 #include "nextwordworker.h"
 #include "languageprofile.h"
 #include "predictiondiagnostics.h"
 #include <QPointer>
+#include <QQuickWindow>
+#include <QQuickItem>
+#include <QEvent>
 #include <memory>
 namespace swipekb { class Recognizer; }
 
@@ -33,6 +38,7 @@ public:
     bool setInputMode(const QString &locale, QVirtualKeyboardInputEngine::InputMode inputMode) override;
     bool setTextCase(QVirtualKeyboardInputEngine::TextCase textCase) override;
     bool keyEvent(Qt::Key key, const QString &text, Qt::KeyboardModifiers modifiers) override;
+    bool eventFilter(QObject *watched, QEvent *event) override;
 
     QList<QVirtualKeyboardSelectionListModel::Type> selectionLists() override;
     int selectionListItemCount(QVirtualKeyboardSelectionListModel::Type type) override;
@@ -65,6 +71,8 @@ private slots:
     void predictionPolicyChanged();
 private:
     bool safeContext();
+    bool safePredictionContext();
+    void stageOwnedCommit(const CommitPlan &, bool correction = false);
     bool m_liveQueryActive = false;
 #ifdef SWIPEKB_PRIVATE_FLAGS_DIAGNOSTIC
     bool observeFlags(const char *phase);
@@ -89,11 +97,24 @@ private:
     quint64 m_predictionPressId = 0;
     std::optional<PredictionStamp> m_predictionTap;
     NextWordSession m_nextWord;
+    OwnedHistory m_ownedHistory;
+    TypedWordSession m_typedWord;
+    QString m_typedPress;
+    quint64 m_nativePolicyEpoch = 1;
     NextWordWorker m_predictionWorker;
     swipekb::PredictionModelState m_predictionModelState=swipekb::PredictionModelState::NotRequested;
     QPointer<QObject> m_policySource;
     int m_generation = 0;
     bool m_contextConnected = false;
+    QPointer<QQuickWindow> m_exposureWindow;
+    QPointer<QQuickItem> m_exposureItem;
+    bool m_exposureRefreshQueued = false;
+    void watchInputWindow();
+    void refreshExposedInputCache(QPointer<QVirtualKeyboardInputContext>, QPointer<QQuickItem>,
+                                  QPointer<QQuickWindow>, int generation, quint64 profileEpoch);
+    // Same guarded public refresh, run synchronously at our own input points (key press, candidate press).
+    void syncInputCache();
+    bool m_cacheSyncActive = false;
     QString textBeforeCursor() const;
     void clearSession();
     void refreshGuessBar();

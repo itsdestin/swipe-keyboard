@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 """Fetch only checksum-pinned base inputs. No optional model/evaluation downloads."""
 import argparse
+import base64
 import hashlib
 import json
 import pathlib
 import shutil
+import sys
+import time
+import urllib.error
 import urllib.request
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -18,15 +22,33 @@ def fetch(asset, target):
             return hashlib.file_digest(stream, 'sha256').hexdigest() == asset['sha256']
     if valid(target):
         return
+    if not target.exists() and asset.get('path') == 'licenses/AOSP-NOTICE.b64':
+        decoded = target.with_suffix('')
+        # WHY: prepared archives retain the decoded notice, not its encoded download.
+        # Re-encoding must match the ORIGINAL pin before it can authorize offline reuse.
+        if decoded.is_file() and decoded.stat().st_size <= 1024 * 1024:
+            encoded_digest = hashlib.sha256(base64.b64encode(decoded.read_bytes())).hexdigest()
+            if encoded_digest == asset['sha256']:
+                return
     part = target.with_name(target.name + '.part')
-    try:
-        with urllib.request.urlopen(asset['url'], timeout=120) as response, part.open('wb') as out:
-            shutil.copyfileobj(response, out)
-        if not valid(part):
-            raise ValueError('SHA256 mismatch: ' + asset['path'])
-        part.replace(target)
-    finally:
-        part.unlink(missing_ok=True)
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(asset['url'], timeout=120) as response, part.open('wb') as out:
+                shutil.copyfileobj(response, out)
+            if not valid(part):
+                raise ValueError('SHA256 mismatch: ' + asset['path'])
+            part.replace(target)
+            return
+        except urllib.error.HTTPError as error:
+            # WHY bounded retries: temporary service errors must not discard an entire
+            # preparation run. Hash failures and permanent HTTP errors still fail closed.
+            if error.code not in (408, 429, 500, 502, 503, 504) or attempt == 2:
+                raise
+            error.close()
+            print(f"Retrying pinned input {asset.get('path', target.name)} after HTTP {error.code}", file=sys.stderr)
+        finally:
+            part.unlink(missing_ok=True)
+        time.sleep(2 ** attempt)
 
 def prepare_language_packs(assets, wheel=None, cc_license=None):
     """Build-time only; cached inputs are authenticated by the generator as well as fetch()."""
@@ -35,7 +57,9 @@ def prepare_language_packs(assets, wheel=None, cc_license=None):
     if shutil.disk_usage(assets).free < 21 * 1024**3:
         raise ValueError('less than 21 GiB free')
     lock = json.loads((ROOT/'packaging/assets.lock.json').read_text())
-    cache = pathlib.Path(os.environ.get('SWIPEKB_BUILD_WHEEL_CACHE', pathlib.Path.home()/'.cache/swipe-keyboard/build-wheels'))
+    # WHY prepared source can be rebuilt without redownloading its authenticated tool wheels.
+    default_cache = ROOT/'wheelcache' if (ROOT/'wheelcache').is_dir() else pathlib.Path.home()/'.cache/swipe-keyboard/build-wheels'
+    cache = pathlib.Path(os.environ.get('SWIPEKB_BUILD_WHEEL_CACHE', default_cache))
     wheel = pathlib.Path(wheel) if wheel else cache/'wordfreq-3.1.1-py3-none-any.whl'
     cc_license = pathlib.Path(cc_license) if cc_license else assets/'licenses/CC-BY-SA-4.0.txt'
     fetch({**lock['wordfreq_wheel'], 'path': 'wordfreq wheel'}, wheel)
@@ -46,7 +70,7 @@ def prepare_language_packs(assets, wheel=None, cc_license=None):
         import subprocess
         import sys
         venv = assets/'dict-src/.venv'
-        subprocess.run([sys.executable, str(ROOT/'scripts/provision-build-deps.py'), 'dictionary', str(venv)], check=True)
+        subprocess.run([sys.executable, str(ROOT/'scripts/provision-build-deps.py'), 'dictionary', str(venv), '--cache', str(cache)], check=True)
         for language in ('es', 'fr', 'de'):
             subprocess.run([str(venv/'bin/python'), str(ROOT/'scripts/dict/language_pack.py'),
                             '--wheel', str(wheel), '--language', language, '--encoder-root', str(assets),
@@ -73,7 +97,6 @@ def main():
         fetch(asset, args.assets / asset['path'])
     licenses = args.assets/'licenses'
     licenses.mkdir(parents=True, exist_ok=True)
-    import base64
     encoded = licenses/'AOSP-NOTICE.b64'
     if encoded.exists():
         (licenses/'AOSP-NOTICE').write_bytes(base64.b64decode(encoded.read_bytes()))

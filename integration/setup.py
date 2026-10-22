@@ -107,8 +107,10 @@ class Controller:
         return {'status': 'queried', 'profiles': results}
 
     def check(self):
-        if platform.machine() not in ('x86_64', 'AMD64'):
-            raise SetupError('This package targets x86_64 computers only.')
+        # WHY ARM is explicit: the native Fedora aarch64 package has its own
+        # required build/load acceptance; other architectures still fail closed.
+        if platform.machine() not in ('x86_64', 'AMD64', 'aarch64'):
+            raise SetupError('This package targets x86_64 or aarch64 Linux only.')
         if self.env.get('XDG_SESSION_TYPE') != 'wayland' or 'KDE' not in self.env.get('XDG_CURRENT_DESKTOP', '').split(':'):
             raise SetupError('Use a KDE Plasma Wayland session. Other desktops/sessions are not supported.')
         # WHY: upstream skips its XDG layout search when this override is enabled, so our private
@@ -169,7 +171,7 @@ class Controller:
                 'Selected input method': 'Swipe Keyboard' if selected else 'Other / stock',
                 'Setup record': 'Present' if self.state_file.exists() else 'Absent'}
 
-    def config_state(self, writable=False):
+    def config_state(self, writable=False, keys=None):
         # WHY native KConfig: INI parsing misses Kiosk file/group/key locks and session
         # overlays. Null is raw absence, never a magic string that a user could select.
         if (not Path(self.env['HOME']).is_absolute() or
@@ -194,7 +196,7 @@ class Controller:
             raise
         except (ValueError, TypeError, AttributeError) as error:
             raise SetupError('Native KConfig ownership check is unavailable or invalid; refusing to guess ownership.') from error
-        if writable and any(entry['immutable'] for entry in result.values()):
+        if writable and any(result[key]['immutable'] for key in (self.wanted if keys is None else keys)):
             raise SetupError('KConfig keyboard settings are immutable; refusing settings and live-control mutations. '
                              'The setup record is retained if present.')
         return result
@@ -203,7 +205,7 @@ class Controller:
         return self.config_state()[key]['effective']
 
     def write_setting(self, key, value):
-        self.config_state(writable=True)
+        self.config_state(writable=True, keys=(key,))
         # WHY absolute user file: a relative write can omit an explicit entry equal
         # to an inherited default, losing the raw ownership needed on later disable.
         config_home = Path(self.env.get('XDG_CONFIG_HOME') or Path(self.env['HOME']) / '.config')
@@ -236,8 +238,11 @@ class Controller:
             if set(state['previous']) != set(self.wanted) or state['wanted'] != self.wanted:
                 raise ValueError('unexpected settings')
             schema = state.get('schema', 1)
-            valid_value = lambda value: isinstance(value, str) or (schema == 2 and value is None)
-            if (type(schema) is not int or schema not in (1, 2) or
+            valid_value = lambda value: isinstance(value, str) or (schema in (2, 3) and value is None)
+            if schema == 3 and (state.get('visibility_policy') not in ('preserve', 'always') or
+                                (state['visibility_policy'] == 'preserve' and 'mode_restore' in state)):
+                raise ValueError('unexpected visibility ownership')
+            if (type(schema) is not int or schema not in (1, 2, 3) or
                     not all(valid_value(v) for v in state['previous'].values()) or
                     type(state['live_mode']) is not int or state['live_mode'] not in (0, 1, 2)):
                 raise ValueError('unexpected values')
@@ -283,6 +288,13 @@ class Controller:
                       'org.kde.kwin.VirtualKeyboard', 'mode', 'i', str(value)])
 
     def restore_owned(self, state):
+        # WHY: preserving policy means never owning its raw key, live mode or a
+        # tablet manager's baseline—even if the current mode happens to equal 1.
+        if state.get('schema') == 3 and state.get('visibility_policy') == 'preserve':
+            config = self.config_state(writable=True, keys=('InputMethod',))
+            if config['InputMethod']['raw'] == self.wanted['InputMethod']:
+                self.write_setting('InputMethod', state['previous']['InputMethod'])
+            return
         config = self.config_state(writable=True)
         if state.get('schema', 1) == 1:
             # WHY fail closed for legacy values: r3 saved effective strings, which
@@ -328,12 +340,15 @@ class Controller:
         if self.config_state()['InputMethod']['raw'] == self.wanted['InputMethod']:
             self.write_setting('InputMethod', state['previous']['InputMethod'])
 
-    def enable(self):
+    def enable(self, always_available=False):
         self.check()
         with self.locked():
-            config = self.config_state(writable=True)
+            owned_keys = tuple(self.wanted) if always_available else ('InputMethod',)
+            config = self.config_state(writable=True, keys=owned_keys)
             if self.state_file.exists():
-                self.saved_state()
+                saved = self.saved_state()
+                if always_available and (saved.get('schema') != 3 or saved.get('visibility_policy') != 'always'):
+                    raise SetupError('Already enabled with another visibility policy. Disable first, then explicitly choose --always-available.')
                 if (config['InputMethod']['raw'] != self.wanted['InputMethod'] or
                         config['InputMethod']['effective'] != self.wanted['InputMethod']):
                     raise SetupError('Keyboard selection changed since setup. Run disable before choosing to enable again.')
@@ -345,12 +360,14 @@ class Controller:
             live_mode = self.read_live_mode()
             self.rebuild_layout()
             # WHY snapshot before writes: interrupted activation can be recovered with disable.
-            state = {'schema': 2, 'previous': previous, 'wanted': self.wanted, 'live_mode': live_mode}
+            state = {'schema': 3, 'previous': previous, 'wanted': self.wanted, 'live_mode': live_mode,
+                     'visibility_policy': 'always' if always_available else 'preserve'}
             atomic_json(self.state_file, state)
             try:
                 self.write_setting('InputMethod', self.wanted['InputMethod'])
-                self.set_live_mode(1)
-                self.write_setting('VirtualKeyboardMode', '1')
+                if always_available:
+                    self.set_live_mode(1)
+                    self.write_setting('VirtualKeyboardMode', '1')
                 self.refresh_kwin()
             except SetupError:
                 # Restore only state still owned by this activation; retain the record if rollback fails.
@@ -390,13 +407,67 @@ class Controller:
         env['XDG_DATA_DIRS'] = str(self.data / 'overlay') + ':' + (env.get('XDG_DATA_DIRS') or '/usr/local/share:/usr/share')
         env['SWIPEKB_MODEL_DATA'] = str(self.root)
         env['SWIPEKB_DATA'] = str(self.data)
+        # WHY: Qt Quick batches touch updates by rendered frame. On slow rendering
+        # this dropped the middle of actual ARM swipes before recognition. Preserve
+        # the trajectory from process startup; no desktop policy/global env changes.
+        env['QML_NO_TOUCH_COMPRESSION'] = '1'
+        # WHY: Qt marks a window hidden when one frame takes over 100 ms, and Plasma Keyboard
+        # then silently drops completions, corrections and text updates. Measured on ARM
+        # Plasma Mobile: "Helo" -> tap "Hello" did nothing until this was raised.
+        env.setdefault('QT_WAYLAND_FRAME_CALLBACK_TIMEOUT', '5000')
+        # WHY: Plasma's session QT_WAYLAND_RECONNECT=1 made a deselected keyboard reconnect as an
+        # ordinary app and keep running invisibly with its models loaded. KWin relaunches it itself.
+        env.pop('QT_WAYLAND_RECONNECT', None)
+        # WHY this distinct mode follows the checked stock Plasma 6.7/6.8 launch.
+        # It is NOT raw application completion permission: the plugin also checks
+        # the actual proxy class and gives any present raw bridge precedence.
+        env['SWIPEKB_NATIVE_PREDICTION'] = 'owned-history-v1'
         return env
+
+
+def confirm_activation(controller, assume_yes=False, always_available=False):
+    # WHY: package installation and desktop activation are different consent boundaries.
+    # Read current values before asking; declining must not create an overlay/journal or write settings.
+    state = controller.config_state()
+    print('Swipe Keyboard will change these per-user KDE settings:')
+    print(f"  InputMethod: {state['InputMethod']['effective']!r} -> {controller.wanted['InputMethod']!r}")
+    if always_available:
+        print(f"  VirtualKeyboardMode: {state['VirtualKeyboardMode']['effective']!r} -> '1' (explicit always-available choice)")
+        print('This opt-in changes visibility policy and can allow pop-ups while a physical keyboard is attached.')
+    else:
+        print(f"  VirtualKeyboardMode: {state['VirtualKeyboardMode']['effective']!r} (preserved)")
+        print('Your attached-keyboard and tablet/desktop manager remains in control of keyboard visibility.')
+    print(
+          'You may notice different swipe suggestions and whole-word Backspace behavior.\n'
+          'The native package uses your existing system backend; it does not replace Qt, Plasma or Maliit.\n'
+          'With verified language packs, current-word completions and next-word suggestions are available for English, Spanish, French and German.\n'
+          'On stock Plasma, next-word prediction uses only words this keyboard confirmed in the current field; the backend does not expose every raw application completion preference. Sensitive and restricted fields remain blocked.\n'
+          'Run swipe-keyboard disable before removal to restore settings still owned by setup; '
+          'legacy records without raw provenance may need an explicit manual choice.')
+    if assume_yes:
+        return True
+    if not sys.stdin.isatty():
+        print('No settings changed. Use an interactive terminal or pass --yes for explicit automation consent.')
+        return False
+    try:
+        answer = input('Enable Swipe Keyboard with these changes? [y/N] ').strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        answer = ''
+    if answer not in ('y', 'yes'):
+        print('No settings changed.')
+        return False
+    return True
 
 
 def main():
     parser = argparse.ArgumentParser(description='Standalone swipe typing — Powered by FUTO Swipe')
     parser.add_argument('action', choices=('check', 'enable', 'disable', 'launch'))
+    parser.add_argument('--yes', action='store_true', help='Explicitly accept the displayed activation changes without prompting')
+    parser.add_argument('--always-available', action='store_true',
+                        help='Explicitly set KDE visibility mode 1; default preserves your tablet/attached-keyboard policy')
     args = parser.parse_args()
+    if args.always_available and args.action != 'enable':
+        parser.error('--always-available applies only to enable')
     if os.geteuid() == 0:
         parser.error('Run as your normal desktop user, not root or sudo.')
     controller = Controller(Path(__file__).resolve().parent.parent)
@@ -408,7 +479,13 @@ def main():
                 print(f'Swipe Keyboard: {error}\nStarting the unmodified stock keyboard instead.', file=sys.stderr)
                 env = dict(os.environ)
             os.execvpe('plasma-keyboard', ['plasma-keyboard'], env)
-        report = getattr(controller, args.action)()
+        if args.action == 'enable':
+            controller.check()  # Refuse incompatible systems before offering activation.
+            if not confirm_activation(controller, assume_yes=args.yes, always_available=args.always_available):
+                return 0
+            report = controller.enable(always_available=args.always_available)
+        else:
+            report = getattr(controller, args.action)()
         if args.action == 'check':
             for label, value in report.items():
                 print(f'{label}: {value}')
@@ -418,7 +495,6 @@ def main():
     except (SetupError, OSError) as error:
         print('Swipe Keyboard: ' + str(error), file=sys.stderr)
         print('Help: https://github.com/itsdestin/swipe-keyboard#troubleshooting\n'
-              'Optional AI-agent assistance: https://youcoded.ai (not required).\n'
               'Share the error and versions, not typing recordings or private logs. '
               'Do not force dependencies or overwrite custom layouts.', file=sys.stderr)
         return 1

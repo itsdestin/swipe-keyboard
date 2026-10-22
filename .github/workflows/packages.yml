@@ -1,41 +1,126 @@
-name: Local native package candidates (no publishing)
+name: Keyboard packages
 on:
-  workflow_dispatch:
   pull_request:
-    paths:
-      - 'CMakeLists.txt'
-      - 'cmake/**'
-      - 'packaging/**'
-      - 'scripts/**'
-      # Build locks, vendored revisions and tool tests are executable package inputs too.
-      - 'requirements/**'
-      - 'third_party/**'
-      - '.gitmodules'
-      - 'tools/**'
-      - 'install.sh'
-      - 'integration/**'
-      - 'plugin/**'
-      - 'engine/**'
-      - 'tests/**'
-      - '.github/workflows/packages.yml'
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
 permissions:
   contents: read
+defaults:
+  run:
+    shell: bash
+concurrency:
+  group: keyboard-${{ github.ref }}
+  cancel-in-progress: false
 jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      package_version: ${{ steps.version.outputs.package_version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          # Pinned dependency trees are required, their complete Git histories are not.
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - name: Free hosted-runner space (never a host installation)
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+      - name: Check recipe versions and trusted tag ancestry
+        id: version
+        run: |
+          python3 scripts/release.py check-versions
+          echo "version=$(python3 -c 'import json; print(json.load(open("packaging/release-targets.json"))["version"])')" >> "$GITHUB_OUTPUT"
+          echo "package_version=$(python3 scripts/release.py version)" >> "$GITHUB_OUTPUT"
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            test "$GITHUB_REF_NAME" = "v$(python3 scripts/release.py version)"
+            # Only root history is needed for ancestry; never fetch complete dependency histories.
+            git fetch --unshallow --no-tags origin +refs/heads/main:refs/remotes/origin/main
+            # Build tags only from a source commit already on main. No cross-run artifact promotion.
+            git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main
+          fi
+      - name: Prepare pinned complete source once
+        run: |
+          python3 scripts/ci-source.py prepared
+          mkdir release evidence
+          version=$(python3 -c 'import json; print(json.load(open("packaging/release-targets.json"))["version"])')
+          cp "prepared/swipe-keyboard-$version.tar.gz" release/
+          python3 scripts/release.py record --target source --sha "$GITHUB_SHA"
+      - name: Test release boundary and complete source fixtures
+        run: |
+          mkdir source-tests
+          tar -xzf "release/swipe-keyboard-${{ steps.version.outputs.version }}.tar.gz" -C source-tests
+          cd "source-tests/swipe-keyboard-${{ steps.version.outputs.version }}"
+          # Only stdlib contract tests here; native suites run with Qt/KF in the package jobs.
+          python3 -m unittest discover -s tests/packaging -p test_release.py -v
+          python3 -m unittest discover -s tests/packaging -p test_publish.py -v
+          python3 -m unittest discover -s tests/packaging -p test_release_workflow.py -v
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prepared
+          path: prepared/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: source-files
+          path: release/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: source-evidence
+          path: evidence/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
   arch:
-    runs-on: ubuntu-latest
+    needs: prepare
+    runs-on: ubuntu-24.04
     container: archlinux:latest
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      PACKAGE_VERSION: ${{ needs.prepare.outputs.package_version }}
     steps:
       - name: Use the older public build baseline (disposable container only)
         run: |
           # WHY full downgrade: mixing archived Qt with current headers/libc would
           # silently stamp newer ABI requirements into a supposedly older build.
+          # The minimal disposable image has public keys but no local signing
+          # key; the archlinux-keyring downgrade hook must be able to sign trust.
+          pacman-key --init
+          pacman-key --populate archlinux
           cp /etc/pacman.d/mirrorlist /tmp/current-mirrorlist
           printf 'Server = https://archive.archlinux.org/repos/2026/07/01/$repo/os/$arch\n' > /etc/pacman.d/mirrorlist
-          pacman -Syyuu --noconfirm
-          pacman -S --noconfirm --needed base-devel git cmake ninja python python-pip qt6-declarative qt6-virtualkeyboard qt6-tools kwindowsystem kconfig kirigami gtest curl plasma-keyboard
+          # WHY bounded retries: the archive can hit pacman's low-speed timeout
+          # fetching packages/signatures. Reuse verified cache, never bypass trust
+          # or dependencies; persistent failures still fail this required job.
+          retry_pacman() {
+            local attempt
+            for attempt in 1 2 3; do
+              if pacman "$@"; then return 0; fi
+              if (( attempt < 3 )); then sleep 15; fi
+            done
+            return 1
+          }
+          retry_pacman -Syyuu --noconfirm
+          retry_pacman -S --noconfirm --needed base-devel git cmake ninja python python-pip qt6-declarative qt6-virtualkeyboard qt6-tools kwindowsystem kconfig kirigami gtest curl plasma-keyboard
       - uses: actions/checkout@v4
         with:
-          submodules: recursive
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: prepared
+          path: prepared
+      - name: Verify prepared input identity and hashes before executing source
+        run: python3 scripts/release.py verify-inputs --directory prepared --sha "$GITHUB_SHA"
       - name: Record actual baseline libraries (not hardware acceptance)
         run: |
           pacman -Q glibc gcc-libs qt6-base qt6-declarative qt6-virtualkeyboard kwindowsystem plasma-keyboard python | tee packaging/BASELINE-VERSIONS.txt
@@ -43,11 +128,12 @@ jobs:
       - name: Build source and native package as unprivileged builder
         run: |
           useradd -m builder
-          bash scripts/package-source.sh "$GITHUB_WORKSPACE/dist"
+          mkdir dist
+          cp "prepared/swipe-keyboard-$VERSION.tar.gz" dist/
           cp packaging/arch/PKGBUILD dist/
           cd dist
           # Local snapshot checksum is generated, never skip archive verification in CI.
-          digest=$(sha256sum swipe-keyboard-0.2.0.tar.gz | cut -d' ' -f1)
+          digest=$(sha256sum swipe-keyboard-$VERSION.tar.gz | cut -d' ' -f1)
           sed -i "s/sha256sums=('SKIP')/sha256sums=('$digest')/" PKGBUILD
           chown -R builder:builder "$GITHUB_WORKSPACE"
           # Resolve the real runtime requirements too; do not bypass compatibility to get a green build.
@@ -56,15 +142,15 @@ jobs:
         run: |
           mkdir dist/stage
           # makepkg may also emit a debug archive; extract only the installable main package.
-          tar -xf dist/swipe-keyboard-0.2.0-1-x86_64.pkg.tar.zst -C dist/stage
+          tar -xf dist/swipe-keyboard-$PACKAGE_VERSION-x86_64.pkg.tar.zst -C dist/stage
           python scripts/package-check.py dist/stage
           # Load the actual stripped package payload, not the build tree, in a private offscreen InputPanel.
-          python3 scripts/check-stock-layout.py dist/src/swipe-keyboard-0.2.0/build/plugin/tst_stocklayout --runtime-root dist/stage/usr/share/swipe-keyboard
-          pacman -Qip dist/swipe-keyboard-0.2.0-1-x86_64.pkg.tar.zst > dist/package-metadata.txt
-          sha256sum dist/swipe-keyboard-0.2.0-1-x86_64.pkg.tar.zst > dist/baseline-package.sha256
+          python3 scripts/check-stock-layout.py dist/src/swipe-keyboard-$VERSION/build/plugin/tst_stocklayout --runtime-root dist/stage/usr/share/swipe-keyboard
+          pacman -Qip dist/swipe-keyboard-$PACKAGE_VERSION-x86_64.pkg.tar.zst > dist/package-metadata.txt
+          sha256sum dist/swipe-keyboard-$PACKAGE_VERSION-x86_64.pkg.tar.zst > dist/baseline-package.sha256
       - name: Verify installed wrapper as ordinary user and remove package
         run: |
-          pacman -U --noconfirm dist/swipe-keyboard-0.2.0-1-x86_64.pkg.tar.zst
+          pacman -U --noconfirm dist/swipe-keyboard-$PACKAGE_VERSION-x86_64.pkg.tar.zst
           # No compositor is launched or configured: check is read-only, with a normal user's PATH.
           su builder -c 'XDG_SESSION_TYPE=wayland XDG_CURRENT_DESKTOP=KDE swipe-keyboard check'
           pacman -R --noconfirm swipe-keyboard
@@ -77,40 +163,63 @@ jobs:
           pacman -Q glibc gcc-libs qt6-base qt6-declarative qt6-virtualkeyboard kwindowsystem plasma-keyboard python | tee dist/CURRENT-VERSIONS.txt
           sha256sum -c dist/baseline-package.sha256
           python scripts/package-check.py dist/stage
-          python3 scripts/check-stock-layout.py dist/src/swipe-keyboard-0.2.0/build/plugin/tst_stocklayout --runtime-root dist/stage/usr/share/swipe-keyboard
-          pacman -U --noconfirm dist/swipe-keyboard-0.2.0-1-x86_64.pkg.tar.zst
+          python3 scripts/check-stock-layout.py dist/src/swipe-keyboard-$VERSION/build/plugin/tst_stocklayout --runtime-root dist/stage/usr/share/swipe-keyboard
+          pacman -U --noconfirm dist/swipe-keyboard-$PACKAGE_VERSION-x86_64.pkg.tar.zst
           su builder -c 'XDG_SESSION_TYPE=wayland XDG_CURRENT_DESKTOP=KDE swipe-keyboard check'
           pacman -R --noconfirm swipe-keyboard
           test ! -e /usr/bin/swipe-keyboard
           test ! -e /usr/share/swipe-keyboard
+      - name: Bind package metadata and exact final bytes
+        run: |
+          mkdir release evidence
+          cp "dist/swipe-keyboard-$PACKAGE_VERSION-x86_64.pkg.tar.zst" release/
+          python3 scripts/release.py record --target arch --stage dist/stage --sha "$GITHUB_SHA"
       - uses: actions/upload-artifact@v4
         with:
-          name: arch-standalone-candidate-and-source
-          path: |
-            dist/*.pkg.tar.zst
-            dist/*.tar.gz*
-            dist/package-metadata.txt
-            dist/baseline-package.sha256
-            dist/CURRENT-VERSIONS.txt
-            packaging/BASELINE-VERSIONS.txt
-            packaging/AVAILABLE-KEYBOARD.txt
+          name: arch-files
+          path: release/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: arch-evidence
+          path: evidence/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
   fedora:
-    runs-on: ubuntu-latest
+    needs: prepare
+    runs-on: ubuntu-24.04
     container: fedora:44
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      PACKAGE_VERSION: ${{ needs.prepare.outputs.package_version }}
     steps:
       - name: Install RPM tooling
         run: dnf -y install git rpm-build rpmdevtools dnf-plugins-core cpio findutils
       - uses: actions/checkout@v4
         with:
-          submodules: recursive
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: prepared
+          path: prepared
+      - name: Verify prepared input identity and hashes before executing source
+        run: python3 scripts/release.py verify-inputs --directory prepared --sha "$GITHUB_SHA"
       - name: Resolve current Fedora 44 build dependencies
         run: |
+          # The minimal image's tmpfiles-only package conflicts with systemd BuildRequires.
+          if rpm -q systemd-standalone-tmpfiles >/dev/null 2>&1; then
+            dnf -y swap systemd-standalone-tmpfiles systemd
+          fi
           dnf -y builddep packaging/fedora/swipe-keyboard.spec
           dnf repoquery --latest-limit 1 plasma-keyboard | tee packaging/AVAILABLE-KEYBOARD.txt
       - name: Build source and RPM as unprivileged builder
         run: |
           useradd -m builder
-          bash scripts/package-source.sh "$GITHUB_WORKSPACE/dist"
+          mkdir dist
+          cp "prepared/swipe-keyboard-$VERSION.tar.gz" dist/
           mkdir -p /home/builder/rpmbuild/{SOURCES,SPECS,BUILD,BUILDROOT,RPMS,SRPMS}
           cp dist/*.tar.gz /home/builder/rpmbuild/SOURCES/
           cp packaging/fedora/swipe-keyboard.spec /home/builder/rpmbuild/SPECS/
@@ -123,7 +232,7 @@ jobs:
         run: |
           mkdir dist/stage
           cd dist/stage
-          rpm2cpio ../swipe-keyboard-0.2.0-1.fc44.x86_64.rpm | cpio -idm
+          rpm2cpio ../swipe-keyboard-$PACKAGE_VERSION.fc44.x86_64.rpm | cpio -idm
           cd ../..
           python3 scripts/package-check.py dist/stage
           test_executable=$(find /home/builder/rpmbuild/BUILD -path '*/redhat-linux-build/plugin/tst_stocklayout' -type f -print -quit)
@@ -132,22 +241,225 @@ jobs:
           rpm -qp --requires dist/*x86_64.rpm > dist/package-requires.txt
       - name: Verify installed wrapper as ordinary user and remove package
         run: |
-          # The minimal Fedora image substitutes a tmpfiles-only package for full systemd.
-          # Desktop KDE already has systemd (busctl's provider); prepare only this container explicitly.
-          if rpm -q systemd-standalone-tmpfiles >/dev/null 2>&1; then
-            dnf -y swap systemd-standalone-tmpfiles systemd
-          fi
-          dnf -y --setopt=install_weak_deps=False install dist/swipe-keyboard-0.2.0-1.fc44.x86_64.rpm
+          dnf -y --setopt=install_weak_deps=False install dist/swipe-keyboard-$PACKAGE_VERSION.fc44.x86_64.rpm
           # Check the packaged command, not a developer's Python import or extended Qt tool PATH.
           su builder -c 'XDG_SESSION_TYPE=wayland XDG_CURRENT_DESKTOP=KDE swipe-keyboard check'
           dnf -y --setopt=clean_requirements_on_remove=False remove swipe-keyboard
           test ! -e /usr/bin/swipe-keyboard
           test ! -e /usr/share/swipe-keyboard
+      - name: Bind RPM metadata and exact final bytes
+        run: |
+          mkdir release evidence
+          cp "dist/swipe-keyboard-$PACKAGE_VERSION.fc44.x86_64.rpm" release/
+          cp "dist/swipe-keyboard-$PACKAGE_VERSION.fc44.src.rpm" release/
+          python3 scripts/release.py record --target fedora --stage dist/stage --sha "$GITHUB_SHA"
       - uses: actions/upload-artifact@v4
         with:
-          name: fedora44-standalone-candidate-and-source
-          path: |
-            dist/*.rpm
-            dist/*.tar.gz*
-            dist/package-requires.txt
-            packaging/AVAILABLE-KEYBOARD.txt
+          name: fedora-files
+          path: release/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fedora-evidence
+          path: evidence/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+  fedora-arm64:
+    needs: prepare
+    # Native hosted ARM, not cross-compilation or hours of local TCG compilation.
+    runs-on: ubuntu-24.04-arm
+    container: fedora:44
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      PACKAGE_VERSION: ${{ needs.prepare.outputs.package_version }}
+    steps:
+      - name: Verify native ARM runner and available build space
+        run: |
+          test "$(uname -m)" = aarch64
+          df -h . /home
+          # Fail early with actual runner capacity; never lower the asset safety floor.
+          test "$(df -Pk . | tail -1 | tr -s ' ' | cut -d' ' -f4)" -ge 22020096
+      - name: Install RPM tooling
+        run: dnf -y install git rpm-build rpmdevtools dnf-plugins-core cpio findutils
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: prepared
+          path: prepared
+      - name: Verify prepared input identity and hashes before executing source
+        run: python3 scripts/release.py verify-inputs --directory prepared --sha "$GITHUB_SHA"
+      - name: Resolve current Fedora 44 ARM build dependencies
+        run: |
+          if rpm -q systemd-standalone-tmpfiles >/dev/null 2>&1; then
+            dnf -y swap systemd-standalone-tmpfiles systemd
+          fi
+          dnf -y builddep packaging/fedora/swipe-keyboard.spec
+          rpm -q glibc libstdc++ qt6-qtbase qt6-qtdeclarative qt6-qtvirtualkeyboard plasma-keyboard python3 | tee packaging/BASELINE-VERSIONS.txt
+      - name: Build fresh ARM product, ExecuTorch and RPM as unprivileged builder
+        run: |
+          useradd -m builder
+          mkdir dist
+          mkdir -p /home/builder/rpmbuild/{SOURCES,SPECS,BUILD,BUILDROOT,RPMS,SRPMS}
+          cp "prepared/swipe-keyboard-$VERSION.tar.gz" /home/builder/rpmbuild/SOURCES/
+          cp packaging/fedora/swipe-keyboard.spec /home/builder/rpmbuild/SPECS/
+          chown -R builder:builder /home/builder/rpmbuild
+          # Same complete source/SRPM contract as x86; no second same-named SRPM upload.
+          # %check runs full native CTest plus packaging/integration suites on ARM.
+          su builder -c 'rpmbuild -bb --noclean /home/builder/rpmbuild/SPECS/swipe-keyboard.spec'
+          cp /home/builder/rpmbuild/RPMS/aarch64/*.rpm dist/
+      - name: Inspect actual ARM RPM ELF, language profiles, QRC and loader
+        run: |
+          mkdir dist/stage
+          cd dist/stage
+          rpm2cpio ../swipe-keyboard-$PACKAGE_VERSION.fc44.aarch64.rpm | cpio -idm
+          cd ../..
+          python3 scripts/package-check.py dist/stage
+          test_executable=$(find /home/builder/rpmbuild/BUILD -path '*/redhat-linux-build/plugin/tst_stocklayout' -type f -print -quit)
+          test -n "$test_executable"
+          python3 scripts/check-stock-layout.py "$test_executable" --runtime-root dist/stage/usr/share/swipe-keyboard
+          rpm -qp --requires dist/*aarch64.rpm > dist/package-requires.txt
+      - name: Verify installed ARM wrapper and dependency resolution, then remove
+        run: |
+          dnf -y --setopt=install_weak_deps=False install dist/swipe-keyboard-$PACKAGE_VERSION.fc44.aarch64.rpm
+          su builder -c 'XDG_SESSION_TYPE=wayland XDG_CURRENT_DESKTOP=KDE swipe-keyboard check'
+          dnf -y --setopt=clean_requirements_on_remove=False remove swipe-keyboard
+          test ! -e /usr/bin/swipe-keyboard
+          test ! -e /usr/share/swipe-keyboard
+      - name: Bind ARM RPM metadata and exact final bytes
+        run: |
+          mkdir release evidence
+          cp "dist/swipe-keyboard-$PACKAGE_VERSION.fc44.aarch64.rpm" release/
+          python3 scripts/release.py record --target fedora-arm64 --stage dist/stage --sha "$GITHUB_SHA"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fedora-arm64-files
+          path: release/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fedora-arm64-evidence
+          path: evidence/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+  flatpak:
+    needs: prepare
+    runs-on: ubuntu-26.04
+    env:
+      PACKAGE_VERSION: ${{ needs.prepare.outputs.package_version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Free hosted-runner space and install isolated build tools
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          # WHY Resolute: signed distribution packages provide Flatpak 1.16+
+          # without the extra PPA that blocked builds during an upstream outage.
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder
+          flatpak_version=$(flatpak --version)
+          dpkg --compare-versions "${flatpak_version#Flatpak }" ge 1.16
+      - uses: actions/download-artifact@v4
+        with:
+          name: prepared
+          path: prepared
+      - name: Verify prepared input identity and hashes before executing source
+        run: python3 scripts/release.py verify-inputs --directory prepared --sha "$GITHUB_SHA"
+      - name: Install signed exact SDK and platform commits
+        run: |
+          flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user --noninteractive -y flathub org.kde.Sdk//6.10 org.kde.Platform//6.10
+          python3 - <<'PY'
+          import json, subprocess
+          pins = json.load(open('packaging/flatpak/runtime-lock.json'))
+          for name in ('org.kde.Sdk', 'org.kde.Platform'):
+              subprocess.run(['flatpak', 'update', '--user', '--noninteractive', '-y', '--commit=' + pins[name], name + '//6.10'], check=True)
+          PY
+      - name: Build and test SDK-native objects and installed loader
+        run: |
+          tar -xzf "prepared/swipe-keyboard-$PACKAGE_VERSION-flatpak-build-inputs.tar.gz" -C prepared
+          python3 packaging/flatpak/build.py flatpak-build --repo flatpak-repo --ci-manifest prepared/flatpak-inputs/manifest.json
+          mkdir release evidence
+          flatpak build-bundle --arch=x86_64 flatpak-repo "release/swipe-keyboard-$PACKAGE_VERSION-x86_64.flatpak" org.itsdestin.SwipeKeyboard master
+          cp "prepared/swipe-keyboard-$PACKAGE_VERSION-flatpak-build-inputs.tar.gz" release/
+      - name: Install exact bundle and bind embedded metadata
+        run: |
+          flatpak install --user --noninteractive -y "release/swipe-keyboard-$PACKAGE_VERSION-x86_64.flatpak"
+          test "$(flatpak info --user --show-ref org.itsdestin.SwipeKeyboard)" = app/org.itsdestin.SwipeKeyboard/x86_64/master
+          location=$(flatpak info --user --show-location org.itsdestin.SwipeKeyboard)
+          python3 scripts/release.py record --target flatpak --stage "$location" --sha "$GITHUB_SHA"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flatpak-files
+          path: release/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flatpak-evidence
+          path: evidence/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+  keyboard-ci:
+    name: Keyboard CI
+    if: ${{ always() }}
+    needs: [prepare, arch, fedora, fedora-arm64, flatpak]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      # No run-id/repository override: downloads belong only to this workflow run.
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: '*-files'
+          merge-multiple: true
+          path: release
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: '*-evidence'
+          merge-multiple: true
+          path: evidence
+      - name: Reject any incomplete, stale or failed producer set
+        if: ${{ always() }}
+        env:
+          PRODUCER_STATUSES: ${{ toJSON(needs) }}
+        run: python3 scripts/release.py gate --sha "$GITHUB_SHA" --statuses "$PRODUCER_STATUSES"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: verified-release
+          path: release/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+  publish:
+    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && github.repository == 'itsdestin/swipe-keyboard' }}
+    needs: [keyboard-ci]
+    runs-on: ubuntu-24.04
+    # Final package hashes are available before owner-approved compositor acceptance/publication.
+    environment: keyboard-release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          name: verified-release
+          path: release
+      - name: Publish only the checked bytes, draft until remote hashes match
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci-publish.py

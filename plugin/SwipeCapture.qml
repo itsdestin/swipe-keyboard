@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.VirtualKeyboard
 import QtQuick.VirtualKeyboard.Settings
+import QtQuick.VirtualKeyboard.Styles
 
 // SwipeCapture — swipe-keyboard's finger listener and trail.
 // WHY a separate layer: Qt's keyboard records paths only in handwriting boxes, never across keys.
@@ -216,6 +217,56 @@ Item {
         when: root.candidateView !== null
         value: root.candidateView ? Math.max(0, Math.floor((root.candidateView.width - root.candidateView.contentWidth) / 2)) : 0
         restoreMode: Binding.RestoreValue
+    }
+
+    // WHY module-local delegate: Breeze puts a separator before EVERY item,
+    // including the outer edge. Keep stock SelectionListItem input/selection, but
+    // render only internal dividers and equal slots so rank one is truly centered.
+    SystemPalette { id: candidatePalette; colorGroup: SystemPalette.Active }
+    // WHY Plasma's keyboard theme may differ from the desktop palette: desktop
+    // text can equal the stock strip background, hiding otherwise selectable words.
+    readonly property var candidateTheme: {
+        var keyboard = root.keyboardItem()
+        return keyboard && keyboard.style && keyboard.style.theme ? keyboard.style.theme : null
+    }
+    Component {
+        id: candidateDelegate
+        SelectionListItem {
+            id: candidateItem
+            required property int index
+            required property string display
+            objectName: "swipeCandidate" + index
+            width: root.candidateView ? root.candidateView.width / Math.max(3, root.candidateView.count) : 0
+            Text {
+                anchors.centerIn: parent
+                width: Math.max(0, parent.width - 24)
+                text: candidateItem.display
+                color: root.candidateTheme && root.candidateTheme.selectionListTextColor !== undefined
+                    ? root.candidateTheme.selectionListTextColor : candidatePalette.text
+                horizontalAlignment: Text.AlignHCenter
+                elide: Text.ElideRight
+                font.family: Qt.application.font.family
+                font.pixelSize: Math.max(12, parent.height * 0.52)
+            }
+            Rectangle {
+                objectName: "swipeCandidateDivider"
+                visible: candidateItem.index > 0
+                anchors.left: parent.left
+                anchors.verticalCenter: parent.verticalCenter
+                width: Math.max(1, parent.height * 0.025)
+                height: parent.height * 0.42
+                color: root.candidateTheme && root.candidateTheme.selectionListSeparatorColor !== undefined
+                    ? root.candidateTheme.selectionListSeparatorColor : candidatePalette.mid
+            }
+        }
+    }
+    Binding {
+        target: root.candidateView
+        property: "delegate"
+        when: root.candidateView !== null && root.candidateView.model !== null
+            && typeof root.candidateView.model.selectItem === "function"
+        value: candidateDelegate
+        restoreMode: Binding.RestoreBindingOrValue
     }
 
     // WHY passive press capture: Qt's stock candidate callback carries only an

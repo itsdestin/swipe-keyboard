@@ -113,7 +113,7 @@ ProfileSnapshot resolveProfile(const QString &locale, const QString &layoutId, c
     // WHY no opt-in: the existing Qt language selection is the owner's approved selection contract.
     const auto m=readObject(QDir(root).filePath(p.effectiveLanguage+".json"));
     if (m.isEmpty()) return unavailable(p,"Language pack manifest missing or invalid");
-    if (m["schema"].toInt()!=1 || m["id"].toString().isEmpty() || m["version"].toString().isEmpty() ||
+    if (!QStringList{"1","2"}.contains(m["schema"].toVariant().toString()) || m["id"].toString().isEmpty() || m["version"].toString().isEmpty() ||
         m["language"].toString()!=p.effectiveLanguage ||
         m["compatibility"].toString()!="swipekb-futo-v1" || !contains(m["scripts"],"Latn") ||
         m["futoRevision"].toString()!="1b13f2c85d6b347f6ea3fbc4b3aaf01fce42429a" ||
@@ -156,16 +156,37 @@ ProfileSnapshot resolveProfile(const QString &locale, const QString &layoutId, c
         return unavailable(p,"Pack source/model revision mismatch");
     const auto assets=m["assets"].toObject();
     if (!assets.contains("encoder") || !assets.contains("dictionary")) return unavailable(p,"Required encoder/dictionary missing");
-    if (assets.contains("contextModel") != assets.contains("contextVocab")) return unavailable(p,"Context model/vocabulary must be paired");
-    // WHY no English refinement or context role can make a non-English pack appear more capable.
-    if (assets.contains("decoder") || assets.contains("contextModel") || assets.contains("contextVocab"))
-        return unavailable(p,"Non-English decoder/context models are not supported");
+    // WHY foreign context is enabled only by the paired, repository-pinned n-gram model/vocabulary;
+    // English weights or a manifest's self-asserted model hash cannot confer capability.
+    if (assets.contains("decoder") || assets.contains("contextModel") != assets.contains("contextVocab"))
+        return unavailable(p,"Unsupported decoder or unpaired context model/vocabulary");
+    const bool hasContext=assets.contains("contextModel");
+    const auto contextPins=lock["multilingual_context_models"].toObject()[p.effectiveLanguage].toObject();
+    if (hasContext && (m["schema"].toInt()!=2 || m["contextFormat"].toString()!="swk-ngram-v2" || contextPins.isEmpty() ||
+        assets["contextModel"].toObject()["sha256"].toString()!=contextPins["modelSha256"].toString() ||
+        assets["contextVocab"].toObject()["sha256"].toString()!=contextPins["vocabSha256"].toString()))
+        return unavailable(p,"Context model format or repository pin mismatch");
+    if (hasContext) {
+        const auto terms=m["contextLicense"].toObject();
+        const auto attribution=localPath(root,terms["attributionPath"].toString());
+        const auto contextTerms=localPath(root,terms["termsPath"].toString());
+        if (terms["id"].toString()!="CC-BY-2.0-FR" || terms["sourceSha256"].toString()!=contextPins["corpusSha256"].toString() ||
+            terms["attributionSha256"].toString()!=contextPins["contributorsSha256"].toString() || attribution.isEmpty() ||
+            digest(attribution)!=contextPins["contributorsSha256"].toString() || contextTerms.isEmpty() ||
+            terms["termsSha256"].toString()!=lock["tatoeba_license_notice_sha256"].toString() ||
+            digest(contextTerms)!=lock["tatoeba_license_notice_sha256"].toString() ||
+            terms["sourceUrl"].toString()!=QString("https://downloads.tatoeba.org/exports/per_language/%1/%1_sentences.tsv.bz2").arg(p.effectiveLanguage=="es" ? "spa" : p.effectiveLanguage=="fr" ? "fra" : "deu"))
+            return unavailable(p,"Context source or contributor attribution pin mismatch");
+    }
+    if (!hasContext && m["schema"].toInt()!=1) return unavailable(p,"Unsupported language pack schema");
     for (auto it=assets.begin(); it!=assets.end(); ++it) {
-        if (it.key()!="encoder" && it.key()!="dictionary") return unavailable(p,"Unknown asset role");
+        if (!QStringList{"encoder","dictionary","contextModel","contextVocab"}.contains(it.key()))
+            return unavailable(p,"Unknown asset role");
         const auto a=it.value().toObject(); const auto path=localPath(root,a["path"].toString());
         const auto hash=a["sha256"].toString(), compat=a["compatibility"].toString();
-        if (compat!=(it.key()=="encoder" ? QString("layout-agnostic") : p.effectiveLanguage))
-            return unavailable(p,"Asset language/layout compatibility mismatch");
+        const QString expectedCompat=it.key()=="encoder" ? QString("layout-agnostic") :
+            it.key().startsWith("context") ? p.effectiveLanguage+":context-ngram-v1" : p.effectiveLanguage;
+        if (compat!=expectedCompat) return unavailable(p,"Asset language/layout compatibility mismatch");
         if (path.isEmpty() || a["size"].toInteger(-1)<=0 || QFileInfo(path).size()!=a["size"].toInteger() ||
             hash.size()!=64 || digest(path)!=hash) return unavailable(p,"Asset missing, corrupt or checksum/size mismatch");
         if (it.key()=="encoder") {
@@ -175,7 +196,8 @@ ProfileSnapshot resolveProfile(const QString &locale, const QString &layoutId, c
         }
         p.assets[it.key()]={path,hash,compat};
     }
-    p.packId=m["id"].toString(); p.packVersion=m["version"].toString(); p.capabilities.swipe=true;
+    p.packId=m["id"].toString(); p.packVersion=m["version"].toString();
+    p.capabilities={true,hasContext,hasContext};
     return p;
 }
 quint64 ProfileEpoch::invalidate(const QString &locale,const QString &layout,const QString &mode)

@@ -22,17 +22,23 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('build_directory', type=Path)
     parser.add_argument('--repo', type=Path, required=True)
+    parser.add_argument('--ci-manifest', type=Path, help='Explicit hosted CI entry; default lab guard is unchanged')
     args = parser.parse_args()
-    marker = Path.home() / '.cache/swipe-platform-168/ownership'
-    if not marker.is_file() or marker.read_text().strip() != 'owned guest for work item 168':
-        raise RuntimeError('Refusing build outside the owned Task 168 builder.')
-    if 'QEMU' not in Path('/sys/class/dmi/id/sys_vendor').read_text():
-        raise RuntimeError('Refusing build without QEMU DMI identity.')
+    if args.ci_manifest:
+        import os
+        if os.environ.get('GITHUB_ACTIONS') != 'true':
+            raise RuntimeError('CI entry requires GitHub Actions; use the owned builder locally.')
+    else:
+        marker = Path.home() / '.cache/swipe-platform-168/ownership'
+        if not marker.is_file() or marker.read_text().strip() != 'owned guest for work item 168':
+            raise RuntimeError('Refusing build outside the owned Task 168 builder.')
+        if 'QEMU' not in Path('/sys/class/dmi/id/sys_vendor').read_text():
+            raise RuntimeError('Refusing build without QEMU DMI identity.')
     verify_runtime(json.loads((HERE / 'runtime-lock.json').read_text()))
     subprocess.run(['flatpak-builder', '--user', '--jobs=2', '--force-clean',
                     '--disable-rofiles-fuse', '--repo=' + str(args.repo.resolve()),
                     str(args.build_directory.resolve()),
-                    str(HERE / 'org.itsdestin.SwipeKeyboard.json')], check=True)
+                    str(args.ci_manifest.resolve() if args.ci_manifest else HERE / 'org.itsdestin.SwipeKeyboard.json')], check=True)
 
 
 if __name__ == '__main__':

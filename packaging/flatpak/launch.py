@@ -36,6 +36,15 @@ def main():
     env['SWIPEKB_MODEL_DATA'] = '/app/share/swipe-keyboard'
     env['SWIPEKB_DATA'] = str(data)
     env['QT_QPA_PLATFORM'] = 'wayland'
+    # WHY: recognition needs every touch sample, not just the last position in a
+    # rendered frame. Set before Qt starts; scoped to this keyboard process only.
+    env['QML_NO_TOUCH_COMPRESSION'] = '1'
+    # WHY: Qt marks a window hidden after one frame slower than 100 ms, and Plasma Keyboard
+    # then drops completions and corrections. A slow frame must not lose an edit.
+    env.setdefault('QT_WAYLAND_FRAME_CALLBACK_TIMEOUT', '5000')
+    # WHY: the session's QT_WAYLAND_RECONNECT=1 made a deselected keyboard reconnect as an
+    # ordinary app and stay running invisibly (~440 MB on SteamOS). KWin relaunches it itself.
+    env.pop('QT_WAYLAND_RECONNECT', None)
     # WHY: no global environment edits and no WAYLAND_SOCKET unset/close; the
     # backend must consume KWin's privileged FD rather than connect to host input.
     os.execve('/app/bin/plasma-keyboard', ['plasma-keyboard'], env)

@@ -1,0 +1,217 @@
+#!/usr/bin/env python3
+"""Small same-run release boundary. All paths and targets come from the committed contract."""
+import argparse
+import hashlib
+import json
+from pathlib import Path
+import re
+import subprocess
+import tarfile
+
+ROOT = Path(__file__).resolve().parents[1]
+PRODUCERS = ('prepare', 'arch', 'fedora', 'fedora-arm64', 'flatpak')
+
+
+def parse_json(text):
+    def unique(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError('Duplicate JSON key: ' + key)
+            result[key] = value
+        return result
+    return json.loads(text, object_pairs_hook=unique)
+
+
+def load_contract():
+    return parse_json((ROOT/'packaging/release-targets.json').read_text())
+
+
+def version(contract):
+    return f"{contract['version']}-{contract['release']}"
+
+
+def filename(template, contract):
+    return template.format(version=contract['version'], release=contract['release'])
+
+
+def digest(path):
+    with path.open('rb') as stream:
+        return hashlib.file_digest(stream, 'sha256').hexdigest()
+
+
+def expected_files(contract):
+    return {filename(name, contract) for target in contract['targets'].values() for name in target['files']}
+
+
+def check_files(directory, records, expected):
+    names = [r.get('name') for r in records]
+    if len(names) != len(set(names)) or set(names) != expected:
+        raise ValueError('Missing, duplicate or unexpected artifact metadata')
+    for record in records:
+        path = directory/record['name']
+        if path.name != record['name'] or path.is_symlink() or not path.is_file():
+            raise ValueError('Missing/unsafe artifact: ' + record['name'])
+        if not path.stat().st_size or path.stat().st_size != record.get('size') or digest(path) != record.get('sha256'):
+            raise ValueError('Empty or tampered artifact: ' + record['name'])
+
+
+def validate(directory, evidence, statuses, sha, contract):
+    if not re.fullmatch('[0-9a-f]{40}', sha):
+        raise ValueError('Invalid source SHA')
+    if set(statuses) != set(PRODUCERS) or any(statuses[job].get('result') != 'success' for job in PRODUCERS):
+        raise ValueError('Every required producer must succeed (including prepare)')
+    targets = [e.get('target') for e in evidence]
+    if len(targets) != len(set(targets)) or set(targets) != set(contract['targets']):
+        raise ValueError('Missing, duplicate or unexpected target evidence')
+    records = []
+    for entry in evidence:
+        target = contract['targets'][entry['target']]
+        if entry.get('version') != version(contract) or entry.get('source_sha') != sha or entry.get('arch') != target['arch']:
+            raise ValueError('Target version/source SHA/architecture mismatch')
+        files = entry.get('files', [])
+        check_files(directory, files, {filename(n, contract) for n in target['files']})
+        records.extend(files)
+    check_files(directory, records, expected_files(contract))
+    # WHY exact directory: an uploader glob must never smuggle additional unchecked bytes.
+    allowed = expected_files(contract) | {'release-manifest.json', 'SHA256SUMS'}
+    if {p.name for p in directory.iterdir()} - allowed:
+        raise ValueError('Unexpected publication input')
+    return {'version': version(contract), 'source_sha': sha, 'evidence': evidence,
+            'producers': statuses, 'files': sorted(records, key=lambda r: r['name'])}
+
+
+def input_names(contract):
+    return {filename(contract['targets'][target]['files'][index], contract)
+            for target, index in [('source', 0), ('flatpak', 1)]}
+
+
+def verify_inputs(directory, sha, contract):
+    manifest = parse_json((directory/'input-manifest.json').read_text())
+    if manifest.get('source_sha') != sha or manifest.get('version') != version(contract):
+        raise ValueError('Prepared input source/version mismatch')
+    names = input_names(contract)
+    if {p.name for p in directory.iterdir()} != names | {'input-manifest.json'}:
+        raise ValueError('Prepared input file set mismatch')
+    check_files(directory, manifest.get('files', []), names)
+
+
+def checksums(manifest):
+    return ''.join(f"{r['sha256']}  {r['name']}\n" for r in manifest['files'])
+
+
+def verify(directory, sha, contract):
+    manifest_path = directory/'release-manifest.json'
+    checksum_file = directory/'SHA256SUMS'
+    if any(p.is_symlink() or not p.is_file() for p in (manifest_path, checksum_file)):
+        raise ValueError('Required manifest/checksums missing or unsafe')
+    manifest = parse_json(manifest_path.read_text())
+    checked = validate(directory, manifest['evidence'], manifest['producers'], sha, contract)
+    if checked != manifest:
+        raise ValueError('Manifest differs from checked target evidence')
+    if checksum_file.read_text() != checksums(checked):
+        raise ValueError('Checksums differ from manifest')
+    return checked
+
+
+def check_versions(contract):
+    # WHY one authoritative list, with checks rather than hidden recipe rewriting.
+    for path, pattern, expected in [
+        ('packaging/arch/PKGBUILD', r'^pkgver=(.+)$', contract['version']),
+        ('packaging/arch/PKGBUILD', r'^pkgrel=(.+)$', str(contract['release'])),
+        ('packaging/fedora/swipe-keyboard.spec', r'^Version: (.+)$', contract['version']),
+        ('packaging/fedora/swipe-keyboard.spec', r'^Release: (\d+)', str(contract['release'])),
+    ]:
+        match = re.search(pattern, (ROOT/path).read_text(), re.M)
+        if not match or match[1] != expected:
+            raise ValueError('Version metadata drift: ' + path)
+
+
+def output(command):
+    return subprocess.check_output(command, text=True).strip()
+
+
+def inspect(target, directory, stage, sha, contract):
+    """Producer-side package-manager metadata AND extracted embedded identity, before hashing."""
+    names = [filename(n, contract) for n in contract['targets'][target]['files']]
+    architecture = contract['targets'][target]['arch']
+    rpm_target = target in ('fedora', 'fedora-arm64')
+    if target in ('arch', 'flatpak') or rpm_target:
+        if stage is None:
+            raise ValueError('Extracted/installed package root required')
+        prefix = 'files' if target == 'flatpak' else 'usr'
+        runtime = parse_json((stage/prefix/'share/swipe-keyboard/runtime.json').read_text())
+        identity = parse_json((stage/prefix/'share/swipe-keyboard/source-identity.json').read_text())
+        embedded = version(contract) + ('.fc44' if rpm_target else '')
+        if runtime.get('package') != embedded or identity != {'source_sha': sha, 'version': version(contract)}:
+            raise ValueError('Embedded package version/source mismatch')
+    if target == 'arch':
+        metadata = output(['bsdtar', '-xOf', str(directory/names[0]), '.PKGINFO'])
+        for key, value in [('pkgname', 'swipe-keyboard'), ('pkgver', version(contract)), ('arch', 'x86_64')]:
+            if re.findall(r'^' + key + r' = (.+)$', metadata, re.M) != [value]:
+                raise ValueError('Arch package metadata mismatch: ' + key)
+    elif rpm_target:
+        # WHY one common SRPM: ARM publishes only its binary; publishing both
+        # same-named build-host-dependent SRPMs would overwrite merged artifacts.
+        # SOURCEPACKAGE checks source headers whose ARCH may be the build host.
+        for name in names:
+            field, expected = ('SOURCEPACKAGE', '1') if name.endswith('.src.rpm') else ('ARCH', architecture)
+            actual = output(['rpm', '-qp', '--qf', '%{NAME} %{VERSION}-%{RELEASE} %{' + field + '}', str(directory/name)])
+            if actual != f"swipe-keyboard {version(contract)}.fc44 {expected}":
+                raise ValueError('RPM package metadata mismatch')
+    elif target == 'flatpak':
+        # Bundle is installed before this call, with an exact ref/arch check in CI.
+        metadata = (stage/'metadata').read_text()
+        if 'runtime=org.kde.Platform/x86_64/6.10' not in metadata or 'name=org.itsdestin.SwipeKeyboard' not in metadata:
+            raise ValueError('Flatpak metadata mismatch')
+    elif target == 'source':
+        with tarfile.open(directory/names[0]) as archive:
+            member = archive.extractfile(f"swipe-keyboard-{contract['version']}/packaging/source-identity.json")
+            if member is None or parse_json(member.read()) != {'source_sha': sha, 'version': version(contract)}:
+                raise ValueError('Source archive identity mismatch')
+    records = [{'name': n, 'size': (directory/n).stat().st_size, 'sha256': digest(directory/n)} for n in names]
+    check_files(directory, records, set(names))
+    return {'target': target, 'version': version(contract), 'source_sha': sha,
+            'arch': contract['targets'][target]['arch'], 'files': records}
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('command', choices=('version', 'check-versions', 'record', 'gate', 'verify', 'verify-inputs'))
+    parser.add_argument('--directory', type=Path, default=Path('release'))
+    parser.add_argument('--evidence', type=Path, default=Path('evidence'))
+    parser.add_argument('--target')
+    parser.add_argument('--stage', type=Path)
+    parser.add_argument('--sha')
+    parser.add_argument('--statuses', help='GitHub needs JSON, supplied by the workflow, not an artifact')
+    args = parser.parse_args()
+    contract = load_contract()
+    if args.command == 'version':
+        print(version(contract))
+    elif args.command == 'check-versions':
+        check_versions(contract)
+        print('Release recipe versions agree: ' + version(contract))
+    elif args.command == 'verify-inputs':
+        verify_inputs(args.directory, args.sha, contract)
+        print('Prepared input hashes and identity verified: ' + args.sha)
+    elif args.command == 'record':
+        entry = inspect(args.target, args.directory, args.stage, args.sha, contract)
+        args.evidence.mkdir(parents=True, exist_ok=True)
+        (args.evidence/(args.target + '.json')).write_text(json.dumps(entry, indent=2) + '\n')
+    elif args.command == 'gate':
+        # Explicit target evidence names; do not infer support from what happened to download.
+        if {p.name for p in args.evidence.iterdir()} != {t + '.json' for t in contract['targets']}:
+            raise ValueError('Exact required evidence set missing/duplicated/unexpected')
+        evidence = [parse_json((args.evidence/(t + '.json')).read_text()) for t in contract['targets']]
+        manifest = validate(args.directory, evidence, parse_json(args.statuses), args.sha, contract)
+        (args.directory/'release-manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
+        (args.directory/'SHA256SUMS').write_text(checksums(manifest))
+        verify(args.directory, args.sha, contract)
+        print('Verified complete release: ' + manifest['version'] + ' ' + args.sha)
+    else:
+        verify(args.directory, args.sha, contract)
+        print('Publication bytes verified: ' + args.sha)
+
+
+if __name__ == '__main__':
+    main()

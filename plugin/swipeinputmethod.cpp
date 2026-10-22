@@ -15,6 +15,9 @@
 #include "profilediagnostics.h"
 #include <QPointer>
 #include <QQuickItem>
+#include <QQuickWindow>
+#include <QTimer>
+#include <QGuiApplication>
 #ifdef SWIPEKB_PRIVATE_FLAGS_DIAGNOSTIC
 #include <chrono>
 #endif
@@ -99,10 +102,16 @@ void SwipeInputMethod::resolveCurrentProfile()
         swipekb::ModelPaths paths;
         auto path=[&](const QString &role) { return snapshot.assets.value(role).path.toStdString(); };
         paths.encoder=path("encoder"); paths.dictionary=path("dictionary"); paths.decoder=path("decoder");
-        paths.lm_model=path("contextModel"); paths.lm_vocab=path("contextVocab");
+        if (snapshot.effectiveLanguage==QStringLiteral("en")) {
+            paths.lm_model=path("contextModel"); paths.lm_vocab=path("contextVocab");
+        } else {
+            paths.ngram=path("contextModel");
+        }
         if (qEnvironmentVariableIntValue("SWIPEKB_NO_DECODER")) paths.decoder.clear();
         swipekb::RecognizerOptions options;
         options.language=snapshot.effectiveLanguage.toStdString();
+        // WHY foreign swipe ranking and completion share only that locale's pinned contextual n-gram.
+        options.ngram=snapshot.effectiveLanguage!=QStringLiteral("en");
         options.alphabet=swipekb::languageAlphabet(snapshot.effectiveLanguage).toStdString();
         options.popupAliases=popupAliases(snapshot.effectiveLanguage);
         // WHY a fresh runtime: never init() on an engine already owned by a consumer/worker.
@@ -151,13 +160,37 @@ bool SwipeInputMethod::keyEvent(Qt::Key key, const QString &text, Qt::KeyboardMo
     QPointer<SwipeInputMethod> alive(this);
     ensureContextConnections();
     if (!alive) return false;
+    // WHY before any snapshot below: a missed echo of the previous key would make this key's
+    // expected echo wrong, so the word under the cursor could never be confirmed.
+    syncInputCache();
+    if (!alive) return false;
     const bool allowed = safeContext();
     if (!alive) return false;
     if (!allowed) { reset(); return false; }
+    const bool predictSafe=safePredictionContext();
+    // WHY accept only an unmodified key or a single Shift-letter for private history: stock
+    // sentence auto-capitalization supplies Shift on the first character of Hello/Ich/etc.
+    const bool shiftedLetter=modifiers==Qt::ShiftModifier && text.size()==1 && text.front().isLetter();
+    const bool predictionText=modifiers==Qt::NoModifier || shiftedLetter;
+    if (!alive) return false;
+    if (predictSafe) {
+        const auto editor=predictionEditor();
+        m_ownedHistory.observe(editor,predictionPolicy(),m_profiles.snapshot().epoch);
+        m_typedWord.observe(editor,predictionPolicy(),m_profiles.snapshot().epoch);
+    } else { m_ownedHistory.clear(); m_typedWord.clear(); }
+    m_typedPress.clear();
     invalidatePredictions();
     if (!alive) return false;
-    if (key == Qt::Key_Space && modifiers == Qt::NoModifier && text == QStringLiteral(" ")) {
+    if (predictSafe && key == Qt::Key_Space && modifiers == Qt::NoModifier && text == QStringLiteral(" ")) {
+        const auto unfinished=m_typedWord.token();
+        m_typedWord.clear();
         const auto previous = predictionEditor();
+        // WHY backspace conservatively drops sentence history, but an exact-echo
+        // confirmed owned unfinished token remains valid input when Space finalizes it.
+        if(!unfinished.isEmpty() && predictionPolicy().source==PredictionPolicySource::OwnedHistory) {
+            m_ownedHistory.word(previous,previous,predictionPolicy(),m_profiles.snapshot().epoch,unfinished,true);
+            m_ownedHistory.observe(previous,predictionPolicy(),m_profiles.snapshot().epoch);
+        }
         auto expected = previous;
         if (expected.cursor >= 0 && expected.cursor <= expected.text.size()) {
             expected.text.insert(expected.cursor, text);
@@ -173,10 +206,12 @@ bool SwipeInputMethod::keyEvent(Qt::Key key, const QString &text, Qt::KeyboardMo
         if (!context || !item || context!=inputContext() || item!=context->inputItem()
             || generation!=m_generation) return false;
         clearAfterSwipe(); m_lastRecordedSwipeTs = 0;
+        m_ownedHistory.space(previous,expected,predictionPolicy(),m_profiles.snapshot().epoch);
         m_nextWord.armExpectedEcho(expected, predictionPolicy(), m_profiles.snapshot().epoch, predictionCapable(), previous);
         // WHY false: Qt types Space normally. Prediction waits for that exact editor echo.
         return false;
     }
+    if (key == Qt::Key_Backspace) m_ownedHistory.clear();
     if (key == Qt::Key_Backspace && modifiers == Qt::NoModifier && m_session.isActive()) {
         QPointer<QVirtualKeyboardInputContext> ic(inputContext());
         QPointer<QObject> item(ic ? ic->inputItem() : nullptr);
@@ -228,6 +263,25 @@ bool SwipeInputMethod::keyEvent(Qt::Key key, const QString &text, Qt::KeyboardMo
         writeOutcome(m_outcome.keyTapped(key == Qt::Key_Backspace, text));
     else
         m_outcome.abandon();
+    if (predictSafe && predictionText) {
+        const auto previous=predictionEditor();auto expected=previous;
+        if(modifiers==Qt::NoModifier && key==Qt::Key_Backspace && !m_typedWord.token().isEmpty() && expected.cursor>0) {
+            expected.text.remove(expected.cursor-1,1);--expected.cursor;expected.anchor=expected.cursor;
+            m_typedWord.edit(previous,expected,predictionPolicy(),m_profiles.snapshot().epoch,{},true);
+        } else if(text.size()==1 && (text.front().isLetter() || text=="'" || text=="’" || text=="-")) {
+            expected.text.insert(expected.cursor,text);expected.cursor+=text.size();expected.anchor=expected.cursor;
+            m_typedWord.edit(previous,expected,predictionPolicy(),m_profiles.snapshot().epoch,text);
+        } else m_typedWord.clear();
+    } else m_typedWord.clear();
+    if (predictSafe && predictionPolicy().source==PredictionPolicySource::OwnedHistory) {
+        if (key!=Qt::Key_Backspace && predictionText && text.size()==1 && text.front().isLetter()) {
+            const auto previous=predictionEditor(); auto expected=previous;
+            if (expected.cursor>=0 && expected.cursor<=expected.text.size()) {
+                expected.text.insert(expected.cursor,text); expected.cursor+=text.size(); expected.anchor=expected.cursor;
+                m_ownedHistory.tap(previous,expected,predictionPolicy(),m_profiles.snapshot().epoch,text);
+            }
+        } else m_ownedHistory.clear();
+    }
     // Any tapped key ends the swiped word's session (the guess bar no longer applies); false = Qt types it.
     clearSession();
     if (!alive) return false;
@@ -264,10 +318,28 @@ void SwipeInputMethod::selectionListItemSelected(Type type, int index)
     QPointer<QVirtualKeyboardInputContext> ic(inputContext());
     if (type != Type::WordCandidateList)
         return;
+    if (!m_typedWord.candidates().isEmpty()) {
+        QPointer<SwipeInputMethod> self(this);
+        if(!safePredictionContext() || !self || !ic) {qCInfo(lcSwipe)<<"typed tap refused: field not allowed";if(self)reset();return;}
+        const bool pressed=!m_typedPress.isEmpty(), sameSet=m_typedPress==m_typedWord.selectionToken();
+        const auto plan=m_typedWord.take(index,m_typedPress,predictionEditor(),predictionPolicy(),m_profiles.snapshot().epoch);
+        m_typedPress.clear();
+        // WHY metadata only (never words): tells a failed device test which gate refused the tap.
+        if(plan.isEmpty()) qCInfo(lcSwipe)<<"typed tap refused: press"<<pressed<<"same set"<<sameSet<<"index"<<index;
+        if(!plan.isEmpty()) {
+            QPointer<QObject> item(ic->inputItem());const int generation=m_generation;
+            stageOwnedCommit(plan,true);
+            if(!self || !ic || !item || generation!=m_generation)return;
+            ic->commit(plan.text,plan.replaceFrom,plan.replaceLength);
+            if(!self)return;
+            if(!ic || !item || ic!=inputContext() || item!=ic->inputItem() || generation!=m_generation){reset();return;}
+        }
+        refreshGuessBar();return;
+    }
     if (!m_session.isActive() && !m_nextWord.candidates().isEmpty()) {
         // WHY a prediction insertion has the same live/privacy/deletion boundary as a swipe commit.
         QPointer<SwipeInputMethod> self(this);
-        const bool safe=safeContext();
+        const bool safe=safePredictionContext();
         if (!self || !ic || ic!=inputContext()) return;
         if (!safe) { reset(); return; }
         QPointer<QObject> item(ic->inputItem());
@@ -276,6 +348,7 @@ void SwipeInputMethod::selectionListItemSelected(Type type, int index)
         const auto tap = m_predictionTap;
         m_predictionTap.reset();
         const auto plan = tap ? m_nextWord.takePrediction(index, *tap, previous, predictionPolicy(), m_profiles.snapshot().epoch, caseMode()) : CommitPlan{};
+        if (plan.isEmpty()) qCInfo(lcSwipe) << "prediction tap refused: press" << tap.has_value() << "index" << index;
         if (!tap) m_nextWord.invalidate();
         m_predictionWorker.invalidate();
         clearSession(); clearAfterSwipe(); m_outcome.abandon(); m_lastRecordedSwipeTs = 0;
@@ -284,6 +357,8 @@ void SwipeInputMethod::selectionListItemSelected(Type type, int index)
             expected.text.insert(expected.cursor, plan.text);
             expected.cursor += plan.text.size(); expected.anchor = expected.cursor;
             m_nextWord.armExpectedEcho(expected, predictionPolicy(), m_profiles.snapshot().epoch, predictionCapable(), previous);
+            stageOwnedCommit(plan);
+            if (!self || !ic || !item || generation!=m_generation) return;
             // WHY explicit zeros: a prediction must never enter the correction replacement path.
             ic->commit(plan.text, 0, 0);
             if (!self) return;
@@ -310,6 +385,8 @@ void SwipeInputMethod::selectionListItemSelected(Type type, int index)
     if (!plan.isEmpty()) {
         QPointer<QObject> item(ic->inputItem());
         const int generation = m_generation;
+        stageOwnedCommit(plan,true);
+        if (!self || !ic || !item || generation!=m_generation) return;
         ic->commit(plan.text, plan.replaceFrom, plan.replaceLength);
         // WHY: commit sends a synchronous public event; its handler may delete this method,
         // replace the target or reset policy. Check the snapshot before any member access/call.
@@ -331,6 +408,8 @@ void SwipeInputMethod::selectionListItemSelected(Type type, int index)
 
 void SwipeInputMethod::reset()
 {
+    ++m_nativePolicyEpoch;
+    m_ownedHistory.clear();m_typedWord.clear();m_typedPress.clear();
     // WHY prediction-bar notifications are synchronous deletion boundaries too.
     QPointer<SwipeInputMethod> self(this);
     invalidatePredictions();
@@ -512,9 +591,20 @@ void SwipeInputMethod::finishSwipe(const QVariantList &points, const QVariantLis
         trace.push_back({m.value("x").toFloat(), m.value("y").toFloat(), m.value("t").toFloat()});
     }
     const auto rects=measuredKeys(keys);
+    m_typedWord.clear();m_typedPress.clear();
 
+    if (predictionPolicy().source==PredictionPolicySource::OwnedHistory) {
+        const bool predictionSafe=safePredictionContext();
+        if (!self || !ic) return;
+        if (predictionSafe) m_ownedHistory.observe(predictionEditor(),predictionPolicy(),m_profiles.snapshot().epoch);
+        else m_ownedHistory.clear();
+    }
     const QString before = textBeforeCursor();
-    const QStringList contextWords = swipekb::textContextWords(before);
+    // WHY native stock cannot attest raw completion policy. Never feed its editor
+    // buffer into either model; only confirmed keyboard-owned history may rank words.
+    const bool nativeHistory=qEnvironmentVariable("SWIPEKB_NATIVE_PREDICTION")==QStringLiteral("owned-history-v1")
+        && predictionPolicy().source!=PredictionPolicySource::RawBridge;
+    const QStringList contextWords = nativeHistory ? m_ownedHistory.context() : swipekb::textContextWords(before);
     std::vector<std::string> context;
     for (const QString &w : contextWords)
         context.push_back(w.toStdString());
@@ -562,6 +652,8 @@ void SwipeInputMethod::finishSwipe(const QVariantList &points, const QVariantLis
 #endif
         QPointer<QObject> item(ic->inputItem());
         const int generation = m_generation;
+        stageOwnedCommit(plan);
+        if (!self || !ic || !item || generation!=m_generation) return;
         ic->commit(plan.text, plan.replaceFrom, plan.replaceLength);
         // WHY: a synchronous target callback must not resurrect afterSwipe or record a word
         // after deletion, focus replacement, privacy change or reset.
@@ -617,17 +709,99 @@ void SwipeInputMethod::clearAfterSwipe()
     m_afterSwipeCursorAfter = -1;
 }
 
+bool SwipeInputMethod::eventFilter(QObject *watched, QEvent *event)
+{
+    if (watched == m_exposureWindow && event->type() == QEvent::Expose && m_exposureWindow
+        && m_exposureWindow->isExposed() && !m_exposureRefreshQueued) {
+        m_exposureRefreshQueued = true;
+        QPointer<QVirtualKeyboardInputContext> context(inputContext());
+        QPointer<QQuickItem> item(m_exposureItem);
+        QPointer<QQuickWindow> window(m_exposureWindow);
+        const int generation = m_generation;
+        const quint64 profileEpoch = m_profiles.snapshot().epoch;
+        // WHY defer one event turn: Qt's Expose delivery can precede the proxy's exposed-state update.
+        QTimer::singleShot(0, this, [this, context, item, window, generation, profileEpoch] {
+            m_exposureRefreshQueued = false;
+            refreshExposedInputCache(context, item, window, generation, profileEpoch);
+        });
+    }
+    return QObject::eventFilter(watched, event);
+}
+
+void SwipeInputMethod::watchInputWindow()
+{
+    auto *ic = inputContext();
+    auto *item = ic ? qobject_cast<QQuickItem *>(ic->inputItem()) : nullptr;
+    auto *window = item ? item->window() : nullptr;
+    if (m_exposureWindow == window && m_exposureItem == item) return;
+    if (m_exposureWindow) m_exposureWindow->removeEventFilter(this);
+    m_exposureWindow = window;
+    m_exposureItem = item;
+    m_exposureRefreshQueued = false;
+    if (window) window->installEventFilter(this);
+}
+
+void SwipeInputMethod::refreshExposedInputCache(QPointer<QVirtualKeyboardInputContext> context,
+    QPointer<QQuickItem> item, QPointer<QQuickWindow> window, int generation, quint64 profileEpoch)
+{
+    if (!context || !item || !window || context != inputContext() || item != context->inputItem()
+        || window != item->window() || window != m_exposureWindow || item != m_exposureItem
+        || generation != m_generation || profileEpoch != m_profiles.snapshot().epoch || !window->isExposed()
+        || !context->inputEngine() || context->inputEngine()->inputMethod() != this
+        || QGuiApplication::focusObject() != item || predictionPolicy().source == PredictionPolicySource::Unavailable
+        || m_policySource != item || m_liveQueryActive) return;
+    // WHY bundled (raw-policy) Plasma too: it drops the same hidden-window updates. On SteamOS a
+    // field's type and text arrive before the keyboard is shown, so the first word after the
+    // keyboard starts had stale hints, no auto-capital and no completions until refocus.
+    QPointer<SwipeInputMethod> self(this);
+    if (!safePredictionContext() || !self) return;
+    // WHY revalidate after live policy queries: proxy callbacks may synchronously swap focus/profile.
+    if (!context || !item || !window || context != inputContext() || item != context->inputItem()
+        || window != item->window() || window != m_exposureWindow || item != m_exposureItem
+        || generation != m_generation || profileEpoch != m_profiles.snapshot().epoch || !window->isExposed()
+        || !context->inputEngine() || context->inputEngine()->inputMethod() != this
+        || QGuiApplication::focusObject() != item || predictionPolicy().source == PredictionPolicySource::Unavailable
+        || m_policySource != item || m_liveQueryActive) return;
+    auto *ime = QGuiApplication::inputMethod();
+    if (!ime || m_cacheSyncActive) return;
+    // WHY guard: Qt answers this update by calling our update(), which must not start another refresh.
+    m_cacheSyncActive = true;
+    ime->update(Qt::ImSurroundingText | Qt::ImCursorPosition | Qt::ImAnchorPosition);
+    if (self) m_cacheSyncActive = false;
+    if (!self || !context || !item || !window || generation != m_generation
+        || profileEpoch != m_profiles.snapshot().epoch || context != inputContext()
+        || item != context->inputItem() || window != item->window()
+        || !context->inputEngine() || context->inputEngine()->inputMethod() != this) return;
+}
+
+// WHY at every owned input point, not only on Expose: stock Plasma Keyboard forwards an app's text
+// change to Qt only while its window is exposed. On ARM Plasma Mobile that drops echoes mid-word, so
+// Qt's cached copy lags the field: the typed word cannot be matched and current-word taps and
+// next-word predictions silently do nothing. Measured on the ARM guest: the same refresh at each key
+// press restored "hello" + Space -> "the | you | I" -> "hello you". All Expose-hook gates still apply.
+void SwipeInputMethod::syncInputCache()
+{
+    auto *ic = inputContext();
+    QPointer<QQuickItem> item(ic ? qobject_cast<QQuickItem *>(ic->inputItem()) : nullptr);
+    if (!ic || !item || item != m_exposureItem) return;
+    refreshExposedInputCache(ic, item, item->window(), m_generation, m_profiles.snapshot().epoch);
+}
+
 void SwipeInputMethod::ensureContextConnections()
 {
+    watchInputWindow();
     auto *ic = inputContext();
     if (!ic || m_contextConnected) return;
     // WHY first key/swipe, not construction: Qt attaches the input context later.
     connect(ic, &QVirtualKeyboardInputContext::inputItemChanged, this, [this, ic] {
         QPointer<SwipeInputMethod> self(this);
         setPredictionPolicySource(ic->inputItem());
+        if (!self) return;
+        watchInputWindow();
         if (self) reset();
     });
     connect(ic, &QVirtualKeyboardInputContext::inputMethodHintsChanged, this, &SwipeInputMethod::reset);
+    connect(ic, &QVirtualKeyboardInputContext::preeditTextChanged, this, &SwipeInputMethod::reset);
     connect(ic, &QVirtualKeyboardInputContext::selectedTextChanged, this, [this] {
         QPointer<SwipeInputMethod> self(this);
         const bool safe=safeContext();
@@ -639,11 +813,17 @@ void SwipeInputMethod::ensureContextConnections()
                         &QVirtualKeyboardInputContext::surroundingTextChanged}) {
         connect(ic, signal, this, [this] {
             QPointer<SwipeInputMethod> self(this);
-            const bool safe=safeContext();
+            const bool safe=safePredictionContext();
             if (!self) return;
-            if (!safe) { invalidatePredictions(); return; }
+            if (!safe) { m_ownedHistory.clear(); m_typedWord.clear(); m_typedPress.clear(); invalidatePredictions(); return; }
             const bool visible = !m_nextWord.candidates().isEmpty();
-            m_nextWord.editorChanged(predictionEditor(), predictionPolicy(), m_profiles.snapshot().epoch, predictionCapable());
+            const auto editor=predictionEditor();
+            m_ownedHistory.changed(editor,predictionPolicy(),m_profiles.snapshot().epoch);
+            const bool typedVisible=!m_typedWord.candidates().isEmpty();
+            m_typedWord.changed(editor,predictionPolicy(),m_profiles.snapshot().epoch);
+            if(typedVisible && m_typedWord.candidates().isEmpty())refreshGuessBar();
+            if(!self)return; // candidate notifications may synchronously delete the method
+            m_nextWord.editorChanged(editor, predictionPolicy(), m_profiles.snapshot().epoch, predictionCapable());
             if (!m_nextWord.pendingOrVisible()) {
                 m_predictionWorker.invalidate();
                 if (m_predictionModelState==swipekb::PredictionModelState::Loading)
@@ -662,10 +842,55 @@ EditorSnapshot SwipeInputMethod::predictionEditor() const
     auto *ic = inputContext();
     if (!ic) return {};
     return {ic->surroundingText(), ic->cursorPosition(), ic->anchorPosition(),
-        ic->inputItem() && ic->inputEngine()->inputMethod() == this, ic->inputMethodHints()};
+        ic->inputItem() && ic->inputEngine()->inputMethod() == this, ic->inputMethodHints(), !ic->preeditText().isEmpty()};
 }
 
-PredictionPolicy SwipeInputMethod::predictionPolicy() const { return readPredictionPolicy(m_policySource); }
+PredictionPolicy SwipeInputMethod::predictionPolicy() const
+{
+    return readPredictionPolicy(m_policySource,
+        qEnvironmentVariable("SWIPEKB_NATIVE_PREDICTION") == QStringLiteral("owned-history-v1"), m_nativePolicyEpoch);
+}
+
+bool SwipeInputMethod::safePredictionContext()
+{
+    QPointer<SwipeInputMethod> self(this);
+    if (!safeContext() || !self) return false;
+    QPointer<QVirtualKeyboardInputContext> ic(inputContext());
+    QPointer<QObject> item(ic ? ic->inputItem() : nullptr);
+    const int generation=m_generation;
+    const auto deny=Qt::ImhSensitiveData | Qt::ImhHiddenText | Qt::ImhUrlCharactersOnly
+        | Qt::ImhEmailCharactersOnly | Qt::ImhDigitsOnly | Qt::ImhFormattedNumbersOnly
+        | Qt::ImhDialableCharactersOnly | Qt::ImhDate | Qt::ImhTime | Qt::ImhPreferNumbers;
+    // WHY query before obtaining ANY validation text. Native mode cannot reconstruct
+    // raw NoCompletion, but must honor every observable cached AND live veto.
+    if (!ic || !item || (ic->inputMethodHints() & deny) || !ic->preeditText().isEmpty()) return false;
+    const auto policy=predictionPolicy();
+    m_liveQueryActive=true;
+    const auto live=queryLiveHints(item);
+    if (!self) return false;
+    m_liveQueryActive=false;
+    return ic && item && ic==inputContext() && item==ic->inputItem() && generation==m_generation
+        && policy==predictionPolicy() && live.alive && live.valid && !(live.hints & deny) && !(ic->inputMethodHints() & deny)
+        && ic->preeditText().isEmpty()
+        && ((policy.source==PredictionPolicySource::OwnedHistory && m_policySource==item)
+            || (policy.source==PredictionPolicySource::RawBridge && policy.version==1 && policy.contextId
+                && policy.contentTypeReceived && policy.completionAllowed && (policy.purpose==0 || policy.purpose==1)
+                && (!((ic->inputMethodHints() | live.hints) & Qt::ImhNoPredictiveText) || policy.syntheticNoPredictiveText)));
+}
+
+void SwipeInputMethod::stageOwnedCommit(const CommitPlan &plan, bool correction)
+{
+    if (predictionPolicy().source!=PredictionPolicySource::OwnedHistory) return;
+    QPointer<SwipeInputMethod> self(this);
+    if (!safePredictionContext() || !self) { if (self) m_ownedHistory.clear(); return; }
+    const auto previous=predictionEditor();
+    auto expected=previous;
+    const int start=expected.cursor+plan.replaceFrom;
+    if (start<0 || start+plan.replaceLength>expected.text.size()) { m_ownedHistory.clear(); return; }
+    expected.text.replace(start,plan.replaceLength,plan.text);
+    expected.cursor=start+plan.text.size(); expected.anchor=expected.cursor;
+    m_ownedHistory.word(previous,expected,predictionPolicy(),m_profiles.snapshot().epoch,plan.text.trimmed(),correction);
+}
 
 void SwipeInputMethod::setPredictionPolicySource(QObject *source)
 {
@@ -673,12 +898,11 @@ void SwipeInputMethod::setPredictionPolicySource(QObject *source)
     if (m_policySource) disconnect(m_policySource, nullptr, this, nullptr);
     m_policySource = source;
     if (source) {
-        // WHY versioned property + notify signal: stock backends have neither and
-        // remain prediction-unavailable; purpose-only changes cannot hide in Qt hints.
+        // WHY retain even an unbridged proxy identity: known stock native history
+        // is a distinct mode, while a present raw bridge always remains authoritative.
         const auto signal = source->metaObject()->indexOfSignal("swipePredictionPolicyChanged()");
         if (signal >= 0)
             connect(source, SIGNAL(swipePredictionPolicyChanged()), this, SLOT(predictionPolicyChanged()));
-        else m_policySource = nullptr;
         connect(source, &QObject::destroyed, this, [this] { m_policySource = nullptr; predictionPolicyChanged(); });
     }
     predictionPolicyChanged();
@@ -706,27 +930,45 @@ void SwipeInputMethod::invalidatePredictions()
 
 bool SwipeInputMethod::predictionCapable() const
 {
-    return isReady() && m_profiles.snapshot().effectiveLanguage == QStringLiteral("en") && m_profiles.snapshot().capabilities.nextWord
-        && !m_recognizer->usingNgram() && m_profiles.snapshot().assets.contains(QStringLiteral("contextModel"))
+    return isReady() && m_profiles.snapshot().capabilities.nextWord
+        && m_profiles.snapshot().assets.contains(QStringLiteral("contextModel"))
         && m_profiles.snapshot().assets.contains(QStringLiteral("contextVocab"));
 }
 
 void SwipeInputMethod::observePredictionEcho()
 {
     QPointer<SwipeInputMethod> self(this);
-    const bool safe=safeContext();
+    const bool safe=safePredictionContext();
     if (!self) return;
-    if (!safe) { invalidatePredictions(); return; }
+    if (!safe) { m_ownedHistory.clear(); m_typedWord.clear(); m_typedPress.clear(); invalidatePredictions(); return; }
     const auto old = m_nextWord.candidates();
-    const auto request = m_nextWord.observe(predictionEditor(), predictionPolicy(), m_profiles.snapshot().epoch, predictionCapable());
+    const auto editor=predictionEditor();
+    m_ownedHistory.observe(editor,predictionPolicy(),m_profiles.snapshot().epoch);
+    const auto oldTyped=m_typedWord.candidates();
+    if(m_typedWord.observe(editor,predictionPolicy(),m_profiles.snapshot().epoch) && isReady()) {
+        QStringList words;
+        for(const auto &candidate:m_recognizer->complete(m_typedWord.token().toStdString(),12))words<<QString::fromStdString(candidate.word);
+        m_typedWord.suggest(swipekb::rankRegionalCandidates(words,m_profiles.snapshot().requestedLocale,3));
+    }
+    if(oldTyped!=m_typedWord.candidates())refreshGuessBar();
+    if(!self)return;
+    const auto request = m_nextWord.observe(editor, predictionPolicy(), m_profiles.snapshot().epoch, predictionCapable());
     if (request) {
         m_predictionModelState=swipekb::PredictionModelState::Loading;
         emit diagnosticsChanged();
         if (!self || request->profileEpoch!=m_profiles.snapshot().epoch) return;
         const auto model = m_profiles.snapshot().assets.value(QStringLiteral("contextModel"));
         const auto vocab = m_profiles.snapshot().assets.value(QStringLiteral("contextVocab"));
-        m_predictionWorker.submit({*request, model.path, vocab.path,
-            swipekb::textContextWords(m_nextWord.textBeforeCursor()), model.sha256 + vocab.sha256});
+        const auto words=predictionPolicy().source==PredictionPolicySource::OwnedHistory
+            ? m_ownedHistory.context() : swipekb::textContextWords(m_nextWord.textBeforeCursor());
+        // WHY never use a native validation snapshot as model input, including pasted prefixes.
+        if (!words.isEmpty()) m_predictionWorker.submit({*request, model.path, vocab.path,
+            words, model.sha256 + vocab.sha256});
+        else {
+            m_nextWord.invalidate(); m_predictionWorker.invalidate();
+            m_predictionModelState=swipekb::PredictionModelState::NotRequested;
+            emit diagnosticsChanged();
+        }
     } else if (!m_nextWord.pendingOrVisible()) {
         m_predictionWorker.invalidate();
         if (m_predictionModelState==swipekb::PredictionModelState::Loading) {
@@ -746,13 +988,20 @@ CaseMode SwipeInputMethod::caseMode() const
 
 QVariantMap SwipeInputMethod::diagnostics() const
 {
-    const auto editor=predictionEditor();
+    // WHY metadata-only: diagnostics must never read surroundingText, even when
+    // invoked in a sensitive field without a live authorization query.
+    const auto *ic=inputContext();
     const auto policy=predictionPolicy();
     swipekb::PredictionDiagnosticContext context;
-    context.hasBridge=policy.version==1 && m_policySource;
-    context.hasContext=editor.focused && (!context.hasBridge || policy.contextId!=0);
+    context.ownedHistory=policy.source==PredictionPolicySource::OwnedHistory;
+    context.hasBridge=policy.source==PredictionPolicySource::RawBridge && policy.version==1 && m_policySource;
+    context.hasContext=ic && ic->inputItem() && ic->inputEngine()->inputMethod()==this;
     context.policyKnown=policy.contextId!=0 && policy.contentTypeReceived;
-    context.fieldAllowed=NextWordSession::allowed(editor,policy);
+    const auto deny=Qt::ImhSensitiveData | Qt::ImhHiddenText | Qt::ImhUrlCharactersOnly | Qt::ImhEmailCharactersOnly
+        | Qt::ImhDigitsOnly | Qt::ImhFormattedNumbersOnly | Qt::ImhDialableCharactersOnly | Qt::ImhDate | Qt::ImhTime | Qt::ImhPreferNumbers;
+    context.fieldAllowed=context.hasContext && !(ic->inputMethodHints() & deny) && ic->preeditText().isEmpty()
+        && ic->cursorPosition()>=0 && ic->cursorPosition()==ic->anchorPosition()
+        && (context.ownedHistory || (context.policyKnown && policy.completionAllowed && (policy.purpose==0 || policy.purpose==1)));
     context.ngramOnly=(m_recognizer && m_recognizer->usingNgram());
     context.model=m_predictionModelState;
     const auto profile=m_profiles.snapshot();
@@ -766,6 +1015,7 @@ QVariantMap SwipeInputMethod::diagnostics() const
 
 QString SwipeInputMethod::predictionSelectionToken() const
 {
+    if(!m_typedWord.candidates().isEmpty())return m_typedWord.selectionToken();
     const auto stamp = m_nextWord.candidateStamp();
     if (!stamp) return {};
     return QString::number(stamp->profileEpoch) + ':' + QString::number(stamp->editorEpoch) + ':' + QString::number(stamp->requestId);
@@ -776,19 +1026,29 @@ quint64 SwipeInputMethod::beginPredictionSelection(const QString &token)
     // WHY capture at pointer/key press, never synthesize a current stamp inside
     // the index-only Qt selection callback after a candidate refresh.
     ++m_predictionPressId;
+    const quint64 pressId=m_predictionPressId;
+    m_typedPress=!token.isEmpty() && token==m_typedWord.selectionToken()?token:QString();
     m_predictionTap = !token.isEmpty() && token == predictionSelectionToken() ? m_nextWord.candidateStamp() : std::nullopt;
-    return m_predictionPressId;
+    // WHY after freezing the pressed set: the release check must compare against the live field. If
+    // the refresh changes the suggestions under the finger, the frozen token no longer matches and
+    // the tap is refused rather than inserting a word the person did not see.
+    QPointer<SwipeInputMethod> self(this);
+    syncInputCache();
+    if (!self) return 0;
+    qCInfo(lcSwipe) << "candidate press: typed" << !m_typedPress.isEmpty() << "next" << m_predictionTap.has_value();
+    return pressId;
 }
 
 void SwipeInputMethod::endPredictionSelection(quint64 pressId)
 {
     // WHY identify the press too: a deferred cleanup from an old gesture must not
     // revoke a fresh press on an unchanged candidate set.
-    if (pressId == m_predictionPressId) m_predictionTap.reset();
+    if (pressId == m_predictionPressId) {m_predictionTap.reset();m_typedPress.clear();}
 }
 
 QStringList SwipeInputMethod::barCandidates() const
 {
+    if(!m_typedWord.candidates().isEmpty())return m_typedWord.candidates();
     return m_session.isActive() ? m_session.alternatives() : m_nextWord.candidates();
 }
 

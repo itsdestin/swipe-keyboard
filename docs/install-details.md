@@ -1,13 +1,13 @@
 # Setup and recovery details
 
-For download links and short installation steps, see the [main page](../README.md#install). This page describes the **v0.2.0** Deck Flatpak and Fedora package. [The r3 release notes](releases/v0.1.0-r3.md) describe the older, English-only native downloads.
+For download links and short installation steps, see the [main page](../README.md#install). This page describes **v0.3.0-1**: the Deck Flatpak, Arch/CachyOS package, and Fedora x86_64 and ARM64 packages. [The r3 release notes](releases/v0.1.0-r3.md) describe the older, English-only native downloads.
 
 ## Verify a download
 
-Download [SHA256SUMS.txt](https://github.com/itsdestin/swipe-keyboard/releases/download/v0.2.0/SHA256SUMS.txt) into the same folder as the package. Open a terminal there and run:
+Download [SHA256SUMS](https://github.com/itsdestin/swipe-keyboard/releases/download/v0.3.0-1/SHA256SUMS) into the same folder as the package. Open a terminal there and run:
 
 ```sh
-sha256sum --check --ignore-missing SHA256SUMS.txt
+sha256sum --check --ignore-missing SHA256SUMS
 ```
 
 Your downloaded package should report **OK**. Do not install a mismatching file. A checksum checks the file against the published list; it is not a package-signing service.
@@ -17,6 +17,8 @@ Your downloaded package should report **OK**. Do not install a mismatching file.
 ### Installation and selection
 
 Use **Desktop Mode** and the per-user `.flatpak` download. It bundles its own keyboard backend and uses the KDE Flatpak runtime instead of replacing SteamOS Qt/Plasma libraries. Flatpak may download that runtime on first installation; normal recognition does not require network access.
+
+Before activation, run `flatpak run --user --command=swipe-keyboard-setup org.itsdestin.SwipeKeyboard` in Konsole. The read-only guide explains **“You may notice…”** appearance/settings/suggestion differences and asks **[y/N]** before showing setup steps. It never changes host settings: the bundle is a separate Plasma Keyboard, not a system-library replacement or removal of Maliit. Installing it alone does not select it.
 
 The keyboard entry appears in **System Settings → Virtual Keyboard**, not as an ordinary application-menu launch. Record the previous selection before choosing Swipe Keyboard. If the entry is missing after installation, log out and back into Desktop Mode, then reopen Settings.
 
@@ -34,8 +36,8 @@ The bundle requests ordinary Wayland and inherited Wayland-socket access. It doe
 
 ### Updates and removal
 
-- **Keyboard update:** download the newer bundle and repeat `flatpak install --user ./org.itsdestin.SwipeKeyboard.flatpak`. Keep the existing selection unless release instructions say otherwise. The local bundle is not an automatic keyboard-update feed; `flatpak update` can update its runtime but is not a substitute for downloading a new keyboard release.
-- **SteamOS update:** use the ordinary supported SteamOS update mechanism. Do not unlock the root filesystem, install this project's native Arch package on SteamOS, or replace system libraries. The [release notes](releases/v0.2.0.md) distinguish tested reboot behavior from OS-update survival; do not assume the latter from the former.
+- **Keyboard update:** download the newer bundle and repeat `flatpak install --user ./swipe-keyboard-0.3.0-1-x86_64.flatpak`. Keep the existing selection unless release instructions say otherwise. The local bundle is not an automatic keyboard-update feed; `flatpak update` can update its runtime but is not a substitute for downloading a new keyboard release.
+- **SteamOS update:** use the ordinary supported SteamOS update mechanism. Do not unlock the root filesystem, install this project's native Arch package on SteamOS, or replace system libraries. The [release notes](releases/v0.3.0-1.md) distinguish tested reboot behavior from OS-update survival; do not assume the latter from the former.
 - **Removal:** restore the previous entry—or None, if that was the original setting—in **System Settings → Virtual Keyboard**, then run `flatpak uninstall --user org.itsdestin.SwipeKeyboard` without sudo. There is **no automatic selection restoration** for this bundle.
 - **Already uninstalled:** select the previous/stock input method manually in Settings. Reinstall the bundle if you want Swipe Keyboard again. Do not delete all KDE keyboard settings to recover one selection.
 
@@ -43,15 +45,23 @@ Private app data is under `~/.var/app/org.itsdestin.SwipeKeyboard/`; the keyboar
 
 **Gaming Mode is not supported.** Steam's built-in Gaming Mode keyboard is a different integration. Installing the Desktop bundle does not replace it. Physical Steam Deck hardware performance is not established by our virtual-machine checks.
 
-## Fedora and Plasma Mobile native package
+## Native packages: Arch/CachyOS and Fedora Plasma Mobile
 
-The supplied RPM is for **Fedora 44, x86_64**, with KDE Plasma Wayland and **Plasma Keyboard 6.7.x/6.8.x**. Maliit is not interchangeable with Plasma Keyboard. The current native build uses **Qt 6.11.2**; package dependencies and `swipe-keyboard check` must both succeed. Do not ignore library dependencies or force the plugin to load on an older desktop.
+Native packages require KDE Plasma Wayland and **Plasma Keyboard 6.7.x/6.8.x**, not Maliit. The release provides **Arch/CachyOS x86_64**, **Fedora 44 x86_64** and **Fedora 44 ARM64/aarch64** packages. The package records its build ABI; dependency resolution and `swipe-keyboard check` must both succeed. Do not ignore library dependencies or force a plugin onto an incompatible desktop.
 
-**Plasma Mobile** describes the KDE shell. It does not mean Android/iOS support or an ARM-phone build. No ARM package is supplied in this release, and x86 virtual-machine results do not certify phone hardware, battery use or touch ergonomics.
+For Plasma Mobile on ARM64, use the **aarch64 Fedora RPM** only on a compatible Fedora 44/glibc system. `uname -m` reports the CPU architecture. It is not an ARM32, Android/iOS or postmarketOS/Alpine APK package; other distributions, especially musl-based ones, need their own builds. ARM64 is a required release target and needs its own build/load and Plasma Mobile input acceptance, not an inference from x86 testing. Emulated ARM checks do not establish physical-phone performance, battery use or touch ergonomics.
 
 `swipe-keyboard check` reports versions, session and selection, then checks native loading before activation changes settings. It is not a touchscreen or universal application-compatibility test. Run both `check` and `enable` inside the logged-in KDE session, as the desktop user and without sudo.
 
-Native packages use the distro's Plasma Keyboard backend. Contextual next-word prediction stays disabled unless that backend provides the required privacy-policy bridge. The Deck bundle includes that bridge; do not patch system backend files manually to obtain predictions.
+Default activation changes only the input method; it does **not** write `VirtualKeyboardMode`, change the live mode, or capture/modify a tablet manager's desktop/tablet baseline. Disable likewise leaves visibility alone for this policy-preserving activation. This respects convertible mode 0 with a physical keyboard, tablet mode 1, and existing touch-only policies. If visibility changes later through your manager or KDE Settings, those changes remain authoritative.
+
+For an explicit always-available preference, use `enable --always-available` on initial activation. This separately opts into mode 1; setup records ownership for guarded restoration but never edits an external tablet manager's configuration. Already-enabled setups must disable before opting into a different policy; no old journal is silently reinterpreted. Older records retain their original provenance safeguards, so this update does not automatically reverse an already repaired device or invent a missing baseline.
+
+Before activation, `enable` displays the effective current and proposed input-method settings and whether visibility is **preserved** or explicitly changed, explains likely suggestion/Backspace differences, then asks **[y/N]**. Declining, an empty response, or a noninteractive invocation without `--yes` leaves settings untouched. Automated callers may pass `enable --yes` as explicit consent; compatibility and ownership checks still apply. Normal compositor launches never prompt. The explicit `disable` command remains the restoration action and retains its ownership safeguards.
+
+Native packages keep the distro's Plasma Keyboard backend. On the supported stock backend, next-word prediction uses up to 20 confirmed words entered through this keyboard, held only in memory. Preexisting or pasted editor text is not fed to the native prediction model. Bounded surrounding text is still read for exact insertion/replacement validation after live and cached field checks.
+
+Stock Plasma Keyboard hides some application completion preferences, so native mode cannot independently honor every raw completion opt-out or distinguish every name/terminal purpose. Password, sensitive, restricted, selected and composing fields remain blocked by the available public checks. Diagnostics identify `keyboard-owned-history` and leave raw policy unknown; they do not manufacture affirmative application permission. The bundled Deck backend supplies a raw-policy bridge and retains its stricter application-policy checks. Any present bridge denial or invalid bridge never falls through to native history. Do not patch system backend files to obtain predictions.
 
 Do not upgrade your whole desktop solely to match a build machine, downgrade individual libraries or force package dependencies. If a desktop update moves Plasma Keyboard outside the accepted series and no compatible package exists, disable and remove the extension before that update.
 
@@ -71,13 +81,15 @@ For the **native package**, KDE may still be configured to start a missing launc
 
 If a desktop upgrade prevents reinstalling, select stock **Plasma Keyboard** in **System Settings → Virtual Keyboard**. That restores a usable selection but does not reconstruct all prior settings.
 
-Preserve `~/.local/share/swipe-keyboard/setup-state.json` (or its XDG equivalent). Do not delete the restoration record or guess previous values. Keep the exact error if disable fails and retry from the original user's KDE session without sudo. For Flatpak recovery, use the [Deck procedure above](#steam-deck-flatpak), not the native setup record.
+Preserve `~/.local/share/swipe-keyboard/setup-state.json` (or its XDG equivalent). Older setup records may contain effective values without proving whether a raw user key existed. If disable reports missing legacy provenance, it deliberately refuses to guess; retain the record and choose your intended keyboard preferences explicitly. Do not delete the restoration record or guess previous values. Keep the exact error if disable fails and retry from the original user's KDE session without sudo. For Flatpak recovery, use the [Deck procedure above](#steam-deck-flatpak), not the native setup record.
 
 ## Languages, suggestions and application limits
 
 - Supported language profiles are English (US/UK), Spanish, French and German. Enable the languages in the normal **On-Screen Keyboard** settings, then use the globe key to switch. Maximize the settings window if its header/footer hide the language list. Locale does not force a different physical layout.
 - Missing/incompatible language packs disable swipe recognition for that profile while retaining stock tapping. There is no silent English fallback.
-- English next-word suggestions require the bundled/compatible backend's privacy support. They insert after a confirmed word; correction choices replace the last word. Non-English profiles do not use English predictions.
+- Next-word suggestions are available in English, Spanish, French and German after a confirmed tapped or swiped word. With three valid suggestions, the strongest is centered, with dividers only between words. Native mode uses only confirmed keyboard-owned words as model input, as described above; no profile silently falls back to English.
+- Spanish (Spain/Mexico), French and German use small statistical models. These are early baselines: recommendations can be repetitive or less natural than English. Spain and Mexico share the same Spanish model; region-specific prediction quality is not claimed.
+- While tapping an unfinished word, completions and spelling corrections use the selected language's dictionary. Your literal spelling remains selectable; only tapping a suggestion replaces it. Space never autocorrects the word, and selecting a completion does not add a space automatically.
 - French ligature recognition remains limited: the tested short `cour`-shaped gesture does not recognize **cœur**; the `coeur` digraph gesture does. Tapping and alternatives remain useful fallbacks. Synthetic fixture results are not human-language accuracy measurements.
 - Keyboard appearance depends on the application's Wayland text-input support. Native Wayland success does not establish XWayland or every browser/Flatpak application's compatibility.
 - Alternatives and whole-word deletion require reliable field/cursor/selection information. Changed or unavailable context intentionally clears replacement authority or falls back to ordinary deletion.
@@ -98,6 +110,6 @@ Never send passwords, personal typing, learned words, recordings or unreviewed l
 
 ## Source and licenses
 
-Use the complete corresponding-source archive attached to the [v0.2.0 release](https://github.com/itsdestin/swipe-keyboard/releases/tag/v0.2.0) for rebuilding. GitHub's automatic “Source code” ZIP/tar downloads omit submodules. The Fedora `.src.rpm`, when supplied, is for rebuilding, not installation. See [CONTRIBUTING.md](../CONTRIBUTING.md).
+Use the complete corresponding-source archive attached to the [v0.3.0-1 release](https://github.com/itsdestin/swipe-keyboard/releases/tag/v0.3.0-1) for rebuilding. GitHub's automatic “Source code” ZIP/tar downloads omit submodules. The Fedora `.src.rpm`, when supplied, is for rebuilding, not installation. See [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 FUTO's swipe-library is GPL-3.0; model weights use the separate FUTO Model Weights License 1.0. Dictionaries incorporate AOSP word lists (Apache-2.0) and wordfreq data (CC-BY-SA-4.0). Generated dictionary data retains CC-BY-SA attribution/terms, including language-pack transformation notices. Preserve all supplied terms, attribution and source obligations. See [NOTICE](../packaging/NOTICE) and each pack's notices. Qt/KDE components retain their licenses. Optional development models have separate terms and are not part of the base release.

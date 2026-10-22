@@ -12,7 +12,8 @@ if git -C "$ROOT" submodule status --recursive | grep -q '^[-+U]'; then
 fi
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
-DEST="$TMP/swipe-keyboard-0.2.0"
+VERSION="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$ROOT/packaging/release-targets.json")"
+DEST="$TMP/swipe-keyboard-$VERSION"
 mkdir "$DEST"
 # WHY a tracked-file allowlist: a directory blacklist can leak personal untracked files or
 # previously built packages. Read current contents only for explicitly selected Git source paths.
@@ -37,6 +38,6 @@ mkdir -p "$DEST/packaging"
     printf '\nChanges from recorded parent revision:\n'
     git -C "$ROOT" diff --binary HEAD
 } > "$DEST/packaging/SOURCE-PROVENANCE.txt"
-tar -C "$TMP" -czf "$OUT/swipe-keyboard-0.2.0.tar.gz" swipe-keyboard-0.2.0
-sha256sum "$OUT/swipe-keyboard-0.2.0.tar.gz" > "$OUT/swipe-keyboard-0.2.0.tar.gz.sha256"
-printf 'Source snapshot: %s\n' "$OUT/swipe-keyboard-0.2.0.tar.gz"
+tar -C "$TMP" -czf "$OUT/swipe-keyboard-$VERSION.tar.gz" "swipe-keyboard-$VERSION"
+sha256sum "$OUT/swipe-keyboard-$VERSION.tar.gz" > "$OUT/swipe-keyboard-$VERSION.tar.gz.sha256"
+printf 'Source snapshot: %s\n' "$OUT/swipe-keyboard-$VERSION.tar.gz"

@@ -29,6 +29,7 @@ FRENCH_ELISIONS = {
     'histoire': 'l’histoire', 'ami': 'l’ami', 'amie': 'l’amie',
     'accord': 'd’accord', 'abord': 'd’abord',
 }
+language_codes = {'es':'spa','fr':'fra','de':'deu'}
 ALPHABETS = {
     'es': 'abcdefghijklmnopqrstuvwxyzáéíóúüñ',
     'fr': 'abcdefghijklmnopqrstuvwxyzàâéèêëîïôùûüÿçœæ',
@@ -119,11 +120,21 @@ def generate(wheel, language, encoder_root, cc_license, out, maximum=100000):
     # Full upstream metadata retains source attribution, SUBTLEX conditions and citation, not only a license ID.
     license_bytes = (b'Language derived wordfreq 3.1.1 data. Transformation: '+TRANSFORMATION.encode()+
         b'; NFC, declared alphabet/token filtering, frequency scaling; bounded common spelling, noun-case and elision errata. Data CC-BY-SA-4.0.\n'+cc+b'\n'+metadata+b'\n'+apache)
+    context = lock['multilingual_context_models'][language]
+    model_path = ROOT/'packaging/language-models'/f'{language}.ngram'
+    vocab_path = ROOT/'packaging/language-models'/f'{language}.vocab.tsv'
+    attribution_path = ROOT/'packaging/language-models'/f'{language}-CONTRIBUTORS.txt'
+    context_notice_path = ROOT/'packaging/language-models/TATOEBA-CC-BY-2.0-FR.txt'
+    context_model, context_vocab, contributors, context_notice = (p.read_bytes() for p in (model_path,vocab_path,attribution_path,context_notice_path))
+    if (sha(context_model)!=context['modelSha256'] or sha(context_vocab)!=context['vocabSha256'] or
+        sha(contributors)!=context['contributorsSha256'] or
+        sha(context_notice)!=lock['tatoeba_license_notice_sha256']):
+        raise ValueError('multilingual context model, vocabulary or attribution pin mismatch')
     files = {f'{language}.combined': dictionary, f'{language}-LICENSE.txt': license_bytes,
              'encoder.pte': encoder, 'metadata.json': metadata_bytes, 'FUTO-MODEL-LICENSE.md': terms,
-             # WHY standalone pinned terms: the resolver must authenticate CC terms independently of
-             # an arbitrary manifest's hash of composite attribution/transform text.
-             'CC-BY-SA-4.0.txt': cc}
+             'CC-BY-SA-4.0.txt': cc,
+             f'{language}.ngram':context_model, f'{language}.vocab.tsv':context_vocab,
+             f'{language}-CONTRIBUTORS.txt':contributors, 'TATOEBA-CC-BY-2.0-FR.txt':context_notice}
     def asset(name, compatibility):
         data = files[name]
         result = {'path': name, 'sha256': sha(data), 'size': len(data), 'compatibility': compatibility}
@@ -131,7 +142,7 @@ def generate(wheel, language, encoder_root, cc_license, out, maximum=100000):
             result['metadataSha256']=sha(metadata_bytes)
         return result
     manifest = {
-        'schema': 1, 'id': f'wordfreq-{language}', 'version': '3.1.1-v3-orthography1',
+        'schema': 2, 'contextFormat': 'swk-ngram-v2', 'id': f'wordfreq-{language}', 'version': '3.1.1-v3-tatoeba1',
         'language': language, 'locales': [language, f'{language}-*'],
         'layouts': ['qwerty', 'azerty', 'qwertz'], 'modes': ['Latin'],
         'scripts': ['Latn'], 'futoRevision': '1b13f2c85d6b347f6ea3fbc4b3aaf01fce42429a',
@@ -142,8 +153,15 @@ def generate(wheel, language, encoder_root, cc_license, out, maximum=100000):
                     'sha256': sha(license_bytes), 'termsPath': 'CC-BY-SA-4.0.txt', 'termsSha256': sha(cc), 'attribution': 'Robyn Speer / wordfreq 3.1.1; source notices in license file'},
         'encoderLicense': {'path': 'FUTO-MODEL-LICENSE.md', 'sha256': sha(terms)},
         'source': lock['wordfreq_wheel'], 'modelRevision': lock['model_revision'],
+        'contextLicense': {'id':'CC-BY-2.0-FR', 'attribution':'Tatoeba contributors; full names are listed in the CONTRIBUTORS file',
+            'attributionPath':f'{language}-CONTRIBUTORS.txt', 'attributionSha256':sha(contributors),
+            'termsPath':'TATOEBA-CC-BY-2.0-FR.txt','termsSha256':sha(context_notice),
+            'sourceUrl':f'https://downloads.tatoeba.org/exports/per_language/{language_codes[language]}/{language_codes[language]}_sentences.tsv.bz2',
+            'sourceSha256':context['corpusSha256'], 'termsUrl':'https://tatoeba.org/en/terms_of_use'},
         'assets': {'encoder': asset('encoder.pte', 'layout-agnostic'),
-                   'dictionary': asset(f'{language}.combined', language)},
+                   'dictionary': asset(f'{language}.combined', language),
+                   'contextModel': {'path':f'{language}.ngram','sha256':sha(context_model),'size':len(context_model),'compatibility':f'{language}:context-ngram-v1'},
+                   'contextVocab': {'path':f'{language}.vocab.tsv','sha256':sha(context_vocab),'size':len(context_vocab),'compatibility':f'{language}:context-ngram-v1'}},
     }
     encoded = (json.dumps(manifest, ensure_ascii=False, sort_keys=True, indent=2)+'\n').encode()
     files[f'{language}.json'] = encoded

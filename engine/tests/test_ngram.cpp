@@ -62,6 +62,7 @@ TEST(NgramAlpha, LowerCaseLettersOnly)
     EXPECT_EQ(NgramLM::alphaForm("well-known,"), "wellknown");
     EXPECT_EQ(NgramLM::alphaForm("don’t"), "dont");   // curly apostrophe is punctuation too
     EXPECT_EQ(NgramLM::alphaForm("café"), "café");
+    EXPECT_EQ(NgramLM::alphaForm("Straße"), "straße"); // Lowercase preserves ß as the model token, unlike full case folding.
     EXPECT_EQ(NgramLM::alphaForm("1984"), "");
 }
 

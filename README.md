@@ -1,121 +1,143 @@
 # Swipe Keyboard for KDE Plasma
 
-**Swipe across letters to type a word, tap an alternative to correct it, or type normally.** English (US/UK), Spanish, French and German. Recognition runs on your device; recording is off by default.
+Swipe across letters to type, or tap normally. English (US/UK), Spanish, French and German. Works locally; typing recording is off by default.
 
-[**Download v0.2.0**](https://github.com/itsdestin/swipe-keyboard/releases/tag/v0.2.0) · [Install](#install) · [Troubleshooting](#troubleshooting) · [Report a bug](https://github.com/itsdestin/swipe-keyboard/issues/new?template=bug.yml)
+**Test release v0.3.0-1 · KDE Plasma Wayland**
 
-![Swipe typing and word alternatives in a Fedora KDE test VM](docs/images/swipe-typing.png)
-
-## Choose your download
-
-This is a **test release for KDE Plasma Wayland**. Application text-input support varies.
-
-| Your system | Package |
-|---|---|
-| **Steam Deck — Desktop Mode** | [org.itsdestin.SwipeKeyboard.flatpak](https://github.com/itsdestin/swipe-keyboard/releases/download/v0.2.0/org.itsdestin.SwipeKeyboard.flatpak) |
-| **Fedora 44 KDE / Plasma Mobile, x86_64** | [swipe-keyboard-0.2.0-1.fc44.x86_64.rpm](https://github.com/itsdestin/swipe-keyboard/releases/download/v0.2.0/swipe-keyboard-0.2.0-1.fc44.x86_64.rpm) |
-
-- **Deck:** Desktop Mode only. **Gaming Mode is not supported.** Use the Flatpak, not the Fedora or Arch package. No SteamOS root unlock is needed.
-- **Fedora:** requires Plasma Keyboard 6.7.x/6.8.x—not Maliit—and compatible Qt/glibc libraries. The RPM does not install or upgrade your desktop.
-- **Mobile means Plasma Mobile**, not Android or iOS. These downloads are **x86_64 only; there is no ARM-phone package**. See [tested configurations and limitations](docs/releases/v0.2.0.md).
-- **Arch/CachyOS:** the [previous r3 packages](https://github.com/itsdestin/swipe-keyboard/releases/tag/v0.1.0-r3) remain available with their older English-only feature set. Do not install the Fedora RPM on Arch.
-
-Models, dictionaries and notices are included. You do not need a source build, source archive or `.src.rpm` to install. [Optional checksum verification](docs/install-details.md#verify-a-download).
+Choose your platform: [Steam Deck](#steam-deck--desktop-mode) · [Arch / CachyOS](#arch--cachyos) · [Fedora 44 / Plasma Mobile](#fedora-44--plasma-mobile)
 
 ## Install
 
 ### Steam Deck — Desktop Mode
 
-1. Switch to **Desktop Mode** and download the `.flatpak` above.
-2. Open **Konsole** in your download folder and run:
+**[Download the Steam Deck Flatpak](https://github.com/itsdestin/swipe-keyboard/releases/download/v0.3.0-1/swipe-keyboard-0.3.0-1-x86_64.flatpak)**
+
+Desktop Mode only; this does not change Steam's Gaming Mode keyboard. Do not unlock SteamOS or install the Arch/Fedora packages on your Deck.
+
+1. Switch to **Desktop Mode**. Save the download to **Downloads**, then open **Konsole** (the terminal app) from the application menu.
+2. Install it; **do not use `sudo`**:
 
    ```sh
    flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-   flatpak install --user ./org.itsdestin.SwipeKeyboard.flatpak
+   flatpak install --user ~/Downloads/swipe-keyboard-0.3.0-1-x86_64.flatpak
    ```
 
-   Allow Flatpak to install the required runtime. **Do not use `sudo`.**
+   Allow Flatpak to download any required supporting components.
 
-3. Open **System Settings**, search for **Virtual Keyboard**, and note the current selection—including **None**, if selected. Choose the **Swipe Keyboard** entry and apply.
-4. **Touch** a normal text field to open the keyboard. It is a keyboard input method, not an app you launch from the application menu.
+3. Open the setup guide and read the changes before continuing:
 
-To enable languages, open the bundled keyboard settings:
+   ```sh
+   flatpak run --user --command=swipe-keyboard-setup org.itsdestin.SwipeKeyboard
+   ```
+
+   You may notice a different keyboard appearance, settings and suggestions. Read the explanation and confirm if you want to continue. You activate the keyboard yourself in Settings in the next step.
+
+4. In **System Settings → Virtual Keyboard**, note your current selection (including **None**), select **Swipe Keyboard**, and apply.
+5. **Touch** a text field to open the keyboard. If Swipe Keyboard is missing from Settings, log out and back into Desktop Mode.
+
+**Languages:** open the bundled settings, enable your languages, then use the keyboard's globe key to switch:
 
 ```sh
 flatpak run --user --command=kcmshell6 org.itsdestin.SwipeKeyboard kcm_plasmakeyboard
 ```
 
-Select your languages there; maximize the window if the list is clipped. Then use the globe key on the keyboard to switch.
+**Update:** get the newer Deck `.flatpak` from [Releases](https://github.com/itsdestin/swipe-keyboard/releases), save it to **Downloads**, and repeat the `flatpak install` command using the new filename. Then save your work, log out and back into Desktop Mode to load the new keyboard. Keep Swipe Keyboard selected; no need to repeat setup. Updates are manual: `flatpak update` alone does not fetch a new keyboard release.
 
-If the new entry is missing, log out and back into Desktop Mode, then reopen Settings. Do not unlock SteamOS or change system libraries to make it appear. [Deck setup and removal details](docs/install-details.md#steam-deck-flatpak).
-
-### Fedora 44 KDE / Plasma Mobile — x86_64
-
-Open a terminal in the download folder:
-
-```sh
-sudo dnf install ./swipe-keyboard-0.2.0-1.fc44.x86_64.rpm
-```
-
-Then, **inside your logged-in KDE Wayland session**, run as your normal user, **without `sudo`**:
-
-```sh
-swipe-keyboard check
-swipe-keyboard enable
-```
-
-If dependencies or a compatibility check fail, stop and follow the error. Do not force installation or downgrade desktop libraries. Existing custom keyboard layouts are not overwritten; they need a separate migration.
-
-## Try it
-
-1. Use the keyboard's globe/language key to choose **English (US/UK), Spanish, French or German**. Keep your preferred physical layout; changing language does not force QWERTY.
-2. Swipe a word and tap an alternative above the keys to correct it. Normal tapping, accents and symbols remain available. If the globe key has no languages to switch between, open **On-Screen Keyboard** settings and enable your languages; maximize that settings window if the list is clipped.
-3. In **English with the bundled Deck backend**, press Space to confirm a word, then tap a next-word suggestion to insert it. Native backends without the required privacy support keep next-word prediction disabled. Other languages do not receive English predictions.
-
-The first Backspace can remove the whole swiped word when the application supplies reliable field information; otherwise it deletes normally. Cursor movement, selections or switching fields can clear suggestions to prevent changing the wrong text.
-
-Language accuracy is still developing. French ligature words can require the digraph gesture—for example, swipe `coeur` for **cœur**—or ordinary tapping/correction. Missing or incompatible language data leaves stock tapping available rather than substituting English recognition.
-
-## Update or remove
-
-**Update:** download the newer compatible file and repeat its installation command. Releases are distributed on GitHub; there is no automatic update feed or AUR/COPR repository. A local Flatpak bundle does not receive new keyboard releases merely by running `flatpak update`.
-
-**Deck removal:** first return to **System Settings → Virtual Keyboard** and restore the selection you noted before installation. Then run, without sudo:
+**Remove:** first restore your previous selection in **System Settings → Virtual Keyboard**, then run:
 
 ```sh
 flatpak uninstall --user org.itsdestin.SwipeKeyboard
 ```
 
-Do not uninstall while Swipe Keyboard is still selected. The Flatpak does **not** automatically restore your previous selection. Its private data is retained unless you explicitly delete it.
+### Arch / CachyOS
 
-**Fedora removal:** as the same normal user who enabled it:
+**[Download the x86_64 package](https://github.com/itsdestin/swipe-keyboard/releases/download/v0.3.0-1/swipe-keyboard-0.3.0-1-x86_64.pkg.tar.zst)**
+
+Requires KDE Plasma Wayland with Plasma Keyboard 6.7.x or 6.8.x.
+
+1. Save the download to **Downloads**, then open **Konsole** from the application menu and paste:
+
+   ```sh
+   sudo pacman -U ~/Downloads/swipe-keyboard-0.3.0-1-x86_64.pkg.tar.zst
+   ```
+
+2. Enable the keyboard **without `sudo`**:
+
+   ```sh
+   swipe-keyboard enable
+   ```
+
+   This checks compatibility and asks for confirmation before changing your keyboard selection. Read the proposed changes and answer **y** to continue. Your existing show/hide settings are preserved. Suggestions and Backspace behavior may differ from your previous keyboard. If setup reports an error, stop and follow its message.
+3. **Touch** a text field to open the keyboard.
+
+**Update:** get the newer Arch/CachyOS `.pkg.tar.zst` from [Releases](https://github.com/itsdestin/swipe-keyboard/releases), save it to **Downloads**, and repeat the `pacman -U` command using the new filename. Save your work, then log out and back in to load the new keyboard. No need to disable or enable again.
+
+**Remove:** restore your previous keyboard and then remove the package:
 
 ```sh
-swipe-keyboard disable
-sudo dnf remove swipe-keyboard
+swipe-keyboard disable && sudo pacman -R swipe-keyboard
 ```
 
-Disable restores settings still owned by setup and preserves later manual keyboard choices. Personal options and opt-in recordings are not deleted. [Recovery after removing before disabling](docs/install-details.md#removed-the-package-before-disabling).
+If restoring the keyboard fails, removal stops. Follow the error or use the [recovery guide](docs/install-details.md#removed-the-package-before-disabling).
 
-## Troubleshooting
+### Fedora 44 / Plasma Mobile
 
-| Problem | What to try |
+For KDE Plasma or Plasma Mobile with Plasma Keyboard 6.7.x or 6.8.x. Choose the file matching your device:
+
+| Device | Download |
 |---|---|
-| Keyboard does not appear | Touch the field rather than clicking it. Check **System Settings → Virtual Keyboard** and try another native Wayland app. On Fedora, run `swipe-keyboard check` inside KDE, without sudo. |
-| Taps work, but swipes do not | Select a supported language and a Latin letter layout. Password/restricted fields and unavailable language data can deliberately disable recognition. |
-| No next-word suggestions | Use English with the bundled Deck backend. Other languages and native backends without the privacy bridge intentionally have no contextual predictions. |
-| Works in one app but not another | Wayland text-input support varies. Include the app name/version and whether it is a Flatpak in a bug report. XWayland compatibility is not promised. |
-| Alternatives or whole-word Backspace do not work | Cursor movement, selections or missing field information can prevent safe word replacement. Try a normal field with no selection. |
-| Custom layouts or a disable error | Keep your files and the exact error. Do not delete layouts, remove the setup record or force-reset settings. See [recovery details](docs/install-details.md). |
+| Intel / AMD — x86_64 | [Fedora x86_64 RPM](https://github.com/itsdestin/swipe-keyboard/releases/download/v0.3.0-1/swipe-keyboard-0.3.0-1.fc44.x86_64.rpm) |
+| ARM64 — aarch64 | [Fedora ARM64 RPM](https://github.com/itsdestin/swipe-keyboard/releases/download/v0.3.0-1/swipe-keyboard-0.3.0-1.fc44.aarch64.rpm) |
 
-**Known Firefox issue:** physical Ctrl+A/Delete can leave field information stale, causing an extra leading space on the next swipe.
+Unsure which? `uname -m` in a terminal reports `x86_64` or `aarch64`.
 
-[**Report a bug**](https://github.com/itsdestin/swipe-keyboard/issues/new?template=bug.yml). Include your OS, app/version, package version and a short reproduction using made-up text; on Fedora, include `swipe-keyboard check`. **Do not attach passwords, typing recordings or unreviewed logs.**
+1. Save the download to **Downloads**, then open **Konsole** from the application menu. Paste **only the matching install command**:
 
-## Details and credits
+   **Intel / AMD:**
+   ```sh
+   sudo dnf install ~/Downloads/swipe-keyboard-0.3.0-1.fc44.x86_64.rpm
+   ```
 
-- [Setup, recovery and privacy](docs/install-details.md)
-- [Release scope and verification](docs/releases/v0.2.0.md)
-- [Building from source and contributing](CONTRIBUTING.md)
+   **ARM64:**
+   ```sh
+   sudo dnf install ~/Downloads/swipe-keyboard-0.3.0-1.fc44.aarch64.rpm
+   ```
 
-**Powered by [FUTO Swipe](https://gitlab.futo.org/keyboard/swipe-library).** Code is GPL-3.0; model weights use the FUTO Model Weights License 1.0. Dictionaries include AOSP/wordfreq data with separate attribution and CC-BY-SA terms. See [NOTICE](packaging/NOTICE) and the notices supplied with each language pack. Qt/KDE components retain their licenses. This project is not endorsed by Valve, FUTO, KDE or Google.
+2. Enable the keyboard **without `sudo`**:
+
+   ```sh
+   swipe-keyboard enable
+   ```
+
+   This checks compatibility and asks for confirmation before changing your keyboard selection. Read the proposed changes and answer **y** to continue. Your existing show/hide settings are preserved. Suggestions and Backspace behavior may differ from your previous keyboard. If setup reports an error, stop and follow its message.
+3. **Touch** a text field to open the keyboard.
+
+**Update:** get the newer Fedora `.rpm` for the same device type from [Releases](https://github.com/itsdestin/swipe-keyboard/releases), save it to **Downloads**, and repeat the matching `dnf install` command using the new filename. Save your work, then log out and back in to load the new keyboard. No need to disable or enable again.
+
+**Remove:** restore your previous keyboard and then remove the package:
+
+```sh
+swipe-keyboard disable && sudo dnf remove swipe-keyboard
+```
+
+If restoring the keyboard fails, removal stops. Follow the error or use the [recovery guide](docs/install-details.md#removed-the-package-before-disabling).
+
+## Using the keyboard
+
+- **Languages:** enable languages in **On-Screen Keyboard** settings, then switch with the globe key. Deck users should use the settings command in their section above. Maximize the settings window if the list is clipped.
+- **Swipe:** drag across letters and lift to enter a word. Tap an alternative above the keys to change it.
+- **Tap typing:** suggestions finish or correct the word you are typing. The strongest is centered, and your exact spelling remains available. Only tapping a suggestion changes the word; Space does not autocorrect it.
+- **Next-word suggestions:** in English, Spanish, French or German, tap or swipe a word, then press Space. The strongest suggestion is in the middle. Tap a suggestion to insert it. Spanish, French and German suggestions are an early baseline and can be repetitive or less natural.
+- **Backspace:** the first press can remove the whole swiped word. Moving the cursor or changing fields can clear suggestions.
+
+## Help
+
+- **Keyboard not appearing?** Touch the field instead of clicking it. Native-package users can run `swipe-keyboard check`.
+- **No next-word suggestions?** Select a supported language, enter a word through this keyboard and press Space. Native predictions start from keyboard-entered words, not pasted text. Password and restricted fields do not offer suggestions.
+- **Only one app has trouble?** Try another KDE Wayland app; application support varies.
+
+[More help, recovery and privacy](docs/install-details.md) · [Report a bug](https://github.com/itsdestin/swipe-keyboard/issues/new?template=bug.yml) · [Release notes](docs/releases/v0.3.0-1.md)
+
+For bug reports, include your system, app, keyboard version and steps using made-up text. **Do not send passwords, recordings or personal typing.**
+
+Powered by [FUTO Swipe](https://gitlab.futo.org/keyboard/swipe-library). [Licenses and notices](packaging/NOTICE).

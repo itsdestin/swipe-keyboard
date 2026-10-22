@@ -27,18 +27,37 @@ def apply(root):
     os.replace(temporary, path)
 
 
+def apply_patch(root, patch):
+    root = Path(root).resolve()
+    patch = Path(patch).resolve()
+    # WHY: archives lack .git. Upstream's `git -C executorch apply --check`
+    # discovers CI's enclosing checkout and can silently skip every patch path,
+    # returning success even for the reverse check on an unpatched tree.
+    # Absolute --directory alone is insufficient: Git still prefix-filters when
+    # launched below the enclosing checkout. Start at the input root and forbid
+    # discovery above it; a real checkout at root remains supported. This is
+    # per-command isolation, not a change to the caller or global Git settings.
+    command = ['git', 'apply', '--unsafe-paths', '--directory=' + str(root)]
+    options = {'cwd': root,
+               'env': {**os.environ, 'GIT_CEILING_DIRECTORIES': str(root.parent)}}
+    if subprocess.run(command + ['--reverse', '--check', str(patch)],
+                      capture_output=True, **options).returncode == 0:
+        return
+    subprocess.run(command + ['--check', str(patch)], check=True, **options)
+    subprocess.run(command + [str(patch)], check=True, **options)
+
+
 def apply_swipe(root):
     # WHY: dependency commits/assets stay pinned. Persist the validator repair
     # here so clean builds reproduce it; reverse-check makes reruns idempotent
     # while unknown upstream inputs fail closed instead of silently skipping.
     root = Path(root).resolve()
     patch = Path(__file__).resolve().parent / 'patches/swipe-metadata.patch'
-    command = ['git', 'apply', '--unsafe-paths', '--directory=' + str(root)]
-    if subprocess.run(command + ['--reverse', '--check', str(patch)],
-                      capture_output=True).returncode == 0:
-        return
-    subprocess.run(command + ['--check', str(patch)], check=True)
-    subprocess.run(command + [str(patch)], check=True)
+    apply_patch(root, patch)
+    # Keep the pinned runtime's size optimization and its existing upstream
+    # target-local exception fix, rather than enabling exceptions globally.
+    apply_patch(root / 'third_party/executorch',
+                root / 'patches/executorch-xnnpack-fexceptions.patch')
 
 
 if __name__ == '__main__':

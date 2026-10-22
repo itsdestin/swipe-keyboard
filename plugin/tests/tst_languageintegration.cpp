@@ -28,11 +28,14 @@ private slots:
         });
         qputenv("SWIPEKB_MODEL_DATA",root.path().toUtf8()); qunsetenv("SWIPEKB_LANGUAGE_PACKS");
         SwipeInputMethod im;
-        for(const auto &locale:{"es-ES","fr-FR","de-DE"}) {
+        for(const auto &locale:{"es-ES","es-MX","fr-FR","de-DE"}) {
             im.setPhysicalLayout(QString(locale).startsWith("fr") ? "azerty" : QString(locale).startsWith("de") ? "qwertz" : "qwerty");
             im.setInputMode(locale,QVirtualKeyboardInputEngine::InputMode::Latin);
             QVERIFY2(im.isReady(),qPrintable(im.profileSnapshot().unavailableReason));
-            QVERIFY(!im.profileSnapshot().capabilities.nextWord);
+            QVERIFY(im.profileSnapshot().capabilities.nextWord);
+            QVERIFY(im.profileSnapshot().assets.contains("contextModel"));
+            QVERIFY(im.profileSnapshot().assets.contains("contextVocab"));
+            QCOMPARE(im.profileSnapshot().requestedLocale,QString(locale));
         }
     }
     void incompleteGeometryKeepsTapping() {
@@ -118,7 +121,7 @@ private slots:
         im.setInputMode("es_ES",QVirtualKeyboardInputEngine::InputMode::Latin);
         QVERIFY2(im.isReady(),qPrintable(im.profileSnapshot().unavailableReason));
         QVERIFY(im.profileSnapshot().epoch>epoch); QCOMPARE(im.profileSnapshot().requestedLocale,QString("es-ES"));
-        QVERIFY(!im.profileSnapshot().capabilities.nextWord);
+        QVERIFY(im.profileSnapshot().capabilities.nextWord);
         QCOMPARE(im.selectionListItemCount(QVirtualKeyboardSelectionListModel::Type::WordCandidateList),0);
         im.finishSwipe(englishTrace,englishKeys,held); QCOMPARE(root->property("text").toString(),committed);
         const auto spanishKeys=geometry(true); const int spanishToken=im.beginSwipe(); QVERIFY(spanishToken>=0);
