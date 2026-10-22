@@ -115,19 +115,23 @@ LAYER_JS = ("JSON.stringify(window.__swipekbLayer ? {v: window.__swipekbLayer.ve
             " attr: document.documentElement.getAttribute('data-swipekb-gestures')} : null)")
 
 
-def quiet(still=1.2, limit=12.0):
-    """Wait until Steam has stopped typing. WHY: in the VM Steam's typing sometimes stalls and then delivers a burst of
-    key presses 0.5 s late (seen with the layer off too), so a fixed sleep reads the field too early. We wait until the
-    page has seen no new key event for `still` seconds."""
+def quiet(expect=None, still=1.0, limit=15.0):
+    """Wait until Steam has finished typing. WHY: on a busy host Steam's typing stalls and then delivers key presses up to
+    ~2 s late (seen with the layer OFF too), so a fixed sleep reads the field too early. With `expect` (the number of key
+    presses this gesture should cause, counted since the log was last reset) we wait for them, then for `still` seconds of
+    quiet to catch a second, unwanted press (a double type). Without it we only wait for quiet, with a longer `still`."""
     end = time.time() + limit
     last, since = -1, time.time()
     while time.time() < end:
-        n = sum(1 for e in log()['ev'] if e[0] in ('keydown', 'keyup'))
+        evs = log()['ev']
+        n = sum(1 for e in evs if e[0] == 'keydown')
         if n != last:
             last, since = n, time.time()
-        elif time.time() - since >= still:
-            return
+        need = (expect is None) or n >= expect
+        if need and time.time() - since >= (still if expect is not None else max(still, 2.0)):
+            return n
         time.sleep(0.1)
+    return last
 
 
 def keys():
@@ -220,16 +224,17 @@ def open_field():
 
 def clear_field(max_taps=80):
     n = 0
-    quiet()
+    ev(RESET_LOG); quiet()
     for _ in range(4):
         left = len(field().get('value') or '')
         if not left:
             break
+        ev(RESET_LOG)
         for _i in range(min(left, max_taps)):
             tap_key('Backspace', 90)
             time.sleep(0.25)
             n += 1
-        quiet()
+        quiet(expect=min(left, max_taps))
     return {'cleared_with_backspaces': n, 'value': field().get('value')}
 
 
@@ -238,23 +243,26 @@ def cmd_taps(rounds):
     open_field(); ensure_logger()
     ks = keys()
     assert all(c in ks for c in LETTERS), 'letters missing from the keyboard'
-    ok = 0; bad = []; lat = []
-    ev(RESET_LOG)
+    clear_field()
+    ok = 0; bad = []; lat = []; fast = 0
     for r in range(rounds):
-        before = len(log()['ev'])
+        ev(RESET_LOG)
         for c in LETTERS:
             touch('tap %d %d 60' % (ks[c][0], ks[c][1]))
             time.sleep(0.25)
-        quiet()
+        quiet(expect=len(LETTERS))
         v = field().get('value')
         if v == LETTERS:
             ok += 1
         else:
             bad.append({'round': r, 'got': v})
-        evs = log()['ev'][before:]
-        lat += [p[2] for p in pairs(evs) if p[1] in LETTERS]
+        ds = [p[2] for p in pairs(log()['ev'])]
+        lat += ds
         clear_field()
-    return {'rounds': rounds, 'rounds_exact': ok, 'mismatches': bad, 'release_to_keydown_ms': summarize(lat), 'layer': layer()}
+    s = summarize(lat)
+    s['share_under_100ms'] = round(sum(1 for x in lat if x < 100) / len(lat), 3) if lat else None
+    s['p25'] = sorted(lat)[len(lat) // 4] if lat else None
+    return {'rounds': rounds, 'rounds_exact': ok, 'mismatches': bad, 'release_to_keydown_ms': s, 'samples': lat, 'layer': layer()}
 
 
 SWIPE_PATHS = [('q', 'p'), ('a', 'l'), ('z', 'm'), ('h', 'e', 'l', 'l', 'o'), ('t', 'o', 'p'), ('g', 'y'), ('w', 'o', 'r', 'd'),
@@ -262,8 +270,18 @@ SWIPE_PATHS = [('q', 'p'), ('a', 'l'), ('z', 'm'), ('h', 'e', 'l', 'l', 'o'), ('
 DURATIONS = [30, 60, 100, 200, 400, 800]
 
 
+def drain(c, strokes, timeout):
+    while True:
+        try:
+            m = c.next_event(timeout=timeout)
+        except ws.Timeout:
+            return
+        if m.get('method') == 'Runtime.bindingCalled' and m['params'].get('name') == '__swipekb':
+            strokes.append(json.loads(m['params']['payload']))
+
+
 def cmd_swipes(n):
-    open_field(); ensure_logger()
+    open_field(); ensure_logger(); clear_field()
     ks = keys()
     c = cdp.Cdp.open(PORT, cdp.page_path(bp_id()), timeout=5.0)
     strokes = []
@@ -275,94 +293,100 @@ def cmd_swipes(n):
             path = SWIPE_PATHS[i % len(SWIPE_PATHS)]
             pts = ' '.join('%d,%d' % (ks[ch][0], ks[ch][1]) for ch in path)
             touch('drag %d %s' % (DURATIONS[i % len(DURATIONS)], pts))
-            time.sleep(0.15)
-            # collect whatever the binding delivered
-            while True:
-                try:
-                    m = c.next_event(timeout=0.05)
-                except ws.Timeout:
-                    break
-                if m.get('method') == 'Runtime.bindingCalled' and m['params'].get('name') == '__swipekb':
-                    strokes.append(json.loads(m['params']['payload']))
-        quiet()
-        while True:
-            try:
-                m = c.next_event(timeout=0.2)
-            except ws.Timeout:
-                break
-            if m.get('method') == 'Runtime.bindingCalled':
-                strokes.append(json.loads(m['params']['payload']))
+            time.sleep(0.2)
+            drain(c, strokes, 0.05)
+        quiet(expect=None)          # a late stray letter would show up in this wait
+        drain(c, strokes, 0.3)
     finally:
         c.close()
     evs = log()['ev']
-    return {'swipes': n, 'field_value_after': field().get('value'), 'keydowns_after_swipes': [e for e in evs if e[0] == 'keydown'],
-            'strokes_delivered_to_binding': len(strokes),
-            'stroke_points_min_median_max': [min(len(s['trace']) for s in strokes), statistics.median(len(s['trace']) for s in strokes),
-                                              max(len(s['trace']) for s in strokes)] if strokes else None,
-            'keys_in_each_stroke': sorted({len(s['keys']) for s in strokes}), 'layer': layer()}
+    res = {'swipes': n, 'field_value_after': field().get('value'), 'keydowns_after_swipes': [e for e in evs if e[0] == 'keydown'],
+           'strokes_delivered_to_binding': len(strokes),
+           'stroke_points_min_median_max': [min(len(s['trace']) for s in strokes), statistics.median(len(s['trace']) for s in strokes),
+                                             max(len(s['trace']) for s in strokes)] if strokes else None,
+           'keys_in_each_stroke': sorted({len(s['keys']) for s in strokes}), 'layer': layer()}
+    clear_field()
+    return res
 
 
 def cmd_shift():
     open_field(); ensure_logger(); ks = keys(); res = {}
     clear_field()
-    # sequential: tap Shift, then tap h
-    touch('tap %d %d 60' % tuple(ks['Shift'][:2])); quiet(0.3); touch('tap %d %d 60' % tuple(ks['h'][:2])); quiet()
-    res['sequential_shift_then_h'] = field().get('value'); clear_field()
-    # two fingers: finger 1 holds Shift, finger 2 taps h
-    s, h = ks['Shift'], ks['h']
-    touch('down 0 %d %d' % (s[0], s[1]), 'sleep 120', 'down 1 %d %d' % (h[0], h[1]), 'sleep 80', 'up 1', 'sleep 80', 'up 0')
-    quiet()
-    res['two_finger_shift_h'] = field().get('value'); clear_field()
-    # latch must not stay armed: next plain tap is lowercase
-    touch('tap %d %d 60' % tuple(ks['i'][:2])); quiet()
-    res['next_tap_after_two_finger'] = field().get('value'); clear_field()
+    sh_, h = ks['Shift'], ks['h']
+    for rep in range(3):
+        # sequential: tap Shift, then tap h   (Shift press + H press = 2 key presses)
+        ev(RESET_LOG)
+        touch('tap %d %d 60' % tuple(sh_[:2])); time.sleep(0.4); touch('tap %d %d 60' % tuple(h[:2])); quiet(expect=2)
+        res.setdefault('sequential_shift_then_h', []).append(field().get('value')); clear_field()
+        # two fingers: finger 1 holds Shift, finger 2 taps h
+        ev(RESET_LOG)
+        touch('down 0 %d %d' % (sh_[0], sh_[1]), 'sleep 120', 'down 1 %d %d' % (h[0], h[1]), 'sleep 80', 'up 1', 'sleep 80', 'up 0')
+        quiet(expect=2)
+        res.setdefault('two_finger_shift_h', []).append(field().get('value')); clear_field()
+        # the latch must not stay armed: the next plain tap is lowercase
+        ev(RESET_LOG)
+        touch('tap %d %d 60' % tuple(ks['i'][:2])); quiet(expect=1)
+        res.setdefault('next_tap_after_two_finger', []).append(field().get('value')); clear_field()
     res['layer'] = layer()
     return res
 
 
 def cmd_backspace():
-    open_field(); ensure_logger(); ks = keys()
-    for c in 'abc':
-        tap_key(c); time.sleep(0.25)
-    quiet()
-    ev(RESET_LOG)
-    k = ks['Backspace']
-    touch('tap %d %d 60' % (k[0], k[1])); quiet()
-    tapev = log()['ev']
-    ev(RESET_LOG)
-    t0 = log()['t0']
-    touch('down 0 %d %d' % (k[0], k[1]), 'sleep 1500', 'up 0'); quiet()
-    hold = log()['ev']
-    down = next(e[1] for e in hold if e[0] == 'pointerdown')
-    kds = [round(e[1] - down, 1) for e in hold if e[0] == 'keydown']
-    res = {'tap_release_to_keydown_ms': [p[2] for p in pairs(tapev)],
-           'hold_keydowns_ms_after_press': kds, 'hold_repeat_count': len(kds),
-           'value_after': field().get('value'), 'layer': layer()}
+    open_field(); ensure_logger(); ks = keys(); k = ks['Backspace']
     clear_field()
-    return res
+    taps = []
+    for i in range(12):
+        ev(RESET_LOG)
+        for c in 'ab':
+            tap_key(c); time.sleep(0.25)
+        quiet(expect=2)
+        ev(RESET_LOG)
+        touch('tap %d %d 60' % (k[0], k[1])); quiet(expect=1)
+        taps += [p[2] for p in pairs(log()['ev'])]
+        clear_field()
+    holds = []
+    for i in range(3):
+        for c in 'abcdefghij':
+            tap_key(c); time.sleep(0.25)
+        quiet(expect=None)
+        ev(RESET_LOG)
+        touch('down 0 %d %d' % (k[0], k[1]), 'sleep 1500', 'up 0'); quiet(expect=None)
+        hold = log()['ev']
+        down = next(e[1] for e in hold if e[0] == 'pointerdown')
+        holds.append([round(e[1] - down, 1) for e in hold if e[0] == 'keydown'])
+        clear_field()
+    return {'tap_release_to_keydown_ms': summarize(taps), 'tap_samples': taps,
+            'hold_keydowns_ms_after_press_per_trial': holds, 'hold_repeat_counts': [len(h) for h in holds],
+            'first_repeat_ms': [h[0] for h in holds if h], 'layer': layer()}
 
 
 def cmd_popup():
-    open_field(); ensure_logger(); ks = keys()
-    clear_field(); ev(RESET_LOG)
-    e = ks['e']
-    t_before = ev('performance.now()')
-    touch('down 0 %d %d' % (e[0], e[1]), 'sleep 950')
-    snap = ev("""JSON.stringify((function(){var o=[...document.querySelectorAll('[data-key-is-literal]')].map(function(n){var r=n.getBoundingClientRect();
-      return [n.getAttribute('data-key'), n.className, Math.round(r.left), Math.round(r.top), Math.round(r.width)]});
-      var p=document.querySelector('[data-key-is-literal]'); return {items:o, parentClass: p&&p.parentElement? p.parentElement.className:null}})())""")
-    touch('up 0'); quiet()
-    lg = log()
-    down = next(x[1] for x in lg['ev'] if x[0] == 'pointerdown' and x[5])
-    appeared = [round(p[0] - down, 1) for p in lg['popup'] if p[1] > 0]
-    res = {'popup': json.loads(snap), 'popup_appeared_ms_after_real_touch': appeared, 'value_after_release_on_base_key': field().get('value'),
-           'popup_gone_after': ev("document.querySelectorAll('[data-key-is-literal]').length"), 'layer': layer()}
-    clear_field()
-    # slide onto the third item and release
+    open_field(); ensure_logger(); ks = keys(); e = ks['e']
+    clear_field(); res = {'trials': []}
+    for trial in range(3):
+        ev(RESET_LOG)
+        touch('down 0 %d %d' % (e[0], e[1]), 'sleep 950')
+        snap = ev("""JSON.stringify((function(){var o=[...document.querySelectorAll('[data-key-is-literal]')].map(function(n){var r=n.getBoundingClientRect();
+          return [n.getAttribute('data-key'), n.className, Math.round(r.left), Math.round(r.top), Math.round(r.width)]});
+          var p=document.querySelector('[data-key-is-literal]'); return {items:o, parentClass: p&&p.parentElement? p.parentElement.className:null}})())""")
+        touch('up 0'); quiet(expect=1)
+        lg = log()
+        down = next(x[1] for x in lg['ev'] if x[0] == 'pointerdown' and x[5])
+        res['trials'].append({'popup': json.loads(snap), 'appeared_ms_after_real_touch': [round(p[0] - down, 1) for p in lg['popup'] if p[1] > 0],
+                              'value_after_release_on_base_key': field().get('value'),
+                              'popup_gone_after': ev("document.querySelectorAll('[data-key-is-literal]').length")})
+        clear_field()
+    # slide onto an accent: glide in small steps from the key to the item (a single jump is not a slide for Steam)
+    ev(RESET_LOG)
     touch('down 0 %d %d' % (e[0], e[1]), 'sleep 950')
     third = json.loads(ev("JSON.stringify((function(){var n=document.querySelectorAll('[data-key-is-literal]')[2];var r=n.getBoundingClientRect();return [Math.round(r.left+r.width/2),Math.round(r.top+r.height/2),n.getAttribute('data-key')]})())"))
-    touch('move 0 %d %d' % (third[0], third[1]), 'sleep 150', 'up 0'); quiet()
+    steps = 8
+    cmds = []
+    for i in range(1, steps + 1):
+        cmds += ['move 0 %d %d' % (e[0] + (third[0] - e[0]) * i // steps, e[1] + (third[1] - e[1]) * i // steps), 'sleep 25']
+    touch(*cmds, 'sleep 200', 'up 0'); quiet(expect=1)
     res['slide_to'] = third[2]; res['value_after_slide'] = field().get('value')
+    res['layer'] = layer()
     clear_field()
     return res
 
@@ -373,30 +397,96 @@ def cmd_longtouch():
     ev(RESET_LOG)
     t = time.time()
     touch('down 0 %d %d' % (d[0], d[1]), 'sleep 3000', 'up 0')
-    quiet()
+    res['touch_returned_after_s'] = round(time.time() - t, 2)
+    quiet(expect=1)
     res['still_3s_touch_value'] = field().get('value')
-    res['elapsed_s'] = round(time.time() - t, 2)
+    res['pointerdown_to_pointerup_ms'] = [round(b[1] - a[1]) for a, b in zip([x for x in log()['ev'] if x[0] == 'pointerdown' and x[5]], [x for x in log()['ev'] if x[0] == 'pointerup' and x[5]])]
     clear_field()
     a, l = ks['a'], ks['l']
-    touch('drag 3000 %d,%d %d,%d' % (a[0], a[1], l[0], l[1])); quiet()
+    ev(RESET_LOG)
+    touch('drag 3000 %d,%d %d,%d' % (a[0], a[1], l[0], l[1])); quiet(expect=None)
     res['slow_3s_swipe_value'] = field().get('value')
-    f = ks['f']; touch('tap %d %d 60' % (f[0], f[1])); quiet()
+    clear_field()
+    f = ks['f']; ev(RESET_LOG); touch('tap %d %d 60' % (f[0], f[1])); quiet(expect=1)
     res['next_tap_value'] = field().get('value')
     res['layer'] = layer()
     clear_field()
     return res
 
 
+def cmd_bslat(n):
+    open_field(); ensure_logger(); k = keys()['Backspace']
+    clear_field(); ev(RESET_LOG)
+    for i in range(n):
+        touch('tap %d %d 60' % (k[0], k[1]))
+        time.sleep(0.5)
+    quiet(expect=n)
+    ds = [p[2] for p in pairs(log()['ev'])]
+    return {'taps': n, 'keydowns': len(ds), 'release_to_keydown_ms': summarize(ds), 'samples': ds, 'layer': layer()}
+
+
+def helper_pid():
+    r = sh('systemctl', '--user', 'show', '-p', 'MainPID', '--value', UNIT)
+    return int(r.stdout.strip() or 0)
+
+
+def cmd_dead():
+    """The helper (and with it everything behind it: engine, binding) stops answering. The layer must still let every touch
+    through the normal way and, after its 6 s watchdog, take itself out; stock typing must work throughout."""
+    import os
+    import signal
+    open_field(); ensure_logger(); ks = keys(); clear_field(); res = {}
+    pid = helper_pid()
+    assert pid, 'helper not running'
+    froze = time.time()
+    os.kill(pid, signal.SIGSTOP)           # frozen: no heartbeat, no answers; its systemd Restart= does not fire
+    try:
+        d = ks['d']; ev(RESET_LOG)
+        t = time.time()
+        touch('down 0 %d %d' % (d[0], d[1]), 'sleep 3000', 'up 0')
+        res['touch_returned_after_s'] = round(time.time() - t, 2)
+        a, l = ks['a'], ks['l']          # a swipe straight after, still inside the layer's 6 s watchdog window
+        touch('drag 200 %d,%d %d,%d' % (a[0], a[1], l[0], l[1]))
+        res['swipe_started_s_after_freeze'] = round(time.time() - froze - 0.2, 1)
+        while time.time() - froze < 14 and layer() is not None:
+            time.sleep(0.25)
+        gone = layer() is None
+        res['layer_removed_itself_s_after_freeze'] = round(time.time() - froze, 1) if gone else None
+        quiet(expect=1)
+        res['value_3s_touch_plus_swipe_with_helper_frozen'] = field().get('value')   # 'd' only: the swipe left no letter
+        clear_field()
+        f = ks['f']; ev(RESET_LOG); touch('tap %d %d 60' % (f[0], f[1])); quiet(expect=1)
+        res['tap_after_layer_gone'] = field().get('value')
+    finally:
+        os.kill(pid, signal.SIGCONT)
+    t = time.time()
+    while time.time() - t < 15:
+        l = layer()
+        if l and l['g'] == 'on':
+            break
+        time.sleep(0.25)
+    res['layer_back_after_helper_resumed_s'] = round(time.time() - t, 1)
+    res['layer_final'] = layer()
+    clear_field()
+    return res
+
+
 def cmd_fault():
     open_field(); ensure_logger(); ks = keys(); clear_field(); res = {}
+    ev(RESET_LOG)
     ev('window.__swipekbLayer.gestures.injectFault()')
-    g = ks['g']; touch('tap %d %d 60' % (g[0], g[1])); quiet()
+    g = ks['g']; touch('tap %d %d 60' % (g[0], g[1])); quiet(expect=1)
     res['tap_while_fault_fires'] = field().get('value')
     res['layer_after_fault'] = layer()
     res['reason'] = ev('window.__swipekbLayer.gestures.reason()')
-    h = ks['h']; touch('tap %d %d 60' % (h[0], h[1])); quiet()
-    res['next_tap'] = field().get('value')
-    # the frame stays (heartbeat keeps answering) and no new layer appears by itself
+    ev(RESET_LOG)
+    h = ks['h']; touch('tap %d %d 60' % (h[0], h[1])); quiet(expect=1)
+    res['value_after_next_tap'] = field().get('value')
+    ev(RESET_LOG)
+    # a swipe now must behave like stock Steam (the layer is gone): a stray letter is the expected, honest proof
+    a, l = ks['a'], ks['l']
+    touch('drag 200 %d,%d %d,%d' % (a[0], a[1], l[0], l[1])); quiet(expect=1)
+    res['value_after_swipe_with_layer_removed'] = field().get('value')
     time.sleep(2.5)
     res['layer_2s_later'] = layer()
     res['status_file'] = json.loads(STATUS.read_text()) if STATUS.exists() else None
@@ -409,7 +499,7 @@ def main():
     a = sys.argv[2:]
     out = {'mode': lambda: mode(a[0]), 'field': lambda: open_field(), 'taps': lambda: cmd_taps(int(a[0])),
            'swipes': lambda: cmd_swipes(int(a[0])), 'shift': cmd_shift, 'backspace': cmd_backspace, 'popup': cmd_popup,
-           'longtouch': cmd_longtouch, 'fault': cmd_fault, 'clear': lambda: clear_field(), 'layer': layer}[c]()
+           'longtouch': cmd_longtouch, 'fault': cmd_fault, 'bslat': lambda: cmd_bslat(int(a[0])), 'dead': cmd_dead, 'clear': lambda: clear_field(), 'layer': layer}[c]()
     print(json.dumps(out, indent=1, ensure_ascii=False))
 
 
