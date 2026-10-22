@@ -25,6 +25,17 @@ add_executable(tst_languageevaluation ${ROOT}/tools/tests/tst_languageevaluation
 target_include_directories(tst_languageevaluation PRIVATE ${ROOT}/tools)
 target_link_libraries(tst_languageevaluation PRIVATE language_rules Qt6::Test)
 add_test(NAME language_evaluation COMMAND tst_languageevaluation)
+# WHY FUTO-free sources, not feature_engine: the next-word scorer must build without FUTO's library (card #179).
+add_executable(swipekb-nextword-eval ${ROOT}/tools/swipekb-nextword-eval.cpp ${ROOT}/engine/src/ngram_predictor.cpp
+    ${ROOT}/engine/src/ngram.cpp ${ROOT}/engine/src/context.cpp)
+target_include_directories(swipekb-nextword-eval PRIVATE ${ROOT}/engine/include)
+target_link_libraries(swipekb-nextword-eval PRIVATE Qt6::Core)
+add_executable(tst_nextwordeval ${ROOT}/tools/tests/tst_nextwordeval.cpp ${ROOT}/engine/src/ngram.cpp)
+target_include_directories(tst_nextwordeval PRIVATE ${ROOT}/engine/include)
+target_compile_definitions(tst_nextwordeval PRIVATE SWIPEKB_NEXTWORD_EVAL_EXE="$<TARGET_FILE:swipekb-nextword-eval>")
+target_link_libraries(tst_nextwordeval PRIVATE Qt6::Core Qt6::Test)
+add_dependencies(tst_nextwordeval swipekb-nextword-eval)
+add_test(NAME tools_nextwordeval COMMAND tst_nextwordeval)
 add_executable(swipekb-profilecheck ${ROOT}/integration/profilecheck.cpp)
 target_link_libraries(swipekb-profilecheck PRIVATE language_rules)
 
@@ -82,7 +93,7 @@ if(SWIPEKB_READONLY_UPSTREAM)
     endforeach()
     # WHY one adapter engine: compile both feature deltas against the same language-owned
     # runtime; this lightweight route remains distinct from final SDK/package acceptance.
-    target_sources(feature_engine PRIVATE ${ROOT}/engine/src/prediction.cpp)
+    target_sources(feature_engine PRIVATE ${ROOT}/engine/src/ngram_predictor.cpp ${ROOT}/engine/src/prediction.cpp)
     target_sources(feature_inputmethod PRIVATE ${ROOT}/plugin/nextwordsession.cpp
         ${ROOT}/plugin/nextwordworker.cpp ${ROOT}/plugin/nextwordworker.h
         ${ROOT}/plugin/predictionpolicy.cpp ${ROOT}/plugin/predictiondiagnostics.cpp)

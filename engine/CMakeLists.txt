@@ -1,6 +1,6 @@
 # WHY Qt Core only: shared Unicode normalization/casing without a GUI/runtime keyboard dependency.
 find_package(Qt6 6.8 REQUIRED COMPONENTS Core)
-add_library(swipekb_engine SHARED src/normalize.cpp src/context.cpp src/ngram.cpp src/recognizer.cpp src/spelling.cpp src/nlm_loader.cpp src/prediction.cpp)
+add_library(swipekb_engine SHARED src/normalize.cpp src/context.cpp src/ngram.cpp src/recognizer.cpp src/spelling.cpp src/nlm_loader.cpp src/ngram_predictor.cpp src/prediction.cpp)
 target_include_directories(swipekb_engine PUBLIC include)
 # WHY PRIVATE: FUTO's library forces -fno-rtti on whatever compiles against it. Keeping it private
 # confines that to this .so, so the Qt plugin (which needs RTTI) is unaffected.
