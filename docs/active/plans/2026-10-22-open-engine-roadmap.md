@@ -141,7 +141,14 @@ Status 2026-10-22: Spanish/French/German web+Tatoeba packs built (FineWeb-2 300M
 t2=10/t3=20; `~/.cache/swipe-keyboard-train/LANG/mix30-S`, 40/42/51 MB vs 6/8/9 MB today). Scoreboard
 (`bench/scoreboard.tsv`): ahead of Gboard on every query type in all three languages (+1.6 to +12 points;
 web sets are partly home ground), no loss on Tatoeba beyond noise. Not yet installed into packaging;
-English pack and corpus-derived word lists still to do.
+Corpus-derived word lists still to do.
+
+English pack built 2026-10-22 (FineWeb English 10BT sample shard 000 + Tatoeba ×30; shard 001 = web test
+set; `~/.cache/swipe-keyboard-train/en/mix30-{S,XS}`, 65 / 38 MB, 232k words). Next word, right word in
+top 3 (300 sentences per set): FUTO's neural model (today) everyday 20.0 / web 23.0 / Tatoeba 22.9; ours XS
+25.9 / 26.1 / 40.5 (S the same within 0.3). English real swipes with our n-gram in place of FUTO's model:
+93.3 → 93.1 (XS) / 93.3 (S) first guess — no change beyond noise (single-word swipes carry no sentence).
+Gboard English reference: running.
 
 **Checkpoint 1:** every language ≥ Gboard on completion after 1 letter (2-guess count); no swipe
 regression; within the Phase 0 size/speed budget.
