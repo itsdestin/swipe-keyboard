@@ -480,6 +480,32 @@ jobs:
           if-no-files-found: error
           retention-days: 7
           compression-level: 0
+  gaming-tests:
+    # WHY its own job: the Gaming Mode tests (helper, gesture layer, canary, installer, Flatpak and release wiring) used
+    # to run only inside the daily Steam canary, which is no check on a pull request. They are plain Python plus Node,
+    # need no Flatpak or Qt and finish in about a minute. WHY the pattern: test_daemon.py needs the compiled daemon and
+    # model files, so it runs under CTest (test gaming_daemon) in the arch, fedora and flatpak package builds instead.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      # WHY Node is installed explicitly: tests/gaming/test_layer.js and fake_page.js run under Node, and a missing Node
+      # is a hard failure in those tests, not a skip.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Helper, gesture layer, canary, fetch and ledger tests
+        run: python3 -I -m unittest discover -s tests/gaming -p 'test_[!d]*.py' -v
+      - name: Installer, Flatpak and SteamOS release contract tests
+        run: |
+          python3 -I -m unittest discover -s tests/packaging -p test_gaming_setup.py -v
+          python3 -I -m unittest discover -s tests/packaging -p test_flatpak_gaming.py -v
+          python3 -I -m unittest discover -s tests/packaging -p test_release_steamos.py -v
   keyboard-ci:
     name: Keyboard CI
     if: ${{ always() }}
@@ -514,7 +540,7 @@ jobs:
           compression-level: 0
   publish:
     if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && github.repository == 'itsdestin/swipe-keyboard' }}
-    needs: [keyboard-ci]
+    needs: [keyboard-ci, gaming-tests]
     runs-on: ubuntu-24.04
     # Final package hashes are available before owner-approved compositor acceptance/publication.
     environment: keyboard-release
@@ -533,3 +559,91 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: python3 scripts/ci-publish.py
+  flatpak-repo:
+    # WHY: the hosted, signed Flatpak update repository (plan "Hosted Flatpak update repository" section) so a Deck's
+    # normal Updates button can fetch a fixed keyboard. It NEVER runs on pull requests, branches or manual runs: only for
+    # a release tag, only after the release is published, and only once the owner has switched it on by creating the
+    # repository variable FLATPAK_REPO_PUBLISH=true (and the secret/key steps in the plan are done). Until then this job
+    # is skipped and nothing is created anywhere.
+    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && github.repository == 'itsdestin/swipe-keyboard' && vars.FLATPAK_REPO_PUBLISH == 'true' }}
+    needs: [publish]
+    runs-on: ubuntu-26.04
+    # WHY the same approval gate as the release itself: publishing to users' update channel is a release decision.
+    environment: keyboard-release
+    permissions:
+      contents: write   # push the flatpak-repo branch only (GitHub Pages serves that branch once the owner enables it)
+    concurrency:
+      group: flatpak-repo
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      # WHY via env, never spliced into script text: secrets must not be echoed or interpolated into commands.
+      GPG_PRIVATE_KEY: ${{ secrets.FLATPAK_REPO_GPG_KEY }}
+      GPG_KEY_ID: ${{ vars.FLATPAK_REPO_GPG_KEY_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install Flatpak tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder ostree gnupg
+      - uses: actions/download-artifact@v4
+        with:
+          name: verified-release
+          path: release
+      - name: Import the signing key (private key never leaves this step)
+        run: |
+          test -n "$GPG_PRIVATE_KEY" && test -n "$GPG_KEY_ID" || { echo 'FLATPAK_REPO_GPG_KEY secret and FLATPAK_REPO_GPG_KEY_ID variable must both be set.' >&2; exit 1; }
+          printf '%s' "$GPG_PRIVATE_KEY" | gpg --batch --import
+          gpg --batch --export "$GPG_KEY_ID" > repo-public.gpg
+          test -s repo-public.gpg
+      - name: Load the existing repository branch (empty on first publish)
+        run: |
+          auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          echo "::add-mask::${auth#AUTHORIZATION: basic }"
+          mkdir "$RUNNER_TEMP/site"
+          cd "$RUNNER_TEMP/site"
+          git init -q -b flatpak-repo
+          git remote add origin "https://github.com/${REPO}.git"
+          if git -c http.extraheader="$auth" fetch -q --depth 1 origin flatpak-repo; then
+            git checkout -q -f FETCH_HEAD -B flatpak-repo
+          fi
+          test -d repo || ostree init --mode=archive-z2 --repo=repo
+      - name: Import both bundles, sign, and rebuild the repository index
+        run: |
+          version=$(python3 scripts/release.py version)
+          mkdir unpacked
+          tar -xzf "release/swipe-keyboard-$version-steamos-x86_64.tar.gz" -C unpacked
+          site="$RUNNER_TEMP/site"
+          for bundle in "release/swipe-keyboard-$version-x86_64.flatpak" unpacked/*/swipe-keyboard-gaming-helper-"$version"-x86_64.flatpak; do
+            flatpak build-import-bundle --gpg-sign="$GPG_KEY_ID" "$site/repo" "$bundle"
+          done
+          # WHY prune-depth 5: keeps the last five releases for rollback while the branch stays small.
+          flatpak build-update-repo --gpg-sign="$GPG_KEY_ID" --generate-static-deltas --prune --prune-depth=5 \
+            --title='Swipe Keyboard' "$site/repo"
+          key=$(base64 -w0 repo-public.gpg)
+          for app in "org.itsdestin.SwipeKeyboard:Swipe Keyboard" "org.itsdestin.SwipeKeyboard.GamingHelper:Swipe Keyboard Gaming Mode helper"; do
+            id=${app%%:*}; title=${app#*:}
+            printf '[Flatpak Ref]\nTitle=%s\nName=%s\nBranch=master\nIsRuntime=false\nUrl=https://itsdestin.github.io/swipe-keyboard/repo/\nSuggestRemoteName=swipe-keyboard\nGPGKey=%s\n' "$title" "$id" "$key" > "$site/$id.flatpakref"
+          done
+          printf '[Flatpak Repo]\nTitle=Swipe Keyboard\nUrl=https://itsdestin.github.io/swipe-keyboard/repo/\nGPGKey=%s\n' "$key" > "$site/swipe-keyboard.flatpakrepo"
+          touch "$site/.nojekyll"
+      - name: Prove a clean user can install from it with the signature checked
+        run: |
+          # WHY file:// and --gpg-import: the same signature check a Deck performs, with no network and no trust shortcuts.
+          flatpak remote-add --user --gpg-import=repo-public.gpg verify-repo "file://$RUNNER_TEMP/site/repo"
+          flatpak remote-ls --user verify-repo | tee remote-ls.txt
+          grep -q org.itsdestin.SwipeKeyboard.GamingHelper remote-ls.txt
+          grep -q 'org.itsdestin.SwipeKeyboard\b' remote-ls.txt
+      - name: Publish the repository branch
+        run: |
+          auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          echo "::add-mask::${auth#AUTHORIZATION: basic }"
+          cd "$RUNNER_TEMP/site"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -q -m "flatpak-repo: $GITHUB_REF_NAME"
+          git -c http.extraheader="$auth" push origin flatpak-repo

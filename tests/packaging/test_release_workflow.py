@@ -24,9 +24,11 @@ class WorkflowTests(unittest.TestCase):
             if name == 'source':
                 continue
             if name == 'steamos':
-                # TODO(M10 docs): the Gaming Mode README section (owner-approved wording, plan Section 12) is
-                # written with the docs milestone and adds this link. Until then the download is built and
-                # gated but not yet advertised; remove this exemption in that change.
+                # TODO(first release that contains the steamos target): the README's Gaming Mode section (M10) is
+                # written and marked preview, but deliberately has no download link yet because the only
+                # published tag (v0.3.1-1) has no steamos asset and assets are never replaced. In the change that
+                # bumps the version (release-targets.json + recipes), delete this exemption and add the link
+                # .../releases/download/<tag>/swipe-keyboard-<version>-steamos-x86_64.tar.gz to the README.
                 continue
             installer = target['files'][0].format(version=contract['version'], release=contract['release'])
             with self.subTest(target=name):
@@ -34,7 +36,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertTrue((ROOT/'docs/releases'/f'{tag}.md').is_file())
 
     def test_real_producers_and_always_completion_gate(self):
-        self.assertEqual(set(self.jobs), {'prepare', 'arch', 'fedora', 'fedora-arm64', 'flatpak', 'steamos', 'keyboard-ci', 'publish'})
+        self.assertEqual(set(self.jobs), {'prepare', 'arch', 'fedora', 'fedora-arm64', 'flatpak', 'steamos', 'keyboard-ci', 'gaming-tests', 'publish', 'flatpak-repo'})
         gate = self.jobs['keyboard-ci']
         self.assertIn('name: Keyboard CI', gate)
         self.assertIn('if: ${{ always() }}', gate)
@@ -86,9 +88,12 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('  workflow_dispatch:', self.workflow)
         self.assertNotIn('pull_request_target', self.workflow)
         self.assertNotIn('    paths:', self.workflow)
-        self.assertEqual(self.workflow.count('contents: write'), 1)
+        # WHY two: the release uploader and the update-repository publisher (the latter writes only the
+        # flatpak-repo branch and is gated off by default; see test_gaming_tests_and_update_repo_wiring).
+        self.assertEqual(self.workflow.count('contents: write'), 2)
         self.assertIn('contents: write', self.jobs['publish'])
-        self.assertIn('needs: [keyboard-ci]', self.jobs['publish'])
+        self.assertIn('contents: write', self.jobs['flatpak-repo'])
+        self.assertIn('needs: [keyboard-ci, gaming-tests]', self.jobs['publish'])
         self.assertIn('environment: keyboard-release', self.jobs['publish'])
         self.assertIn("github.event_name == 'push'", self.jobs['publish'])
         self.assertIn("github.repository == 'itsdestin/swipe-keyboard'", self.jobs['publish'])
@@ -96,6 +101,26 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotIn('repository:', self.workflow)
         self.assertNotIn('actions/cache', self.workflow)
         self.assertNotIn('0.2.', self.workflow)
+
+    def test_gaming_tests_and_update_repo_wiring(self):
+        # WHY: Gaming Mode tests used to run only in the daily canary (and failed there for want of a built daemon).
+        # They now run on every pull request and push, and a release tag cannot publish while they fail.
+        gaming = self.jobs['gaming-tests']
+        self.assertIn('actions/setup-node@v4', gaming)  # the layer and helper tests drive Node
+        self.assertIn("-p 'test_[!d]*.py'", gaming)  # test_daemon.py needs the built daemon and runs under CTest
+        for name in ('test_flatpak_gaming.py', 'test_gaming_setup.py', 'test_release_steamos.py'):
+            self.assertIn(name, gaming)
+        self.assertNotIn('continue-on-error', gaming)
+        # WHY: the daemon test is wired through CTest in the native package builds, never by name here.
+        self.assertIn('gaming_daemon', (ROOT/'gaming/daemon/CMakeLists.txt').read_text())
+        # The update repository can never run on a pull request, a branch or without the owner's switch.
+        repo = self.jobs['flatpak-repo']
+        self.assertIn("startsWith(github.ref, 'refs/tags/v')", repo)
+        self.assertIn("vars.FLATPAK_REPO_PUBLISH == 'true'", repo)
+        self.assertIn('needs: [publish]', repo)
+        self.assertIn('environment: keyboard-release', repo)
+        self.assertIn('secrets.FLATPAK_REPO_GPG_KEY', repo)
+        self.assertNotIn('pull_request', repo)
 
     def test_prepare_shallows_dependencies_not_tag_ancestry(self):
         # Fetching full history recursively pulls enormous unused upstream histories.
