@@ -113,6 +113,12 @@ Phase 0 results (2026-10-22):
   only on a clear margin (undo-able).
 - Ship together with the 6× faster suggestion code already on `feature/170-open-nextword`.
 
+Status 2026-10-22: Spanish/French/German web+Tatoeba packs built (FineWeb-2 300M words + Tatoeba ×30,
+t2=10/t3=20; `~/.cache/swipe-keyboard-train/LANG/mix30-S`, 40/42/51 MB vs 6/8/9 MB today). Scoreboard
+(`bench/scoreboard.tsv`): ahead of Gboard on every query type in all three languages (+1.6 to +12 points;
+web sets are partly home ground), no loss on Tatoeba beyond noise. Not yet installed into packaging;
+English pack and corpus-derived word lists still to do.
+
 **Checkpoint 1:** every language ≥ Gboard on completion after 1 letter (2-guess count); no swipe
 regression; within the Phase 0 size/speed budget.
 
