@@ -118,7 +118,10 @@ void SwipeInputMethod::resolveCurrentProfile()
         swipekb::ModelPaths paths;
         auto path=[&](const QString &role) { return snapshot.assets.value(role).path.toStdString(); };
         paths.encoder=path("encoder"); paths.dictionary=path("dictionary"); paths.decoder=path("decoder");
-        if (snapshot.effectiveLanguage==QStringLiteral("en")) {
+        // WHY the file kind decides, not the language: English uses the open n-gram when its pack is installed and
+        // verified (compatibility "en:context-ngram-v1"); otherwise it keeps FUTO's neural model as before.
+        const bool ngramContext=snapshot.assets.value("contextModel").compatibility.endsWith(QStringLiteral(":context-ngram-v1"));
+        if (!ngramContext) {
             paths.lm_model=path("contextModel"); paths.lm_vocab=path("contextVocab");
         } else {
             paths.ngram=path("contextModel");
@@ -126,8 +129,9 @@ void SwipeInputMethod::resolveCurrentProfile()
         if (qEnvironmentVariableIntValue("SWIPEKB_NO_DECODER")) paths.decoder.clear();
         swipekb::RecognizerOptions options;
         options.language=snapshot.effectiveLanguage.toStdString();
-        // WHY foreign swipe ranking and completion share only that locale's pinned contextual n-gram.
-        options.ngram=snapshot.effectiveLanguage!=QStringLiteral("en");
+        // WHY foreign swipe ranking and completion share only that locale's pinned contextual n-gram;
+        // English joins them when it has one (see above), else the flag stays off and FUTO's model ranks.
+        options.ngram=ngramContext;
         options.alphabet=swipekb::languageAlphabet(snapshot.effectiveLanguage).toStdString();
         options.popupAliases=popupAliases(snapshot.effectiveLanguage);
         // WHY a fresh runtime: never init() on an engine already owned by a consumer/worker.
@@ -1039,9 +1043,10 @@ void SwipeInputMethod::requestContextCompletion(const EditorSnapshot &editor)
 {
     // Dictionary completions are already showing; this re-ranks them by the sentence so far, on the worker
     // thread, and replaces them when the answer arrives (a few milliseconds later).
-    // WHY n-gram packs only: English still predicts with FUTO's neural model, which cannot complete a word;
-    // English completion stays exactly as it was.
-    if (!predictionCapable() || m_profiles.snapshot().effectiveLanguage==QStringLiteral("en")) return;
+    // WHY n-gram packs only: FUTO's neural model (English fallback) cannot complete a word, so English
+    // completion works only when the English n-gram pack is installed; otherwise it stays exactly as it was.
+    if (!predictionCapable() ||
+        !m_profiles.snapshot().assets.value(QStringLiteral("contextModel")).compatibility.endsWith(QStringLiteral(":context-ngram-v1"))) return;
     const auto token=m_typedWord.token();
     if (token.isEmpty()) return;
     QStringList words;

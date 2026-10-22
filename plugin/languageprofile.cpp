@@ -53,6 +53,56 @@ static QJsonObject readObject(const QString &path)
     return QJsonDocument::fromJson(file.readAll()).object();
 }
 static bool contains(const QJsonValue &v, const QString &value) { return v.toArray().contains(value); }
+// WHY one checker for every language: English (no manifest) and es/fr/de (manifest) must accept exactly the same
+// next-word files. Everything is judged against the repository lock, never against what a manifest claims:
+// the n-gram + word list, the credit file and all licence/notice texts that must travel with them.
+struct ContextFiles { QString model, vocab; };
+static bool contextFilesVerified(const QString &language, const QString &dir, const QJsonObject &lock, ContextFiles &out)
+{
+    const auto pins=lock["multilingual_context_models"].toObject()[language].toObject();
+    const auto shared=lock["language_files"].toObject();
+    if (pins.isEmpty() || shared.isEmpty() || dir.isEmpty()) return false;
+    auto check=[&](const QString &name, const QString &sha, qint64 bytes, QString *path=nullptr) {
+        const auto found=localPath(dir,name);
+        if (found.isEmpty() || sha.size()!=64 || (bytes>=0 && QFileInfo(found).size()!=bytes) || digest(found)!=sha) return false;
+        if (path) *path=found;
+        return true;
+    };
+    ContextFiles files;
+    if (!check(language+".ngram",pins["modelSha256"].toString(),pins["modelBytes"].toInteger(-1),&files.model) ||
+        !check(language+".vocab.tsv",pins["vocabSha256"].toString(),pins["vocabBytes"].toInteger(-1),&files.vocab) ||
+        !check(language+"-CONTRIBUTORS.txt",pins["contributorsSha256"].toString(),-1) ||
+        !check("TATOEBA-CC-BY-2.0-FR.txt",lock["tatoeba_license_notice_sha256"].toString(),-1) ||
+        !check(shared["odcTerms"].toObject()["path"].toString(),shared["odcTerms"].toObject()["sha256"].toString(),-1) ||
+        !check(shared["notice"].toObject()["path"].toString(),shared["notice"].toObject()["sha256"].toString(),-1) ||
+        !check("CC-BY-SA-4.0.txt",lock["cc_license_source"].toObject()["sha256"].toString(),-1))
+        return false;
+    out=files; return true;
+}
+// WHY the manifest is only cross-checked: it may describe the context files, but it cannot widen what the lock allows.
+static bool manifestContextMatchesLock(const QString &language, const QJsonObject &m, const QJsonObject &lock)
+{
+    const auto pins=lock["multilingual_context_models"].toObject()[language].toObject();
+    const auto shared=lock["language_files"].toObject();
+    const auto odc=shared["odcTerms"].toObject(), notice=shared["notice"].toObject();
+    const auto assets=m["assets"].toObject(), terms=m["contextLicense"].toObject();
+    const auto model=assets["contextModel"].toObject(), vocab=assets["contextVocab"].toObject();
+    return !pins.isEmpty() && !shared.isEmpty() && m["schema"].toInt()==2 && m["contextFormat"].toString()=="swk-ngram-v2" &&
+        model["path"].toString()==language+".ngram" && model["sha256"].toString()==pins["modelSha256"].toString() &&
+        model["size"].toInteger(-1)==pins["modelBytes"].toInteger() &&
+        vocab["path"].toString()==language+".vocab.tsv" && vocab["sha256"].toString()==pins["vocabSha256"].toString() &&
+        vocab["size"].toInteger(-1)==pins["vocabBytes"].toInteger() &&
+        // WHY both sources named: the files contain FineWeb web text (ODC-By) and Tatoeba sentences (CC BY 2.0 FR).
+        terms["id"].toString()=="ODC-By-1.0 AND CC-BY-2.0-FR" &&
+        terms["attributionPath"].toString()==language+"-CONTRIBUTORS.txt" &&
+        terms["attributionSha256"].toString()==pins["contributorsSha256"].toString() &&
+        terms["termsPath"].toString()=="TATOEBA-CC-BY-2.0-FR.txt" &&
+        terms["termsSha256"].toString()==lock["tatoeba_license_notice_sha256"].toString() &&
+        terms["webTermsPath"].toString()==odc["path"].toString() && terms["webTermsSha256"].toString()==odc["sha256"].toString() &&
+        terms["noticePath"].toString()==notice["path"].toString() && terms["noticeSha256"].toString()==notice["sha256"].toString() &&
+        terms["sourceUrl"].toString()==lock["language_files"].toObject()["baseUrl"].toString()+language+".ngram" &&
+        !terms["attribution"].toString().isEmpty();
+}
 static ProfileSnapshot unavailable(ProfileSnapshot p, const QString &reason)
 {
     p.assets.clear(); p.capabilities = {}; p.unavailableReason = reason; return p;
@@ -87,7 +137,22 @@ static ProfileSnapshot english(ProfileSnapshot p, const QString &root)
     if (hasModel && (!verify(model,"contextModel","en:context-v1") || !verify(vocab,"contextVocab","en:context-v1") || !verify("models/hungry_jellyfish/metadata.json",{},{})))
         return unavailable(p,"English context checksum mismatch");
     p.packId="bundled-en"; p.packVersion=lock["model_revision"].toString();
-    p.capabilities={true,hasModel,hasModel}; return p;
+    p.capabilities={true,hasModel,hasModel};
+    // WHY the open n-gram replaces FUTO's neural model whenever it is installed AND verified: it predicts the next
+    // word, completes half-typed words and ranks swipes from one file. Missing or damaged files are not an error:
+    // FUTO's model (if present) stays in charge exactly as before, so the keyboard never goes blank.
+    ContextFiles ngram;
+    for (const auto &dir:{QDir(root).filePath("language-packs"),root}) {
+        if (!QFileInfo::exists(QDir(dir).filePath("en.ngram"))) continue;
+        if (contextFilesVerified("en",dir,lock,ngram)) {
+            const auto pins=lock["multilingual_context_models"].toObject()["en"].toObject();
+            p.assets["contextModel"]={ngram.model,pins["modelSha256"].toString(),"en:context-ngram-v1"};
+            p.assets["contextVocab"]={ngram.vocab,pins["vocabSha256"].toString(),"en:context-ngram-v1"};
+            p.capabilities={true,true,true};
+        }
+        break;
+    }
+    return p;
 }
 ProfileSnapshot resolveProfile(const QString &locale, const QString &layoutId, const QString &inputMode,
                                const QString &modelRoot, quint64 epoch)
@@ -160,28 +225,22 @@ ProfileSnapshot resolveProfile(const QString &locale, const QString &layoutId, c
     // English weights or a manifest's self-asserted model hash cannot confer capability.
     if (assets.contains("decoder") || assets.contains("contextModel") != assets.contains("contextVocab"))
         return unavailable(p,"Unsupported decoder or unpaired context model/vocabulary");
-    const bool hasContext=assets.contains("contextModel");
-    const auto contextPins=lock["multilingual_context_models"].toObject()[p.effectiveLanguage].toObject();
-    if (hasContext && (m["schema"].toInt()!=2 || m["contextFormat"].toString()!="swk-ngram-v2" || contextPins.isEmpty() ||
-        assets["contextModel"].toObject()["sha256"].toString()!=contextPins["modelSha256"].toString() ||
-        assets["contextVocab"].toObject()["sha256"].toString()!=contextPins["vocabSha256"].toString()))
-        return unavailable(p,"Context model format or repository pin mismatch");
-    if (hasContext) {
-        const auto terms=m["contextLicense"].toObject();
-        const auto attribution=localPath(root,terms["attributionPath"].toString());
-        const auto contextTerms=localPath(root,terms["termsPath"].toString());
-        if (terms["id"].toString()!="CC-BY-2.0-FR" || terms["sourceSha256"].toString()!=contextPins["corpusSha256"].toString() ||
-            terms["attributionSha256"].toString()!=contextPins["contributorsSha256"].toString() || attribution.isEmpty() ||
-            digest(attribution)!=contextPins["contributorsSha256"].toString() || contextTerms.isEmpty() ||
-            terms["termsSha256"].toString()!=lock["tatoeba_license_notice_sha256"].toString() ||
-            digest(contextTerms)!=lock["tatoeba_license_notice_sha256"].toString() ||
-            terms["sourceUrl"].toString()!=QString("https://downloads.tatoeba.org/exports/per_language/%1/%1_sentences.tsv.bz2").arg(p.effectiveLanguage=="es" ? "spa" : p.effectiveLanguage=="fr" ? "fra" : "deu"))
-            return unavailable(p,"Context source or contributor attribution pin mismatch");
+    const bool declaresContext=assets.contains("contextModel");
+    // WHY a context problem (missing/damaged file, pin or licence mismatch) only drops next-word suggestions:
+    // the swipe encoder and dictionary are verified separately, and nothing unverified is ever loaded.
+    // The language then swipes and taps as before, without prediction.
+    bool hasContext=false;
+    ContextFiles contextFiles; Q_UNUSED(contextFiles) // paths come from the manifest roles below, which equal these
+    if (declaresContext && manifestContextMatchesLock(p.effectiveLanguage,m,lock)) {
+        // The pack folder holds the files beside its manifest.
+        hasContext=contextFilesVerified(p.effectiveLanguage,root,lock,contextFiles);
     }
-    if (!hasContext && m["schema"].toInt()!=1) return unavailable(p,"Unsupported language pack schema");
+    if (!declaresContext && m["schema"].toInt()!=1) return unavailable(p,"Unsupported language pack schema");
     for (auto it=assets.begin(); it!=assets.end(); ++it) {
         if (!QStringList{"encoder","dictionary","contextModel","contextVocab"}.contains(it.key()))
             return unavailable(p,"Unknown asset role");
+        // Context roles were judged above against the lock; when that failed they are simply left out.
+        if (it.key().startsWith("context") && !hasContext) continue;
         const auto a=it.value().toObject(); const auto path=localPath(root,a["path"].toString());
         const auto hash=a["sha256"].toString(), compat=a["compatibility"].toString();
         const QString expectedCompat=it.key()=="encoder" ? QString("layout-agnostic") :

@@ -238,6 +238,63 @@ private slots:
         QCOMPARE(prefixes.last(),QStringLiteral("cas"));
         ic->inputEngine()->setInputMethod(nullptr);
     }
+    // WHY one body for both English cases: completion must follow the pack that is installed. With the open
+    // English n-gram the typed letters are re-ranked by the sentence (like Spanish); with only FUTO's neural
+    // model nothing is sent to the completion worker, exactly as before.
+private:
+    void englishCompletion(bool withNgram) {
+        const QString profile=qEnvironmentVariable("SWIPEKB_TEST_PROFILE_ASSETS"), packs=qEnvironmentVariable("SWIPEKB_TEST_LANGUAGE_PACKS");
+        if(profile.isEmpty() || !QFileInfo::exists(packs+"/en.ngram"))QSKIP("English assets and an installed English n-gram fixture required");
+        QTemporaryDir modelRoot;
+        for(const QString &path:{QString("models/FUTO-MODEL-LICENSE.md"),QString("models/honorable_sturgeon/model_fp32.pte"),
+            QString("models/honorable_sturgeon/metadata.json"),QString("models/magic_macaw/model_fp32.pte"),QString("models/magic_macaw/metadata.json"),
+            QString("models/hungry_jellyfish/context_lm.pte"),QString("models/hungry_jellyfish/vocab.txt"),QString("models/hungry_jellyfish/metadata.json"),
+            QString("dict/en_swipe.combined")}) {
+            QVERIFY(QDir().mkpath(QFileInfo(modelRoot.filePath(path)).absolutePath()));
+            QVERIFY2(QFile::copy(QDir(profile).filePath(path),modelRoot.filePath(path)),qPrintable(path));
+        }
+        if(withNgram) {
+            QVERIFY(QDir().mkpath(modelRoot.filePath("language-packs")));
+            for(const QString &name:{QString("en.ngram"),QString("en.vocab.tsv"),QString("en-CONTRIBUTORS.txt"),QString("TATOEBA-CC-BY-2.0-FR.txt"),
+                QString("ODC-By-1.0.txt"),QString("LANGUAGE-FILES-NOTICE.md"),QString("CC-BY-SA-4.0.txt")})
+                QVERIFY2(QFile::copy(QDir(packs).filePath(name),modelRoot.filePath("language-packs/"+name)),qPrintable(name));
+        }
+        qputenv("SWIPEKB_MODEL_DATA",modelRoot.path().toUtf8());
+        struct EnvReset{~EnvReset(){qunsetenv("SWIPEKB_MODEL_DATA");}} envReset;
+        QTemporaryDir data;qputenv("SWIPEKB_DATA",data.path().toUtf8());
+        QQmlEngine engine;QQmlComponent fixture(&engine);fixture.setData("import QtQuick; import QtQuick.VirtualKeyboard; Item {property var context:InputContext}",QUrl());
+        std::unique_ptr<QObject> root(fixture.create());QVERIFY(root);auto *item=qobject_cast<QQuickItem*>(root.get());
+        QQuickWindow window;window.resize(500,200);item->setParentItem(window.contentItem());InputListenerItem edit(item);
+        edit.text=QStringLiteral("we live in a ");edit.cursor=edit.text.size();
+        window.show();window.requestActivate();edit.forceActiveFocus();
+        auto *ic=qvariant_cast<QVirtualKeyboardInputContext*>(root->property("context"));QVERIFY(ic);
+        QStringList prefixes,contexts;QSemaphore completions;
+        SwipeInputMethod method(nullptr,[&](const PredictionJob&job){
+            if(job.prefix.isEmpty())return QStringList{"x","y","z"};
+            prefixes<<job.prefix;contexts=job.context;completions.release();
+            return job.prefix==QStringLiteral("hou")?QStringList{"houses","house"}:QStringList{};});
+        ic->inputEngine()->setInputMethod(&method);method.setInputMode("en_US",QVirtualKeyboardInputEngine::InputMode::Latin);method.setPhysicalLayout("qwerty");
+        QVERIFY2(method.isReady(),qPrintable(method.profileSnapshot().unavailableReason));
+        QCOMPARE(method.profileSnapshot().assets["contextModel"].compatibility,
+                 withNgram ? QString("en:context-ngram-v1") : QString("en:context-v1"));
+        TestPolicyBridge bridge;method.setPredictionPolicySource(&bridge);
+        QGuiApplication::inputMethod()->update(Qt::ImQueryAll);QTRY_VERIFY(ic->inputItem()==&edit);
+        for(auto c:QString("hou")){
+            method.keyEvent(Qt::Key(QChar(c).toUpper().unicode()),QString(c),Qt::NoModifier);ic->commit(QString(c));
+            QGuiApplication::inputMethod()->update(Qt::ImQueryAll);method.update();
+        }
+        if(withNgram) {
+            QVERIFY(completions.tryAcquire(1,15000));
+            QCOMPARE(contexts,QStringList({"we","live","in","a"}));
+            QCOMPARE(prefixes.last(),QStringLiteral("hou"));
+        } else {
+            QVERIFY(!completions.tryAcquire(1,1500)); // FUTO's neural model cannot complete a word: unchanged.
+        }
+        ic->inputEngine()->setInputMethod(nullptr);
+    }
+private slots:
+    void englishCompletionUsesTheOpenNgramWhenInstalled() { englishCompletion(true); }
+    void englishCompletionStaysDictionaryOnlyWithoutTheNgram() { englishCompletion(false); }
     void unbridgedNativeWordUsesOnlyOwnedHistoryAndInserts_data() {
         QTest::addColumn<bool>("swipe");QTest::addColumn<int>("slot");QTest::addColumn<bool>("shiftedFirst");
         for(bool swipe:{false,true}) for(int slot=0;slot<3;++slot) for(bool shiftedFirst:{false,true})

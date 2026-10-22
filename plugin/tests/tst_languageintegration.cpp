@@ -38,6 +38,36 @@ private slots:
             QCOMPARE(im.profileSnapshot().requestedLocale,QString(locale));
         }
     }
+    // WHY: a missing language file (e.g. never downloaded, or deleted) must not take the keyboard away. The language
+    // still swipes and types; only the next-word/completion suggestions go.
+    void missingNextWordFilesKeepTheLanguageUsable() {
+        const auto packs=qEnvironmentVariable("SWIPEKB_TEST_LANGUAGE_PACKS");
+        if(packs.isEmpty() || !QFileInfo::exists(packs+"/fr.ngram")) QSKIP("Explicit verified pack fixture required");
+        QTemporaryDir root;
+        QVERIFY(QDir().mkpath(root.filePath("language-packs")));
+        for(const auto &name:QDir(packs).entryList(QDir::Files))
+            if(name!="fr.ngram" && name!="es.vocab.tsv")
+                QVERIFY(QFile::copy(QDir(packs).filePath(name),root.filePath("language-packs/"+name)));
+        const auto oldModel=qgetenv("SWIPEKB_MODEL_DATA"), oldPacks=qgetenv("SWIPEKB_LANGUAGE_PACKS");
+        const bool hadModel=qEnvironmentVariableIsSet("SWIPEKB_MODEL_DATA"), hadPacks=qEnvironmentVariableIsSet("SWIPEKB_LANGUAGE_PACKS");
+        const auto restore=qScopeGuard([&] {
+            if(hadModel) qputenv("SWIPEKB_MODEL_DATA",oldModel); else qunsetenv("SWIPEKB_MODEL_DATA");
+            if(hadPacks) qputenv("SWIPEKB_LANGUAGE_PACKS",oldPacks); else qunsetenv("SWIPEKB_LANGUAGE_PACKS");
+        });
+        qputenv("SWIPEKB_MODEL_DATA",root.path().toUtf8()); qunsetenv("SWIPEKB_LANGUAGE_PACKS");
+        SwipeInputMethod im;
+        for(const auto &locale:{"fr-FR","es-ES"}) {
+            im.setPhysicalLayout(QString(locale).startsWith("fr") ? "azerty" : "qwerty");
+            im.setInputMode(locale,QVirtualKeyboardInputEngine::InputMode::Latin);
+            QVERIFY2(im.isReady(),qPrintable(im.profileSnapshot().unavailableReason));
+            QVERIFY(im.profileSnapshot().capabilities.swipe); QVERIFY(!im.profileSnapshot().capabilities.nextWord);
+            QVERIFY(!im.profileSnapshot().assets.contains("contextModel"));
+            QCOMPARE(im.diagnostics()["predictionStatus"].toString(),QString("context-model-unavailable"));
+        }
+        im.setPhysicalLayout("qwertz");
+        im.setInputMode("de-DE",QVirtualKeyboardInputEngine::InputMode::Latin);
+        QVERIFY(im.isReady()); QVERIFY(im.profileSnapshot().capabilities.nextWord); // untouched languages keep theirs
+    }
     void incompleteGeometryKeepsTapping() {
         const QString packs=qEnvironmentVariable("SWIPEKB_TEST_LANGUAGE_PACKS");
         if (packs.isEmpty()) QSKIP("Explicit local language pack fixture not supplied");

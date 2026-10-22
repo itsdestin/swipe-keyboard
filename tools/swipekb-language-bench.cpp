@@ -132,8 +132,9 @@ int main(int argc,char **argv)
                     // WHY mirror plugin/swipeinputmethod.cpp: Recognizer::init refuses foreign profiles that carry
                     // English-style context files or lack their own n-gram, so without this every non-English case
                     // came back "unavailable" ("Engine initialization failed").
-                    if(language=="en") { paths.lm_model=path("contextModel"); paths.lm_vocab=path("contextVocab"); }
-                    else { paths.ngram=path("contextModel"); options.ngram=true; }
+                    // WHY by file kind: English with the open n-gram installed behaves like the other languages.
+                    if(p.assets.value("contextModel").compatibility.endsWith(":context-ngram-v1")) { paths.ngram=path("contextModel"); options.ngram=true; }
+                    else { paths.lm_model=path("contextModel"); paths.lm_vocab=path("contextVocab"); }
                     runtime->dictionary=dictionaryFor(p.assets.value("dictionary").path);
                     runtime->engine=std::make_unique<swipekb::Recognizer>();
                     if(!runtime->engine->init(paths,options)) runtime->engine.reset();

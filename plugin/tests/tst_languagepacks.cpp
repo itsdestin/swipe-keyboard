@@ -74,13 +74,108 @@ private slots:
         const QString model=spain.assets["contextModel"].path.section('/',-1);
         const QString vocab=spain.assets["contextVocab"].path.section('/',-1);
         auto bytes=languagefixtures::read(copy.filePath(model)); QVERIFY(!bytes.isEmpty());
+        // WHY a damaged or missing next-word file only removes prediction: the language still swipes and taps,
+        // and the damaged bytes are never offered to the engine (no contextModel/contextVocab role survives).
+        auto expectSwipeWithoutPrediction=[&](const char *what) {
+            auto broken=resolveProfile("es-MX","qwerty","Latin",copy.path());
+            QVERIFY2(broken.capabilities.swipe,what); QVERIFY2(!broken.capabilities.nextWord,what);
+            QVERIFY2(!broken.capabilities.contextRanking,what);
+            QVERIFY2(!broken.assets.contains("contextModel") && !broken.assets.contains("contextVocab"),what);
+            QVERIFY2(broken.assets.contains("encoder") && broken.assets.contains("dictionary"),what);
+        };
         QVERIFY(languagefixtures::write(copy.path(),model,bytes+"damage"));
-        auto broken=resolveProfile("es-MX","qwerty","Latin",copy.path());
-        QVERIFY(!broken.capabilities.swipe); QVERIFY(!broken.capabilities.nextWord); QVERIFY(broken.assets.isEmpty());
+        expectSwipeWithoutPrediction("damaged n-gram");
         QVERIFY(languagefixtures::write(copy.path(),model,bytes));
+        QVERIFY(resolveProfile("es-MX","qwerty","Latin",copy.path()).capabilities.nextWord);
+        const auto vocabBytes=languagefixtures::read(copy.filePath(vocab));
         QVERIFY(QFile::remove(copy.filePath(vocab)));
-        broken=resolveProfile("es-ES","qwerty","Latin",copy.path());
-        QVERIFY(!broken.capabilities.swipe); QVERIFY(broken.assets.isEmpty());
+        expectSwipeWithoutPrediction("missing word list");
+        QVERIFY(languagefixtures::write(copy.path(),vocab,vocabBytes));
+        QVERIFY(QFile::remove(copy.filePath(model)));
+        expectSwipeWithoutPrediction("missing n-gram");
+        QVERIFY(languagefixtures::write(copy.path(),model,bytes));
+        // Every credit/licence text that must travel with the files is verified too.
+        for(const QString &name:{QString("ODC-By-1.0.txt"),QString("LANGUAGE-FILES-NOTICE.md"),QString("TATOEBA-CC-BY-2.0-FR.txt"),QString("es-CONTRIBUTORS.txt")}) {
+            const auto original=languagefixtures::read(copy.filePath(name)); QVERIFY2(!original.isEmpty(),qPrintable(name));
+            QVERIFY(languagefixtures::write(copy.path(),name,original+"tampered"));
+            expectSwipeWithoutPrediction(qPrintable(name));
+            QVERIFY(languagefixtures::write(copy.path(),name,original));
+            QVERIFY2(resolveProfile("es-MX","qwerty","Latin",copy.path()).capabilities.nextWord,qPrintable(name));
+        }
+        // The swipe encoder itself stays strictly required: damage there still makes the language unavailable.
+        const auto encoder=languagefixtures::read(copy.filePath("encoder.pte"));
+        QVERIFY(languagefixtures::write(copy.path(),"encoder.pte",encoder+"x"));
+        QVERIFY(!resolveProfile("es-MX","qwerty","Latin",copy.path()).capabilities.swipe);
+    }
+    // Lays out a model root like a new install: English swipe files from the explicit fixture, English next-word
+    // files (and the texts that must accompany them) from the verified language-pack fixture.
+    static bool englishRoot(const QString &root,bool withNgram,QString &why) {
+        const auto source=qEnvironmentVariable("SWIPEKB_TEST_ENGLISH_ASSETS"), packs=qEnvironmentVariable("SWIPEKB_TEST_LANGUAGE_PACKS");
+        const QStringList paths{"models/FUTO-MODEL-LICENSE.md","models/honorable_sturgeon/model_fp32.pte",
+            "models/honorable_sturgeon/metadata.json","models/magic_macaw/model_fp32.pte","models/magic_macaw/metadata.json",
+            "models/hungry_jellyfish/context_lm.pte","models/hungry_jellyfish/vocab.txt","models/hungry_jellyfish/metadata.json","dict/en_swipe.combined"};
+        for(const auto &path:paths) {
+            if(!QDir().mkpath(QFileInfo(QDir(root).filePath(path)).absolutePath()) || !QFile::copy(QDir(source).filePath(path),QDir(root).filePath(path))) { why=path; return false; }
+        }
+        if(!withNgram) return true;
+        if(!QDir().mkpath(QDir(root).filePath("language-packs"))) return false;
+        for(const QString &name:{QString("en.ngram"),QString("en.vocab.tsv"),QString("en-CONTRIBUTORS.txt"),QString("TATOEBA-CC-BY-2.0-FR.txt"),
+                QString("ODC-By-1.0.txt"),QString("LANGUAGE-FILES-NOTICE.md"),QString("CC-BY-SA-4.0.txt")}) {
+            if(!QFile::copy(QDir(packs).filePath(name),QDir(root).filePath("language-packs/"+name))) { why=name; return false; }
+        }
+        return true;
+    }
+    void englishUsesTheOpenNgramWhenInstalled() {
+        if(qEnvironmentVariable("SWIPEKB_TEST_ENGLISH_ASSETS").isEmpty() || !QFileInfo::exists(qEnvironmentVariable("SWIPEKB_TEST_LANGUAGE_PACKS")+"/en.ngram"))
+            QSKIP("English assets and an installed English n-gram fixture required");
+        QTemporaryDir dir; QString why; QVERIFY2(englishRoot(dir.path(),true,why),qPrintable(why));
+        for(const char *locale:{"en_US","en_GB","en-CA"}) {
+            auto p=resolveProfile(locale,"qwerty","Latin",dir.path());
+            QVERIFY2(p.capabilities.swipe,qPrintable(p.unavailableReason));
+            QVERIFY(p.capabilities.nextWord); QVERIFY(p.capabilities.contextRanking);
+            QCOMPARE(p.assets["contextModel"].compatibility,QString("en:context-ngram-v1"));
+            QCOMPARE(p.assets["contextVocab"].compatibility,QString("en:context-ngram-v1"));
+            QVERIFY(p.assets["contextModel"].path.endsWith("language-packs/en.ngram"));
+            QVERIFY(p.assets["contextVocab"].path.endsWith("language-packs/en.vocab.tsv"));
+        }
+        auto p=resolveProfile("en_US","qwerty","Latin",dir.path());
+        ModelPaths paths; paths.encoder=p.assets["encoder"].path.toStdString(); paths.dictionary=p.assets["dictionary"].path.toStdString();
+        paths.decoder=p.assets["decoder"].path.toStdString(); paths.ngram=p.assets["contextModel"].path.toStdString();
+        RecognizerOptions options; options.language="en"; options.ngram=true; options.alphabet=languageAlphabet("en").toStdString();
+        Recognizer engine; QVERIFY(engine.init(paths,options));
+        QVERIFY2(engine.usingNgram(),"English must rank with the open n-gram, not FUTO's model");
+    }
+    void englishFallsBackToFutoWhenNgramFilesAreMissingOrDamaged() {
+        if(qEnvironmentVariable("SWIPEKB_TEST_ENGLISH_ASSETS").isEmpty() || !QFileInfo::exists(qEnvironmentVariable("SWIPEKB_TEST_LANGUAGE_PACKS")+"/en.ngram"))
+            QSKIP("English assets and an installed English n-gram fixture required");
+        QTemporaryDir dir; QString why; QVERIFY2(englishRoot(dir.path(),true,why),qPrintable(why));
+        auto resolve=[&] { return resolveProfile("en_US","qwerty","Latin",dir.path()); };
+        auto expectFuto=[&](const char *what) {
+            auto p=resolve();
+            QVERIFY2(p.capabilities.swipe,what); QVERIFY2(p.capabilities.nextWord,what);
+            QCOMPARE(p.assets["contextModel"].compatibility,QString("en:context-v1"));
+            QVERIFY2(p.assets["contextModel"].path.endsWith("hungry_jellyfish/context_lm.pte"),what);
+        };
+        QCOMPARE(resolve().assets["contextModel"].compatibility,QString("en:context-ngram-v1"));
+        // Anything wrong with the English files (missing, damaged, or a missing/changed licence text) means FUTO's
+        // model keeps working exactly as before: no crash, no blank keyboard.
+        for(const QString &name:{QString("en.ngram"),QString("en.vocab.tsv"),QString("en-CONTRIBUTORS.txt"),QString("ODC-By-1.0.txt"),
+                QString("LANGUAGE-FILES-NOTICE.md"),QString("TATOEBA-CC-BY-2.0-FR.txt"),QString("CC-BY-SA-4.0.txt")}) {
+            const QString relative="language-packs/"+name; const auto original=languagefixtures::read(dir.filePath(relative));
+            QVERIFY2(!original.isEmpty(),qPrintable(name));
+            QVERIFY(languagefixtures::write(dir.path(),relative,original+"damage")); expectFuto(qPrintable("damaged "+name));
+            QVERIFY(QFile::remove(dir.filePath(relative))); expectFuto(qPrintable("missing "+name));
+            QVERIFY(languagefixtures::write(dir.path(),relative,original));
+            QCOMPARE(resolve().assets["contextModel"].compatibility,QString("en:context-ngram-v1"));
+        }
+        // No English pack folder at all (today's install): identical to the previous behaviour.
+        QTemporaryDir plain; QVERIFY2(englishRoot(plain.path(),false,why),qPrintable(why));
+        auto p=resolveProfile("en_US","qwerty","Latin",plain.path());
+        QVERIFY(p.capabilities.swipe); QCOMPARE(p.assets["contextModel"].compatibility,QString("en:context-v1"));
+        // And with neither the open n-gram nor FUTO's model: swipes, no prediction, no error.
+        QVERIFY(QFile::remove(plain.filePath("models/hungry_jellyfish/context_lm.pte"))); QVERIFY(QFile::remove(plain.filePath("models/hungry_jellyfish/vocab.txt")));
+        p=resolveProfile("en_US","qwerty","Latin",plain.path());
+        QVERIFY(p.capabilities.swipe); QVERIFY(!p.capabilities.nextWord); QVERIFY(!p.assets.contains("contextModel"));
     }
     void syntheticLanguageMechanics_data() {
         QTest::addColumn<QString>("language"); QTest::addColumn<QString>("layout"); QTest::addColumn<QString>("word");
