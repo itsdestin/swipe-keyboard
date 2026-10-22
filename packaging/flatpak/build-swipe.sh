@@ -4,13 +4,25 @@ set -eu
 # native object against this SDK, using a separate CPython 3.13 hash lock.
 export CFLAGS="${CFLAGS:-} -fPIC"
 export CXXFLAGS="${CXXFLAGS:-} -fPIC"
-export CMAKE_BUILD_PARALLEL_LEVEL=2
+# WHY 4: matches the 4-CPU hosted runner; one bound shared with the manifest and build.py.
+export CMAKE_BUILD_PARALLEL_LEVEL=4
 python3 scripts/apply-build-patches.py third_party/swipe-library/third_party/executorch --swipe-library third_party/swipe-library
 python3 scripts/provision-build-deps.py futo third_party/swipe-library/.venv --profile kde-6.10 --cache wheelcache
 cmake -S third_party/swipe-library -B third_party/swipe-library/build -DCMAKE_BUILD_TYPE=Release -DUSE_MARCH_NATIVE=OFF
-make -C third_party/swipe-library host JOBS=2
+if [ -n "${CCACHE_DIR:-}" ]; then
+    # WHY: set only when flatpak-builder --ccache supplies a persistent store (trusted CI). ccache
+    # hashes compiler contents, flags and preprocessed source, so a stale entry is just a miss.
+    export CCACHE_COMPILERCHECK=content CCACHE_MAXSIZE=1500M
+fi
+# WHY the ExecuTorch archive alone, with ccache: it is third-party dependency code that ExecuTorch's
+# own CMake already routes through ccache. Everything after it is the keyboard's / FUTO engine's own
+# product code and is compiled fresh (ccache disabled below).
+make -C third_party/swipe-library third_party/executorch/cmake-out-host/libexecutorch.a JOBS=4
+if [ -n "${CCACHE_DIR:-}" ]; then ccache -s || true; fi
+export CCACHE_DISABLE=1
+make -C third_party/swipe-library host JOBS=4
 cmake -S . -B build-flatpak -G Ninja -DCMAKE_INSTALL_PREFIX=/app -DCMAKE_INSTALL_LIBDIR=lib -DSWIPEKB_PACKAGE_VERSION="$(python3 scripts/release.py version)" -DUSE_MARCH_NATIVE=OFF -DSWIPEKB_STOCK_LAYOUTS=/app/share/plasma/keyboard/layouts -DSWIPEKB_BACKEND_QML_DIR=/app/lib/qml -DSWIPEKB_BUNDLE_LIBDIR=/app/lib
-cmake --build build-flatpak -j2
+cmake --build build-flatpak -j4
 QT_QPA_PLATFORM=offscreen ctest --test-dir build-flatpak --output-on-failure
 cmake --install build-flatpak
 # WHY installed bytes, not only build-tree ctest: catch broken RPATH/QML imports in the SDK.

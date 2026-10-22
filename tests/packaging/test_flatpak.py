@@ -35,13 +35,47 @@ class FlatpakContractTests(unittest.TestCase):
             self.assertNotIn('cp314', filename)
         self.assertIn('cp313-cp313', lock['wheels']['pyyaml']['filename'])
 
+    def builder_command(self, **options):
+        spec = importlib.util.spec_from_file_location('flatpak_build', BUNDLE / 'build.py')
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module.builder_command('build', 'manifest.json', 'repo', **options)
+
+    def test_builder_flags_are_cold_by_default_and_cache_only_on_request(self):
+        plain = self.builder_command()
+        self.assertNotIn('--ccache', plain)
+        self.assertNotIn('--stop-at=swipe-keyboard', plain)
+        self.assertIn('--repo=repo', plain)
+        for flag in ('--force-clean', '--disable-rofiles-fuse'):
+            self.assertIn(flag, plain)
+        self.assertIn('--ccache', self.builder_command(ccache=True))
+        deps = self.builder_command(dependencies_only=True)
+        self.assertIn('--stop-at=swipe-keyboard', deps)
+        # WHY: a dependency-only run exports nothing, so nothing of the product can be saved.
+        self.assertFalse([a for a in deps if a.startswith('--repo')])
+
+    def test_only_executorch_is_compiled_through_ccache(self):
+        script = (BUNDLE / 'build-swipe.sh').read_text()
+        self.assertLess(script.index('libexecutorch.a'), script.index('export CCACHE_DISABLE=1'))
+        self.assertLess(script.index('export CCACHE_DISABLE=1'), script.index('make -C third_party/swipe-library host'))
+        self.assertLess(script.index('export CCACHE_DISABLE=1'), script.index('cmake --build build-flatpak'))
+
     def test_identity_sdk_prefix_and_parallel_bound(self):
         manifest = self.manifest()
         self.assertEqual(manifest['id'], 'org.itsdestin.SwipeKeyboard')
         self.assertEqual(manifest['runtime'], 'org.kde.Platform')
         self.assertEqual(manifest['sdk'], 'org.kde.Sdk')
         self.assertEqual(manifest['runtime-version'], '6.10')
-        self.assertEqual(manifest['build-options']['env']['CMAKE_BUILD_PARALLEL_LEVEL'], '2')
+        # WHY 4 (was 2): hosted runners have 4 CPUs/16 GB; the audit approved a bounded 2->4 benchmark.
+        # Every layer must agree so nested make/cmake never exceeds this one bound.
+        self.assertEqual(manifest['build-options']['env']['CMAKE_BUILD_PARALLEL_LEVEL'], '4')
+        self.assertEqual(manifest['build-options']['env']['MAKEFLAGS'], '-j4')
+        script = (BUNDLE / 'build-swipe.sh').read_text()
+        self.assertIn('CMAKE_BUILD_PARALLEL_LEVEL=4', script)
+        self.assertIn('JOBS=4', script)
+        self.assertNotIn('-j2', script)
+        self.assertNotIn('JOBS=2', script)
+        self.assertIn('--jobs=4', ' '.join(self.builder_command()))
         self.assertEqual(manifest['command'], 'swipe-keyboard-flatpak')
         self.assertEqual(manifest['build-options']['prefix'], '/app')
 

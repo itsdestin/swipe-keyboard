@@ -89,8 +89,48 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("github.repository == 'itsdestin/swipe-keyboard'", self.jobs['publish'])
         self.assertNotIn('run-id:', self.workflow)
         self.assertNotIn('repository:', self.workflow)
-        self.assertNotIn('actions/cache', self.workflow)
+        # WHY changed from "no actions/cache at all": approved dependency-only caches now exist.
+        # The release guarantees are pinned in test_dependency_caches_are_trusted_and_never_touch_releases.
+        self.assertNotIn('actions/cache@', self.workflow)
         self.assertNotIn('0.2.', self.workflow)
+
+    def test_dependency_caches_are_trusted_and_never_touch_releases(self):
+        import json
+        # WHY: tag candidates must rebuild everything cold, and only trusted events may write.
+        for name in ('arch', 'fedora', 'fedora-arm64', 'flatpak'):
+            job = self.jobs[name]
+            self.assertIn('scripts/ci-cache.py policy', job, name)
+            found = 0
+            for use in re.finditer(r'(?ms)^      - name:[^\n]*\n(?:(?!^      - ).)*?uses: actions/cache/(restore|save)@v4.*?(?=^      - |\Z)', job):
+                step = use[0]
+                found += 1
+                with self.subTest(job=name, step=step.splitlines()[0]):
+                    self.assertIn('steps.cachepolicy.outputs.' + ('restore' if use[1] == 'restore' else 'save') + " == 'true'", step)
+            self.assertGreaterEqual(found, 2, name)
+        self.assertNotIn('actions/cache', self.jobs['publish'])
+        self.assertNotIn('actions/cache', self.jobs['keyboard-ci'])
+        self.assertNotIn('actions/cache', self.jobs['prepare'])
+        # The saved paths are dependency state only, never packages, QRC, install trees or build dirs.
+        saved = re.findall(r'cache/save@v4\n\s+with:\n\s+path: (\S+)', self.workflow)
+        self.assertEqual(sorted(set(saved)), ['.flatpak-builder/ccache', '/var/tmp/ccache-et', 'flatpak-stage-cache.tar.zst'])
+        # The stage cache is packed by a dependency-only run, before the keyboard module exists.
+        flatpak = self.jobs['flatpak']
+        self.assertLess(flatpak.index('--dependencies-only'), flatpak.index('ci-cache.py pack-flatpak-state'))
+        self.assertLess(flatpak.index('ci-cache.py pack-flatpak-state'), flatpak.index('flatpak-build --repo flatpak-repo --ci-manifest prepared/flatpak-inputs/manifest.json ${{'))
+        # Restores are validated and fall back to a rebuild.
+        self.assertIn('unpack-flatpak-state', flatpak)
+        self.assertIn("steps.stagecheck.outputs.usable != 'true'", flatpak)
+        # Platform caches never share keys.
+        for label in ('arch', 'fedora', 'fedora-arm64'):
+            self.assertIn(f'native-ccache "{label}|', self.jobs[label])
+        policy = json.dumps(self.jobs['arch'])
+        self.assertNotIn('refs/tags', policy)
+
+    def test_flatpak_records_peak_memory_for_the_parallelism_bound(self):
+        flatpak = self.jobs['flatpak']
+        self.assertIn('ci-memwatch.py sample', flatpak)
+        self.assertIn('ci-memwatch.py summary', flatpak)
+        self.assertLess(flatpak.index('ci-memwatch.py sample'), flatpak.index('packaging/flatpak/build.py flatpak-build --repo flatpak-repo --ci-manifest prepared/flatpak-inputs/manifest.json ${{'))
 
     def test_prepare_shallows_dependencies_not_tag_ancestry(self):
         # Fetching full history recursively pulls enormous unused upstream histories.

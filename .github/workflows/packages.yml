@@ -19,6 +19,7 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
       package_version: ${{ steps.version.outputs.package_version }}
+      swipe_library: ${{ steps.version.outputs.swipe_library }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -37,6 +38,8 @@ jobs:
           python3 scripts/release.py check-versions
           echo "version=$(python3 -c 'import json; print(json.load(open("packaging/release-targets.json"))["version"])')" >> "$GITHUB_OUTPUT"
           echo "package_version=$(python3 scripts/release.py version)" >> "$GITHUB_OUTPUT"
+          # WHY: this pinned commit fixes the ExecuTorch revision; it names which compiler-cache store to start from.
+          echo "swipe_library=$(git rev-parse HEAD:third_party/swipe-library)" >> "$GITHUB_OUTPUT"
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then
             test "$GITHUB_REF_NAME" = "v$(python3 scripts/release.py version)"
             # Only root history is needed for ancestry; never fetch complete dependency histories.
@@ -121,12 +124,50 @@ jobs:
           path: prepared
       - name: Verify prepared input identity and hashes before executing source
         run: python3 scripts/release.py verify-inputs --directory prepared --sha "$GITHUB_SHA"
+      - name: Decide dependency-cache policy (release tags and forks never use caches)
+        id: cachepolicy
+        env:
+          PR_FROM_FORK: ${{ github.event.pull_request.head.repo.fork }}
+        run: python3 scripts/ci-cache.py policy >> "$GITHUB_OUTPUT"
+      - name: Prepare ExecuTorch compiler cache (dependency objects only)
+        id: cachekey
+        if: ${{ steps.cachepolicy.outputs.restore == 'true' }}
+        env:
+          SWIPE_LIBRARY: ${{ needs.prepare.outputs.swipe_library }}
+        run: |
+          for attempt in 1 2 3; do pacman -S --noconfirm --needed ccache && break; if [ "$attempt" = 3 ]; then exit 1; fi; sleep 15; done
+          mkdir -p /var/tmp/ccache-et
+          toolchain=$(pacman -Q gcc glibc binutils cmake ninja | tr '\n' ' ')
+          echo "key=$(python3 scripts/ci-cache.py key native-ccache "arch|$(uname -m)|$SWIPE_LIBRARY|$toolchain" arch)" >> "$GITHUB_OUTPUT"
+          echo "prefix=$(python3 scripts/ci-cache.py key --prefix native-ccache arch)" >> "$GITHUB_OUTPUT"
+      # WHY a compiler-result cache only: ccache hashes the compiler, flags and preprocessed source,
+      # so a stale or mismatched entry is a miss (full recompile), never wrong bytes. The keyboard's
+      # own objects, QRC and install output are never cached.
+      - name: Restore ExecuTorch compiler cache
+        id: ccacherestore
+        if: ${{ steps.cachepolicy.outputs.restore == 'true' }}
+        uses: actions/cache/restore@v4
+        with:
+          path: /var/tmp/ccache-et
+          key: ${{ steps.cachekey.outputs.key }}
+          restore-keys: ${{ steps.cachekey.outputs.prefix }}
+      - name: Let the unprivileged builder use the compiler cache
+        if: ${{ steps.cachepolicy.outputs.restore == 'true' }}
+        run: |
+          mkdir -p /var/tmp/ccache-et
+          chmod -R a+rwX /var/tmp/ccache-et
+          # The product build must never be routed through ccache by PATH masquerading.
+          case ":$PATH:" in *ccache*) echo 'ccache wrappers are on PATH' >&2; exit 1;; esac
       - name: Record actual baseline libraries (not hardware acceptance)
         run: |
           pacman -Q glibc gcc-libs qt6-base qt6-declarative qt6-virtualkeyboard kwindowsystem plasma-keyboard python | tee packaging/BASELINE-VERSIONS.txt
           pacman -Si plasma-keyboard | tee packaging/AVAILABLE-KEYBOARD.txt
       - name: Build source and native package as unprivileged builder
+        env:
+          CCACHE_ON: ${{ steps.cachepolicy.outputs.restore }}
         run: |
+          cache_env=''
+          if [ "$CCACHE_ON" = true ]; then cache_env='CCACHE_DIR=/var/tmp/ccache-et CCACHE_COMPILERCHECK=content CCACHE_MAXSIZE=1500M'; fi
           useradd -m builder
           mkdir dist
           cp "prepared/swipe-keyboard-$VERSION.tar.gz" dist/
@@ -137,7 +178,16 @@ jobs:
           sed -i "s/sha256sums=('SKIP')/sha256sums=('$digest')/" PKGBUILD
           chown -R builder:builder "$GITHUB_WORKSPACE"
           # Resolve the real runtime requirements too; do not bypass compatibility to get a green build.
-          su builder -c "cd '$GITHUB_WORKSPACE/dist' && makepkg --noconfirm"
+          su builder -c "cd '$GITHUB_WORKSPACE/dist' && $cache_env makepkg --noconfirm"
+      - name: Report ExecuTorch compiler-cache use
+        if: ${{ !cancelled() && steps.cachepolicy.outputs.restore == 'true' }}
+        run: CCACHE_DIR=/var/tmp/ccache-et ccache -s
+      - name: Save ExecuTorch compiler cache (trusted pushes and dispatch only)
+        if: ${{ !cancelled() && steps.cachepolicy.outputs.save == 'true' && steps.ccacherestore.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: /var/tmp/ccache-et
+          key: ${{ steps.cachekey.outputs.key }}
       - name: Inspect actual package payload
         run: |
           mkdir dist/stage
@@ -207,6 +257,40 @@ jobs:
           path: prepared
       - name: Verify prepared input identity and hashes before executing source
         run: python3 scripts/release.py verify-inputs --directory prepared --sha "$GITHUB_SHA"
+      - name: Decide dependency-cache policy (release tags and forks never use caches)
+        id: cachepolicy
+        env:
+          PR_FROM_FORK: ${{ github.event.pull_request.head.repo.fork }}
+        run: python3 scripts/ci-cache.py policy >> "$GITHUB_OUTPUT"
+      - name: Prepare ExecuTorch compiler cache (dependency objects only)
+        id: cachekey
+        if: ${{ steps.cachepolicy.outputs.restore == 'true' }}
+        env:
+          SWIPE_LIBRARY: ${{ needs.prepare.outputs.swipe_library }}
+        run: |
+          dnf -y install ccache tar zstd
+          mkdir -p /var/tmp/ccache-et
+          toolchain=$(rpm -q gcc-c++ glibc-devel binutils cmake ninja-build | tr '\n' ' ')
+          echo "key=$(python3 scripts/ci-cache.py key native-ccache "fedora|$(uname -m)|$SWIPE_LIBRARY|$toolchain" fedora)" >> "$GITHUB_OUTPUT"
+          echo "prefix=$(python3 scripts/ci-cache.py key --prefix native-ccache fedora)" >> "$GITHUB_OUTPUT"
+      # WHY a compiler-result cache only: ccache hashes the compiler, flags and preprocessed source,
+      # so a stale or mismatched entry is a miss (full recompile), never wrong bytes. The keyboard's
+      # own objects, QRC and install output are never cached.
+      - name: Restore ExecuTorch compiler cache
+        id: ccacherestore
+        if: ${{ steps.cachepolicy.outputs.restore == 'true' }}
+        uses: actions/cache/restore@v4
+        with:
+          path: /var/tmp/ccache-et
+          key: ${{ steps.cachekey.outputs.key }}
+          restore-keys: ${{ steps.cachekey.outputs.prefix }}
+      - name: Let the unprivileged builder use the compiler cache
+        if: ${{ steps.cachepolicy.outputs.restore == 'true' }}
+        run: |
+          mkdir -p /var/tmp/ccache-et
+          chmod -R a+rwX /var/tmp/ccache-et
+          # The product build must never be routed through ccache by PATH masquerading.
+          case ":$PATH:" in *ccache*) echo 'ccache wrappers are on PATH' >&2; exit 1;; esac
       - name: Resolve current Fedora 44 build dependencies
         run: |
           # The minimal image's tmpfiles-only package conflicts with systemd BuildRequires.
@@ -216,7 +300,11 @@ jobs:
           dnf -y builddep packaging/fedora/swipe-keyboard.spec
           dnf repoquery --latest-limit 1 plasma-keyboard | tee packaging/AVAILABLE-KEYBOARD.txt
       - name: Build source and RPM as unprivileged builder
+        env:
+          CCACHE_ON: ${{ steps.cachepolicy.outputs.restore }}
         run: |
+          cache_env=''
+          if [ "$CCACHE_ON" = true ]; then cache_env='CCACHE_DIR=/var/tmp/ccache-et CCACHE_COMPILERCHECK=content CCACHE_MAXSIZE=1500M'; fi
           useradd -m builder
           mkdir dist
           cp "prepared/swipe-keyboard-$VERSION.tar.gz" dist/
@@ -225,9 +313,18 @@ jobs:
           cp packaging/fedora/swipe-keyboard.spec /home/builder/rpmbuild/SPECS/
           chown -R builder:builder /home/builder/rpmbuild
           # Keep the test executable until the extracted-package probe below (RPM 6 cleans BUILD by default).
-          su builder -c 'rpmbuild -ba --noclean /home/builder/rpmbuild/SPECS/swipe-keyboard.spec'
+          su builder -c "$cache_env rpmbuild -ba --noclean /home/builder/rpmbuild/SPECS/swipe-keyboard.spec"
           cp /home/builder/rpmbuild/RPMS/x86_64/*.rpm dist/
           cp /home/builder/rpmbuild/SRPMS/*.rpm dist/
+      - name: Report ExecuTorch compiler-cache use
+        if: ${{ !cancelled() && steps.cachepolicy.outputs.restore == 'true' }}
+        run: CCACHE_DIR=/var/tmp/ccache-et ccache -s
+      - name: Save ExecuTorch compiler cache (trusted pushes and dispatch only)
+        if: ${{ !cancelled() && steps.cachepolicy.outputs.save == 'true' && steps.ccacherestore.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: /var/tmp/ccache-et
+          key: ${{ steps.cachekey.outputs.key }}
       - name: Inspect actual RPM payload (no installation or desktop changes)
         run: |
           mkdir dist/stage
@@ -293,6 +390,40 @@ jobs:
           path: prepared
       - name: Verify prepared input identity and hashes before executing source
         run: python3 scripts/release.py verify-inputs --directory prepared --sha "$GITHUB_SHA"
+      - name: Decide dependency-cache policy (release tags and forks never use caches)
+        id: cachepolicy
+        env:
+          PR_FROM_FORK: ${{ github.event.pull_request.head.repo.fork }}
+        run: python3 scripts/ci-cache.py policy >> "$GITHUB_OUTPUT"
+      - name: Prepare ExecuTorch compiler cache (dependency objects only)
+        id: cachekey
+        if: ${{ steps.cachepolicy.outputs.restore == 'true' }}
+        env:
+          SWIPE_LIBRARY: ${{ needs.prepare.outputs.swipe_library }}
+        run: |
+          dnf -y install ccache tar zstd
+          mkdir -p /var/tmp/ccache-et
+          toolchain=$(rpm -q gcc-c++ glibc-devel binutils cmake ninja-build | tr '\n' ' ')
+          echo "key=$(python3 scripts/ci-cache.py key native-ccache "fedora-arm64|$(uname -m)|$SWIPE_LIBRARY|$toolchain" fedora-arm64)" >> "$GITHUB_OUTPUT"
+          echo "prefix=$(python3 scripts/ci-cache.py key --prefix native-ccache fedora-arm64)" >> "$GITHUB_OUTPUT"
+      # WHY a compiler-result cache only: ccache hashes the compiler, flags and preprocessed source,
+      # so a stale or mismatched entry is a miss (full recompile), never wrong bytes. The keyboard's
+      # own objects, QRC and install output are never cached.
+      - name: Restore ExecuTorch compiler cache
+        id: ccacherestore
+        if: ${{ steps.cachepolicy.outputs.restore == 'true' }}
+        uses: actions/cache/restore@v4
+        with:
+          path: /var/tmp/ccache-et
+          key: ${{ steps.cachekey.outputs.key }}
+          restore-keys: ${{ steps.cachekey.outputs.prefix }}
+      - name: Let the unprivileged builder use the compiler cache
+        if: ${{ steps.cachepolicy.outputs.restore == 'true' }}
+        run: |
+          mkdir -p /var/tmp/ccache-et
+          chmod -R a+rwX /var/tmp/ccache-et
+          # The product build must never be routed through ccache by PATH masquerading.
+          case ":$PATH:" in *ccache*) echo 'ccache wrappers are on PATH' >&2; exit 1;; esac
       - name: Resolve current Fedora 44 ARM build dependencies
         run: |
           if rpm -q systemd-standalone-tmpfiles >/dev/null 2>&1; then
@@ -301,7 +432,11 @@ jobs:
           dnf -y builddep packaging/fedora/swipe-keyboard.spec
           rpm -q glibc libstdc++ qt6-qtbase qt6-qtdeclarative qt6-qtvirtualkeyboard plasma-keyboard python3 | tee packaging/BASELINE-VERSIONS.txt
       - name: Build fresh ARM product, ExecuTorch and RPM as unprivileged builder
+        env:
+          CCACHE_ON: ${{ steps.cachepolicy.outputs.restore }}
         run: |
+          cache_env=''
+          if [ "$CCACHE_ON" = true ]; then cache_env='CCACHE_DIR=/var/tmp/ccache-et CCACHE_COMPILERCHECK=content CCACHE_MAXSIZE=1500M'; fi
           useradd -m builder
           mkdir dist
           mkdir -p /home/builder/rpmbuild/{SOURCES,SPECS,BUILD,BUILDROOT,RPMS,SRPMS}
@@ -310,8 +445,17 @@ jobs:
           chown -R builder:builder /home/builder/rpmbuild
           # Same complete source/SRPM contract as x86; no second same-named SRPM upload.
           # %check runs full native CTest plus packaging/integration suites on ARM.
-          su builder -c 'rpmbuild -bb --noclean /home/builder/rpmbuild/SPECS/swipe-keyboard.spec'
+          su builder -c "$cache_env rpmbuild -bb --noclean /home/builder/rpmbuild/SPECS/swipe-keyboard.spec"
           cp /home/builder/rpmbuild/RPMS/aarch64/*.rpm dist/
+      - name: Report ExecuTorch compiler-cache use
+        if: ${{ !cancelled() && steps.cachepolicy.outputs.restore == 'true' }}
+        run: CCACHE_DIR=/var/tmp/ccache-et ccache -s
+      - name: Save ExecuTorch compiler cache (trusted pushes and dispatch only)
+        if: ${{ !cancelled() && steps.cachepolicy.outputs.save == 'true' && steps.ccacherestore.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: /var/tmp/ccache-et
+          key: ${{ steps.cachekey.outputs.key }}
       - name: Inspect actual ARM RPM ELF, language profiles, QRC and loader
         run: |
           mkdir dist/stage
@@ -373,6 +517,63 @@ jobs:
           path: prepared
       - name: Verify prepared input identity and hashes before executing source
         run: python3 scripts/release.py verify-inputs --directory prepared --sha "$GITHUB_SHA"
+      - name: Decide dependency-cache policy (release tags and forks never use caches)
+        id: cachepolicy
+        env:
+          PR_FROM_FORK: ${{ github.event.pull_request.head.repo.fork }}
+        run: python3 scripts/ci-cache.py policy >> "$GITHUB_OUTPUT"
+      - name: Name the dependency cache keys
+        id: cachekeys
+        if: ${{ steps.cachepolicy.outputs.restore == 'true' }}
+        env:
+          SWIPE_LIBRARY: ${{ needs.prepare.outputs.swipe_library }}
+        run: |
+          # ostree checks the restored stage store object by object before it is trusted.
+          sudo apt-get install -y ostree zstd
+          builder=$(flatpak-builder --version)
+          # WHY: stage keys cover manifest, SDK/runtime commits, patches, jobs/flags, tool versions and
+          # runner image; flatpak-builder additionally chains a checksum of every module's sources.
+          echo "stages=$(python3 scripts/ci-cache.py key flatpak-stages "$builder|x86_64|$ImageVersion" flatpak)" >> "$GITHUB_OUTPUT"
+          echo "ccache=$(python3 scripts/ci-cache.py key flatpak-ccache "x86_64|$SWIPE_LIBRARY" flatpak)" >> "$GITHUB_OUTPUT"
+          echo "ccache_prefix=$(python3 scripts/ci-cache.py key --prefix flatpak-ccache flatpak)" >> "$GITHUB_OUTPUT"
+      - name: Restore pinned Qt/Plasma dependency stages (exact key only)
+        id: stagecache
+        if: ${{ steps.cachepolicy.outputs.restore == 'true' }}
+        uses: actions/cache/restore@v4
+        with:
+          path: flatpak-stage-cache.tar.zst
+          key: ${{ steps.cachekeys.outputs.stages }}
+      # WHY compiler results only: ccache hashes compiler, flags and preprocessed source, so a stale
+      # entry is a miss. Only ExecuTorch is compiled through it (build-swipe.sh).
+      - name: Restore ExecuTorch compiler cache
+        id: ccacherestore
+        if: ${{ steps.cachepolicy.outputs.restore == 'true' }}
+        uses: actions/cache/restore@v4
+        with:
+          path: .flatpak-builder/ccache
+          key: ${{ steps.cachekeys.outputs.ccache }}
+          restore-keys: ${{ steps.cachekeys.outputs.ccache_prefix }}
+      - name: Validate restored dependency stages (any doubt rebuilds them from source)
+        id: stagecheck
+        if: ${{ steps.stagecache.outputs.cache-hit == 'true' }}
+        run: python3 scripts/ci-cache.py unpack-flatpak-state flatpak-stage-cache.tar.zst .flatpak-builder "${{ steps.cachekeys.outputs.stages }}"
+      - name: Build only the Qt/Plasma dependency stages to cache them
+        if: ${{ steps.cachepolicy.outputs.save == 'true' && steps.stagecheck.outputs.usable != 'true' }}
+        run: |
+          tar -xzf "prepared/swipe-keyboard-$PACKAGE_VERSION-flatpak-build-inputs.tar.gz" -C prepared
+          python3 packaging/flatpak/build.py flatpak-build --repo flatpak-repo --ci-manifest prepared/flatpak-inputs/manifest.json --dependencies-only
+          # Packed before the keyboard module runs, so no product output can enter the cache.
+          python3 scripts/ci-cache.py pack-flatpak-state .flatpak-builder flatpak-stage-cache.tar.zst "${{ steps.cachekeys.outputs.stages }}"
+      - name: Save dependency stages (trusted pushes and dispatch only)
+        if: ${{ steps.cachepolicy.outputs.save == 'true' && steps.stagecheck.outputs.usable != 'true' && hashFiles('flatpak-stage-cache.tar.zst') != '' }}
+        uses: actions/cache/save@v4
+        with:
+          path: flatpak-stage-cache.tar.zst
+          key: ${{ steps.cachekeys.outputs.stages }}
+      - name: Start memory sampling for the build
+        run: |
+          nohup python3 scripts/ci-memwatch.py sample "$RUNNER_TEMP/memory.log" 5 > /dev/null 2>&1 &
+          echo $! > "$RUNNER_TEMP/memory.pid"
       - name: Install signed exact SDK and platform commits
         run: |
           flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
@@ -386,10 +587,23 @@ jobs:
       - name: Build and test SDK-native objects and installed loader
         run: |
           tar -xzf "prepared/swipe-keyboard-$PACKAGE_VERSION-flatpak-build-inputs.tar.gz" -C prepared
-          python3 packaging/flatpak/build.py flatpak-build --repo flatpak-repo --ci-manifest prepared/flatpak-inputs/manifest.json
+          python3 packaging/flatpak/build.py flatpak-build --repo flatpak-repo --ci-manifest prepared/flatpak-inputs/manifest.json ${{ steps.cachepolicy.outputs.restore == 'true' && '--ccache' || '' }}
           mkdir release evidence
           flatpak build-bundle --arch=x86_64 flatpak-repo "release/swipe-keyboard-$PACKAGE_VERSION-x86_64.flatpak" org.itsdestin.SwipeKeyboard master
           cp "prepared/swipe-keyboard-$PACKAGE_VERSION-flatpak-build-inputs.tar.gz" release/
+      - name: Report peak memory and compiler-cache use
+        if: ${{ always() }}
+        run: |
+          kill "$(cat "$RUNNER_TEMP/memory.pid")" 2>/dev/null || true
+          echo "Flatpak build peak memory (KiB): $(python3 scripts/ci-memwatch.py summary "$RUNNER_TEMP/memory.log")" | tee -a "$GITHUB_STEP_SUMMARY"
+          ls -la .flatpak-builder/ 2>/dev/null || true
+          du -sh .flatpak-builder/ccache flatpak-stage-cache.tar.zst 2>/dev/null || true
+      - name: Save ExecuTorch compiler cache (trusted pushes and dispatch only)
+        if: ${{ !cancelled() && steps.cachepolicy.outputs.save == 'true' && steps.ccacherestore.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: .flatpak-builder/ccache
+          key: ${{ steps.cachekeys.outputs.ccache }}
       - name: Install exact bundle and bind embedded metadata
         run: |
           flatpak install --user --noninteractive -y "release/swipe-keyboard-$PACKAGE_VERSION-x86_64.flatpak"

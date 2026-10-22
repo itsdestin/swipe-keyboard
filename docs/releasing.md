@@ -44,6 +44,7 @@ Required producer jobs are `prepare`, `arch`, `fedora`, `fedora-arm64`, and `fla
 failed, cancelled, missing and unexpectedly skipped producers fail the gate.
 Read-only credentials apply throughout PR/build/gate jobs. No `pull_request_target`,
 cross-run artifact promotion, optional platform bypass, or product build cache exists.
+Dependency-only speed caches exist (see "Dependency caches" below); release tags never use them.
 
 - `prepare`: clean pinned checkout, recursive submodules, CPython 3.14, recipe
   consistency; fetches authenticated assets, builds language packs, captures licenses
@@ -155,3 +156,25 @@ package's SHA256 from the verified manifest, source SHA, version, target OS/comp
 manual test steps and observed results. Native installation/configuration and rollback
 are separate owner operations. Do not label a CI result as hash-bound physical
 acceptance or infer a physical pass from an offscreen InputPanel.
+
+
+## Dependency caches (speed only)
+
+Cold dependency work is cached, never the keyboard itself. Rules, enforced by
+`scripts/ci-cache.py` and `tests/packaging/test_ci_cache.py` / `test_release_workflow.py`:
+
+- **Release tags (`refs/tags/v*`) never read or write any cache** and rebuild everything cold.
+  Fork pull requests use none. Pull requests of this repository may read, never write.
+  Only pushes and manual dispatch on a branch of `itsdestin/swipe-keyboard` write.
+- **Flatpak Qt/Plasma stages**: flatpak-builder's stage store, packed by a `--dependencies-only`
+  run that stops before the keyboard module, so no product output can enter it. Exact key only
+  (manifest, SDK/runtime commits, Plasma patches, `build.py`, flatpak-builder and runner-image
+  versions). On restore the layout, identity marker and every ostree object are verified; any
+  doubt discards the cache and rebuilds the stages from source.
+- **ExecuTorch compiler results** (ccache) for Flatpak, Arch, Fedora and Fedora ARM64, one store
+  per platform, never shared. ccache hashes the compiler, flags and preprocessed source itself, so a
+  stale entry is a miss, never different bytes. Only ExecuTorch is compiled through it; the
+  keyboard/FUTO engine compiles with ccache disabled. Keys start from the swipe-library commit
+  (which pins ExecuTorch) plus patches, recipes, build scripts and requirement locks.
+- Flatpak build parallelism is 4 (matching the 4-CPU hosted runner) in `build.py`, the manifest
+  environment and `build-swipe.sh`; the job summary records peak memory.
