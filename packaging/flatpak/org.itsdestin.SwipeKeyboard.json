@@ -11,6 +11,7 @@
   "finish-args": [
     "--socket=wayland",
     "--socket=inherit-wayland-socket",
+    "--filesystem=xdg-run/swipekb:create",
     "--nofilesystem=xdg-config/kdeglobals",
     "--no-talk-name=com.canonical.AppMenu.Registrar",
     "--no-talk-name=org.kde.kconfig.notify",

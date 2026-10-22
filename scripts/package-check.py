@@ -88,8 +88,20 @@ def check_multilingual_context_assets(base, lock):
     assert models['es'].get('locales') == ['es_ES', 'es_MX'], 'Spanish regional model sharing must be explicit'
 
 
+def forbid_gaming_payload(root):
+    """Native Arch/Fedora packages must contain no Gaming Mode file (plan Section 4: SteamOS is Flatpak-only)."""
+    # WHY by file name over the whole tree: the build option, a recipe glob or a stray install() could each
+    # pull the daemon, helper, units or installer in; this looks at the bytes that would actually ship.
+    pattern = re.compile(r'gaming|swipekb-gamingd|swipekb-helper|swipekb-engine\.service|cef-enable-remote-debugging', re.I)
+    found = sorted(str(p.relative_to(root)) for p in pathlib.Path(root).rglob('*') if pattern.search(p.name)
+                   or any(pattern.search(part) for part in p.relative_to(root).parts))
+    if found:
+        raise ValueError('Gaming Mode files must not ship in native packages: ' + ', '.join(found))
+
+
 def check(root):
     root = pathlib.Path(root)
+    forbid_gaming_payload(root)
     base = root/'usr/share/swipe-keyboard'
     required = ['integration/setup.py', 'integration/layout.py', 'integration/swipekb-preflight', 'integration/swipekb-config', 'runtime.json',
                 'qml/SwipeKeyboard/qmldir', 'qml/SwipeKeyboard/SwipeCapture.qml',

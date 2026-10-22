@@ -45,13 +45,17 @@ class FlatpakContractTests(unittest.TestCase):
         self.assertEqual(manifest['command'], 'swipe-keyboard-flatpak')
         self.assertEqual(manifest['build-options']['prefix'], '/app')
 
-    def test_runtime_permissions_are_only_required_wayland_pair(self):
+    def test_runtime_permissions_are_wayland_pair_plus_gaming_socket_dir(self):
         # WHY: Flatpak 1.16.6 run-sockets.c gates inherited FD handling on
         # SOCKET_WAYLAND, too. Devices, IPC, host shell and home are not needed.
         # KDE runtime metadata grants styling config/bus access by default;
         # the package must explicitly subtract those unneeded privileges.
+        # Gaming Mode adds exactly one thing: the shared socket directory the engine daemon
+        # (swipekb-gamingd) and the separate helper app talk through. Still no network
+        # (test_flatpak_gaming.py enforces that and the helper's side).
         self.assertEqual(self.manifest()['finish-args'], [
             '--socket=wayland', '--socket=inherit-wayland-socket',
+            '--filesystem=xdg-run/swipekb:create',
             '--nofilesystem=xdg-config/kdeglobals',
             '--no-talk-name=com.canonical.AppMenu.Registrar',
             '--no-talk-name=org.kde.kconfig.notify',
