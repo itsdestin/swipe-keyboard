@@ -16,6 +16,7 @@ STATE_DIR="$STATE_HOME/swipekb-gaming"
 RECORD="$RECORD_DIR/install-record.json"
 # Same test hook as install.sh; on a real Deck these are never set.
 SOCKET_UNIT=steam-web-debug-portforward.socket
+PROXY_UNIT=steam-web-debug-portforward.service   # the forwarding service that socket starts on demand
 SYSTEM_UNIT_DIR="${SWIPEKB_SYSTEM_UNIT_DIR:-/etc/systemd/system}"
 DROPIN_DIR="$SYSTEM_UNIT_DIR/$SOCKET_UNIT.d"
 DROPIN="$DROPIN_DIR/swipekb-loopback-only.conf"
@@ -103,7 +104,8 @@ for file in "${CREATED_SYSTEM_FILES[@]+"${CREATED_SYSTEM_FILES[@]}"}"; do
             sudo rm -f "$file"
             sudo rmdir "$DROPIN_DIR" 2>/dev/null || true
             sudo systemctl daemon-reload || true
-            sudo systemctl restart "$SOCKET_UNIT" || true
+            # WHY stop then start: a plain restart fails while SteamOS's forwarding service is still running (install.sh explains)
+            { sudo systemctl stop "$SOCKET_UNIT" "$PROXY_UNIT" && sudo systemctl start "$SOCKET_UNIT"; } || true
         else
             echo "Could not get administrator rights, so $file was left in place. It only keeps other devices out; delete it any time." >&2
         fi

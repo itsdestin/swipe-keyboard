@@ -39,6 +39,7 @@ OUTSIDE_FILE="$STATE_DIR/outside-access"
 # 8081 on EVERY network interface. The two variables below exist so the tests can point at a throwaway folder; on a
 # real Deck they are never set.
 SOCKET_UNIT=steam-web-debug-portforward.socket
+PROXY_UNIT=steam-web-debug-portforward.service   # the forwarding service that socket starts on demand
 SYSTEM_UNIT_DIR="${SWIPEKB_SYSTEM_UNIT_DIR:-/etc/systemd/system}"
 PROC_NET="${SWIPEKB_PROC_NET:-/proc/net}"
 DROPIN_DIR="$SYSTEM_UNIT_DIR/$SOCKET_UNIT.d"
@@ -135,13 +136,19 @@ outside_doors() { # print each watched port (8080, 8081) that is listening on so
         }' "$PROC_NET/$f"
     done | sort -u
 }
+# WHY stop-then-start and not `restart` (found in the SteamOS VM, M8): SteamOS keeps a small forwarding service
+# (steam-web-debug-portforward.service) alive for 5 minutes after the last connection to port 8081. While it runs,
+# `systemctl restart` of the socket FAILS ("already active, refusing"), the old listener stays in use, and a
+# reopened door ends up with no listener at all. Stopping both and starting the socket fresh always works.
+restart_socket() { sudo systemctl stop "$SOCKET_UNIT" "$PROXY_UNIT" && sudo systemctl start "$SOCKET_UNIT"; }
 socket_unit_exists() { systemctl cat "$SOCKET_UNIT" >/dev/null 2>&1; }
 dropin_is_ours() { [ -f "$DROPIN" ] && [ "$(head -n 1 "$DROPIN")" = '# swipekb-gaming-managed' ]; }
 dropin_text() {
     echo '# swipekb-gaming-managed'
     echo '# Written by the Swipe Keyboard installer. Makes SteamOS answer Steam debug requests from this Deck only,'
     echo '# not from other devices on the network. Remove with: bash uninstall.sh (or delete this file, then'
-    echo "# run: systemctl daemon-reload && systemctl restart $SOCKET_UNIT)."
+    echo "# run: systemctl daemon-reload && systemctl stop $SOCKET_UNIT $PROXY_UNIT"
+    echo "# && systemctl start $SOCKET_UNIT)."
     echo '[Socket]'
     # An empty ListenStream= first clears SteamOS'"'"'s own "listen everywhere" line; the second line is the only one left.
     echo 'ListenStream='
@@ -156,7 +163,7 @@ remove_block() { # remove our drop-in (needs the administrator password); return
     sudo rm -f "$DROPIN"
     sudo rmdir "$DROPIN_DIR" 2>/dev/null || true   # only succeeds if empty; never removes anyone else's files
     sudo systemctl daemon-reload || true
-    sudo systemctl restart "$SOCKET_UNIT" || true
+    restart_socket || true
     local keep=() item
     for item in "${CREATED_SYSTEM_FILES[@]+"${CREATED_SYSTEM_FILES[@]}"}"; do [ "$item" = "$DROPIN" ] || keep+=("$item"); done
     CREATED_SYSTEM_FILES=("${keep[@]+"${keep[@]}"}")
@@ -186,7 +193,7 @@ TEXT
             return 1
         fi
         local existed=0; [ -e "$DROPIN" ] && existed=1
-        if ! { sudo mkdir -p "$DROPIN_DIR" && dropin_text | sudo tee "$DROPIN" >/dev/null && sudo systemctl daemon-reload && sudo systemctl restart "$SOCKET_UNIT"; }; then
+        if ! { sudo mkdir -p "$DROPIN_DIR" && dropin_text | sudo tee "$DROPIN" >/dev/null && sudo systemctl daemon-reload && restart_socket; }; then
             remove_block || true
             echo "The outside door was NOT closed: the system refused the change. Nothing else was changed." >&2
             return 1

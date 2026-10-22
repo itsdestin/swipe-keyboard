@@ -46,7 +46,12 @@ SYSTEMCTL = '''#!/bin/sh
 if [ -n "$FAKE_ROOT" ]; then printf 'root-systemctl %s\\n' "$*" >> "$FAKE_LOG"; else printf 'systemctl %s\\n' "$*" >> "$FAKE_LOG"; fi
 case "$1" in
   cat) [ -z "$FAKE_NO_SOCKET" ]; exit $? ;;
-  restart) case "$2" in steam-web-debug-portforward.socket)
+  # WHY stop/start and a failing restart: real SteamOS runs a helper service (steam-web-debug-portforward.service)
+  # that systemd keeps for 5 minutes after the last connection. While it runs, `restart` of the socket FAILS
+  # ("Socket service ... already active, refusing") and the old wide-open listener stays in use (seen in the M8 VM run).
+  stop) case "$*" in *steam-web-debug-portforward.service*) rm -f "$SWIPEKB_PROC_NET/proxy-active";; esac ;;
+  start|restart) case "$2" in steam-web-debug-portforward.socket)
+      if [ "$1" = restart ] && [ -f "$SWIPEKB_PROC_NET/proxy-active" ]; then echo 'Job failed.' >&2; exit 1; fi
       if [ -f "$SWIPEKB_SYSTEM_UNIT_DIR/steam-web-debug-portforward.socket.d/swipekb-loopback-only.conf" ] && [ -z "$FAKE_STUCK_OPEN" ]; then
         a=0100007F; else a=00000000; fi
       printf 'header\\n   0: %s:1F91 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 1 1 0 100 0 0 10 0\\n' "$a" > "$SWIPEKB_PROC_NET/tcp";; esac ;;
@@ -219,7 +224,7 @@ class InstallTests(unittest.TestCase):
             # WHY a whitelist: administrator rights are used for exactly these actions on our one drop-in file, nothing else.
             for line in text.splitlines():
                 if 'sudo' in line:
-                    self.assertRegex(line.strip(), r'^(if ! |\{ )?(command -v sudo|sudo -v|sudo (mkdir -p|rm -f|rmdir|systemctl (daemon-reload|restart)|tee)\b)|sudo -v;|&& sudo|\| sudo tee|\{ sudo mkdir', f'{script}: {line}')
+                    self.assertRegex(line.strip(), r'^(if ! |\{ )?(command -v sudo|sudo -v|sudo (mkdir -p|rm -f|rmdir|systemctl (daemon-reload|stop|start)|tee)\b)|sudo -v;|&& sudo|\| sudo tee|\{ sudo mkdir', f'{script}: {line}')
 
     def test_existing_marker_is_left_alone_and_recorded_as_not_ours(self):
         f = Fixture(self)
@@ -386,7 +391,8 @@ class ChoiceTests(unittest.TestCase):
             '# swipekb-gaming-managed',
             '# Written by the Swipe Keyboard installer. Makes SteamOS answer Steam debug requests from this Deck only,',
             '# not from other devices on the network. Remove with: bash uninstall.sh (or delete this file, then',
-            '# run: systemctl daemon-reload && systemctl restart steam-web-debug-portforward.socket).',
+            '# run: systemctl daemon-reload && systemctl stop steam-web-debug-portforward.socket steam-web-debug-portforward.service',
+            '# && systemctl start steam-web-debug-portforward.socket).',
             '[Socket]', 'ListenStream=', 'ListenStream=127.0.0.1:8081', '']))
         self.assertFalse(door_open(f))
         record = f.record()
@@ -394,11 +400,33 @@ class ChoiceTests(unittest.TestCase):
         self.assertEqual(record['outside_access'], 'blocked')
         self.assertEqual(self.gaming_state_file(f).read_text().strip(), 'blocked')
         calls = f.calls()
-        restart = calls.index('root-systemctl restart steam-web-debug-portforward.socket')
+        restart = calls.index('root-systemctl start steam-web-debug-portforward.socket')
         self.assertIn('root-systemctl daemon-reload', calls[:restart])
         # the door is shut before the helper app, the switch file or the services exist
         self.assertLess(restart, next(i for i, c in enumerate(calls) if c.startswith('flatpak install') and 'GamingHelper' not in c and 'gaming-helper' in c))
         self.assertTrue((f.steam / MARKER).is_file())
+
+    def test_the_still_running_forwarding_helper_cannot_keep_the_door_open_or_stop_it_reopening(self):
+        # WHY: found in the SteamOS VM (M8). SteamOS keeps a small forwarding service alive for 5 minutes after any
+        # connection to port 8081. While it runs, `systemctl restart` of the socket FAILS and the old listener stays,
+        # so closing the door looked refused and reopening it left no listener at all. The installer must stop the
+        # service and start the socket fresh, in both directions.
+        f = Fixture(self)
+        (f.proc / 'proxy-active').write_text('1')
+        result = f.run('install.sh', '--gaming', '--block-outside')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse(door_open(f))
+        (f.proc / 'proxy-active').write_text('1')
+        result = f.run('install.sh', '--gaming', '--leave-open')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue(door_open(f))
+        self.assertFalse(f.dropin.exists())
+        (f.proc / 'proxy-active').write_text('1')
+        f.run('install.sh', '--gaming', '--block-outside')
+        (f.proc / 'proxy-active').write_text('1')
+        result = f.run('uninstall.sh')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue(door_open(f), 'uninstall must put SteamOS back to how it was, listener included')
 
     def test_gaming_with_leave_open_needs_no_password_and_changes_no_system_file(self):
         f = Fixture(self)
