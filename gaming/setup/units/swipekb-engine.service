@@ -1,5 +1,6 @@
 # swipekb-gaming-managed
 # swipekb-gaming-version: @VERSION@
+# swipekb-gaming-unit-revision: 2
 # WHY the two lines above: install.sh and uninstall.sh only overwrite or delete a unit file that carries them,
 # so a file of yours with the same name is never touched.
 [Unit]

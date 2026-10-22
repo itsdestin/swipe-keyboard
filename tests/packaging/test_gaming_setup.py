@@ -109,6 +109,7 @@ class Fixture:
         self.bundle.mkdir()
         shutil.copy2(SETUP / 'install.sh', self.bundle)
         shutil.copy2(SETUP / 'uninstall.sh', self.bundle)
+        shutil.copy2(SETUP / 'switch-watch.sh', self.bundle)
         shutil.copytree(SETUP / 'units', self.bundle / 'units')
         (self.bundle / 'VERSION').write_text(version + '\n')
         (self.bundle / f'swipe-keyboard-{version}-x86_64.flatpak').write_bytes(b'main bundle ' + version.encode())
@@ -191,12 +192,13 @@ class InstallTests(unittest.TestCase):
         engine = (f.units / 'swipekb-engine.service').read_text()
         self.assertEqual(engine.splitlines()[1], '# swipekb-gaming-version: 0.3.1-1')
         self.assertNotIn('@VERSION@', engine)
+        self.assertEqual(engine.splitlines()[2], '# swipekb-gaming-unit-revision: 2')   # WHY: bumped when unit files change, so an installed copy is visibly old
         self.assertTrue((f.units / 'swipekb-helper.service').is_file())
         record = f.record()
         self.assertEqual(record['version'], '0.3.1-1')
         self.assertEqual(record['created_markers'], [str(f.steam / MARKER)])
         self.assertEqual(record['existing_markers'], [])
-        self.assertEqual(sorted(record['created_units']), ['swipekb-engine.service', 'swipekb-helper.service'])
+        self.assertEqual(sorted(record['created_units']), ['swipekb-engine.service', 'swipekb-helper.service', 'swipekb-switch-watch.service', 'swipekb-switch-watch.timer'])
         self.assertEqual(record['installed_flatpaks'], [MAIN_ID, HELPER_ID])
         calls = f.calls()
         installs = [c for c in calls if c.startswith('flatpak install')]
@@ -204,8 +206,41 @@ class InstallTests(unittest.TestCase):
         self.assertIn('swipe-keyboard-0.3.1-1-x86_64.flatpak', installs[0])
         self.assertIn('swipe-keyboard-gaming-helper-0.3.1-1-x86_64.flatpak', installs[1])
         self.assertIn('systemctl --user daemon-reload', calls)
-        self.assertIn('systemctl --user enable --now swipekb-engine.service swipekb-helper.service', calls)
+        self.assertIn('systemctl --user enable --now swipekb-engine.service swipekb-helper.service swipekb-switch-watch.service swipekb-switch-watch.timer', calls)
         self.assertIn('restart Steam', result.stdout)
+
+    def test_the_switch_watcher_is_installed_wired_and_removed_again(self):
+        # Owner decision 2026-10-22: if the developer switch file disappears we notify with a recovery option and
+        # never silently recreate it. A host-side watcher does the looking (the helper's sandbox cannot see Steam's folder).
+        f = Fixture(self)
+        result = f.run('install.sh', '--gaming', '--block-outside')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        watcher = f.home / '.local/share/swipe-keyboard-gaming/switch-watch.sh'
+        self.assertTrue(os.access(watcher, os.X_OK))
+        self.assertEqual(watcher.read_bytes(), (SETUP / 'switch-watch.sh').read_bytes())
+        service = (f.units / 'swipekb-switch-watch.service').read_text()
+        self.assertIn(f'ExecStart={watcher} check', service)
+        self.assertNotIn('@', service)
+        self.assertIn('OnUnitActiveSec=60s', (f.units / 'swipekb-switch-watch.timer').read_text())
+        self.assertIn('Once a minute it only checks', result.stdout)   # said before it is done (consent text)
+        # nothing in the installer's own steps can create the switch file again on its own after a first install
+        (f.steam / MARKER).unlink()
+        self.assertEqual(f.run('uninstall.sh', stdin='y\n').returncode, 0)
+        self.assertFalse(watcher.exists())
+        self.assertEqual(list(f.units.glob('swipekb-*')), [])
+
+    def test_rerun_after_the_switch_was_turned_off_says_so_and_puts_it_back(self):
+        f = Fixture(self)
+        f.run('install.sh', '--gaming', '--block-outside')
+        (f.steam / MARKER).unlink()
+        state = f.home / '.local/state/swipekb-gaming'
+        (state / 'switch-state').write_text('off\n')
+        result = f.run('install.sh', '--gaming', '--block-outside')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('had been turned off', result.stdout)
+        self.assertIn('Restart Steam once', result.stdout)
+        self.assertTrue((f.steam / MARKER).is_file())
+        self.assertFalse((state / 'switch-state').exists(), 'a stale "off" must not outlive the fix')
 
     def test_only_user_scope_commands_are_ever_run(self):
         # WHY: no sudo, no system-wide Flatpak, no system service (plan Section 5).
@@ -335,7 +370,7 @@ class InstallTests(unittest.TestCase):
         result = f.run('install.sh', '--gaming', '--block-outside')
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual((f.units / 'swipekb-engine.service').read_text().splitlines()[1], '# swipekb-gaming-version: 0.3.2-1')
-        self.assertIn('systemctl --user restart swipekb-engine.service swipekb-helper.service', f.calls())
+        self.assertIn('systemctl --user restart swipekb-engine.service swipekb-helper.service swipekb-switch-watch.service swipekb-switch-watch.timer', f.calls())
         self.assertEqual(f.record()['version'], '0.3.2-1')
         self.assertEqual(f.record()['created_markers'], [str(f.steam / MARKER)])
         f.make_bundle('0.3.1-1')
@@ -670,7 +705,7 @@ class UninstallTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(f.snapshot(), before)
         calls = f.calls()
-        self.assertIn('systemctl --user disable --now swipekb-engine.service swipekb-helper.service', calls)
+        self.assertIn('systemctl --user disable --now swipekb-engine.service swipekb-helper.service swipekb-switch-watch.service swipekb-switch-watch.timer', calls)
         self.assertIn('systemctl --user daemon-reload', calls)
         self.assertEqual([c for c in calls if c.startswith('flatpak uninstall')], [])
         self.assertIn('flatpak uninstall --user', result.stdout)  # printed as a hint, not run

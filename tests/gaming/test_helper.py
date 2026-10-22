@@ -48,7 +48,6 @@ class Rig:
         self.marker = self.steam_dir / '.cef-enable-remote-debugging'
         self.fake = FakeSteam()
         self.fake.open()
-        self.running = True        # is a Steam process alive (the helper asks through steam_running)
         self.cfg_extra = cfg
         self.contract = contract
         self.helpers = []
@@ -62,7 +61,7 @@ class Rig:
         return Config(**kw)
 
     def helper(self, **over):
-        h = Helper(self.config(**over), steam_running=lambda: self.running)
+        h = Helper(self.config(**over))
         self.helpers.append(h)
         return h
 
@@ -468,85 +467,70 @@ class Contract(Base):
 
 
 class MarkerAndStatus(Base):
-    def test_missing_marker_is_created_at_start(self):
+    """The helper runs in a sandbox that cannot see Steam's folder or Steam's process. It never creates the debug-switch
+    file (owner decision 2026-10-22: tell the person, do not silently put it back) and learns about the switch from a
+    one-word file `switch-state` that the host-side watcher (gaming/setup/switch-watch.sh) writes into the state folder."""
+
+    def set_switch(self, r, word):
+        r.state.mkdir(parents=True, exist_ok=True)
+        (r.state / 'switch-state').write_text(word + '\n')
+
+    def test_the_helper_never_creates_or_touches_the_switch_file(self):
         r = self.rig()
+        r.fake.close_port()
+        r.helper().start()
+        wait_for(lambda: r.status().get('state'), what='status')
+        time.sleep(0.4)
         self.assertFalse(r.marker.exists())
-        r.helper().start()
-        wait_for(lambda: r.marker.exists(), what='marker')
+        self.assertEqual(list(r.steam_dir.iterdir()), [])
 
-    def test_marker_deleted_while_running_is_recreated(self):
+    def test_switch_gone_is_its_own_state_with_a_plain_reason(self):
         r = self.rig()
-        r.marker.write_text('')
-        r.helper().start()
-        wait_for(lambda: r.status().get('state'), what='status')
-        r.marker.unlink()
-        wait_for(lambda: r.marker.exists(), what='recreated')
-
-    def test_existing_marker_is_left_untouched(self):
-        r = self.rig()
-        r.marker.write_text('')
-        os.utime(r.marker, (1000, 1000))
-        r.helper().start()
-        wait_for(lambda: r.status().get('state'), what='status')
-        time.sleep(0.2)  # settle
-        self.assertEqual(int(r.marker.stat().st_mtime), 1000)
-
-    def test_marker_recreated_with_port_closed_and_steam_running_needs_a_restart(self):
-        r = self.rig()
-        r.fake.close_port()
-        r.running = True
-        r.helper().start()
-        wait_for(lambda: r.status().get('state') == 'needs-steam-restart', what='state')
-        self.assertTrue(r.marker.exists())
-
-    def test_port_closed_with_marker_present_and_no_steam_is_just_waiting(self):
-        r = self.rig()
-        r.marker.write_text('')
-        r.fake.close_port()
-        r.running = False
-        r.helper().start()
-        wait_for(lambda: r.status().get('state') == 'waiting-for-steam', what='state')
-        time.sleep(0.3)  # settle
-        self.assertEqual(r.status()['state'], 'waiting-for-steam')
-
-    def test_marker_newer_than_the_running_steam_needs_a_restart(self):
-        """Someone (an installer) made the marker after Steam started, so Steam never read it."""
-        r = self.rig()
-        r.marker.write_text('')
-        r.running = time.time() - 1000          # Steam's start time
+        self.set_switch(r, 'off')
         r.fake.close_port()
         r.helper().start()
-        wait_for(lambda: r.status().get('state') == 'needs-steam-restart', what='state')
+        wait_for(lambda: r.status().get('state') == 'switch-off', what='state')
+        reason = r.status()['reason']
+        self.assertIn('turned off', reason)
+        self.assertIn('installer', reason)
+        self.assertIn("Steam's normal keyboard", reason)
 
-    def test_marker_older_than_the_running_steam_means_steam_is_just_busy(self):
-        """Steam read the marker at start; a closed port now is an update or a slow start, not a missing switch.
-        (Found for real in the guest: a Steam self-update held the port closed for minutes.)"""
-        r = self.rig()
-        r.marker.write_text('')
-        os.utime(r.marker, (time.time() - 1000, time.time() - 1000))
-        r.running = time.time()
+    def test_each_switch_word_gives_its_own_state_never_a_wrong_one(self):
+        for word, state in (('restart', 'needs-steam-restart'), ('no-steam', 'steam-not-found'),
+                            ('ok', 'waiting-for-steam'), ('nonsense', 'waiting-for-steam')):
+            with self.subTest(word):
+                r = self.rig()
+                self.set_switch(r, word)
+                r.fake.close_port()
+                r.helper().start()
+                wait_for(lambda: r.status().get('state') == state, what=word)
+
+    def test_no_switch_file_at_all_is_just_waiting_for_steam(self):
+        # WHY: inside the sandbox the helper cannot tell "no Steam folder" from "cannot see it"; claiming either was the bug.
+        r = self.rig(steam_dir=False)
         r.fake.close_port()
         r.helper().start()
         wait_for(lambda: r.status().get('state') == 'waiting-for-steam', what='state')
-        time.sleep(0.4)  # settle: it must stay that way
+        time.sleep(0.3)
         self.assertEqual(r.status()['state'], 'waiting-for-steam')
 
-    def test_quick_steam_restart_is_not_reported_as_needing_one(self):
+    def test_switch_gone_while_steam_is_still_serving_does_not_switch_the_layer_off(self):
+        # Steam reads the file only at start: the port is still open, so swipe keeps working until Steam restarts.
         r = self.rig()
-        r.marker.write_text('')
+        b, s = r.steam_up()
+        self.set_switch(r, 'off')
+        r.helper().start()
+        wait_for(lambda: r.status().get('state') == 'active', what='active')
+
+    def test_a_quick_steam_restart_is_just_waiting(self):
+        r = self.rig()
+        self.set_switch(r, 'ok')
         b, s = r.steam_up()
         r.helper().start()
         wait_for(lambda: r.attr(b), what='install')
         r.fake.close_port()
-        time.sleep(0.4)  # settle
+        time.sleep(0.4)
         self.assertEqual(r.status()['state'], 'waiting-for-steam')
-
-    def test_no_steam_folder_is_reported_not_invented(self):
-        r = self.rig(steam_dir=False)
-        r.fake.close_port()
-        r.helper().start()
-        wait_for(lambda: r.status().get('state') == 'steam-not-found', what='state')
-        self.assertFalse(r.marker.exists())
 
     def test_status_file_shape_and_permissions(self):
         r = self.rig()
@@ -577,8 +561,6 @@ class MarkerAndStatus(Base):
             return orig(state, reason, **kw)
         h.status.write = spy
         r.fake.close_port()
-        r.running = False
-        r.marker.write_text('')
         h.start()
         wait_for(lambda: 'waiting-for-steam' in seen, what='waiting')
         r.fake.open()

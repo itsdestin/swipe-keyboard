@@ -6,6 +6,7 @@ import time
 
 STATES = ('waiting-for-steam', 'needs-steam-restart', 'active', 'paused-steam-changed',
           'steam-not-found', 'error', 'off',
+          'switch-off',               # Steam's developer-switch file is gone: the person turned it off (or Steam/another tool did)
           'blocked-outside-access')   # the debug port is reachable from other devices; see exposure.py
 
 

@@ -43,6 +43,7 @@ def default_state_dir():
 
 
 def default_marker_dirs():
+    # NOTE: the helper only uses these to fingerprint the Steam build; it never writes there and in its sandbox cannot see them.
     # WHY both: Steam reads the marker through either path; on SteamOS they are the same folder.
     return [_home() / '.steam' / 'steam', _home() / '.local' / 'share' / 'Steam']
 

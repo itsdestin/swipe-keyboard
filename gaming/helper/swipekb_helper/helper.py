@@ -22,25 +22,8 @@ from .status import Status
 _STUB_JS = Path(__file__).with_name('layer_stub.js')
 
 
-def default_steam_running():
-    """When did the oldest running Steam client start (epoch seconds)? None if no Steam is running.
-    Used only to tell 'Steam has not read our debug switch' from 'Steam is busy (starting, updating)'."""
-    try:
-        hz = os.sysconf('SC_CLK_TCK')
-        boot = next(float(l.split()[1]) for l in Path('/proc/stat').read_text().splitlines() if l.startswith('btime'))
-        starts = []
-        for p in Path('/proc').iterdir():
-            if p.name.isdigit():
-                try:
-                    if (p / 'comm').read_text().strip() == 'steam':
-                        # field 22 of /proc/<pid>/stat, counted after the ")" that ends the command name
-                        ticks = int((p / 'stat').read_text().rsplit(')', 1)[1].split()[19])
-                        starts.append(boot + ticks / hz)
-                except (OSError, ValueError, IndexError):
-                    continue
-        return min(starts) if starts else None
-    except (OSError, StopIteration, ValueError):
-        return None
+SWITCH_OFF_REASON = ("Steam's developer switch was turned off. Swipe in Gaming Mode is off; Steam's normal keyboard is in use. "
+                     "To turn it back on, run the Swipe Keyboard installer again (or choose Turn it back on in the notification).")
 
 
 class PageSession:
@@ -56,7 +39,7 @@ class PageSession:
 
 
 class Helper:
-    def __init__(self, cfg, steam_running=default_steam_running, exposure_check=None, exposure_interval=30.0, exposure_choice=None):
+    def __init__(self, cfg, exposure_check=None, exposure_interval=30.0, exposure_choice=None):
         self.cfg = cfg
         # WHY a parameter that defaults to "no check": __main__ turns it on for the installed helper; tests leave it off so
         # whatever happens to be listening on a developer's machine cannot change their results.
@@ -65,7 +48,6 @@ class Helper:
         self.exposure_choice = exposure_choice   # returns 'open' when the person chose to leave the door open
         self.exposed = False
         self.open_by_choice = False
-        self.steam_running = steam_running
         self.status = Status(cfg.state_dir)
         self.ledger = RetryLedger(cfg.state_dir / 'retry.json', cfg.max_failures)
         self.thread = None
@@ -79,7 +61,6 @@ class Helper:
         self.first_seen = {}           # id -> monotonic time we first saw the SteamClient page
         self.next_attempt = 0.0
         self.last_inject = None
-        self.marker_recreated = False
         self.closed_since = None
         self.next_beat = 0.0
         self.last_written = None
@@ -166,7 +147,6 @@ class Helper:
 
     # ---- main loop ------------------------------------------------------------------------------------
     def _loop(self):
-        next_marker = 0.0
         next_exposure = 0.0
         while not self._stop.is_set():
             now = time.monotonic()
@@ -177,9 +157,6 @@ class Helper:
                 # WHY nothing else runs: while Steam's debug port can be reached from other devices the layer stays out.
                 self._stop.wait(self.cfg.poll_interval)
                 continue
-            if now >= next_marker:
-                self._marker_check()
-                next_marker = now + self.cfg.beat_interval
             try:
                 if self.device is None:
                     self._publish('error', self._contract_error)
@@ -225,20 +202,6 @@ class Helper:
                       'Steam\'s debug port is open to other devices on the network (port %s). Gaming Mode swipe is off. '
                       'Run the Swipe Keyboard installer again to close it.' % ', '.join(str(p) for p in doors))
 
-    # ---- marker file ----------------------------------------------------------------------------------
-    def _marker_check(self):
-        name = '.cef-enable-remote-debugging'
-        if any((d / name).exists() for d in self.cfg.marker_dirs):
-            return
-        for d in self.cfg.marker_dirs:
-            if d.is_dir():
-                try:
-                    (d / name).touch()      # WHY: Steam reads this file only at start; it is the debug switch.
-                    self.marker_recreated = True
-                except OSError:
-                    continue
-                return
-
     # ---- connecting -----------------------------------------------------------------------------------
     def _try_connect(self, now):
         try:
@@ -251,7 +214,6 @@ class Helper:
             self._port_closed(now)
             return
         self.closed_since = None
-        self.marker_recreated = False
         self.browser_string = ver.get('Browser')
         self.ledger.use_build(self._fingerprint())
         self.targets = {}
@@ -264,26 +226,25 @@ class Helper:
     def _port_closed(self, now):
         if self.closed_since is None:
             self.closed_since = now
-        running = self.steam_running()
-        if not any(d.is_dir() for d in self.cfg.marker_dirs):
+        # WHY the reason comes from a file and not from looking: this program runs in a sandbox that cannot see
+        # Steam's folder or Steam's process (and must not be given them: Steam's folder holds login files). The
+        # host-side watcher (gaming/setup/switch-watch.sh) looks and writes one word into our state folder.
+        # It never recreates the switch file: the person is told and decides (owner decision 2026-10-22).
+        word = self._switch_word()
+        if word == 'off':
+            self._publish('switch-off', SWITCH_OFF_REASON)
+        elif word == 'no-steam':
             self._publish('steam-not-found', 'No Steam folder found for this user.')
-        elif running and (self.marker_recreated or self._marker_newer_than(running)):
+        elif word == 'restart':
             self._publish('needs-steam-restart', 'Steam is running without its debug switch; restart Steam once.')
         else:
             self._publish('waiting-for-steam', 'Steam is not running or is restarting.')
 
-    def _marker_newer_than(self, steam_start):
-        """True if the debug-switch file was made after Steam started (so Steam never read it).
-        WHY not 'port closed for a while': Steam updating itself keeps the port closed for minutes with the
-        switch perfectly fine, and telling the user to restart then would be wrong."""
-        if steam_start is True:
-            return False
-        for d in self.cfg.marker_dirs:
-            try:
-                return (d / '.cef-enable-remote-debugging').stat().st_mtime > steam_start
-            except OSError:
-                continue
-        return False
+    def _switch_word(self):
+        try:
+            return (self.cfg.state_dir / 'switch-state').read_text().strip()
+        except OSError:
+            return ''
 
     def _fingerprint(self):
         probe = self.cfg.steamui_probe

@@ -20,7 +20,7 @@ PROXY_UNIT=steam-web-debug-portforward.service   # the forwarding service that s
 SYSTEM_UNIT_DIR="${SWIPEKB_SYSTEM_UNIT_DIR:-/etc/systemd/system}"
 DROPIN_DIR="$SYSTEM_UNIT_DIR/$SOCKET_UNIT.d"
 DROPIN="$DROPIN_DIR/swipekb-loopback-only.conf"
-UNITS=(swipekb-engine.service swipekb-helper.service)
+UNITS=(swipekb-engine.service swipekb-helper.service swipekb-switch-watch.service swipekb-switch-watch.timer)
 MAIN_ID=org.itsdestin.SwipeKeyboard
 HELPER_ID=org.itsdestin.SwipeKeyboard.GamingHelper
 
@@ -51,7 +51,7 @@ while IFS= read -r line; do [ -n "$line" ] && INSTALLED_APPS+=("$line"); done < 
 ours() { [ -f "$UNIT_DIR/$1" ] && [ "$(head -n 1 "$UNIT_DIR/$1")" = '# swipekb-gaming-managed' ]; }
 
 echo "Swipe Keyboard for Gaming Mode: removal. This will:"
-echo "  - stop and turn off the two background services, and delete their files from $UNIT_DIR (only files this installer wrote)"
+echo "  - stop and turn off the background services (the engine, the helper and the once-a-minute switch check), and delete their files from $UNIT_DIR (only files this installer wrote)"
 if [ -f "$RECORD" ]; then
     for marker in "${CREATED_MARKERS[@]+"${CREATED_MARKERS[@]}"}"; do echo "  - delete the developer-switch file $marker (this installer created it)"; done
     echo "  - leave any developer-switch file that existed before this install exactly as it is"

@@ -64,7 +64,8 @@ class SteamosBundleTests(unittest.TestCase):
         top = f'swipe-keyboard-steamos-{VERSION}'
         self.assertEqual(set(names), {
             top, top + '/install.sh', top + '/uninstall.sh', top + '/VERSION', top + '/SHA256SUMS',
-            top + '/units/swipekb-engine.service', top + '/units/swipekb-helper.service', top + '/units',
+            top + '/switch-watch.sh', top + '/units/swipekb-engine.service', top + '/units/swipekb-helper.service',
+            top + '/units/swipekb-switch-watch.service', top + '/units/swipekb-switch-watch.timer', top + '/units',
             top + f'/swipe-keyboard-{VERSION}-x86_64.flatpak',
             top + f'/swipe-keyboard-gaming-helper-{VERSION}-x86_64.flatpak'})
         self.assertTrue(names[top + '/install.sh'].mode & 0o111)

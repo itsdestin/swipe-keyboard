@@ -14,8 +14,8 @@ import tarfile
 
 ROOT = Path(__file__).resolve().parents[1]
 SETUP = ROOT / 'gaming/setup'
-SCRIPTS = ('install.sh', 'uninstall.sh')
-UNITS = ('swipekb-engine.service', 'swipekb-helper.service')
+SCRIPTS = ('install.sh', 'uninstall.sh', 'switch-watch.sh')
+UNITS = ('swipekb-engine.service', 'swipekb-helper.service', 'swipekb-switch-watch.service', 'swipekb-switch-watch.timer')
 
 
 def archive_name(version):
@@ -45,6 +45,7 @@ def assemble(main_bundle, helper_bundle, version, out_dir, setup_dir=SETUP):
     files = {
         'install.sh': ((setup_dir / 'install.sh').read_bytes(), 0o755),
         'uninstall.sh': ((setup_dir / 'uninstall.sh').read_bytes(), 0o755),
+        'switch-watch.sh': ((setup_dir / 'switch-watch.sh').read_bytes(), 0o755),
         'VERSION': ((version + '\n').encode(), 0o644),
         main_name: (Path(main_bundle).read_bytes(), 0o644),
         helper_name: (Path(helper_bundle).read_bytes(), 0o644),

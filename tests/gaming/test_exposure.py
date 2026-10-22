@@ -88,8 +88,7 @@ class HelperKeepsLayerOff(test_helper.Base):
     def exposed_rig(self, proc):
         r = self.rig()
         b, s = r.steam_up()
-        h = test_helper.Helper(r.config(), steam_running=lambda: r.running,
-                               exposure_check=lambda: exposure.open_doors(proc.dir), exposure_interval=0.05)
+        h = test_helper.Helper(r.config(), exposure_check=lambda: exposure.open_doors(proc.dir), exposure_interval=0.05)
         r.helpers.append(h)
         return r, b, h
 
@@ -125,8 +124,7 @@ class HelperKeepsLayerOff(test_helper.Base):
     def choice_rig(self, proc, choice):
         r = self.rig()
         b, s = r.steam_up()
-        h = test_helper.Helper(r.config(), steam_running=lambda: r.running,
-                               exposure_check=lambda: exposure.open_doors(proc.dir), exposure_interval=0.05,
+        h = test_helper.Helper(r.config(), exposure_check=lambda: exposure.open_doors(proc.dir), exposure_interval=0.05,
                                exposure_choice=lambda: choice[0])
         r.helpers.append(h)
         return r, b, h

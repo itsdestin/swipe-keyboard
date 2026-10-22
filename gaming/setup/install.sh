@@ -25,7 +25,8 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MAIN_ID=org.itsdestin.SwipeKeyboard
 HELPER_ID=org.itsdestin.SwipeKeyboard.GamingHelper
 MARKER_NAME=.cef-enable-remote-debugging
-UNITS=(swipekb-engine.service swipekb-helper.service)
+UNITS=(swipekb-engine.service swipekb-helper.service swipekb-switch-watch.service swipekb-switch-watch.timer)
+WATCH_NAME=switch-watch.sh   # looks whether Steam's developer-switch file is still there and tells you if not
 CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
 DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
 UNIT_DIR="$CONFIG_HOME/systemd/user"
@@ -35,6 +36,7 @@ RECORD="$RECORD_DIR/install-record.json"
 # record). Missing file = "blocked", the strict reading.
 STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/swipekb-gaming"
 OUTSIDE_FILE="$STATE_DIR/outside-access"
+WATCH_SCRIPT="$RECORD_DIR/$WATCH_NAME"
 # The outside door: SteamOS's own system socket that forwards Steam's debug port (8080, this Deck only) to port
 # 8081 on EVERY network interface. The two variables below exist so the tests can point at a throwaway folder; on a
 # real Deck they are never set.
@@ -218,6 +220,7 @@ TEXT
 command -v flatpak >/dev/null 2>&1 || die "'flatpak' was not found. This installer is for SteamOS, where it comes with the system."
 command -v systemctl >/dev/null 2>&1 || die "'systemctl' was not found. This installer is for SteamOS, where it comes with the system."
 
+[ -f "$HERE/$WATCH_NAME" ] || die "$WATCH_NAME missing from the download."
 [ -f "$HERE/VERSION" ] || die "VERSION file missing next to install.sh. Run it from the folder you extracted the download into."
 VERSION="$(head -n 1 "$HERE/VERSION")"
 # WHY verify before anything else: the download is the only thing we run code from; a damaged or edited
@@ -408,6 +411,9 @@ if [ "$SHOW_GAMING" = 1 ]; then
     done
     [ "$SKIP_FLATPAKS" = 1 ] || echo "  - install the Gaming Mode helper app for your user only: $HELPER_ID  (the small program that talks to Steam on this device)"
     for unit in "${UNITS[@]}"; do echo "  - write $UNIT_DIR/$unit and start it (it starts by itself after every restart)."; done
+    echo "  - write $WATCH_SCRIPT. Once a minute it only checks that the developer-switch file still exists and never changes"
+    echo "    Steam's folder. If the file ever disappears, it shows a desktop notification (in Desktop Mode) with a"
+    echo "    'Turn it back on' button; Gaming Mode cannot show notifications, so there Steam's normal keyboard is used."
 elif [ "$CURRENT_GAMING" = yes ]; then
     echo "  - turn Gaming Mode off: stop and delete the two background services, delete the developer-switch file if this"
     echo "    installer created it, remove the Gaming Mode helper app if this installer added it, and remove the outside-door"
@@ -494,6 +500,7 @@ gaming_off() { # turn Gaming Mode off, keep the Desktop keyboard; touches only w
         if [ -f "$UNIT_DIR/$unit" ] && [ "$(head -n 1 "$UNIT_DIR/$unit")" = '# swipekb-gaming-managed' ]; then rm -f "${UNIT_DIR:?}/${unit:?}"; fi
     done
     systemctl --user daemon-reload || true
+    rm -f "${WATCH_SCRIPT:?}" "${STATE_DIR:?}/switch-state" "${STATE_DIR:?}/switch-notified"
     for marker in "${CREATED_MARKERS[@]+"${CREATED_MARKERS[@]}"}"; do
         # WHY a regular file only: never follow a link or remove a folder because a path was edited by hand.
         if [ -f "$marker" ] && [ ! -L "$marker" ]; then rm -f "${marker:?}"; fi
@@ -576,15 +583,25 @@ for dir in "${STEAM_DIRS[@]}"; do
     else
         : > "$marker"
         CREATED_MARKERS+=("$marker")
+        # WHY say so: on a re-run with Gaming Mode already on, a missing file means the switch had been turned off.
+        if [ "$CURRENT_GAMING" = yes ]; then
+            echo "Steam's developer switch had been turned off (its file was gone). This run turned it back on: $marker"
+            echo "Restart Steam once so it notices; until then Steam's normal keyboard is used."
+            rm -f "$STATE_DIR/switch-state"
+        fi
     fi
     write_record
 done
 
 mkdir -p "$UNIT_DIR"
+# The watcher is copied (not run from the download) so it keeps working if the download folder is deleted.
+mkdir -p "$RECORD_DIR"
+cp "$HERE/$WATCH_NAME" "$WATCH_SCRIPT.new" && chmod 755 "$WATCH_SCRIPT.new" && mv "$WATCH_SCRIPT.new" "$WATCH_SCRIPT"
+rm -f "$STATE_DIR/switch-notified"
 for unit in "${UNITS[@]}"; do
     # WHY the version is written into the file: it shows which download put it there, and re-running with a
     # newer download rewrites it.
-    sed "s/@VERSION@/$VERSION/g" "$HERE/units/$unit" > "$UNIT_DIR/$unit.new"
+    sed -e "s/@VERSION@/$VERSION/g" -e "s|@WATCH_SCRIPT@|$WATCH_SCRIPT|g" "$HERE/units/$unit" > "$UNIT_DIR/$unit.new"
     mv "$UNIT_DIR/$unit.new" "$UNIT_DIR/$unit"
     in_list "$unit" "${CREATED_UNITS[@]+"${CREATED_UNITS[@]}"}" || CREATED_UNITS+=("$unit")
 done
