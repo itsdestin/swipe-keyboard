@@ -30,6 +30,9 @@ cat > "$PREFIX/bin/swipekb-helper" <<'WRAPPER'
 #!/bin/sh
 export PYTHONPATH=/app/lib/swipekb-helper
 export PYTHONDONTWRITEBYTECODE=1
+# WHY: Flatpak sets XDG_STATE_HOME to the app's private folder; the status file and the installer's outside-access
+# choice both live in the real folder (shared by permission in the manifest).
+export SWIPEKB_STATE_DIR="$HOME/.local/state/swipekb-gaming"
 exec python3 -s -m swipekb_helper "$@"
 WRAPPER
 chmod 755 "$PREFIX/bin/swipekb-helper"

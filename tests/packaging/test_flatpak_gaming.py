@@ -16,6 +16,9 @@ BUNDLE = ROOT / 'packaging/flatpak'
 MAIN_ID = 'org.itsdestin.SwipeKeyboard'
 HELPER_ID = 'org.itsdestin.SwipeKeyboard.GamingHelper'
 SHARED_DIR = '--filesystem=xdg-run/swipekb:create'
+# WHY (found in the SteamOS VM, M8): Flatpak points XDG_STATE_HOME at the app's private folder, so without this the
+# status file and the installer's outside-access choice live in two different places and never meet.
+STATE_DIR = '--filesystem=~/.local/state/swipekb-gaming:create'
 
 
 def load(name):
@@ -64,7 +67,7 @@ class HelperFlatpakTests(unittest.TestCase):
         # the shared socket directory it needs to reach the engine. No display, no home, no devices.
         args = self.helper['finish-args']
         granted = {a for a in args if not a.startswith(('--nofilesystem=', '--no-talk-name='))}
-        self.assertEqual(granted, {'--share=network', SHARED_DIR})
+        self.assertEqual(granted, {'--share=network', SHARED_DIR, STATE_DIR})
         # WHY subtract: the KDE runtime grants styling config and bus names by default; the helper uses none.
         main = load(MAIN_ID + '.json')['finish-args']
         for arg in args:
@@ -121,6 +124,8 @@ class HelperFlatpakTests(unittest.TestCase):
         self.assertIn('PYTHONPATH=/app/lib/swipekb-helper', wrapper)
         self.assertNotIn('${PYTHONPATH', wrapper)
         self.assertIn('-m swipekb_helper', wrapper)
+        # WHY: the status file must land where the installer and the Desktop settings page look, not in the sandbox's private folder.
+        self.assertIn('SWIPEKB_STATE_DIR="$HOME/.local/state/swipekb-gaming"', wrapper)
 
 
 class SystemdUnitTests(unittest.TestCase):
