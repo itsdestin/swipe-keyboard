@@ -37,6 +37,7 @@ function swipekbSession(w, L, opts) {
   var cands = null;                // {req, list:[{id,word}], len, busy} while the strip offers a replacement
   var pending = {};                // messages sent and not yet answered
   var keySeq = 0, pickSeq = 0;
+  var lastMs = null;               // how long the last answer took, in parts (numbers only; for diagnosis)
   var shift = 'none';              // our own count of Steam's Shift latch: 'none' | 'one' | 'caps'
   var bsTimer = null, trailTimer = null, tickTimer = null, clearTimerId = null;
   var strip = null, slots = [], chip = null, canvas = null, ctx2d = null, lastPt = null;
@@ -56,12 +57,14 @@ function swipekbSession(w, L, opts) {
   // Called on every touch and every tick. A different text box is a new typing session: forget everything.
   function checkField() {
     var a = doc.activeElement;
-    if (a !== field) { field = a; reset(true); }
+    // WHY no "closed" message when the new box is a password box: plan Section 8 says a password box makes us call nothing at
+    // all, so we stay silent; the helper hangs up on the engine by itself after a minute without a swipe (bridge.py, IDLE_S).
+    if (a !== field) { field = a; reset(fieldKind() !== 'inert'); }
   }
   function reset(sayClosed) {
     buf = ''; cands = null; pending = {}; shift = 'none'; privateOn = false; privateWhy = '';
     if (bsTimer !== null) { clearT(bsTimer); bsTimer = null; }
-    if (sayClosed && sentAny) { sentAny = false; send({ v: 1, type: 'closed' }); }   // lets the helper hang up on the engine
+    if (sentAny) { sentAny = false; if (sayClosed) send({ v: 1, type: 'closed' }); }   // lets the helper hang up on the engine
     render();
   }
 
@@ -167,6 +170,7 @@ function swipekbSession(w, L, opts) {
       if (r.error || !r.committed || !r.cands || typeof r.typed !== 'string') { if (cands) cands.busy = false; return; }
       // WHY the sequence number: if another key was pressed while the helper worked, we no longer know what the box
       // holds after the word the helper typed, so the memory is wiped and the strip offers nothing.
+      if (r.ms && typeof r.ms === 'object') lastMs = { wait: +r.ms.wait || 0, engine: +r.ms.engine || 0, send: +r.ms.send || 0 };
       var same = pend.seq === keySeq;
       if (pend.kind === 'pick') buf = same ? buf.slice(0, Math.max(0, buf.length - pend.prevLen)) : '';
       else if (!same) buf = '';
@@ -205,12 +209,14 @@ function swipekbSession(w, L, opts) {
       list = keyNodes();
       append(labelsUpper(list) ? String(name).toUpperCase() : name);
       if (shift === 'one') shift = 'none';   // Steam clears a one-shot latch with the key it capitalised
-    } else if (/^space$/i.test(name)) append(' ');
+    } else if (name === ' ') append(' ');          // WHY ' ': Steam's real name for the Space key is a single space (found in the VM)
     else if (name === 'Backspace') {
       buf = buf.slice(0, -1);
       // WHY: holding Backspace repeats it; we cannot count the repeats, so a long press makes the memory uncertain.
       if (bsTimer !== null) clearT(bsTimer);
       bsTimer = setT(function () { bsTimer = null; guard(function () { buf = ''; keySeq++; render(); }); }, 400);
+    } else if (name === 'CapsLock') {
+      shift = shift === 'caps' ? 'none' : 'caps';   // Steam's Caps key switches Caps Lock on and off by itself
     } else if (/^shift$/i.test(name)) {
       shift = shift === 'none' ? 'one' : shift === 'one' ? 'caps' : 'none';
     } else if (typeof name === 'string' && name.length === 1) append(name);   // a digit or symbol
@@ -392,7 +398,7 @@ function swipekbSession(w, L, opts) {
     off: off,
     state: function () { return state; },
     // For tests and the VM rig: sizes and flags only, never the text.
-    debug: function () { return { bufferLength: buf.length, words: contextWords('plain').length, policy: policy(), shift: shift, candidates: cands ? cands.list.length : 0, stripShown: !!strip, kbOpen: kbOpen }; }
+    debug: function () { return { bufferLength: buf.length, words: contextWords('plain').length, policy: policy(), shift: shift, candidates: cands ? cands.list.length : 0, stripShown: !!strip, kbOpen: kbOpen, lastMs: lastMs }; }
   };
   tickTimer = w.setInterval(tick, TICK_MS);
   return api;

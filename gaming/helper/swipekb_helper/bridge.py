@@ -27,6 +27,7 @@ MAX_MESSAGE = 200_000          # bytes of JSON from the page; a 2,000-point swip
 MAX_POINTS, MAX_KEYS, MAX_CTX = 2000, 128, 20
 MAX_COORD, MAX_TIME_MS = 1e5, 1e7          # same bounds as the engine's own checks
 MAX_ERASE = 64
+IDLE_S = 60.0                   # an engine connection with no swipe for this long is closed (the engine then forgets the layout and candidate ids)
 STALE_S = 10.0                  # a request that waited longer than this is dropped; the user has moved on
 _ID = re.compile(r'[A-Za-z0-9_-]{1,64}')
 _LAYOUT = re.compile(r'[a-z][a-z0-9_]{0,47}')
@@ -115,8 +116,7 @@ class _Page:
         self.conn = None
         self.layout_sig = None
         self.last = None            # {'req', 'len', 'caps', 'cands'} for the word typed last (no text, only its length)
-        self.tokens = RATE_BURST
-        self.refilled = time.monotonic()
+        self.used = time.monotonic()    # last time this page asked the engine for anything
 
 
 RATE_BURST, RATE_PER_S = 6.0, 6.0   # swipes cannot physically come faster; a flood from a broken page is dropped
@@ -172,7 +172,15 @@ class Bridge:
     # ---- the worker ------------------------------------------------------------------------------------------
     def _run(self):
         while True:
-            item = self.q.get()
+            try:
+                item = self.q.get(timeout=min(5.0, IDLE_S / 2))
+            except queue.Empty:
+                # WHY: a page that went quiet (the user moved on, or entered a password box, where the page says nothing at all)
+                # must not keep words alive in the engine; after IDLE_S without a swipe we hang up on its behalf.
+                for pid, st in list(self.pages.items()):
+                    if st.conn and time.monotonic() - st.used > IDLE_S:
+                        self._hang_up(pid, forget_page=False)
+                continue
             if item is None:
                 break
             pid, m, t = item
@@ -182,9 +190,9 @@ class Bridge:
                 elif time.monotonic() - t > STALE_S:
                     self.stats['dropped'] += 1
                 elif m['type'] == 'stroke':
-                    self._stroke(pid, m)
+                    self._stroke(pid, m, t)
                 else:
-                    self._pick(pid, m)
+                    self._pick(pid, m, t)
             except Exception:
                 # WHY catch all: nothing in here may kill the worker; the page just gets "no".
                 self._answer(pid, m, error='internal')
@@ -222,11 +230,14 @@ class Bridge:
         js = ('(function(){var L=window.__swipekbLayer;if(L&&L.session)L.session.result(%s);})()' % json.dumps(body))
         self.deliver(pid, js)
 
-    def _stroke(self, pid, m):
+    def _stroke(self, pid, m, t0):
         st = self._page(pid)
+        st.used = time.monotonic()
+        waited = st.used - t0
         self.stats['strokes'] += 1
         try:
             conn = self._conn(st, m['mode'])
+            t_engine = time.monotonic()
             sig = (m['layout'], tuple(sorted((k['k'], round(k['x']), round(k['y']), round(k['w']), round(k['h'])) for k in m['keys'])))
             if st.layout_sig != sig:
                 # the layer sends the centre of each key; the engine wants the top-left corner and the size
@@ -246,7 +257,9 @@ class Bridge:
             if not safe_text(word):
                 return self._answer(pid, m, committed=False, error='bad_text')
             typed = apply_caps(word, m['caps']) + ' '
+            t_send = time.monotonic()
             self.send_text(typed)
+            t_done = time.monotonic()
         except EngineError as e:
             st.layout_sig = None
             return self._answer(pid, m, committed=False, error=e.code)
@@ -259,10 +272,15 @@ class Bridge:
         shown = [{'id': c['id'], 'word': apply_caps(c['word'], m['caps'])} for c in cands]
         st.last = {'req': r['req'], 'len': len(typed), 'caps': m['caps'], 'cands': shown}
         self.stats['typed'] += 1
-        self._answer(pid, m, committed=True, req=r['req'], typed=typed, cands=shown)
+        # WHY timings in the answer: the page keeps them for diagnosis (numbers only, never text): how long the request waited, the
+        # engine took, and Steam's text call took.
+        ms = {'wait': round(waited * 1000), 'engine': round((t_send - t_engine) * 1000), 'send': round((t_done - t_send) * 1000)}
+        self._answer(pid, m, committed=True, req=r['req'], typed=typed, cands=shown, ms=ms)
 
-    def _pick(self, pid, m):
+    def _pick(self, pid, m, t0):
         st = self._page(pid)
+        st.used = time.monotonic()
+        waited = st.used - t0
         self.stats['picks'] += 1
         last = st.last
         # WHY both checks: the page may only replace the word we typed last, at exactly the length we typed.
@@ -274,7 +292,9 @@ class Bridge:
             if not safe_text(word):
                 return self._answer(pid, m, committed=False, error='bad_text')
             typed = apply_caps(word, last['caps']) + ' '
+            t_send = time.monotonic()
             self.send_text('\b' * m['erase'] + typed)
+            t_done = time.monotonic()
         except EngineError as e:
             self.stats['rejected'] += 1        # the engine never issued that id for this request
             return self._answer(pid, m, committed=False, error=e.code)
@@ -286,4 +306,5 @@ class Bridge:
             return self._answer(pid, m, committed=False, error='engine')
         last['len'] = len(typed)
         self.stats['typed'] += 1
-        self._answer(pid, m, committed=True, req=last['req'], typed=typed, cands=last['cands'])
+        self._answer(pid, m, committed=True, req=last['req'], typed=typed, cands=last['cands'],
+                     ms={'wait': round(waited * 1000), 'engine': 0, 'send': round((t_done - t_send) * 1000)})

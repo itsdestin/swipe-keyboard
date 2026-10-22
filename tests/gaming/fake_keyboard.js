@@ -178,9 +178,10 @@ function build(opts) {
     ['1', '2', '3', '4', '5'].forEach((ch, c) => addKey(ch, X0 + c * KW, Y0, KW)); // a symbols page: too few letters
   }
   addKey('Shift', X0, Y0 + 3 * KH, 2 * KW);
-  addKey('Space', X0 + 2 * KW, Y0 + 3 * KH, 4 * KW);
+  addKey(' ', X0 + 2 * KW, Y0 + 3 * KH, 4 * KW);
   addKey('Backspace', X0 + 6 * KW, Y0 + 3 * KH, 2 * KW);
   addKey('Enter', X0 + 8 * KW, Y0 + 3 * KH, 2 * KW);
+  addKey('CapsLock', X0 + 10 * KW, Y0 + 3 * KH, 2 * KW);   // (Steam's real key names: ' ' for Space, 'CapsLock'; M5 VM)
 
   // ---- Steam model
   const S = { typed: [], log: [], latch: 0, downKey: null, popup: null, popupTimer: null, repTimer: null, repeats: 0, t0: Date.now(), keydownAt: [], upAt: [], downs: new Map() };
@@ -190,7 +191,7 @@ function build(opts) {
   function type(key) { // Steam's own typing: uses the latch, clears it
     const ch = key.length === 1 && S.latch ? key.toUpperCase() : key;
     if (key.length === 1 && S.latch === 1) { S.latch = 0; labelCase(); }   // a one-shot clears with the key it capitalised; Caps Lock stays
-    S.typed.push(ch === 'Space' ? ' ' : ch === 'Backspace' ? '\b' : ch === 'Enter' ? '\r' : ch);
+    S.typed.push(ch === ' ' ? ' ' : ch === 'Backspace' ? '\b' : ch === 'Enter' ? '\r' : ch);
     S.keydownAt.push(now());
   }
   const family = opts.steamFamily || 'pointer';
@@ -234,6 +235,7 @@ function build(opts) {
     closePopup();
     if (lit) { setTimeout(() => type(lit.getAttribute('data-key')), typeDelay); return; }
     if (popupWasOpen) { setTimeout(() => type(name), typeDelay); return; }
+    if (name === 'CapsLock') { S.latch = S.latch === 2 ? 0 : 2; labelCase(); return; }
     if (name === 'Shift') { S.latch = (S.latch + 1) % 3; labelCase(); return; }   // M0: tap = one-shot, tap again = Caps Lock, again = off
     if (name === 'Backspace' && S.repeatedThisPress) return;
     setTimeout(() => type(name), typeDelay);

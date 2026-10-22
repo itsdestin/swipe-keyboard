@@ -61,7 +61,7 @@ test('password box: a counting spy proves nothing is stopped, sent, drawn, remem
     await settle();
     for (const ch of 'secret') await tap(r, ch);
     await swipe(r, ['q', 'p'], 80); await swipe(r, ['h', 'e', 'l', 'l', 'o'], 160);
-    await tap(r, 'Space'); await tap(r, 'Backspace');
+    await tap(r, ' '); await tap(r, 'Backspace');
     await sleep(500);   // the session's own ticks keep running; they must still do nothing visible
   } finally { FakeEvent.prototype.stopImmediatePropagation = orig; }
   assert.equal(stops, 0, 'zero stopImmediatePropagation calls');
@@ -78,6 +78,16 @@ test('password box: the swipe is not swallowed, so stock behaviour (the stray fi
   const r = setup({}, 'password');
   await swipe(r, ['q', 'p'], 80); await settle();
   assert.deepEqual(r.S.typed, ['q']);
+});
+
+test('moving from a plain box (after a swipe) to a password box sends nothing at all, not even "closed"', async () => {
+  const r = setup({}, 'text'); await settle();
+  await swipe(r, ['h', 'e', 'l', 'l', 'o']); await settle(); answer(r);
+  const n = r.calls.length;
+  r.doc.activeElement = { tagName: 'INPUT', type: 'password' };
+  await tap(r, 'a'); await swipe(r, ['q', 'p'], 60); await sleep(300);
+  assert.equal(r.calls.length, n, 'no binding call while a password box has focus');
+  assert.equal(r.sess.debug().bufferLength, 0, 'and the memory of the earlier box is gone');
 });
 
 test('a strip that was showing disappears as soon as a password box takes focus', async () => {
@@ -195,11 +205,11 @@ test('a textarea or an odd input type is unknown mode too; a search or text box 
 test('the typed words become context for the next swipe, newest last, capped at 12 words in unknown mode', async () => {
   const r = setup({}, null);
   for (const ch of 'we') await tap(r, ch);
-  await tap(r, 'Space'); for (const ch of 'go') await tap(r, ch);
-  await tap(r, 'Space'); await swipe(r, ['t', 'o', 'p']); await settle();
+  await tap(r, ' '); for (const ch of 'go') await tap(r, ch);
+  await tap(r, ' '); await swipe(r, ['t', 'o', 'p']); await settle();
   assert.deepEqual(r.calls[0].ctx, ['we', 'go']);
   const r2 = setup({}, null);
-  for (let i = 0; i < 15; i++) { for (const ch of 'ab') await tap(r2, ch); await tap(r2, 'Space'); }
+  for (let i = 0; i < 15; i++) { for (const ch of 'ab') await tap(r2, ch); await tap(r2, ' '); }
   await swipe(r2, ['t', 'o', 'p']); await settle();
   assert.equal(r2.calls[0].ctx.length, 12);
 });
@@ -207,7 +217,7 @@ test('the typed words become context for the next swipe, newest last, capped at 
 test('a word still being typed is not context', async () => {
   const r = setup({}, null);
   for (const ch of 'we') await tap(r, ch);
-  await tap(r, 'Space'); for (const ch of 'gam') await tap(r, ch);
+  await tap(r, ' '); for (const ch of 'gam') await tap(r, ch);
   await swipe(r, ['t', 'o', 'p']); await settle();
   assert.deepEqual(r.calls[0].ctx, ['we']);
 });
@@ -215,7 +225,7 @@ test('a word still being typed is not context', async () => {
 test('the memory is wiped when the keyboard closes, and the helper is told to hang up', async () => {
   const r = setup({}, null);
   for (const ch of 'we') await tap(r, ch);
-  await tap(r, 'Space'); await swipe(r, ['t', 'o', 'p']); await settle(); answer(r, { typed: 'Top ', cands: [{ id: 'x', word: 'Top' }] });
+  await tap(r, ' '); await swipe(r, ['t', 'o', 'p']); await settle(); answer(r, { typed: 'Top ', cands: [{ id: 'x', word: 'Top' }] });
   assert.ok(r.sess.debug().bufferLength > 0);
   const saved = Object.values(r.page.keyEls).map((el) => [el, el.rect]);
   for (const [el] of saved) el.rect = { left: 0, top: 0, width: 0, height: 0 };   // the keyboard closes
@@ -231,7 +241,7 @@ test('the memory is wiped when the keyboard closes, and the helper is told to ha
 test('a different text box is a new session: memory and the Private choice are dropped', async () => {
   const r = setup({}, 'text');
   for (const ch of 'we') await tap(r, ch);
-  await tap(r, 'Space'); await settle(); press(r.chip())(r);
+  await tap(r, ' '); await settle(); press(r.chip())(r);
   assert.equal(r.sess.debug().policy, 'private');
   r.doc.activeElement = { tagName: 'INPUT', type: 'search' };
   await settle();
@@ -243,7 +253,7 @@ test('pressing Enter, an arrow or an unknown key makes the memory uncertain (wip
   for (const key of ['Enter']) {
     const r = setup({}, null);
     for (const ch of 'we') await tap(r, ch);
-    await tap(r, 'Space'); await tap(r, key); await swipe(r, ['t', 'o', 'p']); await settle();
+    await tap(r, ' '); await tap(r, key); await swipe(r, ['t', 'o', 'p']); await settle();
     assert.deepEqual(r.calls[0].ctx, [], key);
   }
 });
@@ -251,18 +261,18 @@ test('pressing Enter, an arrow or an unknown key makes the memory uncertain (wip
 test('Backspace removes the last typed character from the memory; a long hold makes it uncertain', async () => {
   const r = setup({}, null);
   for (const ch of 'wex') await tap(r, ch);
-  await tap(r, 'Backspace'); await tap(r, 'Space'); await swipe(r, ['t', 'o', 'p']); await settle();
+  await tap(r, 'Backspace'); await tap(r, ' '); await swipe(r, ['t', 'o', 'p']); await settle();
   assert.deepEqual(r.calls[0].ctx, ['we']);
   const r2 = setup({}, null);
   for (const ch of 'we') await tap(r2, ch);
-  await tap(r2, 'Space'); await tap(r2, 'Backspace', 520); await tap(r2, 'Space'); await swipe(r2, ['t', 'o', 'p']); await settle();
+  await tap(r2, ' '); await tap(r2, 'Backspace', 520); await tap(r2, ' '); await swipe(r2, ['t', 'o', 'p']); await settle();
   assert.deepEqual(r2.calls[0].ctx, []);
 });
 
 test('an answer that arrives after another key was pressed wipes the memory and offers no candidates', async () => {
   const r = setup({}, 'text');
   for (const ch of 'we') await tap(r, ch);
-  await tap(r, 'Space'); await swipe(r, ['t', 'o', 'p']); await settle();
+  await tap(r, ' '); await swipe(r, ['t', 'o', 'p']); await settle();
   await tap(r, 'a');                 // typed while the helper was still working
   answer(r, { typed: 'Top ', cands: [{ id: 'x', word: 'Top' }] });
   assert.equal(r.sess.debug().bufferLength, 0);
@@ -434,4 +444,32 @@ test('the frame installed at document start (no page body yet) still gets its ty
   page.doc.activeElement = { tagName: 'INPUT', type: 'text' };
   await settle();
   assert.ok(page.doc.querySelector('[class=swipekb-strip]'), 'and draws its strip once the keyboard is on screen');
+});
+
+test('the Caps key (Steam names it CapsLock) makes the next swiped word all capitals and Caps Lock stays on', async () => {
+  const r = setup({}, 'text');
+  await tap(r, 'CapsLock'); await settle();
+  assert.equal(r.S.latch, 2);
+  await swipe(r, ['h', 'e', 'l', 'l', 'o']); await settle();
+  assert.equal(r.calls[0].caps, 'all');
+  answer(r, { typed: 'HELLO ' }); await sleep(300);
+  assert.equal(r.S.latch, 2, 'Caps Lock is left as the user set it');
+  await tap(r, 'CapsLock'); await settle();
+  assert.equal(r.S.latch, 0);
+  await swipe(r, ['h', 'e', 'l', 'l', 'o']); await settle();
+  assert.equal(r.calls[r.calls.length - 1].caps, 'none');
+});
+
+test('the real Space key name is a single space: it separates words in the memory', async () => {
+  const r = setup({}, null);
+  for (const ch of 'we') await tap(r, ch);
+  await tap(r, ' '); await swipe(r, ['t', 'o', 'p']); await settle();
+  assert.deepEqual(r.calls[0].ctx, ['we']);
+});
+
+test('the timings of the last answer are kept as numbers for diagnosis', async () => {
+  const r = setup({}, 'text'); await settle();
+  await swipe(r, ['h', 'e', 'l', 'l', 'o']); await settle();
+  answer(r, { ms: { wait: 3, engine: 40, send: 5 } });
+  assert.equal(JSON.stringify(r.sess.debug().lastMs), JSON.stringify({ wait: 3, engine: 40, send: 5 }));   // (compared as text: the page is another JS realm)
 });

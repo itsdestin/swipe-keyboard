@@ -118,7 +118,7 @@ test('second finger landing while the first is waiting on a letter: both letters
 });
 
 test('non-letter keys reach Steam synchronously and untouched (no swallow, no delay)', async () => {
-  for (const k of ['Shift', 'Space', 'Backspace', 'Enter']) {
+  for (const k of ['Shift', ' ', 'Backspace', 'Enter']) {
     const r = rig();
     const f = r.f(); f.down(...r.c(k));
     assert.ok(r.S.log.includes('pointerdown') && r.S.log.includes('touchstart'), k + ' down arrived at once');
@@ -130,7 +130,7 @@ test('non-letter keys reach Steam synchronously and untouched (no swallow, no de
 test('Space, Enter and Backspace taps type once, same as stock', async () => {
   const seq = async (withLayer) => {
     const r = rig({}, null, withLayer);
-    for (const k of ['Space', 'Enter', 'Backspace']) await tap(r, k);
+    for (const k of [' ', 'Enter', 'Backspace']) await tap(r, k);
     await settle(); return r.S.typed;
   };
   assert.deepEqual(await seq(true), await seq(false));
@@ -227,14 +227,14 @@ test('an exception while a swipe is in progress does not type a stray letter or 
 
 test('key geometry counts each wide key once and ignores accent-popup items', async () => {
   const r = rig({ nestedWide: true });
-  assert.ok(r.page.doc.querySelectorAll('[data-key]').length > 26 + 4, 'the page really has duplicate nodes');
+  assert.ok(r.page.doc.querySelectorAll('[data-key]').length > 26 + 5, 'the page really has duplicate nodes');
   const g0 = r.L.gestures.keys();
-  assert.equal(g0.length, 26 + 4);
+  assert.equal(g0.length, 26 + 5);   // 26 letters + Shift, Space, Backspace, Enter, CapsLock
   assert.equal(g0.filter((k) => k.key === 'Backspace').length, 1);
   const a = r.f(); a.down(...r.c('e')); await sleep(800);
   const g1 = r.L.gestures.keys();
   assert.ok(r.page.doc.querySelectorAll('[data-key-is-literal]').length > 0);
-  assert.equal(g1.length, 26 + 4, 'popup items are not keys');
+  assert.equal(g1.length, 26 + 5, 'popup items are not keys');
   a.up(); await settle();
 });
 

@@ -102,6 +102,8 @@ class Typing(unittest.TestCase):
         self.assertTrue(a['committed'])
         self.assertEqual((a['kind'], a['id'], a['typed']), ('stroke', 1, 'hello '))
         self.assertEqual([c['word'] for c in a['cands']], ['hello', 'hell', 'jello'])
+        self.assertEqual(sorted(a['ms']), ['engine', 'send', 'wait'], 'timings (numbers only) come back for diagnosis')
+        self.assertTrue(all(isinstance(v, int) and v >= 0 for v in a['ms'].values()))
         # what the engine was asked
         lay = self.d.ops('layout')[0][2]
         q = next(k for k in lay['keys'] if k['c'] == 'q')
@@ -290,6 +292,16 @@ class Typing(unittest.TestCase):
         self.send(stroke(2)); self.wait_got(2)
         self.assertEqual(self.d.connections, 2)
         self.assertEqual(len(self.d.ops('layout')), 2, 'layout sent again')
+
+    def test_a_quiet_page_is_hung_up_on_by_the_helper_itself(self):
+        """The page says nothing when a password box takes focus, so the helper must not keep the engine's memory of the last swipe alive."""
+        old = bridgemod.IDLE_S
+        bridgemod.IDLE_S = 0.4
+        self.addCleanup(setattr, bridgemod, 'IDLE_S', old)
+        self.start()
+        self.send(stroke(1)); self.wait_got(1)
+        self.assertEqual(self.d.open_conns, 1)
+        wait_for(lambda: self.d.open_conns == 0, what='idle hang-up')
 
     def test_a_page_that_goes_away_takes_its_engine_connection_with_it(self):
         self.start()

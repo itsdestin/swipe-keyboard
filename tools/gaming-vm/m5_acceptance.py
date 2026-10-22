@@ -179,10 +179,16 @@ def mode(which):
 
 
 def open_field():
+    """Touch the library search box (a local filter; nothing is sent anywhere) so Steam opens its keyboard on it.
+    WHY the box is looked up in the page: the top bar's icons move between Steam builds and notifications (M4 tapped a fixed spot)."""
     f = field()
     if f.get('type') == 'search' and len(keys()) >= 24:
         return f
-    touch('tap 1039 20')
+    box = json.loads(ev("(function(){var e=document.querySelector('input[type=search]');if(!e)return 'null';var r=e.getBoundingClientRect(),k=1280/window.innerWidth;"
+                        "return JSON.stringify([Math.round((r.left+r.width/2)*k),Math.round((r.top+r.height/2)*k),e.placeholder])})()"))
+    if not box or 'Search' not in box[2]:
+        raise SystemExit('the search box is not where expected: %s' % (box,))
+    touch('tap %d %d 80' % (box[0], box[1]))
     time.sleep(2.0)
     f = field()
     if f.get('type') != 'search' or len(keys()) < 24:
@@ -215,33 +221,32 @@ def swipe(word_keys, ms=350):
 
 # ---- commands ----------------------------------------------------------------------------------------------
 def cmd_hello():
+    """Swipe words in the search box. 'world' is the clean case (the engine's top word is the typed word). 'hello' is the finding case:
+    on a straight-line scripted path the engine ranks 'help' above 'hello' (same as the desktop engine; see the M5 status), so the
+    word is then fixed by tapping the 'hello' candidate, which exercises the replacement path."""
     open_field(); clear_field()
     out = {'layer': layer()}
     until(lambda: strip()['strip'], 5, what='strip shown')
     out['strip_before_swipe'] = strip()
-    # 1) first swipe (the engine loads its models: slower) and then a warm one
     runs = []
-    for i in range(2):
+    for word, how in (('world', 'swipe'), ('world', 'swipe again (warm)'), ('hello', 'swipe, then tap the candidate that says hello')):
         t0 = time.time()
-        swipe(list('hello'))
+        swipe(list(word), 60 * len(word))
         v = until(lambda: field().get('value'), 40, 0.05, 'text from the swipe')
-        runs.append({'seconds_release_to_text': round(time.time() - t0, 3), 'field_value': v})
+        run = {'word_swiped': word, 'how': how, 'seconds_from_touch_start_to_text': round(time.time() - t0, 3), 'field_value': v}
         time.sleep(1.2)
         s = strip()
-        runs[-1]['strip'] = s['strip']
-        if i == 0:
-            out['strip_after_swipe'] = s
-            # 2) tap a candidate that is not the top one: the word is replaced
-            cands = [x['text'] for x in s['strip']['slots']]
-            runs[-1]['candidates_left_to_right'] = cands
-            slot = s['strip']['slots'][2]            # right-hand slot: the engine's third choice
+        run['strip'] = s['strip']
+        run['candidates_left_to_right'] = [x['text'] for x in s['strip']['slots']]
+        if word == 'hello':
+            slot = next(x for x in s['strip']['slots'] if x['text'] == 'hello')
             before = field()['value']
             touch('tap %d %d 80' % (slot['x'], slot['y']))
             until(lambda: field()['value'] != before, 10, 0.05, 'replacement')
             time.sleep(0.8)
-            runs[-1]['after_tapping_right_slot'] = {'tapped': slot['text'], 'field_value': field()['value'], 'keyboard_still_open': len(keys()) >= 24,
-                                                    'field_focused': field().get('type')}
+            run['after_tapping_hello_slot'] = {'field_value': field()['value'], 'keyboard_still_open': len(keys()) >= 24, 'field_type': field().get('type')}
             out['strip_after_pick'] = strip()['strip']
+        runs.append(run)
         clear_field()
     out['runs'] = runs
     out['field_after_clear'] = field()['value']
@@ -328,7 +333,22 @@ SPY_OFF = r"""
  delete window.__m5spy; return JSON.stringify(r);
 })()
 """
-SPY_READ = "JSON.stringify({stops: window.__m5spy.stops, binding: window.__m5spy.binding, strips: document.querySelectorAll('.swipekb-strip').length, trails: document.querySelectorAll('.swipekb-trail').length, g: window.__swipekbLayer.gestures.stats(), s: window.__swipekbLayer.session.debug(), lastStroke: !!window.__swipekbLayer.lastStroke})"
+SPY_READ = ("JSON.stringify({stops: window.__m5spy.stops, binding: window.__m5spy.binding, strips: document.querySelectorAll('.swipekb-strip').length, "
+            "trails: document.querySelectorAll('.swipekb-trail').length, g: window.__swipekbLayer.gestures.stats(), s: window.__swipekbLayer.session.debug(), "
+            "lastStroke: window.__swipekbLayer.lastStroke ? window.__swipekbLayer.lastStroke.id : null})")
+# What reaches Steam's own listeners (bubble phase, after our capture-phase handler): if the layer swallows a touch, these stay at zero.
+REACH_ON = r"""
+(function(){
+ var R = window.__m5reach = {down: 0, move: 0, up: 0, fns: []};
+ [['pointerdown','down'],['pointermove','move'],['pointerup','up']].forEach(function(p){
+   var f = function(e){ if (e.isTrusted) R[p[1]]++; }; R.fns.push([p[0], f]); window.addEventListener(p[0], f, false); });
+ return 'on';
+})()
+"""
+REACH_RESET = "(function(){var R=window.__m5reach;R.down=R.move=R.up=0;return 1})()"
+REACH_READ = "JSON.stringify({down: window.__m5reach.down, move: window.__m5reach.move, up: window.__m5reach.up})"
+REACH_OFF = "(function(){var R=window.__m5reach;if(!R)return 'none';R.fns.forEach(function(p){window.removeEventListener(p[0],p[1],false)});delete window.__m5reach;return 'off'})()"
+GESTURE_STATS = "JSON.stringify(window.__swipekbLayer.gestures.stats())"
 
 
 def watched_dirs():
@@ -356,21 +376,36 @@ def fs_listing():
 
 def cmd_password():
     open_field(); clear_field(); until(lambda: strip()['strip'], 5, what='strip')
-    before = fs_listing()
     out = {'strip_before_password': bool(strip()['strip'])}
-    ev(SPY_ON)
+    ev(REACH_ON)
     try:
-        time.sleep(1.0)                  # the session's tick must notice the "password box"
-        out['strip_while_password'] = strip()['strip']
-        for ch in 'abc':
-            tap_key(ch, 70); time.sleep(0.3)
-        swipe(list('hello'), 300)        # stock behaviour is the stray first letter; the layer must not swallow it
-        swipe(['q', 'p'], 200)
-        time.sleep(2.5)
-        out['spy'] = json.loads(ev(SPY_READ))
-        out['field_value_stock'] = field()['value']
+        # CONTROL: the same swipe in a plain box. The layer swallows it, so nothing reaches Steam's own listeners and a binding call is made.
+        ev(REACH_RESET)
+        swipe(['q', 'p'], 250); time.sleep(1.5)
+        out['control_plain_box_swipe_reached_steam'] = json.loads(ev(REACH_READ))
+        clear_field()
+        before = fs_listing()
+        g0 = json.loads(ev(GESTURE_STATS))
+        out['stroke_id_before'] = ev("window.__swipekbLayer.lastStroke ? window.__swipekbLayer.lastStroke.id : null")
+        ev(SPY_ON)
+        ev(REACH_RESET)
+        try:
+            time.sleep(1.0)                  # the session's tick must notice the "password box"
+            out['strip_while_password'] = strip()['strip']
+            for ch in 'abc':
+                tap_key(ch, 70); time.sleep(0.3)
+            swipe(list('hello'), 300)        # a swipe in a password box is stock Steam's business
+            swipe(['q', 'p'], 250)
+            time.sleep(2.5)
+            out['spy'] = json.loads(ev(SPY_READ))
+            out['reached_steam_while_password'] = json.loads(ev(REACH_READ))
+        finally:
+            out['spy_restored'] = ev(SPY_OFF)
+        g1 = json.loads(ev(GESTURE_STATS))
+        out['gesture_counters_changed'] = {k: g1[k] - g0[k] for k in g0 if g1[k] != g0[k]}
+        out['stroke_id_after'] = out['spy']['lastStroke']
     finally:
-        out['spy_restored'] = ev(SPY_OFF)
+        ev(REACH_OFF)
     clear_field()
     time.sleep(1.0)
     after = fs_listing()
@@ -407,7 +442,7 @@ def cmd_kwrite_run():
     # stock taps first (they build the layer's memory), then a swipe
     for ch in 'we':
         tap_key(ch, 70); time.sleep(0.4)
-    tap_key('Space', 70); time.sleep(0.5)
+    tap_key(' ', 70); time.sleep(0.5)
     out['memory_after_typing'] = layer()['s']
     t0 = time.time()
     swipe(list('hello'))
@@ -416,6 +451,152 @@ def cmd_kwrite_run():
     time.sleep(0.8)
     out['strip_after_swipe'] = strip()['strip']
     out['layer_after'] = layer()['s']
+    return out
+
+
+FIELD_VALUE = "document.activeElement && document.activeElement.value"
+
+
+def cmd_forged():
+    """A page message naming a candidate the engine never issued must type nothing (the helper refuses it; the engine does too)."""
+    open_field(); clear_field(); until(lambda: strip()['strip'], 5, what='strip')
+    swipe(list('world'), 300)
+    until(lambda: field().get('value'), 20, 0.05, 'text')
+    time.sleep(1.0)
+    first = field()['value']
+    msg = lambda cand, erase: json.dumps(json.dumps({'v': 1, 'type': 'pick', 'id': 1999999, 'req': 1, 'cand': cand, 'erase': erase}))
+    for forged in ('0123456789abcdef', 'ffffffffffffffff', 'hello'):
+        ev('window.__swipekb(%s)' % msg(forged, len(first)))
+        time.sleep(0.8)
+    after_forged = field()['value']
+    bad_erase = field()['value']
+    ev('window.__swipekb(%s)' % msg('0123456789abcdef', 1))
+    time.sleep(0.8)
+    out = {'typed_by_swipe': first, 'after_three_forged_picks': after_forged, 'after_wrong_erase': field()['value']}
+    clear_field()
+    return out
+
+
+def cmd_shift():
+    """Shift and Caps Lock around a swiped word (plan Section 7: decide what happens to Steam's Shift latch after a swipe commit)."""
+    open_field(); clear_field(); until(lambda: strip()['strip'], 5, what='strip')
+    out = {}
+
+    def letters_upper():
+        return ev("(function(){var n=document.querySelector('[data-key=q]');return n&&n.textContent.trim()})()")
+    # one-shot Shift, then a swipe, then a plain tap
+    tap_key('Shift', 70); time.sleep(1.0)
+    out['q_label_after_shift_tap'] = letters_upper()
+    swipe(list('world'), 300)
+    until(lambda: field().get('value'), 20, 0.05, 'text')
+    time.sleep(2.0)
+    out['one_shot_swipe_field'] = field()['value']
+    out['q_label_after_swipe'] = letters_upper()
+    tap_key('a', 70); time.sleep(1.0)
+    out['next_tapped_letter_field'] = field()['value']
+    clear_field()
+    # Caps Lock on, a swipe, Caps Lock stays, then off
+    tap_key('CapsLock', 70); time.sleep(1.0)
+    out['q_label_after_caps_tap'] = letters_upper()
+    swipe(list('world'), 300)
+    until(lambda: field().get('value'), 20, 0.05, 'text')
+    time.sleep(2.0)
+    out['caps_swipe_field'] = field()['value']
+    out['q_label_after_caps_swipe'] = letters_upper()
+    tap_key('CapsLock', 70); time.sleep(1.0)
+    out['q_label_after_caps_off'] = letters_upper()
+    clear_field()
+    out['field_after_clear'] = field()['value']
+    return out
+
+
+def cmd_trail():
+    """Start a slow swipe and return at once, so the host can take a picture while the finger is still moving."""
+    open_field(); clear_field(); until(lambda: strip()['strip'], 5, what='strip')
+    ks = keys()
+    pts = ' '.join('%d,%d' % (ks[c][0], ks[c][1]) for c in 'qwertyuiop')
+    subprocess.Popen(['python3', '-c', "import socket;s=socket.socket(socket.AF_UNIX);s.connect('/tmp/touchd.sock');f=s.makefile('rw');f.write('drag 4000 %s\\n');f.flush();f.readline()" % pts])
+    time.sleep(1.6)
+    return {'canvas_during_swipe': json.loads(ev("(function(){var c=document.querySelector('.swipekb-trail');return JSON.stringify(c?{w:c.width,h:c.height,pe:c.style.pointerEvents}:null)})()"))}
+
+
+def cmd_trail_after():
+    time.sleep(3.0)
+    t0 = time.time()
+    gone = until(lambda: ev("document.querySelector('.swipekb-trail') === null"), 3, 0.02, 'trail removed')
+    time.sleep(2.0)
+    v = field()['value']
+    clear_field()
+    return {'trail_removed': gone, 'field_value_after_slow_swipe': v}
+
+
+def cmd_latency(n):
+    """Time from the finger lifting (touchd answers when the drag is over) to the word appearing in the field, over n swipes."""
+    open_field(); clear_field(); until(lambda: strip()['strip'], 5, what='strip')
+    words = ['world', 'thanks', 'please', 'good', 'today', 'steam']
+    out, parts = [], []
+    for i in range(n):
+        w = words[i % len(words)]
+        n0 = len(field()['value'])
+        swipe(list(w), 60 * len(w))
+        t0 = time.time()
+        until(lambda: len(field()['value']) > n0, 20, 0.01, 'text')
+        out.append(round((time.time() - t0) * 1000))
+        time.sleep(0.5)
+        parts.append(layer()['s'].get('lastMs'))
+        time.sleep(0.7)
+        if len(field()['value']) > 30:
+            clear_field()
+    clear_field()
+    xs = sorted(out)
+    return {'ms_release_to_text': out, 'parts_wait_engine_send_ms': parts, 'median': xs[len(xs) // 2], 'min': xs[0], 'max': xs[-1]}
+
+
+def cmd_taps(rounds):
+    """Regression of M4 with the typing session on: every letter once per round must type exactly once (26 per round)."""
+    open_field(); clear_field()
+    letters = 'qwertyuiopasdfghjklzxcvbnm'
+    ks = keys()
+    exact, bad = 0, []
+    for r in range(rounds):
+        for c in letters:
+            touch('tap %d %d 60' % (ks[c][0], ks[c][1]))
+            time.sleep(0.25)
+        v = until(lambda: len(field()['value']) >= len(letters) and field()['value'], 30, 0.2, 'all letters typed')
+        time.sleep(1.0)
+        v = field()['value']
+        if v == letters:
+            exact += 1
+        else:
+            bad.append({'round': r, 'got': v})
+        out_mem = layer()['s']
+        clear_field()
+    return {'rounds': rounds, 'rounds_exact': exact, 'mismatches': bad, 'layer': layer(), 'strip_still_shown': bool(strip()['strip'])}
+
+
+def cmd_kwrite_more():
+    """A second keyboard session over the editor: it must start with NO memory of the first, then swipe three words and replace one."""
+    out = {}
+    sh('steam', '-ifrunning', 'steam://open/keyboard')
+    until(lambda: len(keys()) >= 24, 20, 0.5, 'keyboard over the editor')
+    until(lambda: strip()['strip'], 8, what='strip')
+    time.sleep(1.0)
+    out['memory_at_reopen'] = layer()['s']
+    tap_key(' ', 70); time.sleep(0.5)
+    words = []
+    for w in ('world', 'thanks', 'good'):
+        n0 = layer()['s']['bufferLength']
+        swipe(list(w), 60 * len(w))
+        until(lambda: layer()['s']['bufferLength'] > n0, 20, 0.05, 'word typed')
+        time.sleep(1.0)
+        words.append({'swiped': w, 'candidates_left_to_right': [x['text'] for x in strip()['strip']['slots']], 'memory': layer()['s']})
+    slot = strip()['strip']['slots'][2]
+    n0 = layer()['s']['bufferLength']
+    touch('tap %d %d 80' % (slot['x'], slot['y']))
+    time.sleep(1.5)
+    out['tapped_candidate'] = slot['text']
+    out['memory_after_pick'] = layer()['s']
+    out['words'] = words
     return out
 
 
@@ -474,7 +655,7 @@ def main():
     c = sys.argv[1]
     a = sys.argv[2:]
     out = {'mode': lambda: mode(a[0]), 'hello': cmd_hello, 'scales': cmd_scales, 'private': cmd_private, 'password': cmd_password,
-           'kwrite-up': cmd_kwrite_up, 'kwrite-run': cmd_kwrite_run, 'kwrite-close': cmd_kwrite_close, 'kwrite-down': cmd_kwrite_down,
+           'kwrite-up': cmd_kwrite_up, 'kwrite-run': cmd_kwrite_run, 'kwrite-close': cmd_kwrite_close, 'kwrite-more': cmd_kwrite_more, 'forged': cmd_forged, 'taps': lambda: cmd_taps(int(a[0])), 'shift': cmd_shift, 'trail': cmd_trail, 'trail-after': cmd_trail_after, 'latency': lambda: cmd_latency(int(a[0])), 'kwrite-down': cmd_kwrite_down,
            'fs': lambda: cmd_fs(a), 'layer': layer, 'clear': clear_field}[c]()
     print(json.dumps(out, indent=1, ensure_ascii=False))
 
