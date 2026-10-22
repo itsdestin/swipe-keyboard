@@ -150,6 +150,12 @@ top 3 (300 sentences per set): FUTO's neural model (today) everyday 20.0 / web 2
 93.3 → 93.1 (XS) / 93.3 (S) first guess — no change beyond noise (single-word swipes carry no sentence).
 Gboard English reference: running.
 
+Published 2026-10-22 (Destin approved): GitHub pre-release `language-files-2026-10-22` — XS packs for
+en/es/fr/de, Tatoeba credits (`scripts/lm/tatoeba-credits.py`), licence texts, NOTICE
+(`packaging/language-models/LANGUAGE-FILES-2026-10-22-NOTICE.md`), SHA256SUMS; download re-verified.
+Next: installer fetches them by checksum (like the FUTO files), profiles pin them, English switches to its
+n-gram; keyboard stays usable when a file is missing. In-keyboard download UI waits for #181.
+
 **Checkpoint 1:** every language ≥ Gboard on completion after 1 letter (2-guess count); no swipe
 regression; within the Phase 0 size/speed budget.
 
