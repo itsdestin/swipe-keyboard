@@ -473,3 +473,88 @@ test('the timings of the last answer are kept as numbers for diagnosis', async (
   answer(r, { ms: { wait: 3, engine: 40, send: 5 } });
   assert.equal(JSON.stringify(r.sess.debug().lastMs), JSON.stringify({ wait: 3, engine: 40, send: 5 }));   // (compared as text: the page is another JS realm)
 });
+
+// ---- layouts (plan M7, layer half): Steam's own layout name decides, and only four layouts are served -----------
+const AZERTY = ['azertyuiop', 'qsdfghjklm', 'wxcvbn'];
+const QWERTZ = ['qwertzuiop', 'asdfghjkl', 'yxcvbnm'];
+const CYRILLIC = ['йцукенгшщзх', 'фывапролджэ', 'ячсмитьбю'];
+
+test('the layout name Steam draws on its key grid (Layout_<name>) travels with every stroke', async () => {
+  for (const [name, rows, word] of [['qwerty', undefined, 'hello'], ['french', AZERTY, 'bonjour'], ['german', QWERTZ, 'hallo'], ['spanish', undefined, 'hola']]) {
+    const r = setup({ layoutName: name, rows }, 'text'); await settle();
+    await swipe(r, [...word]); await settle();
+    assert.equal(r.calls.length, 1, name + ': the stroke was sent');
+    assert.equal(r.calls[0].layout, name);
+  }
+});
+
+test('only the Layout_ token is read: look-alike classes and the order of classes make no difference', async () => {
+  const r = setup({ layoutName: 'german', rows: QWERTZ }, 'text'); await settle();
+  r.page.kb.setAttribute('class', 'xLayout_french DialogLayout_NoMinWidth Layout_Row Layout_german Panel');
+  await swipe(r, [...'hallo']); await settle();
+  assert.equal(r.calls[0].layout, 'german');
+});
+
+test('switching layout in the middle of a session: the next stroke names the new layout, geometry is re-read, the memory is dropped', async () => {
+  const r = setup({}, 'text'); await settle();
+  await tap(r, 'a'); await tap(r, ' ');
+  await swipe(r, [...'hello']); await settle();
+  assert.equal(r.calls[0].layout, 'qwerty');
+  answer(r); await settle();
+  assert.ok(r.sess.debug().bufferLength > 0 && r.sess.debug().candidates === 3);
+  r.page.setLayout('spanish'); await sleep(90);
+  assert.equal(r.sess.debug().bufferLength, 0, 'words typed under another layout are not context for this one');
+  assert.equal(r.sess.debug().candidates, 0, 'and the old candidates are not offered under the new layout');
+  await swipe(r, [...'hola']); await settle();
+  assert.equal(r.calls[1].layout, 'spanish');
+  assert.deepEqual(r.calls[1].ctx, []);
+});
+
+test('a layout the engine does not serve (Cyrillic, Chinese, Dvorak...) leaves the layer completely off', async () => {
+  for (const [name, rows] of [['russian', CYRILLIC], ['ukrainian', CYRILLIC], ['schinese', undefined], ['japanese_kana', CYRILLIC], ['dvorak', undefined], ['qwerty_int', undefined]]) {
+    const r = setup({ layoutName: name, rows }, 'text');
+    let stops = 0; const orig = FakeEvent.prototype.stopImmediatePropagation;
+    FakeEvent.prototype.stopImmediatePropagation = function () { stops++; return orig.call(this); };
+    const first = rows ? rows[0][0] : 'q', second = rows ? rows[0][1] : 'p';
+    try {
+      await sleep(90);
+      for (const ch of [first, second]) await tap(r, ch);
+      await swipe(r, [first, second], 80);
+      await sleep(300);
+    } finally { FakeEvent.prototype.stopImmediatePropagation = orig; }
+    assert.equal(stops, 0, name + ': nothing stopped');
+    assert.equal(r.calls.length, 0, name + ': nothing sent');
+    assert.ok(r.strip() === null && r.trail() === null, name + ': no strip, no trail');
+    assert.deepEqual(r.S.typed, [first, second, first], name + ': Steam typed the two taps and, for the swipe, its stock stray first letter');
+    assert.equal(r.sess.debug().bufferLength, 0, name + ': nothing remembered');
+  }
+});
+
+test('a keyboard whose grid carries no Layout_ name is treated as unknown: layer off (fail closed)', async () => {
+  for (const name of [null]) {
+    const r = setup({ layoutName: name }, 'text'); await sleep(90);
+    await swipe(r, ['q', 'p'], 80); await sleep(200);
+    assert.equal(r.calls.length, 0); assert.ok(r.strip() === null);
+    assert.deepEqual(r.S.typed, ['q']);
+  }
+});
+
+test('leaving an unserved layout for a served one turns the strip and the swipes back on; the reverse takes the strip away at once', async () => {
+  const r = setup({ layoutName: 'dvorak' }, 'text'); await sleep(90);
+  assert.ok(r.strip() === null);
+  r.page.setLayout('qwerty'); await sleep(90);
+  assert.ok(r.strip() !== null, 'strip is back');
+  await swipe(r, [...'hello']); await settle();
+  assert.equal(r.calls.length, 1);
+  r.page.setLayout('russian'); await sleep(90);
+  assert.ok(r.strip() === null, 'strip gone with the layout');
+  await swipe(r, ['q', 'p'], 60); await settle();
+  assert.equal(r.calls.length, 1, 'no further strokes');
+});
+
+test('a layout the layer serves is never guessed from the letters: French keys under a qwerty name are still sent as qwerty', async () => {
+  // WHY: the name is Steam's own statement; the engine double-checks the key table and refuses a mismatch (daemon tests).
+  const r = setup({ layoutName: 'qwerty', rows: AZERTY }, 'text'); await settle();
+  await swipe(r, [...'bonjour']); await settle();
+  assert.equal(r.calls[0].layout, 'qwerty');
+});

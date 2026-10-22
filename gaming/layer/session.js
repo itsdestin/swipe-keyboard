@@ -27,7 +27,11 @@ function swipekbSession(w, L, opts) {
   var TRAIL_MS = opts.trail_ms || 300;      // plan Section 7: the trail is cleared 300 ms after the stroke ends
   var CTX_MAX = { plain: 20, unknown: 12 }; // same limits as the engine daemon (protocol.hpp)
   var BUF_MAX = 400;
-  var LAYOUT = opts.steam_layout || 'qwerty';
+  // WHY a fixed list here: these are the layouts the engine daemon can serve (gaming/daemon/languages.cpp mapSteamLayout, Steam's own
+  // layout names). Anything else (Cyrillic, Chinese/Japanese/Korean, Dvorak, other Latin layouts) keeps this whole layer off.
+  var SERVED = { qwerty: 1, spanish: 1, french: 1, german: 1 };
+  var LAYOUT_CLASS = /^Layout_([a-z0-9_]+)$/;   // M6/M7 VM finding: Steam gives its key grid (role=grid) the class "Layout_<name>"
+  var lastLayout = null;           // the layout name seen at the last look; a change makes the memory uncertain
   var setT = w.setTimeout.bind(w), clearT = w.clearTimeout.bind(w);
 
   var state = 'on';
@@ -49,9 +53,27 @@ function swipekbSession(w, L, opts) {
     if (typeof t === 'string' && PLAIN[t.toLowerCase()]) return 'plain';
     return 'unknown';
   }
+  // The layout Steam is showing, by its own name, or null when it cannot be read. WHY the class on the key grid and not a guess from
+  // the letters: Chinese/Japanese layouts use ordinary Latin letter keys, so only Steam's own name tells them from qwerty.
+  function layoutName() {
+    var nodes = doc.querySelectorAll(KEY_SEL);
+    for (var i = 0; i < nodes.length; i++) {
+      var g = nodes[i].closest ? nodes[i].closest('[role=grid]') : null;
+      var toks = String((g && g.getAttribute('class')) || '').split(/\s+/);
+      for (var j = 0; j < toks.length; j++) {
+        var m = LAYOUT_CLASS.exec(toks[j]);
+        if (m) return m[1];
+      }
+      return null;   // the first key's grid has no layout name: unknown, not "try the next key"
+    }
+    return null;
+  }
   function policy() {
     var k = fieldKind();
     if (k === 'inert') return 'inert';
+    // WHY inert (not just "no strip"): the arbiter then lets every touch through untouched, so typing is exactly stock Steam. A
+    // keyboard we cannot name is treated the same way (fail closed).
+    if (!SERVED[layoutName()]) return 'inert';
     return privateOn ? 'private' : k;
   }
   // Called on every touch and every tick. A different text box is a new typing session: forget everything.
@@ -60,6 +82,10 @@ function swipekbSession(w, L, opts) {
     // WHY no "closed" message when the new box is a password box: plan Section 8 says a password box makes us call nothing at
     // all, so we stay silent; the helper hangs up on the engine by itself after a minute without a swipe (bridge.py, IDLE_S).
     if (a !== field) { field = a; reset(fieldKind() !== 'inert'); }
+    // WHY here: Steam's layout key swaps the keys under the same text box. What was typed under the old layout is no context for the
+    // new language, and any candidates on the strip belong to the old one. (The key geometry itself is re-read at every stroke.)
+    var lay = layoutName();
+    if (lay !== lastLayout) { lastLayout = lay; buf = ''; cands = null; pending = {}; keySeq++; render(); }
   }
   function reset(sayClosed) {
     buf = ''; cands = null; pending = {}; shift = 'none'; privateOn = false; privateWhy = '';
@@ -230,7 +256,7 @@ function swipekbSession(w, L, opts) {
     if (p !== 'plain' && p !== 'unknown') return;
     var list = keyNodes();
     var out = { v: 1, type: 'stroke', id: msg.id, trace: msg.trace, vw: msg.vw, vh: msg.vh, keys: msg.keys,
-      ctx: contextWords(p), mode: p, layout: LAYOUT, caps: capsFor(list) };
+      ctx: contextWords(p), mode: p, layout: layoutName(), caps: capsFor(list) };
     pending[out.id] = { kind: 'stroke', seq: keySeq, caps: out.caps };
     if (send(out)) sentAny = true; else delete pending[out.id];
   }
