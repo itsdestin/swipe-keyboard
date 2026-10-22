@@ -63,6 +63,8 @@ cp -r "$ROOT/assets/models" "$DEST/.models.new"
 cp -r "$ROOT/assets/dict" "$DEST/.dict.new"
 # The n-gram model is optional: copied when built; when it isn't, any older copy is removed so the installed
 # model always matches the installed dictionary (a stale one would still load and rank with old word lists).
+# WHY language-packs carries every language's next-word files too (en/es/fr/de .ngram + .vocab.tsv + credits):
+# fetch-assets.sh downloaded them by checksum. English falls back to FUTO's model if they are absent.
 cp -r "$ROOT/assets/language-packs" "$DEST/.language-packs.new"
 dirs="qml models dict language-packs"
 if [ -s "$ROOT/assets/lm/en_ngram.bin" ]; then

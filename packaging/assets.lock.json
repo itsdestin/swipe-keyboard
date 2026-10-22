@@ -71,10 +71,72 @@
     "sha256": "cde7883b9050a1104f4ac19a1572aafd6e5d7323b68351aaf51fbf4beba54966"
   },
   "tatoeba_license_notice_sha256": "32bbf7b725f098dd6c63a822684583dc7784b8a15ff929598ac10d7e13a6dce1",
+  "language_files": {
+    "release": "language-files-2026-10-22",
+    "baseUrl": "https://github.com/itsdestin/swipe-keyboard/releases/download/language-files-2026-10-22/",
+    "odcTerms": {
+      "path": "ODC-By-1.0.txt",
+      "sha256": "b1c4de4bf91c95eec945ea7cbe0575fd52e7ee8fa430acb01d323d8214b1c482",
+      "bytes": 19808
+    },
+    "notice": {
+      "path": "LANGUAGE-FILES-NOTICE.md",
+      "remote": "NOTICE.md",
+      "sha256": "0f449d3b81f2267257c3d34a959572cb5f4661a3ac486a0851358420c3803032",
+      "bytes": 2017
+    }
+  },
   "multilingual_context_models": {
-    "es": {"language":"es", "locales":["es_ES","es_MX"], "corpusUrl":"https://downloads.tatoeba.org/exports/per_language/spa/spa_sentences.tsv.bz2", "corpusSha256":"a11b96f9e2d20d24cd8bc72e54656e0ef5597fe0d5c59b9e91a5a0b14f4c1e14", "corpusBytes":6366834, "detailedUrl":"https://downloads.tatoeba.org/exports/per_language/spa/spa_sentences_detailed.tsv.bz2", "detailedSha256":"1c1a471125889fee14c4ad1cbb85edb45e5160d56a4c933136433c6b67b5f48d", "detailedBytes":9511792, "modelSha256":"19a81820c68be1bf8b963538bcc592fdedb3ec475fb12d8750a7c6cc26de9dfd", "modelBytes":6091688, "vocabSha256":"759ec88b7be35ccc7508db33ef3ffa31112694e316d9af0ed3f0df17d114fdf3", "vocabBytes":2115137, "contributorsSha256":"4ca588487a68e52523b34d405bcb19593523adeabccb2b699f38d5e364330dfa"},
-    "fr": {"language":"fr", "locales":["fr_FR"], "corpusUrl":"https://downloads.tatoeba.org/exports/per_language/fra/fra_sentences.tsv.bz2", "corpusSha256":"b49a8777f4be14ba765eb591b7f4136b684e9d5a88a3b028a0ebcf172e1f6326", "corpusBytes":9774087, "detailedUrl":"https://downloads.tatoeba.org/exports/per_language/fra/fra_sentences_detailed.tsv.bz2", "detailedSha256":"3f8a63682f727eecc28222fc24a3b38a13ed380f8b2395be27dc01ad1ed926ab", "detailedBytes":14863355, "modelSha256":"4dd1d925ae59c3417b46ebafa1486ac54f4e969729b9dc57b6da7fa949654094", "modelBytes":7719176, "vocabSha256":"29411d5d1260addee7c1cda0d0c922198e610fc20957f501d308ea3d067dd103", "vocabBytes":2092641, "contributorsSha256":"fdfe3f48731c3bef727771f8dc67e2a821fb3e06c0f88ec8d467948b56d0b4bd"},
-    "de": {"language":"de", "locales":["de_DE"], "corpusUrl":"https://downloads.tatoeba.org/exports/per_language/deu/deu_sentences.tsv.bz2", "corpusSha256":"ccd063727cf3b6d8c74a0e4696c6f898ba9cd62e0b132af6b082bb53b33278e8", "corpusBytes":12097555, "detailedUrl":"https://downloads.tatoeba.org/exports/per_language/deu/deu_sentences_detailed.tsv.bz2", "detailedSha256":"224edaef9c1fd23587bcaaf77d8c79d8a33b32deba90062b9c8e026706ea4934", "detailedBytes":17679592, "modelSha256":"ad1349bb1f8a3d68487a817c30e369b53d86e58df8b76ad224fb109217b91766", "modelBytes":9144360, "vocabSha256":"2214920dbeb379927d6bb25e75baaa2be4c3598074d1e9738dd460ad41576325", "vocabBytes":2364308, "contributorsSha256":"1cdb62a6935038719dc1fdc5607e51d78dcec9a99853719915c33ec23c88e02e"}
+    "en": {
+      "language": "en",
+      "locales": [
+        "en",
+        "en_*"
+      ],
+      "modelSha256": "b159fb99b0a4a735cb1e8ef20fa27903cee0e390e2917a59b318f60e7f213370",
+      "modelBytes": 38029072,
+      "vocabSha256": "5064baa7267388e277a128b7b306896597ed82b67955f359ede7cac6052d24fa",
+      "vocabBytes": 4996675,
+      "contributorsSha256": "f866d5b34a34222dae4566f931cb5b50d09bf60e82c7d05225ba67b0a4dbd5be",
+      "contributorsBytes": 61496
+    },
+    "es": {
+      "language": "es",
+      "locales": [
+        "es_ES",
+        "es_MX"
+      ],
+      "modelSha256": "aac545a0a0629961fb69ca28efaa81fda31924c801fd1ee3ab892bde42cac4f6",
+      "modelBytes": 23845496,
+      "vocabSha256": "759ec88b7be35ccc7508db33ef3ffa31112694e316d9af0ed3f0df17d114fdf3",
+      "vocabBytes": 2115137,
+      "contributorsSha256": "a8c992e017ec5de8c97643da8c35dde8aed556fee8c93e5b1385cefe208274f2",
+      "contributorsBytes": 17587
+    },
+    "fr": {
+      "language": "fr",
+      "locales": [
+        "fr_FR"
+      ],
+      "modelSha256": "602b78ae2ed70038be44756de2bb06a7b81119be02dd5261314d1f626fae40cd",
+      "modelBytes": 25052368,
+      "vocabSha256": "29411d5d1260addee7c1cda0d0c922198e610fc20957f501d308ea3d067dd103",
+      "vocabBytes": 2092641,
+      "contributorsSha256": "500cfd2f8b0e639883d4e86555d3211b98b027ce6f29a56b8fea3422f5d2e891",
+      "contributorsBytes": 17528
+    },
+    "de": {
+      "language": "de",
+      "locales": [
+        "de_DE"
+      ],
+      "modelSha256": "9a64e054cba3e792ea28887f5d063f64ccf5ebc783a71bba3340f1ee0c02e98e",
+      "modelBytes": 29780872,
+      "vocabSha256": "2999319c02c4978ae4bc34169946336a77b4138678bd413e506952486520cb01",
+      "vocabBytes": 2364104,
+      "contributorsSha256": "2808ec41ba8114f604e16644f777f829408a83d6b2fc34203863f99f45d0a2a7",
+      "contributorsBytes": 15157
+    }
   },
   "dictionary_sha256": "ff49678bb2afec6d088dca84fa599b39df0311b6e393ef0daf5a3731143b7ebe"
 }

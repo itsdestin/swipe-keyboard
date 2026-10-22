@@ -8,34 +8,71 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 class Packaging(unittest.TestCase):
     def test_multilingual_context_payload_license_and_package_copy_are_pinned(self):
+        import copy
         import hashlib
         import importlib.util
         import json
         spec=importlib.util.spec_from_file_location('package_check',ROOT/'scripts/package-check.py')
         checker=importlib.util.module_from_spec(spec);spec.loader.exec_module(checker)
+        sha=lambda data: hashlib.sha256(data).hexdigest()
         source_lock=json.loads((ROOT/'packaging/assets.lock.json').read_text())
+        # WHY synthetic bytes with a lock rewritten to match: the real files are 100+ MB downloads, and the point
+        # here is the checker's logic (every language, every credit/licence text, size and hash), not the data.
+        lock=copy.deepcopy(source_lock)
         with tempfile.TemporaryDirectory() as tmp:
             base=pathlib.Path(tmp)/'usr/share/swipe-keyboard';packs=base/'language-packs';packs.mkdir(parents=True)
             terms=(ROOT/'packaging/language-models/TATOEBA-CC-BY-2.0-FR.txt').read_bytes()
-            terms_path=packs/'TATOEBA-CC-BY-2.0-FR.txt';terms_path.write_bytes(terms)
-            for language,pin in source_lock['multilingual_context_models'].items():
+            (packs/'TATOEBA-CC-BY-2.0-FR.txt').write_bytes(terms)
+            shared=lock['language_files']
+            for key,body in (('odcTerms',b'odc terms'),('notice',b'notice')):
+                (packs/shared[key]['path']).write_bytes(body);shared[key]['sha256']=sha(body)
+            for language,pin in lock['multilingual_context_models'].items():
+                contents={f'{language}.ngram':b'ngram-'+language.encode(),f'{language}.vocab.tsv':b'vocab-'+language.encode(),
+                          f'{language}-CONTRIBUTORS.txt':b'credits-'+language.encode()}
+                for name,data in contents.items():
+                    (packs/name).write_bytes(data)
+                pin['modelSha256']=sha(contents[f'{language}.ngram']);pin['modelBytes']=len(contents[f'{language}.ngram'])
+                pin['vocabSha256']=sha(contents[f'{language}.vocab.tsv']);pin['vocabBytes']=len(contents[f'{language}.vocab.tsv'])
+                pin['contributorsSha256']=sha(contents[f'{language}-CONTRIBUTORS.txt']);pin['contributorsBytes']=len(contents[f'{language}-CONTRIBUTORS.txt'])
+                if language=='en':
+                    continue  # English has no manifest
                 model=f'{language}.ngram';vocab=f'{language}.vocab.tsv';credits=f'{language}-CONTRIBUTORS.txt'
-                for name in (model,vocab,credits):
-                    (packs/name).write_bytes((ROOT/'packaging/language-models'/name).read_bytes())
                 manifest={'schema':2,'language':language,'contextFormat':'swk-ngram-v2',
-                    'contextLicense':{'id':'CC-BY-2.0-FR','sourceSha256':pin['corpusSha256'],
-                        'termsPath':'TATOEBA-CC-BY-2.0-FR.txt','termsSha256':hashlib.sha256(terms).hexdigest(),
+                    'contextLicense':{'id':'ODC-By-1.0 AND CC-BY-2.0-FR','sourceUrl':shared['baseUrl']+model,
+                        'termsPath':'TATOEBA-CC-BY-2.0-FR.txt','termsSha256':sha(terms),
+                        'webTermsSha256':shared['odcTerms']['sha256'],'noticeSha256':shared['notice']['sha256'],
                         'attributionPath':credits,'attributionSha256':pin['contributorsSha256']},
                     'assets':{'contextModel':{'path':model,'sha256':pin['modelSha256'],'size':pin['modelBytes'],'compatibility':f'{language}:context-ngram-v1'},
                         'contextVocab':{'path':vocab,'sha256':pin['vocabSha256'],'size':pin['vocabBytes'],'compatibility':f'{language}:context-ngram-v1'}}}
                 (packs/f'{language}.json').write_text(json.dumps(manifest))
-            checker.check_multilingual_context_assets(base,source_lock)
+            checker.check_multilingual_context_assets(base,lock)
+            # Every language, English included, must ship its files; damage or absence is caught.
             old=(packs/'fr.ngram').read_bytes()
             (packs/'fr.ngram').write_bytes(old+b'bad')
             with self.assertRaisesRegex(AssertionError,'size mismatch'):
-                checker.check_multilingual_context_assets(base,source_lock)
+                checker.check_multilingual_context_assets(base,lock)
             (packs/'fr.ngram').write_bytes(old)
-            self.assertEqual(hashlib.sha256(terms).hexdigest(),source_lock['tatoeba_license_notice_sha256'])
+            (packs/'en.ngram').unlink()
+            with self.assertRaises(FileNotFoundError):
+                checker.check_multilingual_context_assets(base,lock)
+            (packs/'en.ngram').write_bytes(b'ngram-en')
+            odc=packs/shared['odcTerms']['path'];odc.write_bytes(b'changed')
+            with self.assertRaisesRegex(AssertionError,'Corrupt'):
+                checker.check_multilingual_context_assets(base,lock)
+            odc.write_bytes(b'odc terms')
+            checker.check_multilingual_context_assets(base,lock)
+            self.assertEqual(sha(terms),source_lock['tatoeba_license_notice_sha256'])
+
+    def test_repository_no_longer_carries_the_large_language_files(self):
+        # WHY: the n-gram files are fetched by checksum from the language-files release (see assets.lock.json).
+        import json
+        folder=ROOT/'packaging/language-models'
+        for language in ('es','fr','de'):
+            for name in (f'{language}.ngram',f'{language}.vocab.tsv',f'{language}-CONTRIBUTORS.txt'):
+                self.assertFalse((folder/name).exists(),name)
+        lock=json.loads((ROOT/'packaging/assets.lock.json').read_text())
+        self.assertEqual(set(lock['multilingual_context_models']),{'en','es','fr','de'})
+        self.assertTrue(lock['language_files']['baseUrl'].startswith('https://github.com/itsdestin/swipe-keyboard/releases/download/'))
 
     def test_package_descriptions_and_license_metadata_match_multilingual_payloads(self):
         texts=[(ROOT/'packaging/arch/PKGBUILD').read_text(),

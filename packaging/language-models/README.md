@@ -1,29 +1,45 @@
-# Multilingual contextual n-gram packs
+# Language files (next-word, completion and swipe-ranking n-grams)
 
-These are compact baseline, word-level modified Kneser–Ney trigram models built from Tatoeba sentence exports. They provide actual sentence-context-conditioned next-word probabilities; they are not unigram popularity lists or hand-authored phrase tables. Spanish `es_ES` and `es_MX` intentionally share the same `es` model.
+English, Spanish, French and German each have a word-level trigram model (`<lang>.ngram`), a word list
+(`<lang>.vocab.tsv`) and a Tatoeba credit file (`<lang>-CONTRIBUTORS.txt`). They are **not stored in this repository**:
+they are published once as the GitHub release `language-files-2026-10-22` and every build downloads them by
+SHA-256 (`language_files` and `multilingual_context_models` in `../assets.lock.json`; `scripts/fetch-assets.py`
+puts them in `assets/language-files/`, `scripts/dict/language_pack.py` copies them into `assets/language-packs/`,
+and the installer/packages ship that folder). A file that does not match its pin is refused at build time and again
+at run time.
 
-## Data, license, and provenance
+What stays in this folder: `TATOEBA-CC-BY-2.0-FR.txt` (the Tatoeba terms notice, pinned by hash) and
+`LANGUAGE-FILES-2026-10-22-NOTICE.md` (the same text as the release's `NOTICE.md`, installed as
+`language-packs/LANGUAGE-FILES-NOTICE.md`).
 
-The source is the official per-language full sentence export and its matching detailed author export, fetched from `https://downloads.tatoeba.org/exports/per_language/{spa,fra,deu}/`. Snapshot byte sizes and SHA-256 pins for both exports, and the resulting model, vocabulary and complete contributor-credit file, are recorded under `multilingual_context_models` in `../assets.lock.json`. The lock was checked against the downloaded bytes on 2026-10-20; the official listings showed the snapshot dated 2026-10-17. The `*_sentences.tsv.bz2` schema is sentence ID, language ISO code, text. The `*_sentences_detailed.tsv.bz2` schema adds the author username; the training recipe joins on sentence ID and records every author of an included training sentence in the matching `*-CONTRIBUTORS.txt` file.
+## Sources and licences
 
-Tatoeba's official Terms of Use state that its text is CC BY 2.0 France and that the author's name must be cited. The terms URL and sentence-level contributor notices ship with each generated pack (`TATOEBA-CC-BY-2.0-FR.txt` and `<language>-CONTRIBUTORS.txt`). The model is an adaptation of those sentences; keep the notices with redistributed models. The separate wordfreq-derived swipe dictionary keeps its existing CC-BY-SA-4.0 notice. No sentence text is copied into source notices or logs.
+- Web text: FineWeb (English) and FineWeb-2 (Spanish, French, German) by Hugging Face, Open Data Commons Attribution
+  License 1.0 (`ODC-By-1.0.txt`); derived from Common Crawl, whose terms of use also apply. Only word counts are kept.
+- Short everyday sentences: Tatoeba, CC BY 2.0 France. Every contributing author is listed in `<lang>-CONTRIBUTORS.txt`
+  and the terms are in `TATOEBA-CC-BY-2.0-FR.txt`. Both must travel with the models.
+- Word lists (`<lang>.vocab.tsv`) and the `<lang>.combined` swipe dictionaries: derived from wordfreq 3.1.1 (Robyn Speer),
+  CC BY-SA 4.0 (`CC-BY-SA-4.0.txt`; wordfreq's code is Apache-2.0).
+- No FUTO neural weights or data are in these files. FUTO's swipe encoder/decoder is still used for the swipe shape itself.
 
-No foreign FUTO neural weights are used: FUTO's published ContextLM is English-only. At runtime the model and vocabulary roles are format-versioned, language-tagged, and checked against the repository lock; missing, corrupt, mismatched, or unsupported assets do not enable contextual suggestions and never select English as fallback.
+Each pack manifest (`es.json`, `fr.json`, `de.json`) records `contextLicense` with id `ODC-By-1.0 AND CC-BY-2.0-FR` and the
+hashes of the credit, Tatoeba, ODC-By and notice texts; the loader compares all of it with the repository lock, so a
+manifest cannot vouch for itself. English has no manifest of its own (its swipe files stay under `models/`); the loader
+checks the same files against the same lock.
 
-## Reproducible bounded build
+## How the keyboard uses them
 
-1. Generate the pinned `assets/language-packs/{es,fr,de}.combined` dictionaries with the repository's existing `scripts/fetch-assets.sh` flow. Download each full and detailed Tatoeba export from the official index to a private scratch directory; the builder rejects any byte hash that differs from its hard-coded snapshot pins (which must match the lock).
-2. Build the existing n-gram counter against the engine's exact scorer implementation (Qt Core supplies Unicode casefolding):
+- Spanish, French, German: swipe ranking, next-word suggestions and completions use the language's n-gram.
+- English: when `language-packs/en.ngram` + `en.vocab.tsv` and their credit/licence texts are present and verified,
+  English uses them for next-word suggestions, completions and swipe ranking instead of FUTO's `hungry_jellyfish` model.
+  If any of them is missing or fails verification, English silently keeps using FUTO's model, as before.
+- If a Spanish, French or German file is missing or fails verification, that language still swipes and types with its
+  dictionary; only the suggestions are switched off.
 
-   ```sh
-   g++ -O2 -std=c++20 -fPIC $(pkg-config --cflags Qt6Core) -Iengine/include \
-     scripts/lm/ngram-build.cpp engine/src/ngram.cpp $(pkg-config --libs Qt6Core) -o ngram-build
-   ```
+## Rebuilding the files
 
-3. For each language, run `python3 scripts/lm/build-tatoeba-model.py es spa_sentences.tsv.bz2 spa_sentences_detailed.tsv.bz2 assets/language-packs/es.combined OUT/es ngram-build` (substitute `fr fra` or `de deu`). The builder streams the compressed exports, NFC-normalizes and lowercases Unicode letter tokens, bounds its vocabulary to the existing roughly 100k word-frequency dictionary, and uses sentence ID modulo ten for a deterministic held-out split. It emits the binary n-gram, vocabulary with canonical lookup token / dictionary frequency / preserved display spelling, and author credits. The count tool writes a compact threshold-2 trigram model; there is no neural training or multi-gigabyte corpus. Final generated hashes must equal the checked-in lock before publication.
-
-## Measured quality and limits
-
-Sentence IDs select a deterministic held-out tenth that is excluded from training. The held-out partitions contain 44.2k Spanish, 72.6k French, and 78.4k German sentences. Current artifacts contain 99,959 / 99,908 / 99,849 vocabulary entries and 6,091,688 / 7,719,176 / 9,144,360 model bytes for es / fr / de. Each attribution file lists 1,884 / 1,955 / 1,688 distinct training contributors. Known held-out target-token top-1 accuracy from the most frequent training unigram versus previous-word-conditioned bigram counts was: Spanish 12,000/318,673 (3.8%) vs 43,096/318,673 (13.5%); French 17,764/522,983 (3.4%) vs 78,082/522,983 (14.9%); German 19,226/591,308 (3.3%) vs 68,508/591,308 (11.6%). This is a reproducible context-vs-unigram sanity comparison, not an end-user acceptance benchmark. The real runtime ranks using the full trigram model.
-
-Tatoeba is a small, topic-skewed learner/community corpus; these baseline metrics do not establish broad conversational coverage, locale-specific Spanish quality, or parity with Gboard. German display spellings are selected from observed training surface forms; scores stay on the shared lowercase lookup word. Evaluate on independent natural-device typing before making stronger quality claims.
+`scripts/lm/build-fineweb2-model.py` builds a language's n-gram from FineWeb text plus Tatoeba (sentences weighted 30x;
+word pairs kept when seen 20+ times, triples 40+), `scripts/lm/tatoeba-credits.py` writes the credit files, and
+`scripts/lm/make-vocab.py` the word lists. After publishing a new release, update `language_files.baseUrl` and the hashes
+in `../assets.lock.json` (every hash and byte size is checked by `tests/packaging`). The earlier small Tatoeba-only packs
+(`scripts/lm/build-tatoeba-model.py`) were replaced by these files and are no longer shipped.

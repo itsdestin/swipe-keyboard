@@ -54,7 +54,7 @@ class AssetFetch(unittest.TestCase):
                 'assets': [asset(encoded, 'licenses/AOSP-NOTICE.b64')]}))
             (root/'third_party/swipe-library').mkdir(parents=True)
             with mock.patch.object(module, 'ROOT', root), \
-                 mock.patch.object(module, 'prepare_language_packs'), \
+                 mock.patch.object(module, 'prepare_language_packs'), mock.patch.object(module, 'fetch_language_files'), \
                  mock.patch('sys.argv', ['fetch-assets.py', '--assets', str(root/'assets')]), \
                  mock.patch.object(module.urllib.request, 'urlopen', return_value=io.BytesIO(encoded)):
                 module.main()
@@ -68,12 +68,37 @@ class AssetFetch(unittest.TestCase):
                 archive.extractall(rebuilt, filter='data')
             copied = rebuilt/'project'
             with mock.patch.object(module, 'ROOT', copied), \
-                 mock.patch.object(module, 'prepare_language_packs'), \
+                 mock.patch.object(module, 'prepare_language_packs'), mock.patch.object(module, 'fetch_language_files'), \
                  mock.patch('sys.argv', ['fetch-assets.py', '--assets', str(copied/'assets')]), \
                  mock.patch.object(module.urllib.request, 'urlopen', side_effect=AssertionError('network forbidden')) as network:
                 module.main()
             network.assert_not_called()
             self.assertEqual((copied/'assets/licenses/AOSP-NOTICE').read_bytes(), notice)
+
+    def test_language_files_are_fetched_by_pinned_hash_from_the_release(self):
+        import json
+        module = helper()
+        lock = json.loads((ROOT/'packaging/assets.lock.json').read_text())
+        assets = module.language_file_assets(lock)
+        names = {a['path']: a for a in assets}
+        # Four languages x (n-gram, word list, credits) + ODC-By terms + notice.
+        self.assertEqual(len(assets), 14)
+        for language in ('en', 'es', 'fr', 'de'):
+            for suffix in ('.ngram', '.vocab.tsv', '-CONTRIBUTORS.txt'):
+                entry = names[language + suffix]
+                self.assertEqual(entry['url'], lock['language_files']['baseUrl'] + language + suffix)
+                self.assertRegex(entry['sha256'], r'^[a-f0-9]{64}$')
+        # The notice is stored under a clearer installed name than the release's generic NOTICE.md.
+        self.assertTrue(names['LANGUAGE-FILES-NOTICE.md']['url'].endswith('/NOTICE.md'))
+        # A tampered download is rejected and leaves nothing behind.
+        data = b'not the pinned file'
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp)/'language-files/es.ngram'
+            with mock.patch.object(module.urllib.request, 'urlopen', return_value=io.BytesIO(data)):
+                with self.assertRaisesRegex(ValueError, 'SHA256 mismatch'):
+                    module.fetch(names['es.ngram'], target)
+            self.assertFalse(target.exists())
+            self.assertFalse(target.with_name('es.ngram.part').exists())
 
     def test_valid_decoded_notice_cannot_mask_a_corrupt_encoded_file(self):
         module = helper()

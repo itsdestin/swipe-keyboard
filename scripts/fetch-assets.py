@@ -50,6 +50,35 @@ def fetch(asset, target):
             part.unlink(missing_ok=True)
         time.sleep(2 ** attempt)
 
+def language_file_assets(lock):
+    """The pinned next-word files (en/es/fr/de) and their credit/licence texts, from the public release.
+
+    WHY from the release rather than the repository: the n-gram files are 100+ MB, too big to commit;
+    they are published once (tag in the lock) and every build re-verifies them by SHA-256.
+    """
+    files = lock['language_files']
+    base = files['baseUrl']
+    assets = []
+    for language, pin in lock['multilingual_context_models'].items():
+        for name, key in ((f'{language}.ngram', 'modelSha256'), (f'{language}.vocab.tsv', 'vocabSha256'),
+                          (f'{language}-CONTRIBUTORS.txt', 'contributorsSha256')):
+            assets.append({'path': name, 'url': base + name, 'sha256': pin[key]})
+    for key in ('odcTerms', 'notice'):
+        entry = files[key]
+        assets.append({'path': entry['path'], 'url': base + entry.get('remote', entry['path']), 'sha256': entry['sha256']})
+    return assets
+
+
+def fetch_language_files(assets):
+    """Download into <assets>/language-files; generate_packs() copies them into the installed layout."""
+    lock = json.loads((ROOT/'packaging/assets.lock.json').read_text())
+    for asset in language_file_assets(lock):
+        fetch(asset, assets/'language-files'/asset['path'])
+    # WHY also in licenses/: the ODC-By terms must ship with the package's other licence texts.
+    (assets/'licenses').mkdir(parents=True, exist_ok=True)
+    shutil.copy2(assets/'language-files/ODC-By-1.0.txt', assets/'licenses/ODC-By-1.0.txt')
+
+
 def prepare_language_packs(assets, wheel=None, cc_license=None):
     """Build-time only; cached inputs are authenticated by the generator as well as fetch()."""
     import importlib.util
@@ -75,6 +104,9 @@ def prepare_language_packs(assets, wheel=None, cc_license=None):
             subprocess.run([str(venv/'bin/python'), str(ROOT/'scripts/dict/language_pack.py'),
                             '--wheel', str(wheel), '--language', language, '--encoder-root', str(assets),
                             '--cc-license', str(cc_license), '--out', str(assets/'language-packs')], check=True)
+        subprocess.run([str(venv/'bin/python'), str(ROOT/'scripts/dict/language_pack.py'),
+                        '--wheel', str(wheel), '--english-context', '--encoder-root', str(assets),
+                        '--cc-license', str(cc_license), '--out', str(assets/'language-packs')], check=True)
         return
     spec = importlib.util.spec_from_file_location('language_pack', ROOT/'scripts/dict/language_pack.py')
     module = importlib.util.module_from_spec(spec)
@@ -82,6 +114,8 @@ def prepare_language_packs(assets, wheel=None, cc_license=None):
     for language in ('es', 'fr', 'de'):
         size = module.generate(wheel, language, assets, cc_license, assets/'language-packs')
         print(f'{language}: {size} dictionary bytes; quality not native-reviewed')
+    # WHY after the three packs: English next-word files live beside them so one folder holds every language's files.
+    module.generate_english_context(assets, cc_license, assets/'language-packs')
 
 
 def main():
@@ -112,6 +146,8 @@ def main():
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(source, target)
     shutil.copy2(ROOT/'packaging/NOTICE', licenses/'NOTICE')
+    # WHY before the packs: they embed these files (and refuse to build on a hash mismatch).
+    fetch_language_files(args.assets)
     # WHY normal preparation includes all selectable packs; no runtime network or user gate.
     prepare_language_packs(args.assets)
     print('Verified base inputs and language packs in', args.assets)

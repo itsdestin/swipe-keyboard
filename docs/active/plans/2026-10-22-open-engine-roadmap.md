@@ -153,8 +153,8 @@ Gboard English reference: running.
 Published 2026-10-22 (Destin approved): GitHub pre-release `language-files-2026-10-22` — XS packs for
 en/es/fr/de, Tatoeba credits (`scripts/lm/tatoeba-credits.py`), licence texts, NOTICE
 (`packaging/language-models/LANGUAGE-FILES-2026-10-22-NOTICE.md`), SHA256SUMS; download re-verified.
-Next: installer fetches them by checksum (like the FUTO files), profiles pin them, English switches to its
-n-gram; keyboard stays usable when a file is missing. In-keyboard download UI waits for #181.
+Done on `feature/170-open-nextword`: installer/packages fetch them by checksum (like the FUTO files), profiles pin them,
+English switches to its n-gram (FUTO's model stays as the fallback); a missing file only removes suggestions. In-keyboard download UI waits for #181.
 
 **Checkpoint 1:** every language ≥ Gboard on completion after 1 letter (2-guess count); no swipe
 regression; within the Phase 0 size/speed budget.

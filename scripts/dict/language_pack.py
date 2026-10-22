@@ -29,7 +29,8 @@ FRENCH_ELISIONS = {
     'histoire': 'l’histoire', 'ami': 'l’ami', 'amie': 'l’amie',
     'accord': 'd’accord', 'abord': 'd’abord',
 }
-language_codes = {'es':'spa','fr':'fra','de':'deu'}
+# WHY one id for both sources: the n-gram files are built from web text AND Tatoeba sentences.
+CONTEXT_LICENSE_ID = 'ODC-By-1.0 AND CC-BY-2.0-FR'
 ALPHABETS = {
     'es': 'abcdefghijklmnopqrstuvwxyzáéíóúüñ',
     'fr': 'abcdefghijklmnopqrstuvwxyzàâéèêëîïôùûüÿçœæ',
@@ -93,6 +94,76 @@ def dictionary_bytes(bins, language, maximum):
     return (header + ''.join(f' word={w},f={f}\n' for w, f in words.items())).encode('utf-8')
 
 
+def context_pack_files(language, lock, source):
+    """Pinned next-word files for one language (+ credit and licence texts), or {} when not downloaded.
+
+    Every byte is checked against assets.lock.json; a present-but-wrong file is an error, never ignored.
+    """
+    pins = lock['multilingual_context_models'][language]
+    shared = lock['language_files']
+    wanted = {f'{language}.ngram': pins['modelSha256'], f'{language}.vocab.tsv': pins['vocabSha256'],
+              f'{language}-CONTRIBUTORS.txt': pins['contributorsSha256'],
+              shared['odcTerms']['path']: shared['odcTerms']['sha256'],
+              shared['notice']['path']: shared['notice']['sha256']}
+    present = {name: (source/name).is_file() for name in wanted}
+    if not any(present.values()):
+        return {}
+    if not all(present.values()):
+        raise ValueError('incomplete language files in ' + str(source) + ': ' + ', '.join(n for n, ok in present.items() if not ok))
+    files = {}
+    for name, digest in wanted.items():
+        data = (source/name).read_bytes()
+        if sha(data) != digest:
+            raise ValueError('language file pin mismatch: ' + name)
+        files[name] = data
+    tatoeba = (ROOT/'packaging/language-models/TATOEBA-CC-BY-2.0-FR.txt').read_bytes()
+    if sha(tatoeba) != lock['tatoeba_license_notice_sha256']:
+        raise ValueError('Tatoeba licence notice pin mismatch')
+    files['TATOEBA-CC-BY-2.0-FR.txt'] = tatoeba
+    return files
+
+
+def context_license(language, lock, files):
+    """Licence metadata for the n-gram files: web text (ODC-By) AND Tatoeba sentences (CC BY 2.0 FR)."""
+    shared = lock['language_files']
+    return {'id': CONTEXT_LICENSE_ID,
+        'attribution': 'FineWeb text under ODC-By 1.0 (Hugging Face; Common Crawl) and Tatoeba contributors under CC BY 2.0 FR; '
+                       'Tatoeba authors are listed in the CONTRIBUTORS file',
+        'attributionPath': f'{language}-CONTRIBUTORS.txt', 'attributionSha256': sha(files[f'{language}-CONTRIBUTORS.txt']),
+        'termsPath': 'TATOEBA-CC-BY-2.0-FR.txt', 'termsSha256': sha(files['TATOEBA-CC-BY-2.0-FR.txt']),
+        'webTermsPath': shared['odcTerms']['path'], 'webTermsSha256': sha(files[shared['odcTerms']['path']]),
+        'noticePath': shared['notice']['path'], 'noticeSha256': sha(files[shared['notice']['path']]),
+        'sourceUrl': context_source_url(lock, language), 'termsUrl': 'https://tatoeba.org/en/terms_of_use'}
+
+
+def context_source_url(lock, language):
+    return lock['language_files']['baseUrl'] + f'{language}.ngram'
+
+
+def generate_english_context(encoder_root, cc_license, out):
+    """English has no swipe pack of its own (FUTO's files stay in models/); only its next-word files are installed.
+
+    Returns the list of files written; an empty list when the language files were not downloaded.
+    """
+    lock = json.loads((ROOT/'packaging/assets.lock.json').read_text())
+    files = context_pack_files('en', lock, pathlib.Path(encoder_root)/'language-files')
+    if not files:
+        return []
+    # WHY CC-BY-SA text too: en.vocab.tsv is derived from wordfreq (share-alike), like the other packs' dictionaries.
+    cc = pathlib.Path(cc_license).read_bytes()
+    if sha(cc) != lock['cc_license_source']['sha256']:
+        raise ValueError('CC-BY-SA license checksum mismatch')
+    files['CC-BY-SA-4.0.txt'] = cc
+    for name, data in files.items():
+        if (out/name).exists() and (out/name).read_bytes() != data:
+            raise ValueError(f'immutable pack output already differs: {out/name}')
+    out.mkdir(parents=True, exist_ok=True)
+    for name, data in files.items():
+        if not (out/name).exists():
+            (out/name).write_bytes(data)
+    return sorted(files)
+
+
 def generate(wheel, language, encoder_root, cc_license, out, maximum=100000):
     if language not in ALPHABETS or maximum <= 0:
         raise ValueError('unsupported language or nonpositive maximum')
@@ -120,21 +191,13 @@ def generate(wheel, language, encoder_root, cc_license, out, maximum=100000):
     # Full upstream metadata retains source attribution, SUBTLEX conditions and citation, not only a license ID.
     license_bytes = (b'Language derived wordfreq 3.1.1 data. Transformation: '+TRANSFORMATION.encode()+
         b'; NFC, declared alphabet/token filtering, frequency scaling; bounded common spelling, noun-case and elision errata. Data CC-BY-SA-4.0.\n'+cc+b'\n'+metadata+b'\n'+apache)
-    context = lock['multilingual_context_models'][language]
-    model_path = ROOT/'packaging/language-models'/f'{language}.ngram'
-    vocab_path = ROOT/'packaging/language-models'/f'{language}.vocab.tsv'
-    attribution_path = ROOT/'packaging/language-models'/f'{language}-CONTRIBUTORS.txt'
-    context_notice_path = ROOT/'packaging/language-models/TATOEBA-CC-BY-2.0-FR.txt'
-    context_model, context_vocab, contributors, context_notice = (p.read_bytes() for p in (model_path,vocab_path,attribution_path,context_notice_path))
-    if (sha(context_model)!=context['modelSha256'] or sha(context_vocab)!=context['vocabSha256'] or
-        sha(contributors)!=context['contributorsSha256'] or
-        sha(context_notice)!=lock['tatoeba_license_notice_sha256']):
-        raise ValueError('multilingual context model, vocabulary or attribution pin mismatch')
+    # WHY optional: the n-gram files come from a separate pinned download (assets/language-files). A build
+    # that does not have them still yields a working swipe pack, just without next-word suggestions.
+    context_files = context_pack_files(language, lock, pathlib.Path(encoder_root)/'language-files')
     files = {f'{language}.combined': dictionary, f'{language}-LICENSE.txt': license_bytes,
              'encoder.pte': encoder, 'metadata.json': metadata_bytes, 'FUTO-MODEL-LICENSE.md': terms,
              'CC-BY-SA-4.0.txt': cc,
-             f'{language}.ngram':context_model, f'{language}.vocab.tsv':context_vocab,
-             f'{language}-CONTRIBUTORS.txt':contributors, 'TATOEBA-CC-BY-2.0-FR.txt':context_notice}
+             **context_files}
     def asset(name, compatibility):
         data = files[name]
         result = {'path': name, 'sha256': sha(data), 'size': len(data), 'compatibility': compatibility}
@@ -142,7 +205,7 @@ def generate(wheel, language, encoder_root, cc_license, out, maximum=100000):
             result['metadataSha256']=sha(metadata_bytes)
         return result
     manifest = {
-        'schema': 2, 'contextFormat': 'swk-ngram-v2', 'id': f'wordfreq-{language}', 'version': '3.1.1-v3-tatoeba1',
+        'schema': 1, 'id': f'wordfreq-{language}', 'version': '3.1.1-v3',
         'language': language, 'locales': [language, f'{language}-*'],
         'layouts': ['qwerty', 'azerty', 'qwertz'], 'modes': ['Latin'],
         'scripts': ['Latn'], 'futoRevision': '1b13f2c85d6b347f6ea3fbc4b3aaf01fce42429a',
@@ -153,16 +216,19 @@ def generate(wheel, language, encoder_root, cc_license, out, maximum=100000):
                     'sha256': sha(license_bytes), 'termsPath': 'CC-BY-SA-4.0.txt', 'termsSha256': sha(cc), 'attribution': 'Robyn Speer / wordfreq 3.1.1; source notices in license file'},
         'encoderLicense': {'path': 'FUTO-MODEL-LICENSE.md', 'sha256': sha(terms)},
         'source': lock['wordfreq_wheel'], 'modelRevision': lock['model_revision'],
-        'contextLicense': {'id':'CC-BY-2.0-FR', 'attribution':'Tatoeba contributors; full names are listed in the CONTRIBUTORS file',
-            'attributionPath':f'{language}-CONTRIBUTORS.txt', 'attributionSha256':sha(contributors),
-            'termsPath':'TATOEBA-CC-BY-2.0-FR.txt','termsSha256':sha(context_notice),
-            'sourceUrl':f'https://downloads.tatoeba.org/exports/per_language/{language_codes[language]}/{language_codes[language]}_sentences.tsv.bz2',
-            'sourceSha256':context['corpusSha256'], 'termsUrl':'https://tatoeba.org/en/terms_of_use'},
         'assets': {'encoder': asset('encoder.pte', 'layout-agnostic'),
-                   'dictionary': asset(f'{language}.combined', language),
-                   'contextModel': {'path':f'{language}.ngram','sha256':sha(context_model),'size':len(context_model),'compatibility':f'{language}:context-ngram-v1'},
-                   'contextVocab': {'path':f'{language}.vocab.tsv','sha256':sha(context_vocab),'size':len(context_vocab),'compatibility':f'{language}:context-ngram-v1'}},
+                   'dictionary': asset(f'{language}.combined', language)},
     }
+    if context_files:
+        # WHY schema 2 only with the files: the profile loader treats schema 1 as "no next-word pack".
+        manifest['schema'] = 2
+        manifest['contextFormat'] = 'swk-ngram-v2'
+        manifest['version'] = '3.1.1-v4-language-files-2026-10-22'
+        manifest['contextLicense'] = context_license(language, lock, context_files)
+        manifest['assets']['contextModel'] = {'path':f'{language}.ngram','sha256':sha(context_files[f'{language}.ngram']),
+            'size':len(context_files[f'{language}.ngram']),'compatibility':f'{language}:context-ngram-v1'}
+        manifest['assets']['contextVocab'] = {'path':f'{language}.vocab.tsv','sha256':sha(context_files[f'{language}.vocab.tsv']),
+            'size':len(context_files[f'{language}.vocab.tsv']),'compatibility':f'{language}:context-ngram-v1'}
     encoded = (json.dumps(manifest, ensure_ascii=False, sort_keys=True, indent=2)+'\n').encode()
     files[f'{language}.json'] = encoded
     # WHY check every conflict before any write: changing pack format/limits must not partially mutate
@@ -182,12 +248,19 @@ def generate(wheel, language, encoder_root, cc_license, out, maximum=100000):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--wheel', type=pathlib.Path, required=True)
-    parser.add_argument('--language', choices=ALPHABETS, required=True)
+    parser.add_argument('--language', choices=ALPHABETS)
+    # WHY a separate switch: English reuses FUTO's swipe files; only its next-word files are installed from here.
+    parser.add_argument('--english-context', action='store_true')
     parser.add_argument('--encoder-root', type=pathlib.Path, required=True)
     parser.add_argument('--cc-license', type=pathlib.Path, required=True)
     parser.add_argument('--out', type=pathlib.Path, required=True)
     parser.add_argument('--max', type=int, default=100000)
     args = parser.parse_args()
+    if args.english_context:
+        print('English next-word files:', generate_english_context(args.encoder_root, args.cc_license, args.out) or 'not downloaded')
+        return
+    if not args.language:
+        parser.error('--language or --english-context required')
     print(f'Language {args.language}: {generate(args.wheel,args.language,args.encoder_root,args.cc_license,args.out,args.max)} dictionary bytes; quality UNVALIDATED')
 
 

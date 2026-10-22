@@ -49,42 +49,55 @@ def check_desktop(path):
 
 
 def check_multilingual_context_assets(base, lock):
-    """Pin every foreign n-gram, vocabulary, contributor credit, and Tatoeba notice."""
+    """Pin every language's n-gram, vocabulary, contributor credit and the web/Tatoeba/notice texts.
+
+    WHY English too: the open English n-gram replaces FUTO's neural model, so a package without it would
+    silently lose English prediction quality.
+    """
     models = lock.get('multilingual_context_models')
     if not isinstance(models, dict):
         raise AssertionError('Missing pinned multilingual model metadata')
-    notice = base/'language-packs/TATOEBA-CC-BY-2.0-FR.txt'
+    packs = base/'language-packs'
+    shared = lock.get('language_files')
+    assert isinstance(shared, dict), 'Missing pinned language-files release metadata'
     expected_notice = lock.get('tatoeba_license_notice_sha256')
     assert isinstance(expected_notice, str) and re.fullmatch(r'[a-f0-9]{64}', expected_notice), 'Missing pinned Tatoeba terms notice'
-    assert hashlib.sha256(notice.read_bytes()).hexdigest() == expected_notice, 'Corrupt Tatoeba license notice'
-    for language in ('es', 'fr', 'de'):
+    assert hashlib.sha256((packs/'TATOEBA-CC-BY-2.0-FR.txt').read_bytes()).hexdigest() == expected_notice, 'Corrupt Tatoeba license notice'
+    for key in ('odcTerms', 'notice'):
+        entry = shared[key]
+        assert hashlib.sha256((packs/entry['path']).read_bytes()).hexdigest() == entry['sha256'], f'Corrupt {entry["path"]}'
+    for language in ('en', 'es', 'fr', 'de'):
         pin = models.get(language)
         assert isinstance(pin, dict), f'Missing {language} model pin'
-        manifest = json.loads((base/f'language-packs/{language}.json').read_text())
+        for name, hash_key, size_key in ((f'{language}.ngram', 'modelSha256', 'modelBytes'),
+                                         (f'{language}.vocab.tsv', 'vocabSha256', 'vocabBytes'),
+                                         (f'{language}-CONTRIBUTORS.txt', 'contributorsSha256', 'contributorsBytes')):
+            data = (packs/name).read_bytes()
+            assert len(data) == pin[size_key], f'{language} {name} size mismatch'
+            assert hashlib.sha256(data).hexdigest() == pin[hash_key], f'{language} {name} hash mismatch'
+        if language == 'en':
+            continue  # English has no manifest; it is selected by the profile code from the same pinned files.
+        manifest = json.loads((packs/f'{language}.json').read_text())
         assert manifest.get('language') == language and manifest.get('schema') == 2, f'Invalid {language} model manifest'
         assert manifest.get('contextFormat') == 'swk-ngram-v2', f'Unsupported {language} context format'
         roles = manifest.get('assets', {})
-        for role, hash_key, size_key in (('contextModel', 'modelSha256', 'modelBytes'),
-                                         ('contextVocab', 'vocabSha256', 'vocabBytes')):
+        for role, name, hash_key, size_key in (('contextModel', f'{language}.ngram', 'modelSha256', 'modelBytes'),
+                                               ('contextVocab', f'{language}.vocab.tsv', 'vocabSha256', 'vocabBytes')):
             asset = roles.get(role)
             assert isinstance(asset, dict), f'{language} missing {role}'
-            relative = pathlib.PurePosixPath(asset.get('path', ''))
-            assert relative.name == asset.get('path') and relative.name, f'Invalid {language} {role} path'
-            payload = base/'language-packs'/relative.name
-            data = payload.read_bytes()
-            assert len(data) == pin[size_key] == asset.get('size'), f'{language} {role} size mismatch'
-            assert hashlib.sha256(data).hexdigest() == pin[hash_key] == asset.get('sha256'), f'{language} {role} hash mismatch'
+            assert asset.get('path') == name, f'Invalid {language} {role} path'
+            assert asset.get('size') == pin[size_key], f'{language} {role} size mismatch'
+            assert asset.get('sha256') == pin[hash_key], f'{language} {role} hash mismatch'
             assert asset.get('compatibility') == f'{language}:context-ngram-v1', f'{language} {role} locale mismatch'
         attribution = manifest.get('contextLicense', {})
-        assert attribution.get('id') == 'CC-BY-2.0-FR', f'{language} missing Tatoeba license metadata'
-        assert attribution.get('sourceSha256') == pin.get('corpusSha256'), f'{language} corpus identity mismatch'
+        assert attribution.get('id') == 'ODC-By-1.0 AND CC-BY-2.0-FR', f'{language} missing web/Tatoeba license metadata'
+        assert attribution.get('sourceUrl') == shared['baseUrl'] + f'{language}.ngram', f'{language} source identity mismatch'
         assert attribution.get('termsPath') == 'TATOEBA-CC-BY-2.0-FR.txt'
         assert attribution.get('termsSha256') == expected_notice, f'{language} Tatoeba notice pin mismatch'
-        credit_name = attribution.get('attributionPath')
-        assert credit_name == f'{language}-CONTRIBUTORS.txt', f'{language} contributor path mismatch'
-        credit = base/'language-packs'/credit_name
-        credit_bytes = credit.read_bytes()
-        assert hashlib.sha256(credit_bytes).hexdigest() == pin['contributorsSha256'] == attribution.get('attributionSha256'), f'{language} contributor attribution mismatch'
+        assert attribution.get('webTermsSha256') == shared['odcTerms']['sha256'], f'{language} ODC-By terms pin mismatch'
+        assert attribution.get('noticeSha256') == shared['notice']['sha256'], f'{language} language-files notice pin mismatch'
+        assert attribution.get('attributionPath') == f'{language}-CONTRIBUTORS.txt', f'{language} contributor path mismatch'
+        assert attribution.get('attributionSha256') == pin['contributorsSha256'], f'{language} contributor attribution mismatch'
     assert models['es'].get('locales') == ['es_ES', 'es_MX'], 'Spanish regional model sharing must be explicit'
 
 
