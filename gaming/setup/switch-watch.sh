@@ -66,12 +66,23 @@ write_word() { # only touches our own state folder, and only when the word chang
 TITLE="Swipe Keyboard: Gaming Mode swipe is off"
 BODY="Steam's developer switch was turned off. Swipe in Gaming Mode is off; Steam's normal keyboard is in use."
 
-# Is something on the desktop ready to show a notification? In Gaming Mode there is nothing (that is why this
-# notification can only appear in Desktop Mode); the answer is then "no" and we simply try again next minute.
+# Is a DESKTOP ready to show a notification? In Gaming Mode there is none: the name is owned by Steam's own
+# steam_notif_daemon, which shows nothing of ours (found in the SteamOS VM). Counting it would use up our one
+# notification where nobody can see it, so only another owner counts; we simply try again next minute.
 notification_server_present() {
     command -v gdbus >/dev/null 2>&1 || return 1
+    local reply owner pid comm
     gdbus call --session --dest org.freedesktop.DBus --object-path /org/freedesktop/DBus \
-        --method org.freedesktop.DBus.NameHasOwner org.freedesktop.Notifications 2>/dev/null | grep -q true
+        --method org.freedesktop.DBus.NameHasOwner org.freedesktop.Notifications 2>/dev/null | grep -q true || return 1
+    owner="$(gdbus call --session --dest org.freedesktop.DBus --object-path /org/freedesktop/DBus \
+        --method org.freedesktop.DBus.GetNameOwner org.freedesktop.Notifications 2>/dev/null | sed -n "s/^('\(.*\)',)\$/\1/p")"
+    [ -n "$owner" ] || return 1
+    pid="$(gdbus call --session --dest org.freedesktop.DBus --object-path /org/freedesktop/DBus \
+        --method org.freedesktop.DBus.GetConnectionUnixProcessID "$owner" 2>/dev/null | sed -n 's/^(uint32 \([0-9]*\),)$/\1/p')"
+    [ -n "$pid" ] || return 1
+    comm="$(cat "/proc/$pid/comm" 2>/dev/null)"
+    case "$comm" in steam_notif*) return 1 ;; esac
+    return 0
 }
 
 notify_once() {

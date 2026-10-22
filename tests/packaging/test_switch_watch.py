@@ -19,7 +19,14 @@ TOOLS = ['bash', 'sh', 'sed', 'grep', 'cat', 'head', 'readlink', 'mkdir', 'rm', 
 
 STANDINS = {
     # a notification server is present unless FAKE_NO_SERVER is set
-    'gdbus': '#!/bin/sh\nprintf "gdbus %s\\n" "$*" >> "$FAKE_LOG"\n[ -n "$FAKE_NO_SERVER" ] && echo "(false,)" || echo "(true,)"\n',
+    'gdbus': '''#!/bin/sh
+printf "gdbus %s\\n" "$*" >> "$FAKE_LOG"
+case "$*" in
+  *NameHasOwner*) [ -n "$FAKE_NO_SERVER" ] && echo "(false,)" || echo "(true,)" ;;
+  *GetNameOwner*) echo "(':1.42',)" ;;
+  *GetConnectionUnixProcessID*) echo "(uint32 ${FAKE_OWNER_PID:-$PPID},)" ;;
+esac
+''',
     # --help mentions --action unless FAKE_OLD_NOTIFY; with actions it prints the chosen action id
     'notify-send': '''#!/bin/sh
 case "$*" in *--help*) [ -n "$FAKE_OLD_NOTIFY" ] && echo "usage: notify-send [OPTION]" || echo "usage: notify-send --action=NAME=Text"; exit 0;; esac
@@ -130,6 +137,21 @@ class CheckTests(unittest.TestCase):
         self.assertEqual(r.word(), 'off')
         self.assertEqual(r.notifications(), [])
         r.run('check')
+        self.assertEqual(len(r.notifications()), 1)
+
+    def test_steams_own_notification_service_in_gaming_mode_does_not_count(self):
+        # WHY (found in the SteamOS VM, round 3): in Gaming Mode the name org.freedesktop.Notifications is owned by
+        # Steam's own steam_notif_daemon, which shows nothing of ours. Counting that as "told" meant the person was
+        # never told, not even later in Desktop Mode. Only a real desktop's service counts.
+        r = Rig(self, marker=False)
+        fake = r.tools / 'steam_notif_daemon'
+        fake.symlink_to(shutil.which('sleep'))
+        proc = subprocess.Popen([str(fake), '60'])
+        self.addCleanup(proc.kill)
+        r.run('check', env={'FAKE_OWNER_PID': str(proc.pid)})
+        self.assertEqual(r.notifications(), [])
+        self.assertFalse((r.state / 'switch-notified').exists())
+        r.run('check')       # Desktop Mode: the owner is an ordinary program
         self.assertEqual(len(r.notifications()), 1)
 
     def test_pressing_turn_it_back_on_opens_the_restore_in_a_window(self):
