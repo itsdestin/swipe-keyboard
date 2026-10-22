@@ -583,6 +583,9 @@ for dir in "${STEAM_DIRS[@]}"; do
     else
         : > "$marker"
         CREATED_MARKERS+=("$marker")
+        # WHY: if an earlier run saw this file already there and it has since been removed, it is ours now, not "from before".
+        keep=(); for item in "${EXISTING_MARKERS[@]+"${EXISTING_MARKERS[@]}"}"; do [ "$item" = "$marker" ] || keep+=("$item"); done
+        EXISTING_MARKERS=("${keep[@]+"${keep[@]}"}")
         # WHY say so: on a re-run with Gaming Mode already on, a missing file means the switch had been turned off.
         if [ "$CURRENT_GAMING" = yes ]; then
             echo "Steam's developer switch had been turned off (its file was gone). This run turned it back on: $marker"

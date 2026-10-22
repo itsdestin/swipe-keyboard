@@ -209,6 +209,20 @@ class InstallTests(unittest.TestCase):
         self.assertIn('systemctl --user enable --now swipekb-engine.service swipekb-helper.service swipekb-switch-watch.service swipekb-switch-watch.timer', calls)
         self.assertIn('restart Steam', result.stdout)
 
+    def test_a_marker_that_was_removed_and_is_made_again_is_recorded_as_ours_only(self):
+        # WHY (found in the SteamOS VM, round 3): a switch file that existed before (Decky) and was later removed was made
+        # again by a re-run, and the record then listed it as both "created" and "existed before".
+        f = Fixture(self)
+        marker = f.steam / MARKER
+        marker.write_text('decky was here')
+        f.run('install.sh', '--gaming', '--block-outside')
+        self.assertEqual(f.record()['existing_markers'], [str(marker)])
+        marker.unlink()
+        f.run('install.sh', '--gaming', '--block-outside')
+        record = f.record()
+        self.assertEqual(record['created_markers'], [str(marker)])
+        self.assertEqual(record['existing_markers'], [])
+
     def test_the_switch_watcher_is_installed_wired_and_removed_again(self):
         # Owner decision 2026-10-22: if the developer switch file disappears we notify with a recovery option and
         # never silently recreate it. A host-side watcher does the looking (the helper's sandbox cannot see Steam's folder).
