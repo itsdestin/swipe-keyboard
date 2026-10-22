@@ -55,11 +55,11 @@ class EndToEnd(td.DaemonCase):
         self.n = 0
         return h
 
-    def swipe_via_page(self, trace, ctx=(), mode='plain', caps='none'):
+    def swipe_via_page(self, trace, ctx=(), mode='plain', caps='none', layout='qwerty'):
         time.sleep(0.2)          # a person cannot swipe faster than the helper's flood limit (6 per second); this paces the canned swipes
         self.n += 1
         msg = {'v': 1, 'type': 'stroke', 'id': self.n, 'trace': trace, 'vw': 1000, 'vh': 1000, 'keys': page_keys(), 'ctx': list(ctx), 'mode': mode,
-               'layout': 'qwerty', 'caps': caps}
+               'layout': layout, 'caps': caps}
         self.r.fake.eval(self.bp, 'window.__swipekb(%s)' % json.dumps(json.dumps(msg)))
         wait_for(lambda: len(json.loads(self.r.fake.eval(self.bp, 'JSON.stringify(window.__got)')[1])) >= self.n, timeout=60, what='answer %d' % self.n)
         return json.loads(json.loads(self.r.fake.eval(self.bp, 'JSON.stringify(window.__got)')[1])[self.n - 1])
@@ -108,6 +108,27 @@ class EndToEnd(td.DaemonCase):
             self.r.fake.eval(self.bp, 'window.__swipekb(%s)' % json.dumps(json.dumps({'v': 1, 'type': 'pick', 'id': 1000001, 'req': a['req'], 'cand': forged, 'erase': len(a['typed'])})))
         wait_for(lambda: len(json.loads(self.r.fake.eval(self.bp, 'JSON.stringify(window.__got)')[1])) >= 4, what='refusals')
         self.assertEqual(self.sent(), [a['typed']])
+
+    # ---- layouts (M7 layer half): the name the page sends decides, and a refusal types nothing
+    def test_a_layout_the_engine_does_not_serve_types_nothing_and_a_served_one_afterwards_still_works(self):
+        self.start_all()
+        word, pts, ctx = td.swipe_words(td.BENCH, 1)[0]
+        for name in ('russian', 'schinese', 'dvorak', 'qwerty_int', 'japanese_kana', 'turkish_q'):
+            a = self.swipe_via_page(pts, layout=name)
+            self.assertEqual((a['committed'], a.get('error')), (False, 'unsupported'), name)
+        self.assertEqual(self.sent(), [], 'nothing typed for any refused layout')
+        again = self.swipe_via_page(pts, layout='qwerty')
+        self.assertTrue(again['committed'], again)
+        self.assertEqual(self.sent(), [again['typed']])
+
+    def test_a_served_layout_whose_language_is_not_enabled_types_nothing(self):
+        # WHY: the user ticked English only in Desktop Mode, so French is refused, never answered in English
+        self.write_settings('en_US')
+        self.start_all()
+        word, pts, ctx = td.swipe_words(td.BENCH, 1)[0]
+        a = self.swipe_via_page(pts, layout='french')
+        self.assertFalse(a['committed'], a)
+        self.assertEqual(self.sent(), [])
 
     # ---- privacy
     def test_the_engine_holds_no_state_between_keyboard_sessions(self):
