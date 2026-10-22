@@ -120,18 +120,25 @@ private slots:
         QTest::qWait(20); QCOMPARE(edit.surroundingQueries,beforeHiddenExpose);
         ic->inputEngine()->setInputMethod(nullptr);
     }
+    void keyPressRefreshesMissedEchoesForCurrentWordCompletion_data() {
+        QTest::addColumn<bool>("native"); QTest::newRow("native-arm")<<true; QTest::newRow("bundled-steamos")<<false;
+    }
     void keyPressRefreshesMissedEchoesForCurrentWordCompletion() {
-        // WHY: on ARM Plasma Mobile stock Plasma Keyboard dropped mid-word text notifications while
-        // the window stayed exposed, so the typed word was never confirmed and taps did nothing.
+        // WHY: Plasma Keyboard drops text notifications while its window is not exposed (ARM Plasma
+        // Mobile mid-word; SteamOS on first activation), so the typed word was never confirmed.
+        QFETCH(bool,native);
         QTemporaryDir data; qputenv("SWIPEKB_DATA",data.path().toUtf8());
         qputenv("SWIPEKB_MODEL_DATA",qgetenv("SWIPEKB_TEST_PROFILE_ASSETS"));
-        qputenv("SWIPEKB_NATIVE_PREDICTION","owned-history-v1");
+        if(native) qputenv("SWIPEKB_NATIVE_PREDICTION","owned-history-v1");
         struct EnvReset { ~EnvReset(){qunsetenv("SWIPEKB_NATIVE_PREDICTION");} } envReset;
         QQmlEngine engine; QQmlComponent fixture(&engine);
         fixture.setData("import QtQuick; import QtQuick.VirtualKeyboard; Item {property var context: InputContext}",QUrl());
         std::unique_ptr<QObject> root(fixture.create()); QVERIFY2(root,qPrintable(fixture.errorString()));
         auto *item=qobject_cast<QQuickItem*>(root.get()); QQuickWindow window; window.resize(500,200);
         item->setParentItem(window.contentItem()); InputListenerItem edit(item);
+        // The bundled backend's proxy carries the raw policy itself, like the patched Plasma Keyboard.
+        if(!native) edit.setProperty("swipePredictionPolicy",QVariantMap{{"version",1},{"contextId",quint64(9)},
+            {"revision",quint64(1)},{"contentTypeReceived",true},{"purpose",0},{"completionAllowed",true},{"syntheticNoPredictiveText",true}});
         window.show(); window.requestActivate(); edit.forceActiveFocus();
         auto *ic=qvariant_cast<QVirtualKeyboardInputContext*>(root->property("context")); QVERIFY(ic);
         SwipeInputMethod method(nullptr,[](const PredictionJob &){return QStringList{"world","again","today"};});

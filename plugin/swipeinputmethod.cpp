@@ -748,8 +748,11 @@ void SwipeInputMethod::refreshExposedInputCache(QPointer<QVirtualKeyboardInputCo
         || window != item->window() || window != m_exposureWindow || item != m_exposureItem
         || generation != m_generation || profileEpoch != m_profiles.snapshot().epoch || !window->isExposed()
         || !context->inputEngine() || context->inputEngine()->inputMethod() != this
-        || QGuiApplication::focusObject() != item || predictionPolicy().source != PredictionPolicySource::OwnedHistory
+        || QGuiApplication::focusObject() != item || predictionPolicy().source == PredictionPolicySource::Unavailable
         || m_policySource != item || m_liveQueryActive) return;
+    // WHY bundled (raw-policy) Plasma too: it drops the same hidden-window updates. On SteamOS a
+    // field's type and text arrive before the keyboard is shown, so the first word after the
+    // keyboard starts had stale hints, no auto-capital and no completions until refocus.
     QPointer<SwipeInputMethod> self(this);
     if (!safePredictionContext() || !self) return;
     // WHY revalidate after live policy queries: proxy callbacks may synchronously swap focus/profile.
@@ -757,7 +760,7 @@ void SwipeInputMethod::refreshExposedInputCache(QPointer<QVirtualKeyboardInputCo
         || window != item->window() || window != m_exposureWindow || item != m_exposureItem
         || generation != m_generation || profileEpoch != m_profiles.snapshot().epoch || !window->isExposed()
         || !context->inputEngine() || context->inputEngine()->inputMethod() != this
-        || QGuiApplication::focusObject() != item || predictionPolicy().source != PredictionPolicySource::OwnedHistory
+        || QGuiApplication::focusObject() != item || predictionPolicy().source == PredictionPolicySource::Unavailable
         || m_policySource != item || m_liveQueryActive) return;
     auto *ime = QGuiApplication::inputMethod();
     if (!ime || m_cacheSyncActive) return;
