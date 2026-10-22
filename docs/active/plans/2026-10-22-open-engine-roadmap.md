@@ -1,6 +1,6 @@
 ---
 status: draft
-cards: 170, 179
+cards: 170, 179, 181
 ---
 # Swipe Keyboard: remaining work to "as good as Gboard, fully open, FUTO-free"
 
@@ -52,6 +52,9 @@ Swipe, first guess right: English 93.3% (94.5% opt-in AI mode) on 2,000 real swi
 split). Spanish/French/German: unknown. Gboard swipe: not measured.
 
 ## Upstream moved (verified 2026-10-22)
+
+Already decided as card #181 (Destin 2026-10-22): rebuild on the new core and offer upstream AFTER the
+FUTO-free models (#179); if Plasma 6.9 ships first, port first and upstream after. Not reopened here.
 
 plasma-keyboard replaced Qt Virtual Keyboard with its own input engine (MR !109, merged 2026-10-15). Our
 `plugin/` is a Qt Virtual Keyboard input method, so it works with today's released plasma-keyboard but not
