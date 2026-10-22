@@ -655,6 +655,8 @@ class SetupTests(unittest.TestCase):
         settings = dict(self.commands.settings)
         env = self.controller.launch_environment()
         self.assertEqual(env.get('QML_NO_TOUCH_COMPRESSION'), '1')
+        self.assertEqual(env.get('QT_WAYLAND_FRAME_CALLBACK_TIMEOUT'), '5000')
+        self.assertNotIn('QT_WAYLAND_FRAME_CALLBACK_TIMEOUT', self.controller.env)
         self.assertEqual(env.get('SWIPEKB_NATIVE_PREDICTION'), 'owned-history-v1')
         self.assertNotIn('SWIPEKB_NATIVE_PREDICTION', self.controller.env)
         self.assertEqual(dict(os.environ), before)

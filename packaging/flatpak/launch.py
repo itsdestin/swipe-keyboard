@@ -39,6 +39,9 @@ def main():
     # WHY: recognition needs every touch sample, not just the last position in a
     # rendered frame. Set before Qt starts; scoped to this keyboard process only.
     env['QML_NO_TOUCH_COMPRESSION'] = '1'
+    # WHY: Qt marks a window hidden after one frame slower than 100 ms, and Plasma Keyboard
+    # then drops completions and corrections. A slow frame must not lose an edit.
+    env.setdefault('QT_WAYLAND_FRAME_CALLBACK_TIMEOUT', '5000')
     # WHY: no global environment edits and no WAYLAND_SOCKET unset/close; the
     # backend must consume KWin's privileged FD rather than connect to host input.
     os.execve('/app/bin/plasma-keyboard', ['plasma-keyboard'], env)

@@ -411,6 +411,10 @@ class Controller:
         # this dropped the middle of actual ARM swipes before recognition. Preserve
         # the trajectory from process startup; no desktop policy/global env changes.
         env['QML_NO_TOUCH_COMPRESSION'] = '1'
+        # WHY: Qt marks a window hidden when one frame takes over 100 ms, and Plasma Keyboard
+        # then silently drops completions, corrections and text updates. Measured on ARM
+        # Plasma Mobile: "Helo" -> tap "Hello" did nothing until this was raised.
+        env.setdefault('QT_WAYLAND_FRAME_CALLBACK_TIMEOUT', '5000')
         # WHY this distinct mode follows the checked stock Plasma 6.7/6.8 launch.
         # It is NOT raw application completion permission: the plugin also checks
         # the actual proxy class and gives any present raw bridge precedence.
