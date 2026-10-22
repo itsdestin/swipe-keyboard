@@ -87,7 +87,7 @@ class Config:
     gesture: dict = field(default_factory=dict)   # hidden tuning knobs for the arbiter: swipe_px, hold_ms, stuck_ms (plan Section 7)
     engine_socket: Path = field(default_factory=lambda: default_engine_paths()[0])
     engine_token: Path = field(default_factory=lambda: default_engine_paths()[1])
-    session: dict = field(default_factory=dict)   # hidden knobs for the typing session in the page: tick_ms, trail_ms, steam_layout
+    session: dict = field(default_factory=dict)   # hidden knobs for the typing session in the page: tick_ms, trail_ms
     failsafe: dict = field(default_factory=dict)  # hidden knobs for the fail-safe watcher in the page: tick_ms, limit, focus_ms
     poll_interval: float = 0.5        # port-closed probe and event-loop tick; a connect to loopback costs ~nothing
     beat_interval: float = 1.0        # liveness ping to the stub; also the safety net that notices a lost stub

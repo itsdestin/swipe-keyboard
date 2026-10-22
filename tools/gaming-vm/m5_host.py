@@ -29,7 +29,8 @@ from pathlib import Path
 LAB = Path('/home/destin/.cache/swipe-keyboard-platforms')
 GUEST = LAB / 'guests' / 'steamos-gaming'
 KEY = LAB / 'guests' / 'steamos' / 'id_ed25519'
-STATE = LAB / 'evidence' / 'gaming-m5'
+# WHY env overrides (M6): the same rig serves the next milestones; evidence folder and enabled languages are chosen per run
+STATE = LAB / 'evidence' / os.environ.get('SWIPEKB_EVIDENCE', 'gaming-m5')
 WORK = Path('/tmp/swipekb-m5-host')            # the daemon's sandbox: run folder, home, xdg folders
 ASSETS = os.environ.get('SWIPEKB_ASSETS', '')
 DAEMON = os.environ.get('SWIPEKB_GAMINGD', '')
@@ -59,8 +60,8 @@ def up():
     for sub in ('run', 'home/.config', 'home/.cache', 'home/.local/share', 'home/.local/state'):
         (WORK / sub).mkdir(parents=True, exist_ok=True)
     os.chmod(WORK / 'run', 0o700)
-    # Only English is enabled, in a private settings file (the daemon reads the desktop keyboard's list of languages).
-    (WORK / 'plasmakeyboardrc').write_text('[General]\nenabledLocales=en_US\n')
+    # Only the listed languages are enabled (default English), in a private settings file (the daemon reads the desktop keyboard's list).
+    (WORK / 'plasmakeyboardrc').write_text('[General]\nenabledLocales=%s\n' % os.environ.get('SWIPEKB_LOCALES', 'en_US'))
     env = dict(os.environ, HOME=str(WORK / 'home'), XDG_CONFIG_HOME=str(WORK / 'home/.config'), XDG_CACHE_HOME=str(WORK / 'home/.cache'),
                XDG_DATA_HOME=str(WORK / 'home/.local/share'), XDG_STATE_HOME=str(WORK / 'home/.local/state'))
     log = open(STATE / 'daemon.log', 'ab')

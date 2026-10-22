@@ -154,10 +154,18 @@ function build(opts) {
   doc.win = win; win.document = doc; win.top = win; win.window = win; win.innerWidth = 1280; win.innerHeight = 800;
   const root = doc.body;
   const kb = new FakeElement('div', doc); root.append(kb);
+  // M6/M7: Steam draws its keys inside a role=grid element whose class list holds "Layout_<its own layout name>" (found in the VM:
+  // "Layout_qwerty"); layoutName null leaves the class off, an extra token stands in for Steam's hashed style classes.
+  kb.setAttribute('role', 'grid');
+  const setLayout = (name) => kb.setAttribute('class', '_45rH7 ' + (name === null ? '' : 'Layout_' + name + ' ') + 'DefaultTheme DialogLayout_NoMinWidth Panel');
+  setLayout(opts.layoutName === undefined ? 'qwerty' : opts.layoutName);
   kb.rect = { left: 0, top: Y0, width: 1280, height: 400 };
   const keyEls = {};
   function addKey(name, x, y, w, extra) {
-    const outer = new FakeElement('div', doc); kb.append(outer);
+    // Steam's nesting (VM, M6): grid > row > gridcell > key; the layout name sits on the grid, not on the key's parent
+    const rowEl = new FakeElement('div', doc); rowEl.setAttribute('role', 'row'); kb.append(rowEl);
+    const cell = new FakeElement('div', doc); cell.setAttribute('role', 'gridcell'); rowEl.append(cell);
+    const outer = new FakeElement('div', doc); cell.append(outer);
     outer.setAttribute('data-key', name); outer.setAttribute('data-keycode', name); outer.setAttribute('data-key-row', y); outer.setAttribute('data-key-col', x);
     outer.rect = { left: x, top: y, width: w, height: KH - 6 };
     if (extra) for (const [k, v] of Object.entries(extra)) outer.setAttribute(k, v);
@@ -170,7 +178,7 @@ function build(opts) {
     keyEls[name] = outer; return outer;
   }
   if (!opts.noLetters) {
-    ROWS.slice(0, opts.letterRows || 3).forEach((row, r) => [...row].forEach((ch, c) => {
+    (opts.rows || ROWS).slice(0, opts.letterRows || 3).forEach((row, r) => [...row].forEach((ch, c) => {
       const extra = ch === 'e' ? { 'data-extended-chars': '1' } : null;
       addKey(ch, X0 + c * KW + r * 40, Y0 + r * KH, KW, extra);
     }));
@@ -304,7 +312,7 @@ function build(opts) {
   const centre = (name) => { const r = keyEls[name].rect; return [r.left + r.width / 2, r.top + r.height / 2]; };
   // opts.noEval (M9): a page whose content-security policy forbids eval and new Function, the way a locked-down Steam would be.
   const ctx = vm.createContext(win, opts.noEval ? { codeGeneration: { strings: false, wasm: false } } : undefined);
-  return { win, doc, kb, keyEls, S, finger, centre, ctx, now };
+  return { win, doc, kb, keyEls, S, finger, centre, setLayout, ctx, now };
 }
 
 const GESTURE_JS = process.env.SWIPEKB_LAYER_FILE || path.join(__dirname, '..', '..', 'gaming', 'layer', 'gesture.js');
