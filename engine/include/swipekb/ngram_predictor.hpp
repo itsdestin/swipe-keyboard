@@ -28,6 +28,8 @@ public:
 private:
     NgramLM ngram_;
     std::vector<std::string> vocabulary_;
+    std::vector<uint32_t> wordIds_;            // model number per vocabulary word; kUnk when unknown
+    std::vector<std::string> unknownAlpha_;    // letters-only form, kept only for unknown words
 };
 
 }

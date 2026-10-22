@@ -64,6 +64,16 @@ bool NgramPredictor::load(const std::string &model, const std::string &vocab)
         if (!word.empty() && !display.empty()) vocabulary_.push_back(display);
     }
     if (!words.eof() || vocabulary_.empty()) { vocabulary_.clear(); return false; }
+    // WHY resolve every word's model number once here: predict() used to lower-case and look up all
+    // ~100k words on every request (~100 ms each on a fast laptop). Unknown words keep their letters-only
+    // form for the dictionary fallback score, so rankings are unchanged.
+    wordIds_.clear(); unknownAlpha_.clear();
+    wordIds_.reserve(vocabulary_.size()); unknownAlpha_.resize(vocabulary_.size());
+    for (size_t i = 0; i < vocabulary_.size(); ++i) {
+        auto alpha = NgramLM::alphaForm(vocabulary_[i]);
+        wordIds_.push_back(ngram_.id(alpha));
+        if (wordIds_.back() == NgramLM::kUnk) unknownAlpha_[i] = std::move(alpha);
+    }
     return true;
 }
 
@@ -75,13 +85,20 @@ std::vector<std::string> NgramPredictor::predict(const std::vector<std::string> 
     for (const auto &word : boundedContext(context))
         history.push_back(QString::fromUtf8(word.data(), int(word.size())).toLower().toUtf8().toStdString());
     const auto state = ngram_.context(history);
+    // WHY (score, index) pairs: sorting numbers instead of copying 100k strings per request; ties still
+    // break on the spelling, exactly as before.
+    std::vector<std::pair<float, uint32_t>> scored;
+    scored.reserve(vocabulary_.size());
+    for (uint32_t i = 0; i < vocabulary_.size(); ++i)
+        scored.emplace_back(wordIds_[i] == NgramLM::kUnk ? ngram_.logProb(state, unknownAlpha_[i], 0)
+                                                        : ngram_.logProb(state, wordIds_[i]), i);
+    const size_t keep = std::min<size_t>(scored.size(), size_t(topK) * 4);
+    std::partial_sort(scored.begin(), scored.begin() + keep, scored.end(), [this](const auto &a, const auto &b) {
+        return a.first == b.first ? vocabulary_[a.second] < vocabulary_[b.second] : a.first > b.first;
+    });
     std::vector<std::pair<std::string, float>> ranked;
-    ranked.reserve(vocabulary_.size());
-    for (const auto &word : vocabulary_)
-        ranked.emplace_back(word, ngram_.logProb(state, ngram_.alphaForm(word), 0));
-    std::partial_sort(ranked.begin(), ranked.begin() + std::min<size_t>(ranked.size(), size_t(topK) * 4), ranked.end(),
-        [](const auto &a, const auto &b) { return a.second == b.second ? a.first < b.first : a.second > b.second; });
-    if (ranked.size() > size_t(topK) * 4) ranked.resize(size_t(topK) * 4);
+    ranked.reserve(keep);
+    for (size_t i = 0; i < keep; ++i) ranked.emplace_back(vocabulary_[scored[i].second], scored[i].first);
     return filterPredictedWords(ranked, topK);
 }
 }
