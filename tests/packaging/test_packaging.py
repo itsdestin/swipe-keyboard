@@ -76,9 +76,9 @@ class Packaging(unittest.TestCase):
             output = pathlib.Path(tmp)/'dist'
             result = subprocess.run(['bash', str(fixture/'scripts/package-source.sh'), str(output)], text=True, capture_output=True)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            with tarfile.open(output/'swipe-keyboard-0.2.1.tar.gz') as archive:
+            with tarfile.open(output/'swipe-keyboard-0.3.0.tar.gz') as archive:
                 names = {name.replace('/./', '/') for name in archive.getnames()}
-            prefix = 'swipe-keyboard-0.2.1/'
+            prefix = 'swipe-keyboard-0.3.0/'
             self.assertNotIn(prefix + 'personal-secret.txt', names)
             self.assertIn(prefix + tracked, names)
             self.assertIn(prefix + shim_tracked, names)
@@ -151,7 +151,7 @@ include("{ROOT}/cmake/Install.cmake")
             for language in ('es', 'fr', 'de'):
                 self.assertTrue((stage/f'share/swipe-keyboard/language-packs/{language}.json').is_file())
             self.assertFalse((stage/'share/swipe-keyboard/eval').exists())
-            self.assertEqual((stage/'share/swipe-keyboard/runtime.json').read_text(), '{"qt": "6.10", "package": "0.2.1-1"}\n')
+            self.assertEqual((stage/'share/swipe-keyboard/runtime.json').read_text(), '{"qt": "6.10", "package": "0.3.0-1"}\n')
             self.assertTrue((stage/'bin/swipe-keyboard').stat().st_mode & 0o111)
             self.assertTrue((stage/'share/swipe-keyboard/qml/SwipeKeyboard/libswipekb_engine.so').stat().st_mode & 0o111,
                             'Native libraries must retain executable mode for RPM debug-info discovery')
