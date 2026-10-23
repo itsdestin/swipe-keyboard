@@ -167,6 +167,10 @@ English switches to its n-gram (FUTO's model stays as the fallback); a missing f
 **Checkpoint 1:** every language ≥ Gboard on completion after 1 letter (2-guess count); no swipe
 regression; within the Phase 0 size/speed budget.
 
+**Order changed (Destin 2026-10-22): Phase 3 (own swipe engine) runs before Phase 2 (learning).** Phase 3
+started 2026-10-22 on branch feature/179-own-swipe (clean-room writer = the 0.2 spike author). Tap-a-word
+alternatives (card #187) is in progress on feature/187-tap-to-swap.
+
 ## Phase 2: learn from the user (≈1–2 weeks; can start any time, independent of swipe)
 
 Local only: often-typed words, new words (names, slang) after a few uses, favourite word pairs; decays over
