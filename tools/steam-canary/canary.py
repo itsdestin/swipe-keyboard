@@ -16,6 +16,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import zipfile
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -80,6 +81,11 @@ def _prepare(fetcher, info, spec, work, cache, limits):
             cache[key] = dest
         except (fetch.FetchError, safe_zip.UnsafeArchive) as e:
             cache[key] = e
+        except zipfile.BadZipFile as e:
+            # WHY a ValueError (review fix 8): the file passed its checksum, so Valve's server sent something that is not a zip
+            # archive. That is a problem with the download, not "Steam changed", so it ends the run through the
+            # "canary error" exit (3) instead of a traceback with exit 1, which would open a Steam-changed issue.
+            cache[key] = ValueError('the downloaded package %s is not a readable zip archive (%s)' % (info.file, e))
     if isinstance(cache[key], Exception):
         raise cache[key]
     return cache[key]
@@ -215,11 +221,11 @@ def main(argv=None, fetcher_factory=fetch.Fetcher):
         return 0
 
 
-def cli():
+def cli(argv=None, fetcher_factory=fetch.Fetcher):
     # WHY exit 3 for "the canary itself is broken": 1 means "Steam no longer matches" (or "canary dead"),
     # and those open issues with a specific meaning; a broken tool must not impersonate them.
     try:
-        return main()
+        return main(argv, fetcher_factory)
     except (ledger_mod.LedgerError, check_contract.ContractError, ValueError, OSError) as e:
         print(f'canary error: {e}', file=sys.stderr)
         return 3

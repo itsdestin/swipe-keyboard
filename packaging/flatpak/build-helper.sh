@@ -24,15 +24,15 @@ if [ -d gaming/layer ]; then
 else
     echo 'GamingHelper build: note, gaming/layer is absent; the helper will have no page layer to inject.' >&2
 fi
-# WHY a fixed PYTHONPATH and -s: the helper talks to Steam's debug port, so it must never import code from a
-# path supplied by the caller's environment or the user's site folder. /app is read-only: no bytecode writes.
+# WHY -I and an explicit folder (review fix 8): the helper talks to Steam's debug port, so it must never import code from a
+# place the caller controls. `-s -m` still put the current folder and PYTHONPATH on the import path; -I leaves out both and the
+# user's site folder, so the package folder is added by hand (-I ignores PYTHONPATH, which is why it is no longer set). -B: /app is
+# read-only, so no bytecode is written.
 cat > "$PREFIX/bin/swipekb-helper" <<'WRAPPER'
 #!/bin/sh
-export PYTHONPATH=/app/lib/swipekb-helper
-export PYTHONDONTWRITEBYTECODE=1
 # WHY: Flatpak sets XDG_STATE_HOME to the app's private folder; the status file and the installer's outside-access
 # choice both live in the real folder (shared by permission in the manifest).
 export SWIPEKB_STATE_DIR="$HOME/.local/state/swipekb-gaming"
-exec python3 -s -m swipekb_helper "$@"
+exec python3 -I -B -c 'import runpy, sys; sys.path.insert(0, "/app/lib/swipekb-helper"); runpy.run_module("swipekb_helper", run_name="__main__", alter_sys=True)' "$@"
 WRAPPER
 chmod 755 "$PREFIX/bin/swipekb-helper"

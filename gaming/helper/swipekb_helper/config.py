@@ -74,7 +74,9 @@ def default_layer_dir():
 
 def default_engine_paths():
     # WHY XDG_RUNTIME_DIR/swipekb: the same folder the engine daemon makes (gaming/daemon/main.cpp); a folder only our user can open.
-    run = os.environ.get('XDG_RUNTIME_DIR') or '/tmp'
+    # WHY no /tmp fallback (review fix 7): /tmp is shared, so another user could make /tmp/swipekb first and hand us a socket and a
+    # token. systemd's per-user folder is the same place XDG_RUNTIME_DIR would have named, and it is private to this user.
+    run = os.environ.get('XDG_RUNTIME_DIR') or '/run/user/%d' % os.getuid()
     return Path(run) / 'swipekb' / 'engine.sock', Path(run) / 'swipekb' / 'engine.token'
 
 

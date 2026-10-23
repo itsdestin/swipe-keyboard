@@ -3,6 +3,7 @@
 #
 #   switch-watch.sh check             (run by swipekb-switch-watch.timer) look, record what it saw, notify once if the switch is gone
 #   switch-watch.sh restore [--yes]   show what it will do, ask, then put the switch file back (the "Turn it back on" button)
+#   switch-watch.sh stop-helper       (run by swipekb-helper.service when it stops) ask the helper to take its layer out of Steam first
 #
 # WHY this exists: the keyboard helper runs in a Flatpak sandbox that must not see Steam's folder (it holds login
 # files), so it cannot tell that the developer switch file is gone. This small program runs on the Deck itself.
@@ -119,7 +120,45 @@ notify_wait() {
     fi
 }
 
+# Review fix 5. systemd restarts our two background programs when they stop; if one cannot stay up, nothing else would tell
+# the person (the helper writes the status file, and it is the one that is down). Only our own two units are looked at.
+unit_substate() { systemctl --user show -p SubState --value "$1" 2>/dev/null | head -n 1; }
+
+service_check() {
+    command -v systemctl >/dev/null 2>&1 || return 0
+    local unit sub bad=""
+    for unit in swipekb-engine.service swipekb-helper.service; do
+        sub="$(unit_substate "$unit")"
+        case "$sub" in
+            auto-restart) bad="$bad $unit" ;;
+            failed)
+                # WHY start it again: a unit that gave up stays down for good otherwise; this is once a minute, not a loop.
+                bad="$bad $unit"
+                systemctl --user reset-failed "$unit" >/dev/null 2>&1 || true
+                systemctl --user start "$unit" >/dev/null 2>&1 || true ;;
+        esac
+    done
+    case "$bad" in *swipekb-helper.service*) ;; *) return 0 ;; esac      # the helper is up and speaks for itself
+    mkdir -p "$STATE_DIR"
+    local reason="Gaming Mode's background program keeps stopping, so swipe is off and Steam's normal keyboard is in use. It is restarted automatically; if this stays, run the Swipe Keyboard installer again or restart the device."
+    printf '{"state": "error", "reason": "%s", "steam_browser": null, "layer_version": null, "last_inject": null, "attached_pages": 0, "keyboard": null, "pid": null, "updated": %s}\n' \
+        "$reason" "$(date +%s)" > "$STATE_DIR/status.json.new" && mv "$STATE_DIR/status.json.new" "$STATE_DIR/status.json"
+}
+
+# Review fix 8. Flatpak's --die-with-parent (needed so a stop really stops the app) turns the service's SIGTERM into an instant kill of
+# the helper, so it never gets to take its layer out of Steam or say "off". Instead the service's stop runs this: it leaves a
+# request file in the helper's state folder, the helper cleans up and deletes the file, and only then does the service go on to stop it.
+do_stop_helper() {
+    local ticks="${SWIPEKB_STOP_WAIT_TICKS:-100}" request="$STATE_DIR/stop-request"
+    mkdir -p "$STATE_DIR"
+    : > "$request"
+    while [ -e "$request" ] && [ "$ticks" -gt 0 ]; do sleep 0.1; ticks=$((ticks - 1)); done
+    rm -f "$request"      # nobody answered (the helper was not running): do not leave a request that would stop the next one
+    return 0
+}
+
 do_check() {
+    service_check
     local word; word="$(current_word)"
     write_word "$word"
     if [ "$word" = off ]; then
@@ -162,6 +201,7 @@ case "${1:-}" in
     check) do_check ;;
     restore) shift; do_restore "$@" ;;
     notify-wait) notify_wait ;;
+    stop-helper) do_stop_helper ;;
     -h|--help|"") sed -n '2,6p' "$SELF" ;;
     *) echo "Unknown option: $1" >&2; exit 2 ;;
 esac

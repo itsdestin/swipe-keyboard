@@ -17,6 +17,7 @@ class FakeDaemon:
         self.token = token
         with open(self.token_path, 'w') as f:
             f.write(token + '\n')
+        os.chmod(self.token_path, 0o600)       # the real daemon makes it owner-only; the helper refuses anything wider
         self.words = words or ['hello', 'hell', 'jello']      # what every swipe answers, best first
         self.calls = []              # (conn_no, op, fields)
         self.connections = 0

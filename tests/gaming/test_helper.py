@@ -624,6 +624,243 @@ class GestureLayerInstall(Base):
         self.assertEqual(cfgmod.default_layer_dir(), ROOT / 'gaming' / 'layer')
 
 
+class SteamOrigin(Base):
+    """Review fix 1: a title is not proof. Only a page served from Steam's own UI origin counts (contract device.ui_origin)."""
+
+    def test_the_origin_is_pinned_in_the_contract_and_watched_by_the_canary(self):
+        c = json.loads(CONTRACT.read_text())
+        pin = c['device']['ui_origin']
+        self.assertEqual(pin['origin'], 'https://steamloopback.host')
+        self.assertIn(pin['static_check'], [ch['id'] for ch in c['checks']], 'the canary must be able to see the origin vanish')
+
+    def test_a_web_page_titled_like_steams_hidden_page_is_never_asked_anything(self):
+        r = self.rig()
+        evil = r.fake.add_target(SJS, steam='ok', url='https://evil.example/index.html')
+        b = r.fake.add_target(BP)
+        r.helper().start()
+        time.sleep(0.8)  # settle: negative proof
+        self.assertEqual(len(r.fake.page(evil).eval_log), 0, 'no probe, no typing: the helper must not even connect to it')
+        self.assertIsNone(r.layer(b))
+        self.assertNotEqual(r.status().get('state'), 'active')
+
+    def test_a_web_page_titled_like_the_keyboard_page_gets_no_layer(self):
+        r = self.rig()
+        s = r.fake.add_target(SJS, steam='ok')
+        evil = r.fake.add_target(BP, url='https://evil.example/')
+        r.helper().start()
+        time.sleep(0.8)  # settle
+        self.assertIsNone(r.layer(evil))
+
+    def test_look_alike_addresses_are_refused(self):
+        r = self.rig()
+        h = r.helper()
+        h._load_contract()
+        for url in ('https://steamloopback.host.evil.example/', 'https://steamloopback.host@evil.example/', 'http://steamloopback.host/',
+                    'https://steamloopback.host:8443/', 'https://evil.example/https://steamloopback.host/', '', 'steamloopback.host/index.html'):
+            self.assertFalse(h.device.is_steam_url(url), url)
+        for url in ('https://steamloopback.host/index.html', 'https://steamloopback.host/routes/home?x=1'):
+            self.assertTrue(h.device.is_steam_url(url), url)
+
+    def test_two_hidden_pages_from_steams_origin_are_not_guessed_between(self):
+        r = self.rig()
+        r.fake.add_target(SJS, steam='ok')
+        r.fake.add_target(SJS, steam='ok')
+        b = r.fake.add_target(BP)
+        r.helper().start()
+        time.sleep(0.8)  # settle
+        self.assertIsNone(r.layer(b))
+        self.assertNotEqual(r.status().get('state'), 'active')
+
+
+class IdleSocketsDoNotBreakTheLoop(Base):
+    """Review fix 2: a frame already sitting in one socket's buffer must not make the loop wait on a quiet one."""
+
+    def pair(self, h):
+        from swipekb_helper import cdp
+        a1, a2 = socket.socketpair()
+        b1, b2 = socket.socketpair()
+        self.addCleanup(lambda: [s.close() for s in (a1, a2, b1, b2)])
+        h.browser = cdp.Cdp(wsmod.WebSocket(a1))
+        page_ws = wsmod.WebSocket(b1)
+        from swipekb_helper.helper import PageSession
+        h.pages = {'p': PageSession('p', cdp.Cdp(page_ws))}
+        h.bridge = type('B', (), {'forget': lambda self_, pid: self_.gone.append(pid), 'gone': []})()
+        return page_ws
+
+    def test_a_buffered_page_frame_does_not_drop_the_connection(self):
+        r = self.rig()
+        h = r.helper()
+        page_ws = self.pair(h)
+        payload = b'{"method":"Runtime.consoleAPICalled","params":{}}'
+        page_ws.buf = bytes([0x81, len(payload)]) + payload
+        started = time.monotonic()
+        h._pump_io()                     # must neither raise nor wait on the idle browser socket
+        self.assertLess(time.monotonic() - started, 0.3, 'it waited on the quiet browser socket')
+
+    def test_a_quiet_browser_socket_with_a_partial_buffer_is_not_an_error(self):
+        r = self.rig()
+        h = r.helper()
+        self.pair(h)
+        h.browser.ws.buf = bytes([0x89, 0])        # a ping and nothing else: answered, then no message follows
+        h._browser_events()                        # used to raise ws.Timeout out of the loop
+
+    def test_dropping_connections_tells_the_engine_to_forget_each_page(self):
+        r = self.rig()
+        h = r.helper()
+        self.pair(h)
+        h._drop_connections()
+        self.assertEqual(h.bridge.gone, ['p'])
+        self.assertIsNone(h.browser)
+        self.assertEqual(h.pages, {})
+
+    def test_an_idle_browser_socket_next_to_a_busy_page_keeps_every_connection(self):
+        r = self.rig()
+        b, s = r.steam_up()
+        h = r.helper()
+        h.start()
+        wait_for(lambda: r.status().get('state') == 'active', what='active')
+        seen = r.fake.page_sessions
+        for _ in range(30):                        # page frames arrive all the time (the layer pings every beat)
+            time.sleep(0.05)
+        self.assertEqual(r.fake.page_sessions, seen, 'the helper dropped and re-opened its connections')
+        self.assertEqual(r.status()['state'], 'active')
+
+
+class ReloadGrace(Base):
+    """Review fix 3: the 'never finished loading' clock runs from when the hidden page last stopped being ready."""
+
+    def test_an_in_place_reload_of_the_hidden_page_gets_a_fresh_grace_period(self):
+        r = self.rig(not_ready_grace=1.5)
+        b, s = r.steam_up()
+        h = r.helper()
+        h.start()
+        wait_for(lambda: r.attr(b) == LAYER_VERSION, what='first install')
+        time.sleep(1.8)                            # the hidden page has now existed longer than the grace period
+        # Steam reloads its hidden page in place (same target) while the keyboard page is replaced.
+        r.fake.eval(s, 'SteamClient = undefined')
+        r.fake.remove_target(b)
+        b2 = r.fake.add_target(BP)
+        time.sleep(0.8)                            # settle: still inside the new grace period
+        self.assertEqual(h.ledger.failures, 0, 'a reload counted as a failure straight away')
+        self.assertNotEqual(r.status().get('state'), 'paused-steam-changed')
+        r.fake.eval(s, 'SteamClient = {Input: {ControllerKeyboardSendText: function(){}}}')
+        wait_for(lambda: r.attr(b2) == LAYER_VERSION, what='install once the page is ready again', timeout=8)
+
+    def test_a_pause_is_explained_honestly_and_says_how_to_try_again(self):
+        r = self.rig()
+        b, s = r.steam_up(sjs='nomethod')
+        r.helper().start()
+        wait_for(lambda: r.status().get('state') == 'paused-steam-changed', what='pause')
+        reason = r.status()['reason']
+        self.assertIn('ControllerKeyboardSendText', reason)
+        self.assertIn('installer', reason)
+        self.assertIn('restart', reason.lower())
+        self.assertNotIn('Steam changed', reason, 'the tries can fail for reasons that are not a Steam change')
+
+    def test_a_new_boot_clears_the_pause_but_a_helper_restart_does_not(self):
+        from swipekb_helper.retry import RetryLedger
+        d = Path(tempfile.mkdtemp(prefix='swipekb-ledger-'))
+        self.addCleanup(shutil.rmtree, d, True)
+        led = RetryLedger(d / 'retry.json', 3, boot_id='boot-A')
+        led.use_build('steam-1')
+        for i in range(3):
+            led.record_failure('nope', 10.0 * i, 2.0)
+        self.assertTrue(led.exhausted)
+        self.assertTrue(RetryLedger(d / 'retry.json', 3, boot_id='boot-A').exhausted, 'same boot: still paused')
+        fresh = RetryLedger(d / 'retry.json', 3, boot_id='boot-B')
+        self.assertFalse(fresh.exhausted, 'after a reboot the helper tries again')
+        self.assertEqual(fresh.failures, 0)
+
+    def test_an_unreadable_boot_id_never_clears_a_pause(self):
+        from swipekb_helper.retry import RetryLedger
+        d = Path(tempfile.mkdtemp(prefix='swipekb-ledger-'))
+        self.addCleanup(shutil.rmtree, d, True)
+        led = RetryLedger(d / 'retry.json', 3, boot_id='boot-A')
+        led.use_build('steam-1')
+        for i in range(3):
+            led.record_failure('nope', 10.0 * i, 2.0)
+        self.assertTrue(RetryLedger(d / 'retry.json', 3, boot_id=None).exhausted)
+
+
+class StopRequest(Base):
+    """Review fix 8: flatpak's --die-with-parent turns the service's SIGTERM into SIGKILL, so the stop is asked for by file."""
+
+    def test_a_stop_request_file_makes_the_helper_clean_up_and_only_then_remove_the_file(self):
+        r = self.rig()
+        b, s = r.steam_up()
+        h = r.helper()
+        h.start()
+        wait_for(lambda: r.attr(b) == LAYER_VERSION, what='install')
+        req = r.state / 'stop-request'
+        req.write_text('')
+        wait_for(lambda: not h.thread.is_alive(), what='helper to stop')
+        self.assertEqual(r.status()['state'], 'off')
+        self.assertIsNone(r.layer(b), 'the layer is out of Steam before the request is answered')
+        self.assertFalse(req.exists(), 'the file going away is the answer the service waits for')
+
+    def test_an_old_stop_request_does_not_stop_a_new_helper(self):
+        r = self.rig()
+        r.state.mkdir()
+        (r.state / 'stop-request').write_text('')
+        b, s = r.steam_up()
+        h = r.helper()
+        h.start()
+        wait_for(lambda: r.attr(b) == LAYER_VERSION, what='install despite the old file')
+        self.assertTrue(h.thread.is_alive())
+        self.assertFalse((r.state / 'stop-request').exists())
+
+
+class PrivateEngineFolder(Base):
+    """Review fix 7: never look for the engine in a shared folder; only talk to one that only we can reach."""
+
+    def test_without_a_runtime_folder_the_default_is_not_tmp(self):
+        old = os.environ.pop('XDG_RUNTIME_DIR', None)
+        try:
+            sock, tok = cfgmod.default_engine_paths()
+        finally:
+            if old is not None:
+                os.environ['XDG_RUNTIME_DIR'] = old
+        self.assertFalse(str(sock).startswith('/tmp'), sock)
+        self.assertFalse(str(tok).startswith('/tmp'), tok)
+
+    def _serve(self, mode, token_mode=0o600):
+        from swipekb_helper.engine import EngineConn
+        d = Path(tempfile.mkdtemp(prefix='swipekb-eng-'))
+        self.addCleanup(shutil.rmtree, d, True)
+        os.chmod(d, mode)
+        sock = d / 'engine.sock'
+        ls = socket.socket(socket.AF_UNIX)
+        ls.bind(str(sock))
+        ls.listen(1)
+        self.addCleanup(ls.close)
+        tok = d / 'engine.token'
+        tok.write_text('x' * 32)
+        os.chmod(tok, token_mode)
+        return EngineConn, sock, tok
+
+    def test_a_folder_others_can_write_to_is_refused_before_the_token_is_read(self):
+        Conn, sock, tok = self._serve(0o777)
+        from swipekb_helper.engine import EngineGone
+        with self.assertRaises(EngineGone) as cm:
+            Conn(sock, tok, 'unknown', timeout=1)
+        self.assertIn('private', str(cm.exception))
+
+    def test_a_token_others_can_read_is_refused(self):
+        Conn, sock, tok = self._serve(0o700, token_mode=0o644)
+        from swipekb_helper.engine import EngineGone
+        with self.assertRaises(EngineGone) as cm:
+            Conn(sock, tok, 'unknown', timeout=1)
+        self.assertIn('private', str(cm.exception))
+
+    def test_a_private_folder_passes_the_check(self):
+        Conn, sock, tok = self._serve(0o700)
+        from swipekb_helper.engine import EngineGone
+        try:
+            Conn(sock, tok, 'unknown', timeout=1)
+        except Exception as e:                      # nothing answers the hello; that is a different, later failure
+            self.assertNotIn('private', str(e))
+
+
 def r_tmp(test):
     d = Path(tempfile.mkdtemp(prefix='swipekb-nolayer-'))
     test.addCleanup(shutil.rmtree, d, True)

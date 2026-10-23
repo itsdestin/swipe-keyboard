@@ -49,7 +49,7 @@ class Helper:
         self.exposed = False
         self.open_by_choice = False
         self.status = Status(cfg.state_dir)
-        self.ledger = RetryLedger(cfg.state_dir / 'retry.json', cfg.max_failures)
+        self.ledger = RetryLedger(cfg.state_dir / 'retry.json', cfg.max_failures, boot_id=_boot_id())
         self.thread = None
         self._stop = threading.Event()
         self._abort = False            # crash(): leave without any cleanup (tests, and what kill -9 looks like)
@@ -59,6 +59,7 @@ class Helper:
         self.targets = {}              # id -> {'type', 'title'}
         self.pages = {}                # id -> PageSession
         self.first_seen = {}           # id -> monotonic time we first saw the SteamClient page
+        self.not_ready_since = {}      # id -> when that page last started reporting "SteamClient not defined yet" (review fix 3)
         self.next_attempt = 0.0
         self.last_inject = None
         self.closed_since = None
@@ -105,6 +106,7 @@ class Helper:
 
     def run(self):
         self.bridge = Bridge(self.cfg, self._send_text, self._deliver)
+        self._clear_stop_request()          # a request left by an earlier stop must not stop this run
         try:
             self._load_contract()
             self._loop()
@@ -113,11 +115,20 @@ class Helper:
             self._close_sjs()
             if not self._abort:
                 self._shutdown_cleanly()
+                # WHY the file is removed only now (review fix 8): the service's stop script waits for it to go, so "gone" means
+                # "the layer is out of Steam and the status says off", and only then does the service kill the sandbox.
+                self._clear_stop_request()
             for fd in (self._wake_r, self._wake_w):
                 try:
                     os.close(fd)
                 except OSError:
                     pass
+
+    def _clear_stop_request(self):
+        try:
+            (self.cfg.state_dir / 'stop-request').unlink()
+        except OSError:
+            pass
 
     # ---- contract / stub source -----------------------------------------------------------------------
     def _load_contract(self):
@@ -149,6 +160,9 @@ class Helper:
     def _loop(self):
         next_exposure = 0.0
         while not self._stop.is_set():
+            if (self.cfg.state_dir / 'stop-request').exists():
+                self._stop.set()
+                break
             now = time.monotonic()
             if self.exposure_check and now >= next_exposure:
                 self._exposure_tick()
@@ -202,6 +216,21 @@ class Helper:
                       'Steam\'s debug port is open to other devices on the network (port %s). Gaming Mode swipe is off. '
                       'Run the Swipe Keyboard installer again to close it.' % ', '.join(str(p) for p in doors))
 
+    def _steam_pages(self, title):
+        """Ids of the pages with this title that Steam itself serves.
+
+        WHY the address as well as the title (review fix 1): a title is set by whoever wrote the page. Steam's in-client web
+        browser opens ordinary web pages next to Steam's own, and one of those could call itself "SharedJSContext" and be
+        mistaken for the hidden page that holds SteamClient (receiving every swiped word) or for the keyboard page."""
+        d = self.device
+        return [i for i, t in list(self.targets.items())
+                if t['type'] == 'page' and t['title'] == title and d and d.is_steam_url(t.get('url', ''))]
+
+    def _hidden_page(self):
+        """The one hidden page that holds SteamClient, or None. Two candidates are never guessed between."""
+        ids = self._steam_pages(self.device.client_title) if self.device else []
+        return ids[0] if len(ids) == 1 else None
+
     # ---- connecting -----------------------------------------------------------------------------------
     def _try_connect(self, now):
         try:
@@ -218,6 +247,7 @@ class Helper:
         self.ledger.use_build(self._fingerprint())
         self.targets = {}
         self.first_seen = {}
+        self.not_ready_since = {}
         self.next_beat = now
         self._load_contract()      # a fixed contract file takes effect on the next connect without a restart
         self._reconcile(now)
@@ -260,20 +290,7 @@ class Helper:
 
     # ---- connected: events, safety poll, heartbeat ----------------------------------------------------
     def _pump(self, now):
-        socks = [self.browser.ws] + [p.cdp.ws for p in self.pages.values()]
-        if not any(s.has_buffered() for s in socks) and not any(p.cdp.events for p in self.pages.values()):
-            r, _, _ = select.select(socks + [self._wake_r], [], [], self.cfg.poll_interval)
-        else:
-            r = socks
-        for s in r:
-            if s == self._wake_r:
-                self._flush_outbox()
-            elif s is self.browser.ws:
-                self._browser_events()
-            else:
-                self._page_traffic(s)
-        for pid, p in list(self.pages.items()):
-            self._page_events(pid, p)       # events that arrived while we were waiting for an answer to a call
+        self._pump_io()
         now = time.monotonic()
         if now >= self.next_beat:
             self.next_beat = now + self.cfg.beat_interval
@@ -286,26 +303,54 @@ class Helper:
         self._reconcile(now)
         self._publish_running()
 
-    def _browser_events(self):
+    def _pump_io(self):
+        """Wait for traffic (at most poll_interval) and hand it to whoever it belongs to."""
+        socks = [self.browser.ws] + [p.cdp.ws for p in self.pages.values()]
+        # WHY only the sockets that really hold something (review fix 2): a frame left in ONE page socket's buffer used to
+        # mark ALL sockets ready, so the quiet browser socket was read for 0.5 s, timed out, and the timeout was treated as a
+        # broken connection: every connection dropped and was opened again.
+        buffered = [s for s in socks if s.has_buffered()]
+        busy = bool(buffered) or any(p.cdp.events for p in self.pages.values())
+        r, _, _ = select.select(socks + [self._wake_r], [], [], 0 if busy else self.cfg.poll_interval)
+        for s in r:
+            if s == self._wake_r:
+                self._flush_outbox()
+            elif s is self.browser.ws:
+                self._browser_events()
+            else:
+                self._page_traffic(s)
+        for s in buffered:
+            if s not in r:
+                if s is self.browser.ws:
+                    self._browser_events(timeout=0.05)     # data we already have: do not wait for more
+                else:
+                    self._page_traffic(s, timeout=0.05)
+        for pid, p in list(self.pages.items()):
+            self._page_events(pid, p)       # events that arrived while we were waiting for an answer to a call
+
+    def _browser_events(self, timeout=0.5):
         # Drain what is already buffered/readable without blocking longer than one message.
         while True:
-            ev = self.browser.next_event(timeout=0.5)
+            try:
+                ev = self.browser.next_event(timeout=timeout)
+            except ws.Timeout:
+                return          # nothing whole to read yet: a quiet socket is not a broken one (review fix 2)
             m, p = ev.get('method'), ev.get('params', {})
             if m in ('Target.targetCreated', 'Target.targetInfoChanged'):
                 i = p['targetInfo']
-                self.targets[i['targetId']] = {'type': i.get('type'), 'title': i.get('title', '')}
+                self.targets[i['targetId']] = {'type': i.get('type'), 'title': i.get('title', ''), 'url': i.get('url', '')}
             elif m == 'Target.targetDestroyed':
                 self.targets.pop(p['targetId'], None)
             if not self.browser.ws.has_buffered():
                 return
 
-    def _page_traffic(self, sock):
+    def _page_traffic(self, sock, timeout=0.5):
         for pid, p in list(self.pages.items()):
             if p.cdp.ws is sock:
                 try:
-                    self._page_event(pid, p.cdp.next_event(timeout=0.5))
+                    self._page_event(pid, p.cdp.next_event(timeout=timeout))
                     while p.cdp.ws.has_buffered():
-                        self._page_event(pid, p.cdp.next_event(timeout=0.5))
+                        self._page_event(pid, p.cdp.next_event(timeout=timeout))
                 except ws.Timeout:
                     pass
                 except (ws.WsError, OSError, ValueError):
@@ -348,7 +393,7 @@ class Helper:
 
     def _send_text(self, text):
         """Type `text` through Steam's own call (plan Section 7.4). Runs on the bridge's worker thread, on its own socket."""
-        sjs = next((i for i, t in list(self.targets.items()) if t['type'] == 'page' and self.device and t['title'] == self.device.client_title), None)
+        sjs = self._hidden_page()
         if sjs is None:
             raise SendFailed()
         try:
@@ -378,7 +423,7 @@ class Helper:
         """WHY: the event stream is the fast path; this listing every second catches anything it dropped, and
         notices a closed port even if the browser socket still looks open."""
         lst = cdp.http_json(self.cfg.port, '/json/list', timeout=self.cfg.call_timeout)
-        seen = {t['id']: {'type': t.get('type'), 'title': t.get('title', '')} for t in lst if 'id' in t}
+        seen = {t['id']: {'type': t.get('type'), 'title': t.get('title', ''), 'url': t.get('url', '')} for t in lst if 'id' in t}
         self.targets = seen
         # WHY here (M9): the Steam build is otherwise only looked at when the port opens. A new Steam UI can arrive without the
         # port ever closing; a helper that had given up on the old build must get its fresh tries then.
@@ -442,10 +487,11 @@ class Helper:
 
     def _recheck_contract(self, now):
         """With the layer installed: is Steam's text call still there? If not, take the layer out of every page."""
-        sjs = [i for i, t in self.targets.items() if t['type'] == 'page' and t['title'] == self.device.client_title]
-        if not sjs:
+        sjs = self._hidden_page()
+        if sjs is None:
             return
-        verdict, detail = self._check_contract(sjs[0])
+        verdict, detail = self._check_contract(sjs)
+        self._note_readiness(sjs, verdict, time.monotonic())
         if verdict != 'fail':
             return        # 'notready' means Steam is reloading; the target events will bring the pages back
         for pid in list(self.pages):
@@ -462,14 +508,18 @@ class Helper:
                 self._detach(pid, remove=True)
             return
         kb = self.device.keyboard_title
-        wanted = [i for i, t in self.targets.items() if t['type'] == 'page' and t['title'] == kb]
+        wanted = self._steam_pages(kb)
         for pid in list(self.pages):
             if pid not in wanted:
                 self._detach(pid, remove=True)
         for pid in list(self.dead_pages):
             if pid not in wanted:
                 del self.dead_pages[pid]
-        sjs = [i for i, t in self.targets.items() if t['type'] == 'page' and t['title'] == self.device.client_title]
+        sjs = self._steam_pages(self.device.client_title)
+        # WHY forget pages that are gone (review fix 3): the grace clocks are per page and a new page must start its own.
+        for book in (self.first_seen, self.not_ready_since):
+            for i in [i for i in book if i not in self.targets]:
+                del book[i]
         for i in sjs:
             self.first_seen.setdefault(i, now)
         # Steam is up (its hidden page is there) but nothing carries the keyboard page's title. Normal in Desktop Mode and during
@@ -480,9 +530,18 @@ class Helper:
             return
         if not sjs:
             return          # Steam's hidden page is not there yet; we are woken by its Target event
+        if len(sjs) > 1:
+            # WHY (review fix 1): two pages from Steam's address both calling themselves the hidden page is not something to
+            # guess about; typing goes to neither, and after the usual few tries the helper pauses with this reason.
+            if self.ledger.record_failure('more than one Steam page is named "%s"' % self.device.client_title, now, self.cfg.failure_spacing):
+                self.next_attempt = now + self.ledger.backoff(self.cfg.failure_spacing, self.cfg.max_backoff)
+            return
         verdict, detail = self._check_contract(sjs[0])
+        self._note_readiness(sjs[0], verdict, now)
         if verdict == 'notready':
-            if now - self.first_seen[sjs[0]] < self.cfg.not_ready_grace:
+            # WHY the clock is "not ready since", not "page first seen" (review fix 3): Steam reloads this page in place (same
+            # id), and the page's age says nothing about how long THIS load has been waiting for SteamClient.
+            if now - self.not_ready_since[sjs[0]] < self.cfg.not_ready_grace:
                 return
             verdict, detail = 'fail', 'Steam page never finished loading SteamClient'
         if verdict == 'fail':
@@ -503,6 +562,13 @@ class Helper:
                 return
         # WHY no success is recorded here (M9): an install that works is not yet a layer that stays. A page that accepts the layer
         # and drops it a second later would otherwise wipe the count every time and the helper would loop for ever.
+
+    def _note_readiness(self, pid, verdict, now):
+        """Start the 'still loading' clock when the page first reports not ready; stop it as soon as it answers."""
+        if verdict == 'notready':
+            self.not_ready_since.setdefault(pid, now)
+        else:
+            self.not_ready_since.pop(pid, None)
 
     def _check_contract(self, sjs_id):
         """-> ('ok'|'notready'|'fail', detail). Opens a short-lived socket to Steam's hidden page."""
@@ -564,6 +630,10 @@ class Helper:
     def _drop_connections(self):
         for pid in list(self.pages):
             p = self.pages.pop(pid)
+            if self.bridge:
+                # WHY (review fix 2): the engine must forget that keyboard session when its page connection goes away, the same
+                # as _detach does; otherwise the layout and candidate ids stay in the engine until the idle timeout.
+                self.bridge.forget(pid)
             try:
                 p.cdp.ws.sock.close()
             except OSError:
@@ -592,8 +662,11 @@ class Helper:
     # ---- status ---------------------------------------------------------------------------------------
     def _publish_running(self):
         if self.ledger.exhausted:
-            self._publish('paused-steam-changed', 'Steam changed: ' + (self.ledger.detail or 'a needed part is missing') +
-                          '. Stock keyboard in use.')
+            # WHY this wording (review fix 3): the tries can run out for reasons that are not a Steam change (a slow load, a
+            # refused script), and the person needs to know how to start again.
+            self._publish('paused-steam-changed', 'Paused after %d failed tries on this Steam version. Last problem: %s. '
+                          'Stock keyboard in use. Run the Swipe Keyboard installer again, or restart the device, to try again.'
+                          % (self.ledger.failures, self.ledger.detail or 'a needed part is missing'))
         elif self.pages:
             # The layer's own view of the keyboard (M9): a keyboard that no longer matches switches the layer off in the page;
             # counted oddities (too few letter keys, no keys found) are only reported.
@@ -628,6 +701,14 @@ class Helper:
         self.last_written = key
         self.status.write(state, reason, steam_browser=self.browser_string, layer_version=LAYER_VERSION,
                           last_inject=self.last_inject, attached_pages=len(self.pages), keyboard=keyboard)
+
+
+def _boot_id():
+    """Names this boot of the device (None if it cannot be read). A pause is remembered across helper restarts but not across reboots."""
+    try:
+        return Path('/proc/sys/kernel/random/boot_id').read_text().strip() or None
+    except OSError:
+        return None
 
 
 def _short(e):

@@ -355,7 +355,7 @@ SPY_OFF = r"""
 """
 SPY_READ = ("JSON.stringify({stops: window.__m5spy.stops, binding: window.__m5spy.binding, strips: document.querySelectorAll('.swipekb-strip').length, "
             "trails: document.querySelectorAll('.swipekb-trail').length, g: window.__swipekbLayer.gestures.stats(), s: window.__swipekbLayer.session.debug(), "
-            "lastStroke: window.__swipekbLayer.lastStroke ? window.__swipekbLayer.lastStroke.id : null})")
+            "lastStroke: (window.__swipekbLayer.lastStrokeId || null)})")
 # What reaches Steam's own listeners (bubble phase, after our capture-phase handler): if the layer swallows a touch, these stay at zero.
 REACH_ON = r"""
 (function(){
@@ -406,7 +406,7 @@ def cmd_password():
         clear_field()
         before = fs_listing()
         g0 = json.loads(ev(GESTURE_STATS))
-        out['stroke_id_before'] = ev("window.__swipekbLayer.lastStroke ? window.__swipekbLayer.lastStroke.id : null")
+        out['stroke_id_before'] = ev("(window.__swipekbLayer.lastStrokeId || null)")
         ev(SPY_ON)
         ev(REACH_RESET)
         try:

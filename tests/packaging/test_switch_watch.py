@@ -15,7 +15,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / 'gaming/setup/switch-watch.sh'
 MARKER = '.cef-enable-remote-debugging'
-TOOLS = ['bash', 'sh', 'sed', 'grep', 'cat', 'head', 'readlink', 'mkdir', 'rm', 'mv', 'printf', 'dirname', 'tr', 'touch', 'env']
+TOOLS = ['bash', 'sh', 'sed', 'grep', 'cat', 'head', 'readlink', 'mkdir', 'rm', 'mv', 'printf', 'dirname', 'tr', 'touch', 'env', 'sleep', 'date']
 
 STANDINS = {
     # a notification server is present unless FAKE_NO_SERVER is set
@@ -36,6 +36,14 @@ case "$*" in *--action*) echo "$FAKE_CHOICE";; esac
     # runs the command at once (the real one starts it in the background)
     'systemd-run': '#!/bin/sh\nprintf "systemd-run %s\\n" "$*" >> "$FAKE_LOG"\nwhile [ "$1" != -- ]; do shift; done; shift; exec "$@"\n',
     'pgrep': '#!/bin/sh\n[ -n "$FAKE_STEAM_PID" ] && echo "$FAKE_STEAM_PID"; exit 0\n',
+    # unit states come from FAKE_HELPER / FAKE_ENGINE (the SubState systemd would report); everything else is only logged
+    'systemctl': '''#!/bin/sh
+printf "systemctl %s\\n" "$*" >> "$FAKE_LOG"
+case "$*" in
+  *show*swipekb-helper.service*) echo "${FAKE_HELPER:-running}" ;;
+  *show*swipekb-engine.service*) echo "${FAKE_ENGINE:-running}" ;;
+esac
+''',
     'konsole': '#!/bin/sh\nprintf "konsole %s\\n" "$*" >> "$FAKE_LOG"\n',
 }
 
@@ -223,6 +231,77 @@ class RestoreTests(unittest.TestCase):
         result = r.run('restore', stdin='y\n')
         self.assertIn('Nothing to do', result.stdout)
         self.assertEqual(int(r.marker.stat().st_mtime), 1000)
+
+
+class ServiceTests(unittest.TestCase):
+    """Review fix 5: when our own background programs cannot stay up, the status file says so (nothing else would)."""
+
+    def status(self, r):
+        import json
+        try:
+            return json.loads((r.state / 'status.json').read_text())
+        except OSError:
+            return None
+
+    def test_healthy_services_leave_the_status_file_alone(self):
+        r = Rig(self)
+        r.run('check')
+        self.assertIsNone(self.status(r))
+        self.assertEqual([c for c in r.calls('systemctl') if 'start' in c or 'reset-failed' in c], [])
+
+    def test_a_helper_that_keeps_crashing_is_explained_in_the_status_file(self):
+        r = Rig(self)
+        r.run('check', env={'FAKE_HELPER': 'auto-restart'})
+        st = self.status(r)
+        self.assertEqual(st['state'], 'error')
+        self.assertIn('keeps stopping', st['reason'])
+        self.assertIn('Steam\'s normal keyboard is in use', st['reason'])
+
+    def test_a_unit_that_gave_up_is_started_again_and_the_status_says_so(self):
+        r = Rig(self)
+        r.run('check', env={'FAKE_HELPER': 'failed'})
+        self.assertEqual(self.status(r)['state'], 'error')
+        calls = r.calls('systemctl')
+        self.assertIn('systemctl --user reset-failed swipekb-helper.service', calls)
+        self.assertIn('systemctl --user start swipekb-helper.service', calls)
+        self.assertFalse([c for c in calls if 'swipekb-engine' in c and ('reset-failed' in c or ' start ' in c)])
+
+    def test_a_stopped_helper_is_left_alone(self):
+        r = Rig(self)
+        r.run('check', env={'FAKE_HELPER': 'dead'})
+        self.assertIsNone(self.status(r))
+        self.assertEqual([c for c in r.calls('systemctl') if 'start' in c], [])
+
+
+class StopHelperTests(unittest.TestCase):
+    """Review fix 8: the service's stop asks the helper to clean up by file, because flatpak's --die-with-parent kills it outright."""
+
+    def test_it_asks_and_returns_as_soon_as_the_helper_has_answered_by_removing_the_file(self):
+        import threading, time
+        r = Rig(self)
+        req = r.state / 'stop-request'
+
+        def helper():
+            for _ in range(100):
+                if req.exists():
+                    time.sleep(0.3)
+                    req.unlink()
+                    return
+                time.sleep(0.02)
+        t = threading.Thread(target=helper)
+        t.start()
+        started = time.monotonic()
+        result = r.run('stop-helper', env={'SWIPEKB_STOP_WAIT_TICKS': '100'})
+        t.join()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertLess(time.monotonic() - started, 5)
+        self.assertFalse(req.exists())
+
+    def test_with_no_helper_to_answer_it_gives_up_after_the_wait_and_leaves_no_file(self):
+        r = Rig(self)
+        result = r.run('stop-helper', env={'SWIPEKB_STOP_WAIT_TICKS': '3'})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse((r.state / 'stop-request').exists())
 
 
 if __name__ == '__main__':

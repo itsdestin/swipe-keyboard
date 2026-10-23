@@ -78,6 +78,21 @@ record_value() { # print one plain value from the previous record
     [ -f "$RECORD" ] || return 0
     sed -n "s/^  \"$1\": \"\(.*\)\",\{0,1\}$/\1/p" "$RECORD" | head -n 1
 }
+# Review fix 4. Decky Loader (a popular community tool) uses the same developer-switch file. If it was installed after us, deleting
+# the file here would quietly break it, so the file is kept and the person is told.
+decky_present() { [ -e "$HOME/homebrew/services/PluginLoader" ] || [ -e "$SYSTEM_UNIT_DIR/plugin_loader.service" ]; }
+# A recorded path is deleted only if it really is the switch file inside one of Steam's own folders: the record is a plain text file,
+# and a wrong or edited line must never lead to deleting something else.
+marker_is_switch_file() {
+    case "$1" in */"$MARKER_NAME") ;; *) return 1 ;; esac
+    local real candidate
+    real="$(readlink -f "$(dirname "$1")" 2>/dev/null)" || return 1
+    for candidate in "$HOME/.steam/steam" "$HOME/.local/share/Steam"; do
+        [ -d "$candidate" ] && [ "$(readlink -f "$candidate")" = "$real" ] && return 0
+    done
+    return 1
+}
+
 in_list() { # in_list WORD ITEM...
     local word="$1" item; shift
     for item in "$@"; do [ "$item" = "$word" ] && return 0; done
@@ -416,7 +431,7 @@ if [ "$SHOW_GAMING" = 1 ]; then
     echo "    'Turn it back on' button; Gaming Mode cannot show notifications, so there Steam's normal keyboard is used."
 elif [ "$CURRENT_GAMING" = yes ]; then
     echo "  - turn Gaming Mode off: stop and delete the two background services, delete the developer-switch file if this"
-    echo "    installer created it, remove the Gaming Mode helper app if this installer added it, and remove the outside-door"
+    echo "    installer created it (kept if Decky Loader is installed, because it relies on that file), remove the Gaming Mode helper app if this installer added it, and remove the outside-door"
     echo "    block (asks for the administrator password once). The Desktop keyboard stays."
 fi
 echo "  - write a note of what was created to $RECORD, so uninstall.sh removes only that."
@@ -494,16 +509,29 @@ if [ "$SKIP_FLATPAKS" = 0 ]; then
 fi
 
 gaming_off() { # turn Gaming Mode off, keep the Desktop keyboard; touches only what the record says we made
-    systemctl --user disable --now "${UNITS[@]}" || true
-    local unit marker keep item
+    local unit marker keep item ours=()
+    # WHY only units that carry our stamp (review fix 4): a unit file of yours with the same name is not ours to switch off.
+    for unit in "${UNITS[@]}"; do
+        if [ -f "$UNIT_DIR/$unit" ] && [ "$(head -n 1 "$UNIT_DIR/$unit")" = '# swipekb-gaming-managed' ]; then ours+=("$unit"); fi
+    done
+    if [ "${#ours[@]}" -gt 0 ]; then systemctl --user disable --now "${ours[@]}" || true; fi
     for unit in "${UNITS[@]}"; do
         if [ -f "$UNIT_DIR/$unit" ] && [ "$(head -n 1 "$UNIT_DIR/$unit")" = '# swipekb-gaming-managed' ]; then rm -f "${UNIT_DIR:?}/${unit:?}"; fi
     done
     systemctl --user daemon-reload || true
-    rm -f "${WATCH_SCRIPT:?}" "${STATE_DIR:?}/switch-state" "${STATE_DIR:?}/switch-notified"
+    rm -f "${WATCH_SCRIPT:?}" "${STATE_DIR:?}/switch-state" "${STATE_DIR:?}/switch-notified" "${STATE_DIR:?}/retry.json"
+    local kept=()
     for marker in "${CREATED_MARKERS[@]+"${CREATED_MARKERS[@]}"}"; do
+        if ! marker_is_switch_file "$marker"; then
+            echo "Left $marker alone: it is not Steam's developer-switch file in Steam's folder."
+        elif decky_present; then
+            echo "Kept $marker: Decky Loader appears to be installed and relies on this developer-switch file."
+            kept+=("$marker")      # no longer ours to remove: from now on it counts as a file that was there before
         # WHY a regular file only: never follow a link or remove a folder because a path was edited by hand.
-        if [ -f "$marker" ] && [ ! -L "$marker" ]; then rm -f "${marker:?}"; fi
+        elif [ -f "$marker" ] && [ ! -L "$marker" ]; then rm -f "${marker:?}"; fi
+    done
+    for marker in "${kept[@]+"${kept[@]}"}"; do
+        in_list "$marker" "${EXISTING_MARKERS[@]+"${EXISTING_MARKERS[@]}"}" || EXISTING_MARKERS+=("$marker")
     done
     CREATED_MARKERS=(); CREATED_UNITS=()
     if in_list "$HELPER_ID" "${INSTALLED_APPS[@]+"${INSTALLED_APPS[@]}"}"; then
@@ -601,6 +629,9 @@ mkdir -p "$UNIT_DIR"
 mkdir -p "$RECORD_DIR"
 cp "$HERE/$WATCH_NAME" "$WATCH_SCRIPT.new" && chmod 755 "$WATCH_SCRIPT.new" && mv "$WATCH_SCRIPT.new" "$WATCH_SCRIPT"
 rm -f "$STATE_DIR/switch-notified"
+# WHY (review fix 3): running the installer again is the way to ask the helper to try again after it gave up on a Steam version
+# (the helper restarts below and reads this file only when it starts).
+rm -f "$STATE_DIR/retry.json"
 for unit in "${UNITS[@]}"; do
     # WHY the version is written into the file: it shows which download put it there, and re-running with a
     # newer download rewrites it.

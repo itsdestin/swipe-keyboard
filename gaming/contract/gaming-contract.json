@@ -45,6 +45,9 @@
     {"id": "shared-context-name", "package": "ui", "file": "steamui/sp.js", "match": "literal",
      "pattern": "SharedJSContext", "min": 1, "severity": "fail",
      "why": "The hidden page that holds SteamClient keeps its name; our helper finds it by that title."},
+    {"id": "ui-origin", "package": "ui", "file": "steamui/sp.js", "match": "literal",
+     "pattern": "https://steamloopback.host", "min": 1, "severity": "fail",
+     "why": "Steam's own screens are still served from https://steamloopback.host; the helper only talks to pages from that address, so a web page that merely copies a page title is never trusted."},
     {"id": "big-picture-title", "package": "ui", "file": "steamui/localization/steamui_english-json.js", "match": "literal",
      "pattern": "Steam Big Picture Mode", "min": 1, "severity": "fail",
      "why": "The keyboard page's window title is still produced by Steam's text; our helper finds the page by it."},
@@ -87,6 +90,7 @@
 
   "device": {
     "about": "Used by the on-device check (later milestone). Each entry names the static check that proves the same thing in Valve's files.",
+    "ui_origin": {"origin": "https://steamloopback.host", "static_check": "ui-origin"},
     "targets": [
       {"title": "Steam Big Picture Mode", "role": "keyboard page", "static_check": "big-picture-title"},
       {"title": "SharedJSContext", "role": "holds SteamClient", "static_check": "shared-context-name"}

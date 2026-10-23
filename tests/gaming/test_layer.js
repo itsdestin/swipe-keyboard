@@ -62,6 +62,17 @@ test('fifty swipes of varied speed leave no stray letters and are all recorded',
   assert.equal(r.L.gestures.stats().swipe, 50);
 });
 
+test('privacy: the path of a swipe is not kept in the page after it is sent (review fix 6)', async () => {
+  const r = rig();
+  const calls = []; r.page.win.__swipekb = (s) => calls.push(JSON.parse(s));
+  await swipe(r, [r.c('h'), r.c('e'), r.c('l')], 80); await settle();
+  assert.equal(calls.length, 1);
+  assert.equal(r.L.lastStroke, undefined, 'no stroke (path, keys) stays on the layer object');
+  assert.equal(r.L.lastStrokeId, calls[0].id, 'only the stroke number is kept, for the test rigs');
+  const keep = JSON.stringify(Object.keys(r.L).map((k) => typeof r.L[k] === 'object' ? 'obj:' + k : k));
+  assert.ok(!/trace/.test(JSON.stringify(r.L, (k, v) => typeof v === 'function' ? undefined : v)), 'nothing on the layer holds a trace: ' + keep);
+});
+
 test('the same swipes WITHOUT the layer do leave a stray letter (the test can fail)', async () => {
   const r = rig({}, null, false);
   await swipe(r, [r.c('q'), r.c('p')], 80); await settle();

@@ -115,6 +115,15 @@ class Typing(unittest.TestCase):
         self.assertEqual(len(sw['points']), 3)
         self.assertEqual(self.d.ops('hello')[0][2]['mode'], 'unknown')
 
+    def test_a_web_page_that_copies_the_hidden_pages_title_never_receives_a_word(self):
+        """Review fix 1: typing goes to the page Steam serves, not to the first page that carries the title."""
+        evil = self.r.fake.add_target('SharedJSContext', steam='ok', url='https://evil.example/')
+        self.start()
+        self.send(stroke())
+        self.wait_got()
+        self.assertEqual(self.sent(), ['hello '])
+        self.assertEqual(len(self.r.fake.page(evil).eval_log), 0, 'nothing at all was sent to the look-alike page')
+
     def test_capitals_are_the_helpers_job_and_follow_the_layers_request(self):
         self.start()
         self.send(stroke(1, caps='first')); self.wait_got(1)

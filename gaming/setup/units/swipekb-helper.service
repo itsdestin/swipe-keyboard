@@ -1,6 +1,6 @@
 # swipekb-gaming-managed
 # swipekb-gaming-version: @VERSION@
-# swipekb-gaming-unit-revision: 2
+# swipekb-gaming-unit-revision: 3
 # WHY the two lines above: install.sh and uninstall.sh only overwrite or delete a unit file that carries them,
 # so a file of yours with the same name is never touched.
 [Unit]
@@ -8,8 +8,10 @@ Description=Swipe Keyboard Gaming Mode helper (attaches to Steam's keyboard on t
 # WHY Wants and not Requires: if the engine is down the helper just does nothing and Steam's own keyboard keeps working.
 Wants=swipekb-engine.service
 After=swipekb-engine.service
-StartLimitIntervalSec=300
-StartLimitBurst=30
+# WHY no start limit (review fix 5): "30 starts in 300 s" was used up after about 90 s of a crash loop, and the unit then stayed
+# dead with nothing to say why. systemd waits longer between tries instead (3 s, growing to 2 minutes), so a program that cannot
+# start costs almost nothing, and one that recovers (Steam updated, Flatpak reinstalled) comes back by itself.
+StartLimitIntervalSec=0
 
 [Service]
 # WHY the Flatpak app id and not a path: see swipekb-engine.service.
@@ -17,8 +19,14 @@ StartLimitBurst=30
 # service, so without it stopping or restarting the service left the old copy running. Copies piled up (three
 # helpers) and a new engine refused to start because "another is already running".
 ExecStart=/usr/bin/flatpak run --die-with-parent --user --command=swipekb-helper org.itsdestin.SwipeKeyboard.GamingHelper
+# WHY (review fix 8): flatpak's --die-with-parent turns the SIGTERM systemd sends on stop into an instant kill, so the helper would never
+# get to take its layer out of Steam. This asks it to do that first, through a file, and waits (up to 10 s) for the answer.
+# The "-" lets the stop go on even if the script is gone.
+ExecStop=-@WATCH_SCRIPT@ stop-helper
 Restart=always
 RestartSec=3
+RestartSteps=6
+RestartMaxDelaySec=120
 
 [Install]
 WantedBy=default.target
