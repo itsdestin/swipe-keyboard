@@ -52,7 +52,7 @@ model-index:
 
 # youcoded/next-word-english: English next-word model for the Swipe Keyboard
 
-> **Headline:** together with the English n-gram pack, on its recorded queries this model was between +6.18 and +18.32 points relative to Gboard 14.2 (the copy built into Google's Android 35 x86_64 emulator image, learning off, tested 2026-10-22): ahead on every recorded measure (0 to 3 typed letters, everyday and web sentences, 100 sentences per set). Not a general claim about Gboard; see the conditions below.
+> **Result:** used together with its n-gram pack, this model offered the right word more often than Gboard 14.2 on every measure we recorded: 6.18 to 18.32 points ahead, from before typing to three letters typed, on everyday and web sentences (100 sentences per set). Gboard 14.2 here is the copy built into Google's Android 35 x86_64 emulator image, with learning off, tested on 22 October 2026. Newer Gboard versions, and Gboard after it has learned from a user, were not measured.
 
 A small neural network that predicts the next word of a sentence in English. It is one of four (English, Spanish, French, German) and runs on the user's own computer inside the Swipe Keyboard, an open-source swipe-typing and word-prediction add-on for KDE Plasma's on-screen keyboard.
 
