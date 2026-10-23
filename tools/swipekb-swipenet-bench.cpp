@@ -25,7 +25,7 @@ using namespace swipekb;
 using Clock = std::chrono::steady_clock;
 
 namespace {
-struct Swipe { std::string word, board; float aspect; std::vector<SwipePoint> pts; };
+struct Swipe { std::string word, board; float aspect; std::vector<SwipePoint> pts; std::vector<std::string> ctx; };
 
 // How a candidate is compared with the target: "ascii" = a-z only (the original English benchmark),
 // "lookup" = lower-cased with accents kept, "exact" = byte for byte.
@@ -41,7 +41,7 @@ std::string norm(const std::string &s, const std::string &mode) {
 int main(int argc, char **argv) {
     std::string model, words, layoutPath, layoutsDir, input, ngramPath, match = "ascii";
     EngineParams ep;
-    float lmWeight = 1.0f;
+    float lmWeight = 1.0f; bool useContext = false;
     int jobs = 1, topN = 5; size_t limit = 0, perBoard = 0, misses = 0;
     for (int i = 1; i < argc; ++i) {
         const std::string a = argv[i];
@@ -58,6 +58,7 @@ int main(int argc, char **argv) {
         else if (a == "--top") topN = std::atoi(val()); else if (a == "--match") match = val();
         else if (a == "--per-board") perBoard = size_t(std::atoll(val()));
         else if (a == "--misses") misses = size_t(std::atoll(val()));
+        else if (a == "--context") useContext = true;
         else if (a == "--ngram") ngramPath = val(); else if (a == "--lm-weight") lmWeight = float(std::atof(val()));
         else if (a[0] != '-') input = a; else { std::fprintf(stderr, "unknown option %s\n", a.c_str()); return 2; }
     }
@@ -74,6 +75,14 @@ int main(int argc, char **argv) {
         s.word = o["word"].toString().toStdString();
         s.board = o["layout"].toString().toStdString();
         s.aspect = float(o["canvas_height"].toDouble() / o["canvas_width"].toDouble());
+        // Previous words of the recorded sentence (the collections store the sentence and the word's position).
+        if (o.contains("sentence") && o.contains("word_idx")) {
+            const auto toks = o["sentence"].toString().split(' ', Qt::SkipEmptyParts);
+            for (int k = 0; k < std::min<int>(o["word_idx"].toInt(), int(toks.size())); ++k) {
+                const std::string a = NgramLM::alphaForm(toks[k].toStdString());
+                if (!a.empty()) s.ctx.push_back(a);
+            }
+        }
         for (const auto &p : o["data"].toArray()) {
             const auto po = p.toObject();
             s.pts.push_back({float(po["x"].toDouble()), float(po["y"].toDouble()), po["t"].toDouble()});
@@ -104,11 +113,15 @@ int main(int argc, char **argv) {
             std::unique_ptr<NgramWordPrior> prior;
             if (!ngramPath.empty()) {   // single-word swipes: plain word frequency from the model, no previous words
                 prior = std::make_unique<NgramWordPrior>(lm, eng.lexicon());
-                prior->unigramOnly = true; prior->lmWeight = lmWeight;
-                eng.setPrior([&](uint32_t w) { return (*prior)(w); });
+                prior->unigramOnly = !useContext; prior->lmWeight = lmWeight;
+                if (!useContext) eng.setPrior([&](uint32_t w) { return (*prior)(w); });
             }
             for (size_t k; (k = next++) < idxs.size();) {
                 const size_t i = idxs[k];
+                if (prior && useContext) {   // sentence-context prior: previous words of this swipe's sentence
+                    prior->setContext(swipes[i].ctx);
+                    eng.setPrior([&](uint32_t w) { return (*prior)(w); }, prior->hints());
+                }
                 const auto a = Clock::now();
                 const auto res = eng.decode(swipes[i].pts, swipes[i].aspect, topN);
                 out[i].ms = std::chrono::duration<double, std::milli>(Clock::now() - a).count();
