@@ -1,5 +1,5 @@
 Name: swipe-keyboard
-Version: 0.4.0
+Version: 0.4.1
 Release: 1%{?dist}
 Summary: English, Spanish, French and German swipe typing, completions and next-word suggestions for Plasma Keyboard
 # WHY SPDX lists CC-BY-2.0 (Generic), not the Tatoeba France port: retain its
@@ -50,7 +50,7 @@ python3 -m unittest discover -s tests/integration -v
 
 %install
 %cmake_install
-# WHY a packaged link instead of %post "systemctl enable": automatic updates are on from install with no scriptlet,
+# WHY a packaged link instead of an install scriptlet running "systemctl enable": updates are on from install,
 # and removing the package removes the link. "sudo swipe-keyboard updates off" turns them off.
 mkdir -p %{buildroot}%{_unitdir}/timers.target.wants
 ln -s ../swipe-keyboard-update.timer %{buildroot}%{_unitdir}/timers.target.wants/swipe-keyboard-update.timer

@@ -1,0 +1,205 @@
+#!/usr/bin/env python3
+"""Build the signed update website from one verified release (plan: docs/active/plans/2026-10-23-auto-updates.md).
+
+    update_site.py build --release DIR --tag TAG --key-id FPR --out SITE [--base-url URL] [--downloads URL] [--test-key]
+    update_site.py verify --site SITE --keyring KEY.gpg --armored KEY.asc
+
+DIR holds the verified release files (the same bytes the release published). The site holds only the newest release:
+  repo/                       Flatpak repository with both Deck apps, every commit and the summary signed
+  fedora/<arch>/repodata/     dnf metadata, repomd.xml signed; the packages themselves stay on the release page
+  arch/latest.json(.sig)      what the Arch updater reads: version, URL and SHA256 of the package
+  swipe-keyboard.gpg/.asc     the public update key, plus .flatpakrepo/.flatpakref files carrying it
+Signing uses the key already imported into gpg (CI imports it from the secret; the rehearsal uses a throwaway key).
+"""
+import argparse
+import base64
+import hashlib
+import json
+from pathlib import Path
+import shutil
+import subprocess
+import tarfile
+import tempfile
+
+ROOT = Path(__file__).resolve().parents[1]
+BASE_URL = 'https://itsdestin.github.io/swipe-keyboard'
+DOWNLOADS = 'https://github.com/itsdestin/swipe-keyboard/releases/download'
+MAIN_ID = 'org.itsdestin.SwipeKeyboard'
+HELPER_ID = 'org.itsdestin.SwipeKeyboard.GamingHelper'
+
+
+def run(*command, **kwargs):
+    subprocess.run(command, check=True, **kwargs)
+
+
+def sha256(path):
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def contract():
+    return json.loads((ROOT / 'packaging/release-targets.json').read_text())
+
+
+def names(version_release):
+    version = version_release.rsplit('-', 1)[0]
+    return {
+        'flatpak': f'swipe-keyboard-{version_release}-x86_64.flatpak',
+        'steamos': f'swipe-keyboard-{version_release}-steamos-x86_64.tar.gz',
+        'helper': f'swipe-keyboard-gaming-helper-{version_release}-x86_64.flatpak',
+        'arch': f'swipe-keyboard-{version_release}-x86_64.pkg.tar.zst',
+        'rpms': {'x86_64': f'swipe-keyboard-{version_release}.fc44.x86_64.rpm',
+                 'aarch64': f'swipe-keyboard-{version_release}.fc44.aarch64.rpm'},
+        'version': version,
+    }
+
+
+def sign(path, key_id, armor=False):
+    out = Path(str(path) + ('.asc' if armor else '.sig'))
+    run('gpg', '--batch', '--yes', '--local-user', key_id, '--detach-sign', *(['--armor'] if armor else []),
+        '--output', str(out), str(path))
+    return out
+
+
+def arch_index(release, tag, version_release, downloads):
+    package = release / names(version_release)['arch']
+    return {
+        'schema': 1, 'package': 'swipe-keyboard', 'version': version_release,
+        'files': {'x86_64': {'url': f'{downloads}/{tag}/{package.name}', 'sha256': sha256(package),
+                             'size': package.stat().st_size}},
+    }
+
+
+def build_arch(release, site, tag, version_release, key_id, downloads):
+    folder = site / 'arch'
+    folder.mkdir(parents=True)
+    index = folder / 'latest.json'
+    index.write_text(json.dumps(arch_index(release, tag, version_release, downloads), indent=1) + '\n')
+    sign(index, key_id)
+
+
+def build_fedora(release, site, tag, version_release, key_id, downloads):
+    for arch, name in names(version_release)['rpms'].items():
+        folder = site / 'fedora' / arch
+        folder.mkdir(parents=True)
+        # WHY metadata only: the package stays on the release page (the exact published bytes); the index points there.
+        shutil.copy2(release / name, folder / name)
+        run('createrepo_c', '--quiet', '--baseurl', f'{downloads}/{tag}/', str(folder))
+        (folder / name).unlink()
+        sign(folder / 'repodata/repomd.xml', key_id, armor=True)
+
+
+def build_flatpak(release, site, version_release, key_id):
+    n = names(version_release)
+    repo = site / 'repo'
+    run('ostree', 'init', '--mode=archive-z2', f'--repo={repo}')
+    with tempfile.TemporaryDirectory() as tmp:
+        with tarfile.open(release / n['steamos']) as archive:
+            member = next(m for m in archive.getmembers() if m.name.endswith('/' + n['helper']))
+            member.name = n['helper']
+            archive.extract(member, tmp, filter='data')
+        for bundle in (release / n['flatpak'], Path(tmp) / n['helper']):
+            run('flatpak', 'build-import-bundle', f'--gpg-sign={key_id}', str(repo), str(bundle))
+    # WHY no static deltas: a recent libostree refuses large delta parts, and a whole update is only about 30 MB.
+    run('flatpak', 'build-update-repo', f'--gpg-sign={key_id}', '--title=Swipe Keyboard', str(repo))
+
+
+def write_key_files(site, key_id, base_url, test_key=False):
+    binary = subprocess.run(['gpg', '--batch', '--export', key_id], check=True, capture_output=True).stdout
+    if not binary:
+        raise SystemExit('the signing key is not in gpg')
+    (site / 'swipe-keyboard.gpg').write_bytes(binary)
+    (site / 'swipe-keyboard.asc').write_bytes(
+        subprocess.run(['gpg', '--batch', '--armor', '--export', key_id], check=True, capture_output=True).stdout)
+    committed = (ROOT / 'packaging/updates/update-key.gpg').read_bytes()
+    # WHY refuse: every installed keyboard trusts only the committed key; signing with another would strand them all.
+    if binary != committed and not test_key:
+        raise SystemExit('the signing key is not the committed packaging/updates/update-key.gpg')
+    key = base64.b64encode(binary).decode()
+    for app_id, title in ((MAIN_ID, 'Swipe Keyboard'), (HELPER_ID, 'Swipe Keyboard Gaming Mode helper')):
+        (site / f'{app_id}.flatpakref').write_text(
+            f'[Flatpak Ref]\nTitle={title}\nName={app_id}\nBranch=master\nIsRuntime=false\nUrl={base_url}/repo/\n'
+            f'SuggestRemoteName=swipe-keyboard\nGPGKey={key}\n')
+    (site / 'swipe-keyboard.flatpakrepo').write_text(
+        f'[Flatpak Repo]\nTitle=Swipe Keyboard\nUrl={base_url}/repo/\nGPGKey={key}\n')
+    (site / '.nojekyll').write_text('')
+
+
+def build(release, tag, key_id, out, base_url=BASE_URL, downloads=DOWNLOADS, test_key=False):
+    release, site = Path(release), Path(out)
+    c = contract()
+    version_release = f"{c['version']}-{c['release']}"
+    if tag != f'v{version_release}':
+        raise SystemExit(f'tag {tag} does not match the release contract {version_release}')
+    if site.exists():
+        raise SystemExit(f'{site} already exists')
+    site.mkdir(parents=True)
+    write_key_files(site, key_id, base_url, test_key)
+    build_arch(release, site, tag, version_release, key_id, downloads)
+    build_fedora(release, site, tag, version_release, key_id, downloads)
+    build_flatpak(release, site, version_release, key_id)
+    (site / 'index.html').write_text(
+        '<!doctype html><meta charset="utf-8"><title>Swipe Keyboard updates</title>'
+        f'<p>Update site for Swipe Keyboard {version_release}. Installed keyboards check here once a day. '
+        '<a href="https://github.com/itsdestin/swipe-keyboard">Project page</a></p>\n')
+    return site
+
+
+def verify(site, keyring, armored):
+    """Each platform's own tool must accept the site with the signature checked (a wrong site strands every keyboard)."""
+    site = Path(site).resolve()
+    version_release = f"{contract()['version']}-{contract()['release']}"
+    run('gpgv', '--keyring', str(keyring), str(site / 'arch/latest.json.sig'), str(site / 'arch/latest.json'))
+    if json.loads((site / 'arch/latest.json').read_text())['version'] != version_release:
+        raise SystemExit('arch/latest.json names the wrong version')
+    for arch in ('x86_64', 'aarch64'):
+        repodata = site / 'fedora' / arch / 'repodata'
+        run('gpgv', '--keyring', str(keyring), str(repodata / 'repomd.xml.asc'), str(repodata / 'repomd.xml'))
+    with tempfile.TemporaryDirectory() as home:
+        env = {'HOME': home, 'PATH': '/usr/bin:/bin'}
+        run('flatpak', 'remote-add', '--user', f'--gpg-import={keyring}', 'verify-repo', f'file://{site}/repo', env=env)
+        listed = subprocess.run(['flatpak', 'remote-ls', '--user', '--columns=application', 'verify-repo'],
+                                check=True, capture_output=True, text=True, env=env).stdout.split()
+    if sorted(listed) != sorted([MAIN_ID, HELPER_ID]):
+        raise SystemExit(f'the Flatpak repository lists {listed}')
+    # WHY a real Fedora: dnf itself must accept the signed index (repo_gpgcheck) and see this version.
+    repo = (ROOT / 'packaging/updates/swipe-keyboard.repo').read_text()
+    repo = '\n'.join('baseurl=file:///site/fedora/$basearch/' if l.startswith('baseurl=') else
+                     'gpgkey=file:///key.asc' if l.startswith('gpgkey=') else l for l in repo.splitlines()) + '\n'
+    with tempfile.TemporaryDirectory() as tmp:
+        (Path(tmp) / 'swipe-keyboard.repo').write_text(repo)
+        script = ('cp /cfg/swipe-keyboard.repo /etc/yum.repos.d/ && dnf -y -q --repo=swipe-keyboard makecache && '
+                  'dnf -q --repo=swipe-keyboard repoquery swipe-keyboard')
+        out = subprocess.run(['docker', 'run', '--rm', '-v', f'{site}:/site:ro', '-v', f'{Path(armored).resolve()}:/key.asc:ro',
+                              '-v', f'{tmp}:/cfg:ro', 'fedora:44', 'bash', '-euc', script],
+                             check=True, capture_output=True, text=True).stdout
+    if version_release not in out:
+        raise SystemExit('dnf does not see ' + version_release + ' in the site: ' + out)
+    print('Update site verified:', site)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = parser.add_subparsers(dest='command', required=True)
+    b = sub.add_parser('build')
+    b.add_argument('--release', required=True)
+    b.add_argument('--tag', required=True)
+    b.add_argument('--key-id', required=True)
+    b.add_argument('--out', required=True)
+    b.add_argument('--base-url', default=BASE_URL)
+    b.add_argument('--downloads', default=DOWNLOADS)
+    # WHY a flag: only CI rehearsals may sign with a throwaway key; their site is never published.
+    b.add_argument('--test-key', action='store_true')
+    v = sub.add_parser('verify')
+    v.add_argument('--site', required=True)
+    v.add_argument('--keyring', required=True)
+    v.add_argument('--armored', required=True)
+    args = parser.parse_args()
+    if args.command == 'verify':
+        verify(args.site, args.keyring, args.armored)
+    else:
+        print(build(args.release, args.tag, args.key_id, args.out, args.base_url.rstrip('/'),
+                    args.downloads.rstrip('/'), args.test_key))
+
+
+if __name__ == '__main__':
+    main()

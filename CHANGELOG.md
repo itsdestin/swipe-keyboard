@@ -1,5 +1,9 @@
 # Changes
 
+## v0.4.1-1
+
+- Automatic updates on every platform, once a day, accepting only updates signed with the project key: Flatpak on the Steam Deck (set up by `install.sh`, now the Deck install path), the package's own signed dnf repository on Fedora, and a signed index plus `pacman -U` of that one package on Arch. Off switches: `bash install.sh --no-auto-update`, `sudo swipe-keyboard updates off`. 0.4.0 and older need 0.4.1 installed once by hand.
+
 ## v0.4.0-1
 
 - Steam Deck Gaming Mode preview: swipe typing and word suggestions on top of Steam's own on-screen keyboard, from one opt-in SteamOS download (`install.sh` / `uninstall.sh`). Tested on a virtual Steam Deck only; relies on a Valve developer switch (see the README warning).
