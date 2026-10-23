@@ -12,10 +12,13 @@
 #include <cstdlib>
 #include <cstring>
 #include <map>
+#include <memory>
 #include <thread>
 
 #include "swipekb/swipe_beam.hpp"
+#include "swipekb/ngram.hpp"
 #include "swipekb/swipe_layout.hpp"
+#include "swipekb/swipe_lm.hpp"
 #include "swipekb/swipe_net.hpp"
 
 using namespace swipekb;
@@ -32,7 +35,8 @@ std::string lettersOnly(const std::string &s) {   // a-z only, lower case: how t
 }
 
 int main(int argc, char **argv) {
-    std::string model, words, layoutPath, input;
+    std::string model, words, layoutPath, input, ngramPath;
+    float lmWeight = 1.0f, freqWeight2 = 0.0f;
     BeamParams bp;
     int jobs = 1, topN = 5; size_t limit = 0;
     for (int i = 1; i < argc; ++i) {
@@ -46,6 +50,8 @@ int main(int argc, char **argv) {
         else if (a == "--lookahead") bp.lookahead = float(std::atof(val())); else if (a == "--freq-weight") bp.freqWeight = float(std::atof(val()));
         else if (a == "--jobs") jobs = std::atoi(val()); else if (a == "--limit") limit = size_t(std::atoll(val()));
         else if (a == "--top") topN = std::atoi(val());
+        else if (a == "--ngram") ngramPath = val(); else if (a == "--lm-weight") lmWeight = float(std::atof(val()));
+        else if (a == "--lm-freq-weight") freqWeight2 = float(std::atof(val()));
         else if (a[0] != '-') input = a; else { std::fprintf(stderr, "unknown option %s\n", a.c_str()); return 2; }
     }
     if (model.empty() || words.empty() || layoutPath.empty() || input.empty()) {
@@ -75,6 +81,14 @@ int main(int argc, char **argv) {
         }
         if (!s.pts.empty()) swipes.push_back(std::move(s));
     }
+    // Optional n-gram prior. Benchmark swipes are single words, so the model's plain word frequency is used
+    // (no previous words); the sentence-context path is exercised by the unit tests.
+    NgramLM lm; std::unique_ptr<NgramWordPrior> prior;
+    if (!ngramPath.empty()) {
+        if (!lm.load(ngramPath)) { std::fprintf(stderr, "cannot load n-gram file\n"); return 1; }
+        prior = std::make_unique<NgramWordPrior>(lm, lex);
+        prior->unigramOnly = true; prior->lmWeight = lmWeight; prior->freqWeight = freqWeight2;
+    }
     struct Out { std::vector<std::string> top; double netMs = 0, beamMs = 0; };
     std::vector<Out> out(swipes.size());
     std::atomic<size_t> next{0};
@@ -86,7 +100,8 @@ int main(int argc, char **argv) {
             net.buildInput(swipes[i].pts, layout, swipes[i].aspect, in);
             net.forward(in, lp);
             const auto b = Clock::now();
-            const auto res = search.decode(lp.data(), in.steps, in.keyCount, bp, topN);
+            const auto res = prior ? search.decode(lp.data(), in.steps, in.keyCount, bp, topN, [&](uint32_t w) { return (*prior)(w); })
+                                         : search.decode(lp.data(), in.steps, in.keyCount, bp, topN);
             const auto c = Clock::now();
             for (const auto &r : res) out[i].top.push_back(lettersOnly(lex.text(r.word)));
             out[i].netMs = std::chrono::duration<double, std::milli>(b - a).count();

@@ -25,6 +25,8 @@ public:
     // Lexicon words the model has seen right after the context (at most maxHints), for the search's pruning bonus.
     std::vector<uint32_t> hints(size_t maxHints = 200) const;
 
+    // True: ignore the previous words and use the plain word frequency from the model (single-word swipes, benchmarks).
+    bool unigramOnly = false;
     float lmWeight = 1.0f;     // multiplies ln P from the n-gram file
     float freqWeight = 0.0f;   // extra nats per dictionary-frequency point (the model already contains frequency)
 

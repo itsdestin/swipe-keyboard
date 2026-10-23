@@ -26,7 +26,7 @@ float NgramWordPrior::operator()(uint32_t w) const {
     constexpr float kLn10 = 2.302585093f;
     const uint32_t id = ids_[w];
     // Known word: its model number gives the exact score. Unknown word: the model's own fallback from frequency.
-    const float lg10 = id != NgramLM::kUnk ? lm_.logProb(ctx_, id)
+    const float lg10 = id != NgramLM::kUnk ? (unigramOnly ? lm_.unigramLogProb(id) : lm_.logProb(ctx_, id))
                                            : lm_.logProb(ctx_, NgramLM::alphaForm(lex_.text(w)), float(lex_.freq(w)));
     return lmWeight * kLn10 * lg10 + freqWeight * lex_.freq(w);
 }
