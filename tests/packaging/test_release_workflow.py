@@ -23,25 +23,39 @@ class WorkflowTests(unittest.TestCase):
         for name, target in contract['targets'].items():
             if name == 'source':
                 continue
+            if name == 'steamos':
+                # TODO(first release that contains the steamos target): the README's Gaming Mode section (M10) is
+                # written and marked preview, but deliberately has no download link yet because the only
+                # published tag (v0.3.1-1) has no steamos asset and assets are never replaced. In the change that
+                # bumps the version (release-targets.json + recipes), delete this exemption and add the link
+                # .../releases/download/<tag>/swipe-keyboard-<version>-steamos-x86_64.tar.gz to the README.
+                continue
             installer = target['files'][0].format(version=contract['version'], release=contract['release'])
             with self.subTest(target=name):
                 self.assertIn(f'https://github.com/itsdestin/swipe-keyboard/releases/download/{tag}/{installer}', guide)
         self.assertTrue((ROOT/'docs/releases'/f'{tag}.md').is_file())
 
     def test_real_producers_and_always_completion_gate(self):
-        self.assertEqual(set(self.jobs), {'prepare', 'arch', 'fedora', 'fedora-arm64', 'flatpak', 'keyboard-ci', 'publish'})
+        self.assertEqual(set(self.jobs), {'prepare', 'arch', 'fedora', 'fedora-arm64', 'flatpak', 'steamos-helper', 'steamos', 'keyboard-ci', 'gaming-tests', 'publish', 'flatpak-repo'})
         gate = self.jobs['keyboard-ci']
-        self.assertIn('name: Keyboard CI', gate)
+        # WHY changed: the required check keeps the exact name "Keyboard CI" only for full runs; the
+        # fast path reports under a different name and so can never satisfy the merge requirement.
+        self.assertIn("name: ${{ needs.prepare.outputs.mode == 'fast' && 'Keyboard CI (fast path, not mergeable)' || 'Keyboard CI' }}", gate)
         self.assertIn('if: ${{ always() }}', gate)
-        self.assertIn('needs: [prepare, arch, fedora, fedora-arm64, flatpak]', gate)
+        self.assertIn('needs: [prepare, arch, fedora, fedora-arm64, flatpak, steamos, gaming-tests]', gate)
         self.assertIn('${{ toJSON(needs) }}', gate)
         self.assertIn('scripts/release.py gate', gate)
-        for name, build in [('arch', 'makepkg --noconfirm'), ('fedora', 'rpmbuild -ba'), ('fedora-arm64', 'rpmbuild -bb'), ('flatpak', 'packaging/flatpak/build.py')]:
+        for name, build in [('arch', 'makepkg --noconfirm'), ('fedora', 'rpmbuild -ba'), ('fedora-arm64', 'rpmbuild -bb'), ('flatpak', 'packaging/flatpak/build.py'), ('steamos', 'scripts/steamos_bundle.py assemble')]:
             producer = self.jobs[name]
             self.assertIn(build, producer)
             self.assertIn('--target ' + name, producer)
             self.assertNotIn('continue-on-error', producer)
-            self.assertNotRegex(producer, r'(?m)^    if:', name)
+            if name in ('arch',):
+                self.assertNotRegex(producer, r'(?m)^    if:', name)
+            else:
+                # WHY changed from "no job-level if": these three are optional only in the fast path,
+                # and the gate requires them to be 'skipped' there and 'success' everywhere else.
+                self.assertIn("    if: ${{ needs.prepare.outputs.mode == 'full' }}", producer)
 
     def test_arm_is_native_full_recipe_build_and_collision_free_upload(self):
         arm = self.jobs['fedora-arm64']
@@ -81,16 +95,134 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('  workflow_dispatch:', self.workflow)
         self.assertNotIn('pull_request_target', self.workflow)
         self.assertNotIn('    paths:', self.workflow)
-        self.assertEqual(self.workflow.count('contents: write'), 1)
+        # WHY two: the release uploader and the update-repository publisher (the latter writes only the
+        # flatpak-repo branch and is gated off by default; see test_gaming_tests_and_update_repo_wiring).
+        self.assertEqual(self.workflow.count('contents: write'), 2)
         self.assertIn('contents: write', self.jobs['publish'])
-        self.assertIn('needs: [keyboard-ci]', self.jobs['publish'])
+        self.assertIn('contents: write', self.jobs['flatpak-repo'])
+        self.assertIn('needs: [keyboard-ci, gaming-tests]', self.jobs['publish'])
         self.assertIn('environment: keyboard-release', self.jobs['publish'])
         self.assertIn("github.event_name == 'push'", self.jobs['publish'])
         self.assertIn("github.repository == 'itsdestin/swipe-keyboard'", self.jobs['publish'])
         self.assertNotIn('run-id:', self.workflow)
         self.assertNotIn('repository:', self.workflow)
-        self.assertNotIn('actions/cache', self.workflow)
+        # WHY changed from "no actions/cache at all": approved dependency-only caches now exist.
+        # The release guarantees are pinned in test_dependency_caches_are_trusted_and_never_touch_releases.
+        self.assertNotIn('actions/cache@', self.workflow)
         self.assertNotIn('0.2.', self.workflow)
+
+    def test_gaming_tests_and_update_repo_wiring(self):
+        # WHY: Gaming Mode tests used to run only in the daily canary (and failed there for want of a built daemon).
+        # They now run on every pull request and push, and a release tag cannot publish while they fail.
+        gaming = self.jobs['gaming-tests']
+        self.assertIn('actions/setup-node@v4', gaming)  # the layer and helper tests drive Node
+        for name in ('test_flatpak_gaming.py', 'test_gaming_setup.py', 'test_release_steamos.py'):
+            self.assertIn(name, gaming)
+        self.assertNotIn('continue-on-error', gaming)
+        self.assertNotIn("test_[!d]", gaming)  # the old glob quietly depended on a file name's first letter
+        # WHY by name: the tests that need the compiled daemon cannot run in this job (no Qt 6.8 or models), so they are
+        # excluded explicitly. Which files those are is read from the tests themselves, so a new daemon-dependent test
+        # that is not excluded (or is excluded and never wired into CTest) fails here, not in a run on GitHub.
+        needs_daemon = sorted(f.name for f in (ROOT/'tests/gaming').glob('test_*.py')
+                              if re.search(r'SWIPEKB_GAMINGD|import test_daemon', f.read_text()) and f.name != 'test_daemon.py') + ['test_daemon.py']
+        self.assertEqual(sorted(needs_daemon), ['test_commit_e2e.py', 'test_daemon.py'])
+        cmake = (ROOT/'gaming/daemon/CMakeLists.txt').read_text()
+        for name in needs_daemon:
+            self.assertIn(name, gaming, f'{name} must be excluded from gaming-tests by name')
+            self.assertIn('tests/gaming/' + name, cmake, f'{name} must be registered with CTest, which the package builds run')
+        self.assertIn('add_test(NAME gaming_daemon', cmake)
+        self.assertIn('add_test(NAME gaming_commit_e2e', cmake)
+        # The update repository can never run on a pull request, a branch or without the owner's switch.
+        repo = self.jobs['flatpak-repo']
+        self.assertIn("startsWith(github.ref, 'refs/tags/v')", repo)
+        self.assertIn("vars.FLATPAK_REPO_PUBLISH == 'true'", repo)
+        self.assertIn('needs: [publish]', repo)
+        self.assertIn('environment: keyboard-release', repo)
+        self.assertIn('secrets.FLATPAK_REPO_GPG_KEY', repo)
+        self.assertNotIn('pull_request', repo)
+
+    def test_dependency_caches_are_trusted_and_never_touch_releases(self):
+        import json
+        # WHY: tag candidates must rebuild everything cold, and only trusted events may write.
+        for name in ('arch', 'fedora', 'fedora-arm64', 'flatpak'):
+            job = self.jobs[name]
+            self.assertIn('scripts/ci-cache.py policy', job, name)
+            found = 0
+            for use in re.finditer(r'(?ms)^      - name:[^\n]*\n(?:(?!^      - ).)*?uses: actions/cache/(restore|save)@v4.*?(?=^      - |\Z)', job):
+                step = use[0]
+                found += 1
+                with self.subTest(job=name, step=step.splitlines()[0]):
+                    self.assertIn('steps.cachepolicy.outputs.' + ('restore' if use[1] == 'restore' else 'save') + " == 'true'", step)
+            self.assertGreaterEqual(found, 2, name)
+        self.assertNotIn('actions/cache', self.jobs['publish'])
+        self.assertNotIn('actions/cache', self.jobs['keyboard-ci'])
+        self.assertNotIn('actions/cache', self.jobs['prepare'])
+        # The saved paths are dependency state only, never packages, QRC, install trees or build dirs.
+        saved = re.findall(r'cache/save@v4\n\s+with:\n\s+path: (\S+)', self.workflow)
+        self.assertEqual(sorted(set(saved)), ['.flatpak-builder/ccache', '/var/tmp/ccache-et', 'flatpak-stage-cache.tar.zst'])
+        # The stage cache is packed by a dependency-only run, before the keyboard module exists.
+        flatpak = self.jobs['flatpak']
+        self.assertLess(flatpak.index('--dependencies-only'), flatpak.index('ci-cache.py pack-flatpak-state'))
+        self.assertLess(flatpak.index('ci-cache.py pack-flatpak-state'), flatpak.index('flatpak-build --repo flatpak-repo --ci-manifest prepared/flatpak-inputs/manifest.json ${{'))
+        # Restores are validated and fall back to a rebuild.
+        self.assertIn('unpack-flatpak-state', flatpak)
+        self.assertIn("steps.stagecheck.outputs.usable != 'true'", flatpak)
+        # Platform caches never share keys.
+        for label in ('arch', 'fedora', 'fedora-arm64'):
+            self.assertIn(f'native-ccache "{label}|', self.jobs[label])
+        policy = json.dumps(self.jobs['arch'])
+        self.assertNotIn('refs/tags', policy)
+
+    def test_cache_steps_only_use_tools_that_are_already_installed(self):
+        # WHY (run 39822604368): the dependency build ran before the Flatpak runtimes were installed,
+        # and Fedora's toolchain query failed under pipefail before the compilers existed.
+        flatpak = self.jobs['flatpak']
+        self.assertLess(flatpak.index('Install signed exact SDK'), flatpak.index('--dependencies-only'))
+        for name in ('fedora', 'fedora-arm64'):
+            self.assertIn('|| true)', self.jobs[name])
+            self.assertLess(self.jobs[name].index('dnf -y install ccache'), self.jobs[name].index('rpm -q gcc-c++'))
+
+    def test_flatpak_compiler_cache_is_saved_only_after_the_build_succeeded(self):
+        # WHY: run 39827309452 saved an empty store after a failed step; keys are immutable.
+        flatpak = self.jobs['flatpak']
+        self.assertIn('id: flatpakbuild', flatpak)
+        save = flatpak[flatpak.index('Save ExecuTorch compiler cache'):]
+        self.assertIn("steps.flatpakbuild.outcome == 'success'", save.split('uses:')[0])
+
+    def test_fast_path_is_arch_only_and_everything_else_needs_full(self):
+        self.assertIn('types: [opened, synchronize, reopened, ready_for_review]', self.workflow)
+        self.assertIn('full:', self.workflow.split('workflow_dispatch:', 1)[1].split('permissions:', 1)[0])
+        self.assertIn('scripts/release.py mode', self.jobs['prepare'])
+        self.assertIn('mode: ${{ steps.mode.outputs.mode }}', self.jobs['prepare'])
+        for name in ('fedora', 'fedora-arm64', 'flatpak'):
+            self.assertIn("needs.prepare.outputs.mode == 'full'", self.jobs[name].split('steps:')[0], name)
+        self.assertNotIn('mode ==', self.jobs['arch'])
+        # Publication is tag-only and tags are always full (run_mode), so the release set is unchanged.
+        self.assertIn("startsWith(github.ref, 'refs/tags/v')", self.jobs['publish'])
+
+    def test_gate_hashes_real_bytes_on_tags_and_uses_evidence_elsewhere(self):
+        gate = self.jobs['keyboard-ci']
+        self.assertEqual(gate.count("if: ${{ startsWith(github.ref, 'refs/tags/') }}"), 2)  # files download + verified-release upload
+        self.assertIn('--evidence-only', gate)
+        self.assertIn('refs/tags/*', gate)
+        self.assertIn('PR_DRAFT', gate)
+        self.assertIn('FULL_INPUT', gate)
+
+    def test_all_compiles_may_use_ccache_only_through_the_policy_gate(self):
+        # WHY: engine and product objects are now cached on non-release runs (content-hashed by ccache).
+        # Tags never get CCACHE_ON/CCACHE_DIR, and platform stores keep their own labels.
+        for name in ('arch', 'fedora', 'fedora-arm64'):
+            job = self.jobs[name]
+            self.assertIn('CMAKE_CXX_COMPILER_LAUNCHER=ccache', job, name)
+            self.assertIn('CCACHE_ON: ${{ steps.cachepolicy.outputs.restore }}', job, name)
+            self.assertIn('$GITHUB_SHA', job, name)
+        self.assertIn('policy', self.jobs['flatpak'])
+
+    def test_flatpak_records_peak_memory_for_the_parallelism_bound(self):
+        flatpak = self.jobs['flatpak']
+        self.assertIn('ci-memwatch.py sample', flatpak)
+        self.assertIn('ci-memwatch.py summary', flatpak)
+        self.assertLess(flatpak.index('ci-memwatch.py sample'), flatpak.index('packaging/flatpak/build.py flatpak-build --repo flatpak-repo --ci-manifest prepared/flatpak-inputs/manifest.json ${{'))
 
     def test_prepare_shallows_dependencies_not_tag_ancestry(self):
         # Fetching full history recursively pulls enormous unused upstream histories.
@@ -141,6 +273,52 @@ exit "$result"
         fedora = self.jobs['fedora']
         self.assertLess(fedora.index('dnf -y swap systemd-standalone-tmpfiles systemd'),
                         fedora.index('dnf -y builddep packaging/fedora/swipe-keyboard.spec'))
+
+    def test_steamos_download_is_built_from_the_released_flatpak_and_a_fresh_helper_build(self):
+        # WHY split (was one job needing flatpak): the helper builds in parallel with the main Flatpak in
+        # `steamos-helper`; the slim `steamos` job only assembles, once both exist. Every check is kept.
+        helper = self.jobs['steamos-helper']
+        steamos = self.jobs['steamos']
+        self.assertIn('needs: prepare\n', helper)
+        self.assertNotIn('flatpak-files', helper)
+        self.assertIn('org.itsdestin.SwipeKeyboard.GamingHelper.json', helper)
+        self.assertIn('runtime-lock.json', helper)
+        self.assertIn('runs-on: ubuntu-26.04', helper)
+        # The helper is installed from its own bundle and checked, as the main Flatpak is.
+        self.assertIn('flatpak install --user', helper)
+        self.assertIn('--show-ref org.itsdestin.SwipeKeyboard.GamingHelper', helper)
+        self.assertIn('shared=network;', helper)
+        self.assertIn('name: steamos-helper-bundle', helper)
+        self.assertNotIn('steamos-helper-files', helper)
+        # The download embeds the very bundle the flatpak job released, not a rebuild.
+        self.assertIn('needs: [prepare, flatpak, steamos-helper]', steamos)
+        self.assertIn('flatpak-files', steamos)
+        self.assertIn('name: steamos-helper-bundle', steamos)
+        self.assertIn('scripts/steamos_bundle.py assemble', steamos)
+        self.assertIn('scripts/release.py record --target steamos', steamos)
+        self.assertIn('steamos-files', steamos)
+        self.assertIn('steamos-evidence', steamos)
+        for job in (helper, steamos):
+            self.assertNotIn('continue-on-error', job)
+            self.assertIn("    if: ${{ needs.prepare.outputs.mode == 'full' }}", job)
+        # The gate counts steamos as a producer; the helper is covered through it (a failed helper skips steamos).
+        gate = self.jobs['keyboard-ci']
+        self.assertNotIn('steamos-helper', gate)
+
+    def test_gaming_tests_run_in_every_mode_and_block_keyboard_ci_without_being_a_producer(self):
+        # WHY: ~1 minute, no Qt or Flatpak, and it catches Gaming Mode regressions on drafts too. It is not a
+        # producer: it writes no release files and is not in release.PRODUCERS. The gate still waits on it, so a
+        # green "Keyboard CI" can never sit next to failing Gaming Mode tests.
+        gaming = self.jobs['gaming-tests']
+        self.assertNotRegex(gaming, r'(?m)^    if:')
+        self.assertIn('test_switch_watch.py', gaming)
+        gate = self.jobs['keyboard-ci']
+        self.assertIn('flatpak, steamos, gaming-tests]', gate.split('steps:')[0])
+        self.assertIn('GAMING_RESULT: ${{ needs.gaming-tests.result }}', gate)
+        self.assertIn('if [[ "$GAMING_RESULT" != success ]]', gate)
+        self.assertIn('''del(."gaming-tests")''', gate)
+        self.assertIn('--statuses "$statuses"', gate)
+        self.assertIn('needs: [keyboard-ci, gaming-tests]', self.jobs['publish'])
 
     def test_flatpak_runner_supports_inherited_wayland_permission(self):
         # WHY Ubuntu 26.04: its signed distribution tools support the unchanged

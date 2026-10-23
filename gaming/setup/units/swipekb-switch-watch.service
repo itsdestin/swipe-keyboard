@@ -1,0 +1,18 @@
+# swipekb-gaming-managed
+# swipekb-gaming-version: @VERSION@
+# swipekb-gaming-unit-revision: 2
+# WHY the lines above: install.sh and uninstall.sh only overwrite or delete a unit file that carries the first one,
+# so a file of yours with the same name is never touched. The revision changes whenever these unit files change.
+[Unit]
+Description=Swipe Keyboard: check that Steam's developer switch file is still there (only looks, never changes it)
+StartLimitIntervalSec=300
+StartLimitBurst=30
+
+[Service]
+Type=oneshot
+# WHY this is a script and not part of the helper: the helper's sandbox cannot see Steam's folder (it holds login
+# files), and this check must not need to. The script only tests that the file exists and tells you if it is gone.
+ExecStart=@WATCH_SCRIPT@ check
+
+[Install]
+WantedBy=default.target

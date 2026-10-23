@@ -35,23 +35,68 @@ class FlatpakContractTests(unittest.TestCase):
             self.assertNotIn('cp314', filename)
         self.assertIn('cp313-cp313', lock['wheels']['pyyaml']['filename'])
 
+    def builder_command(self, **options):
+        spec = importlib.util.spec_from_file_location('flatpak_build', BUNDLE / 'build.py')
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module.builder_command('build', 'manifest.json', 'repo', **options)
+
+    def test_builder_flags_are_cold_by_default_and_cache_only_on_request(self):
+        plain = self.builder_command()
+        self.assertNotIn('--ccache', plain)
+        self.assertNotIn('--stop-at=swipe-keyboard', plain)
+        self.assertIn('--repo=repo', plain)
+        for flag in ('--force-clean', '--disable-rofiles-fuse'):
+            self.assertIn(flag, plain)
+        self.assertIn('--ccache', self.builder_command(ccache=True))
+        deps = self.builder_command(dependencies_only=True)
+        self.assertIn('--stop-at=swipe-keyboard', deps)
+        # WHY: a dependency-only run exports nothing, so nothing of the product can be saved.
+        self.assertFalse([a for a in deps if a.startswith('--repo')])
+
+    def test_ccache_is_enabled_only_when_a_persistent_store_is_supplied(self):
+        # WHY changed from "ExecuTorch only": the approved scope now includes the engine and product
+        # objects on non-release runs. Release builds get no CCACHE_DIR, so none of this activates.
+        script = (BUNDLE / 'build-swipe.sh').read_text()
+        guard = script.index('if [ -n "${CCACHE_DIR:-}" ]; then')
+        self.assertLess(guard, script.index('make -C third_party/swipe-library host'))
+        self.assertLess(guard, script.index('cmake -S . -B build-flatpak'))
+        self.assertIn('CMAKE_CXX_COMPILER_LAUNCHER=ccache', script)
+        self.assertNotIn('CCACHE_DISABLE', script)
+        # Language-asset QRC is always compiled fresh.
+        plugin = (ROOT / 'plugin/CMakeLists.txt').read_text()
+        self.assertIn('set_target_properties(swipekb_language PROPERTIES C_COMPILER_LAUNCHER "" CXX_COMPILER_LAUNCHER "")', plugin)
+
     def test_identity_sdk_prefix_and_parallel_bound(self):
         manifest = self.manifest()
         self.assertEqual(manifest['id'], 'org.itsdestin.SwipeKeyboard')
         self.assertEqual(manifest['runtime'], 'org.kde.Platform')
         self.assertEqual(manifest['sdk'], 'org.kde.Sdk')
         self.assertEqual(manifest['runtime-version'], '6.10')
-        self.assertEqual(manifest['build-options']['env']['CMAKE_BUILD_PARALLEL_LEVEL'], '2')
+        # WHY 4 (was 2): hosted runners have 4 CPUs/16 GB; the audit approved a bounded 2->4 benchmark.
+        # Every layer must agree so nested make/cmake never exceeds this one bound.
+        self.assertEqual(manifest['build-options']['env']['CMAKE_BUILD_PARALLEL_LEVEL'], '4')
+        self.assertEqual(manifest['build-options']['env']['MAKEFLAGS'], '-j4')
+        script = (BUNDLE / 'build-swipe.sh').read_text()
+        self.assertIn('CMAKE_BUILD_PARALLEL_LEVEL=4', script)
+        self.assertIn('JOBS=4', script)
+        self.assertNotIn('-j2', script)
+        self.assertNotIn('JOBS=2', script)
+        self.assertIn('--jobs=4', ' '.join(self.builder_command()))
         self.assertEqual(manifest['command'], 'swipe-keyboard-flatpak')
         self.assertEqual(manifest['build-options']['prefix'], '/app')
 
-    def test_runtime_permissions_are_only_required_wayland_pair(self):
+    def test_runtime_permissions_are_wayland_pair_plus_gaming_socket_dir(self):
         # WHY: Flatpak 1.16.6 run-sockets.c gates inherited FD handling on
         # SOCKET_WAYLAND, too. Devices, IPC, host shell and home are not needed.
         # KDE runtime metadata grants styling config/bus access by default;
         # the package must explicitly subtract those unneeded privileges.
+        # Gaming Mode adds exactly one thing: the shared socket directory the engine daemon
+        # (swipekb-gamingd) and the separate helper app talk through. Still no network
+        # (test_flatpak_gaming.py enforces that and the helper's side).
         self.assertEqual(self.manifest()['finish-args'], [
             '--socket=wayland', '--socket=inherit-wayland-socket',
+            '--filesystem=xdg-run/swipekb:create',
             '--nofilesystem=xdg-config/kdeglobals',
             '--no-talk-name=com.canonical.AppMenu.Registrar',
             '--no-talk-name=org.kde.kconfig.notify',

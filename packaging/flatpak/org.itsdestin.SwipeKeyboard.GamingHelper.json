@@ -1,0 +1,36 @@
+{
+  "id": "org.itsdestin.SwipeKeyboard.GamingHelper",
+  "runtime": "org.kde.Platform",
+  "runtime-version": "6.10",
+  "sdk": "org.kde.Sdk",
+  "command": "swipekb-helper",
+  "finish-args": [
+    "--share=network",
+    "--filesystem=xdg-run/swipekb:create",
+    "--filesystem=~/.local/state/swipekb-gaming:create",
+    "--nofilesystem=xdg-config/kdeglobals",
+    "--no-talk-name=com.canonical.AppMenu.Registrar",
+    "--no-talk-name=org.kde.kconfig.notify",
+    "--no-talk-name=org.kde.KGlobalSettings"
+  ],
+  "modules": [
+    {
+      "name": "swipekb-helper",
+      "buildsystem": "simple",
+      "build-commands": ["sh packaging/flatpak/build-helper.sh"],
+      "sources": [
+        {
+          "type": "dir",
+          "path": "../../gaming",
+          "dest": "gaming",
+          "skip": ["daemon"]
+        },
+        {
+          "type": "file",
+          "path": "build-helper.sh",
+          "dest": "packaging/flatpak"
+        }
+      ]
+    }
+  ]
+}

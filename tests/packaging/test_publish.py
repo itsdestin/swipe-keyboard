@@ -40,6 +40,8 @@ class PublishTests(unittest.TestCase):
                     records.append({'name': name, 'size': path.stat().st_size, 'sha256': release.digest(path)})
                 evidence.append({'target': target, 'version': release.version(contract),
                                  'source_sha': sha, 'arch': definition['arch'], 'files': records})
+            by_target = {e['target']: e for e in evidence}
+            by_target['steamos']['embedded_main_sha256'] = by_target['flatpak']['files'][0]['sha256']
             manifest = release.validate(directory, evidence, {j: {'result': 'success'} for j in release.PRODUCERS}, sha, contract)
             (directory/'release-manifest.json').write_text(json.dumps(manifest))
             (directory/'SHA256SUMS').write_text(release.checksums(manifest))

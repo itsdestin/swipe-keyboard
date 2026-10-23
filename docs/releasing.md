@@ -7,11 +7,15 @@ required file list. Current release: **0.3.1-1** (tag **v0.3.1-1**).
 It requires Arch/CachyOS x86_64, Fedora **44** x86_64, Fedora **44 aarch64**
 for Linux ARM64 Plasma Mobile, SteamOS **Desktop** x86_64 Flatpak, complete
 corresponding source, one shared Fedora source RPM, Flatpak build inputs,
+the single SteamOS download (`swipe-keyboard-<version>-steamos-x86_64.tar.gz`: both
+Flatpaks, `install.sh`, `uninstall.sh`, the two systemd units and its own checksums),
 `release-manifest.json`, and `SHA256SUMS`. There are no platform skip switches.
 ARM is a required build/package/acceptance target, not an optional canary.
 Source implementation alone is not ARM runtime acceptance: the exact native ARM
 package must pass a real ARM Plasma Mobile session before publication. This does
-not certify physical-phone performance, Android, iOS, musl, or Gaming Mode.
+not certify physical-phone performance, Android, iOS, musl, or Gaming Mode on physical Steam Deck
+hardware (virtual-machine results only; the README labels Gaming Mode a preview until the owner's
+physical-Deck pass, plan Milestone 11, is done).
 Never replace v0.2.0 assets.
 
 ## One local check command
@@ -39,11 +43,12 @@ status as required, including administrators, only after a real green run exists
 Repository rule changes and the initial remote runs are owner coordination, not
 something a local source test performs.
 
-Required producer jobs are `prepare`, `arch`, `fedora`, `fedora-arm64`, and `flatpak`.
+Required producer jobs are `prepare`, `arch`, `fedora`, `fedora-arm64`, `flatpak`, and `steamos`.
 `keyboard-ci` (`Keyboard CI`) runs with `always()` and checks every producer result;
 failed, cancelled, missing and unexpectedly skipped producers fail the gate.
 Read-only credentials apply throughout PR/build/gate jobs. No `pull_request_target`,
 cross-run artifact promotion, optional platform bypass, or product build cache exists.
+Dependency-only speed caches exist (see "Dependency caches" below); release tags never use them.
 
 - `prepare`: clean pinned checkout, recursive submodules, CPython 3.14, recipe
   consistency; fetches authenticated assets, builds language packs, captures licenses
@@ -74,6 +79,27 @@ cross-run artifact promotion, optional platform bypass, or product build cache e
   ELF imports and profile capability; installs the resulting exact bundle for
   embedded identity/ref checks. Default local `build.py` still requires the owned
   QEMU lab. Only the explicit `--ci-manifest` entry is used on hosted CI.
+- `steamos`: needs the `flatpak` job. Builds the separate GamingHelper Flatpak from
+  `packaging/flatpak/org.itsdestin.SwipeKeyboard.GamingHelper.json` (fails with a plain message
+  if `gaming/helper/` is absent), installs it and checks it has network as its only extra
+  permission, then assembles the download with `scripts/steamos_bundle.py`. The download
+  embeds the `flatpak` job's own bundle; the gate rejects it unless its recorded hash equals
+  the standalone `.flatpak`. The download is built and gated but the README's Gaming Mode section carries no link yet:
+  the only published tag has no steamos asset and assets are never replaced, so the link and
+  the exemption in `tests/packaging/test_release_workflow.py` change together in the first
+  release that includes it (this needs a version bump in `release-targets.json` and the recipes). Native Arch/Fedora packages ship no Gaming
+  Mode file; `scripts/package-check.py` fails them if one appears.
+- `gaming-tests`: Python and Node tests for the helper, gesture layer, canary, installer and
+  SteamOS release contract; runs on every pull request and tag, and `publish` waits for it. The
+  two tests that need the built daemon are left out of it by name and run under CTest in the package builds:
+  `test_daemon.py` (`gaming_daemon`, every build) and `test_commit_e2e.py` (`gaming_commit_e2e`, only where Node
+  is installed: the Arch and Fedora jobs). Both use synthetic swipes unless the developer-only recorded corpus is present.
+  The "no network" proof has two parts: a network-namespace test that is skipped (with its reason printed) where
+  `unshare -rn` is not allowed, and a socket check that runs everywhere.
+- `flatpak-repo`: publishes the hosted, signed Flatpak update repository (design and the owner's
+  one-time setup: plan, "Hosted Flatpak update repository"). It runs only for a release tag, after
+  `publish`, and only when the repository variable `FLATPAK_REPO_PUBLISH` is `true`; otherwise it is
+  skipped. It is not a release producer and is not part of the verified release set.
 
 Flatpak preparation generates an **external** `manifest.json`, replaces the source
 archive hash after archive creation, and materializes pinned upstream archives and
@@ -155,3 +181,62 @@ package's SHA256 from the verified manifest, source SHA, version, target OS/comp
 manual test steps and observed results. Native installation/configuration and rollback
 are separate owner operations. Do not label a CI result as hash-bound physical
 acceptance or infer a physical pass from an offscreen InputPanel.
+
+
+## Dependency caches (speed only)
+
+Cold dependency work is cached, never the keyboard itself. Rules, enforced by
+`scripts/ci-cache.py` and `tests/packaging/test_ci_cache.py` / `test_release_workflow.py`:
+
+- **Release tags (`refs/tags/v*`) never read or write any cache** and rebuild everything cold.
+  Fork pull requests use none. Pull requests of this repository may read, never write.
+  Only pushes and manual dispatch on a branch of `itsdestin/swipe-keyboard` write.
+- **Flatpak Qt/Plasma stages**: flatpak-builder's stage store, packed by a `--dependencies-only`
+  run that stops before the keyboard module, so no product output can enter it. Exact key only
+  (manifest, SDK/runtime commits, Plasma patches, `build.py`, flatpak-builder and runner-image
+  versions). On restore the layout, identity marker and every ostree object are verified; any
+  doubt discards the cache and rebuilds the stages from source.
+- **ExecuTorch compiler results** (ccache) for Flatpak, Arch, Fedora and Fedora ARM64, one store
+  per platform, never shared. ccache hashes the compiler, flags and preprocessed source itself, so a
+  stale entry is a miss, never different bytes. (Engine and keyboard objects joined later; see
+  "Fast path and the merge guarantee".) Keys start from the swipe-library commit
+  (which pins ExecuTorch) plus patches, recipes, build scripts and requirement locks.
+- Flatpak build parallelism is 4 (matching the 4-CPU hosted runner) in `build.py`, the manifest
+  environment and `build-swipe.sh`; the job summary records peak memory.
+
+### Fast path and the merge guarantee
+
+- **Fast path** (Arch only, about 12-15 minutes): draft pull requests, and manual dispatch on a branch
+  unless `full: true` is chosen. Arch runs the whole native test suite and checks the same package
+  bytes against both the older and the current library set.
+- **Full matrix** (Arch, Fedora, Fedora ARM64, Flatpak): every tag, every push to `main`, every
+  pull request that is **not a draft** (marking a draft ready starts it), and dispatch with `full: true`
+  or on `main`. If the situation is unknown the full matrix runs; `scripts/release.py mode` is the
+  single rule and is unit-tested.
+- **Why a fast run cannot be merged by accident:** the gate job reports under the exact name
+  `Keyboard CI` only for full runs; a fast run reports as `Keyboard CI (fast path, not mergeable)`.
+  Require `Keyboard CI` in branch protection. A draft cannot be merged on GitHub, and a ready pull
+  request always gets a full run, so the required check only appears, and only passes, after all four
+  platforms built and passed. `main` re-runs the full matrix after every merge as a backstop.
+- The gate still demands an exact outcome per producer: required ones `success`, fast-path-optional
+  ones `skipped` (never failed, cancelled or missing); the fast-shaped result is rejected on tags.
+- **Gate bytes:** on tags the gate re-downloads the files and hashes the actual bytes, as before.
+  On other runs nothing is published, so it checks the evidence each producer recorded (hashes taken
+  when the file was made) and skips the re-download (~2.5 minutes).
+- **ccache now covers our own code** on non-release runs: ExecuTorch, the FUTO engine and the
+  keyboard's objects. ccache keys each result on the compiler's contents, flags, defines and the
+  preprocessed source including headers, so a stale or foreign entry only misses. The language-asset
+  QRC library opts out in CMake, and QRC generation, install output and packages are never cached.
+  Each platform has its own store and tags use none. Stores are saved per commit by trusted pushes
+  and dispatch only; pull requests read the newest `main` store.
+- Not changed: the 180 MB PyTorch wheel used only for `torchgen`. PyPI's `torchgen` is an unrelated
+  third-party package, and the official source is the full PyTorch repository, which is larger.
+
+### Gaming Mode jobs in the fast path
+
+- `steamos-helper` builds the helper Flatpak in parallel with the main `flatpak` job; the slim `steamos`
+  job waits for both and only assembles the single SteamOS download. Both run in full mode only, and the
+  gate treats `steamos` as a producer (skipped in fast runs, successful in full runs). The helper is
+  covered through `steamos`: if it fails, `steamos` is skipped and the full gate rejects the run.
+- `gaming-tests` runs in every mode (about a minute, no Qt or Flatpak). It is not a producer; `publish`
+  needs it directly, so a tag cannot publish while it fails.

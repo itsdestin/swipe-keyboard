@@ -1,0 +1,95 @@
+name: Steam UI canary
+# Daily check that Valve's newest public Steam client still matches gaming-contract.json.
+# Public files only: no Steam account, no Deck, no secrets. See docs/active/plans/2026-10-22-gaming-mode.md section 11.
+on:
+  schedule:
+    - cron: '17 5 * * *'
+  workflow_dispatch:
+    inputs:
+      channels:
+        description: 'Comma-separated channel names (desktop-stable, desktop-beta, deck-stable, deck-beta). Empty = all four.'
+        required: false
+        default: ''
+      publish:
+        description: 'Also write the ledger branch and update the tracking issue (scheduled runs always do).'
+        type: boolean
+        default: false
+permissions:
+  contents: read
+defaults:
+  run:
+    shell: bash
+concurrency:
+  # One run at a time: two runs would race to push the ledger branch.
+  group: steam-canary
+  cancel-in-progress: false
+jobs:
+  canary:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write   # push the canary-ledger branch only
+      issues: write     # open/update the one tracking issue
+    env:
+      PUBLISH: ${{ github.event_name == 'schedule' || inputs.publish }}
+      # WHY via env, never spliced into the script text: workflow inputs are user-controlled strings.
+      CHANNELS: ${{ inputs.channels }}
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      # WHY: the canary's own tests include the Node-driven layer and helper tests.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Canary's own tests (a canary that fails its own tests is not trusted)
+        # WHY the pattern: test_daemon.py needs the compiled daemon (it runs under CTest), so a bare discover errors here.
+        run: python3 -I -m unittest discover -s tests/gaming -p 'test_[!d]*.py' -v
+      - name: Load the ledger branch (empty ledger if it does not exist yet)
+        run: |
+          auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          echo "::add-mask::${auth#AUTHORIZATION: basic }"
+          mkdir "$RUNNER_TEMP/ledger"
+          cd "$RUNNER_TEMP/ledger"
+          git init -q -b canary-ledger
+          git remote add origin "https://github.com/${REPO}.git"
+          if git -c http.extraheader="$auth" fetch -q --depth 1 origin canary-ledger; then
+            git checkout -q -f FETCH_HEAD -B canary-ledger
+          fi
+      - name: Run the canary
+        id: canary
+        run: |
+          set +e
+          python3 -I tools/steam-canary/canary.py run \
+            --contract gaming/contract/gaming-contract.json \
+            --ledger "$RUNNER_TEMP/ledger/ledger.json" \
+            --work-dir "$RUNNER_TEMP" \
+            --channels "$CHANNELS" \
+            --summary-md "$RUNNER_TEMP/summary.md"
+          echo "code=$?" >> "$GITHUB_OUTPUT"
+          # WHY the fallback text: if the canary itself broke (exit 3) there is no summary to post.
+          test -s "$RUNNER_TEMP/summary.md" || echo 'The canary itself could not run (see the workflow log). Steam may or may not be fine.' > "$RUNNER_TEMP/summary.md"
+          cat "$RUNNER_TEMP/summary.md" >> "$GITHUB_STEP_SUMMARY"
+      - name: Save the ledger
+        if: env.PUBLISH == 'true' && always()
+        run: |
+          auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          cd "$RUNNER_TEMP/ledger"
+          test -f ledger.json || exit 0
+          git config user.name 'steam-canary'
+          git config user.email 'steam-canary@users.noreply.github.com'
+          git add ledger.json
+          git commit -q -m "Steam canary ledger $(date -u +%Y-%m-%dT%H:%MZ)" || exit 0
+          git -c http.extraheader="$auth" push -q origin canary-ledger
+      - name: Open or update the tracking issue
+        if: env.PUBLISH == 'true' && steps.canary.outputs.code != '0'
+        run: python3 -I tools/steam-canary/canary.py issue --kind red --body-file "$RUNNER_TEMP/summary.md"
+      - name: Fail the run if the canary failed
+        if: steps.canary.outputs.code != '0'
+        run: exit 1

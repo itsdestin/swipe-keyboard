@@ -1,0 +1,14 @@
+# swipekb-gaming-managed
+# swipekb-gaming-version: @VERSION@
+# swipekb-gaming-unit-revision: 2
+# WHY the lines above: see swipekb-switch-watch.service.
+[Unit]
+Description=Swipe Keyboard: look once a minute whether Steam's developer switch file is still there
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=60s
+AccuracySec=10s
+
+[Install]
+WantedBy=timers.target
