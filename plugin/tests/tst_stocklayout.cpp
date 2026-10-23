@@ -323,7 +323,7 @@ private slots:
                                           Q_ARG(QVariant, middle.x()), Q_ARG(QVariant, middle.y())));
         QCOMPARE(qobject_cast<QQuickItem *>(hit.value<QObject *>()), space);
         const QPoint start = space->mapToScene(QPointF(space->width() / 2, space->height() / 2)).toPoint();
-        // 1.25 keys left of the press: past the 0.5-key start, then 0.3-key steps, first one at once: 3 characters.
+        // 1.25 keys left of the press: past the 0.5-key start, then 0.1-key steps, first one at once: 8 characters.
         const int distance = int(unit * 1.25);
         auto device = QTest::createTouchDevice();
         auto settle = [] { QTest::qWait(40); };
@@ -344,7 +344,7 @@ private slots:
             QVERIFY(QMetaObject::invokeMethod(root.get(), "setText", Q_ARG(QVariant, QStringLiteral("hello world"))));
             QCOMPARE(root->property("cursor").toInt(), 11);
             slide(mouse, -distance);
-            QCOMPARE(root->property("cursor").toInt(), 8);
+            QCOMPARE(root->property("cursor").toInt(), 3);
             QCOMPARE(root->property("text").toString(), QStringLiteral("hello world")); // no space typed
             slide(mouse, distance);
             QCOMPARE(root->property("cursor").toInt(), 11);
