@@ -8,6 +8,7 @@
 #include <QtVirtualKeyboard/QVirtualKeyboardInputContext>
 
 #include "swipekb/recognizer.hpp"
+#include "ownswipe.h"
 #include "swiperecorder.h"
 #include "livehintsquery.h"
 #include "predictionpolicy.h"
@@ -111,6 +112,7 @@ void SwipeInputMethod::resolveCurrentProfile()
     reset();
     if (!self) return;
     m_recognizer.reset();
+    m_own.reset();
     m_predictionModelState=swipekb::PredictionModelState::NotRequested;
     emit profileChanged();
     if (!self || m_profiles.snapshot().epoch!=epoch) return;
@@ -142,7 +144,24 @@ void SwipeInputMethod::resolveCurrentProfile()
         // WHY a fresh runtime: never init() on an engine already owned by a consumer/worker.
         auto runtime=std::make_shared<swipekb::Recognizer>();
         if (runtime->init(paths,options)) {
-            if (m_profiles.snapshot().epoch==epoch) m_recognizer=std::move(runtime);
+            if (m_profiles.snapshot().epoch==epoch) {
+                m_recognizer=std::move(runtime);
+                // WHY opt-in and read once per profile resolve: FUTO stays the default; the owner turns the own
+                // engine on with an empty `own-engine` file in the data dir (or SWIPEKB_ENGINE=own in tests).
+                if (swipekb::OwnSwipe::requested(SwipeRecorder::dataDir().toStdString())) {
+                    swipekb::OwnSwipeSetup setup;
+                    setup.dictionary=paths.dictionary;
+                    // WHY only an n-gram pack: the sentence prior is our n-gram file; FUTO's neural context model is not usable here.
+                    if (ngramContext) setup.ngram=paths.ngram;
+                    // WHY same folder as the FUTO models; not pinned/verified yet (test-only model), a missing or
+                    // damaged file simply leaves the engine geometry-only.
+                    // SWIPEKB_SWIPE_MODEL points at a model anywhere (manual trials and tests); never set in normal use.
+                    setup.model=qEnvironmentVariable("SWIPEKB_SWIPE_MODEL",SwipeRecorder::modelDir()+"/swipe-model.bin").toStdString();
+                    setup.keepCase=snapshot.effectiveLanguage.startsWith(QLatin1String("de"));
+                    auto own=std::make_shared<swipekb::OwnSwipe>();
+                    if (own->init(setup)) m_own=std::move(own);
+                }
+            }
         } else {
             snapshot.capabilities={}; snapshot.assets.clear(); snapshot.unavailableReason="Verified profile engine initialization failed";
         }
@@ -677,13 +696,29 @@ void SwipeInputMethod::finishSwipe(const QVariantList &points, const QVariantLis
         << " recognition_count=" << m_diagnosticRecognitionCount;
 #endif
     // WHY regional policy precedes truncation; a complete beam keeps both spellings eligible.
+    // WHY the own engine goes first when opted in, and FUTO answers whenever it cannot (bad geometry, empty
+    // result, exception): swiping never depends on the experimental path.
+    QString rawShape;
+    bool answeredByOwn=false;
+    const auto own=m_own;
+    if (own) {
+        swipekb::OwnSwipe::Result r;
+        if (own->recognize(trace, rects, context, 30, r)) {
+            for (const auto &w : r.words) candidates << QString::fromStdString(w);
+            rawShape=QString::fromStdString(r.bestShape);
+            answeredByOwn=true; ++m_ownAnswered;
+        } else {
+            ++m_ownFellBack;
+        }
+    }
+    if (!answeredByOwn) {
     for (const auto &c : runtime->recognize(trace, rects, context, 100)) {
         // WHY skip empty: an empty guess would type nothing yet still open a session and a blank guess-bar entry.
         if (!c.word.empty())
             candidates << QString::fromStdString(c.word);
     }
-
-    const QString rawShape=QString::fromStdString(runtime->bestShapeWord());
+    rawShape=QString::fromStdString(runtime->bestShapeWord());
+    }
     candidates=swipekb::rankRegionalCandidates(candidates,snapshot.requestedLocale,3,rawShape);
     if (m_profiles.snapshot().epoch!=snapshot.epoch) return;
 
@@ -1100,6 +1135,10 @@ QVariantMap SwipeInputMethod::diagnostics() const
     for (auto it=prediction.begin();it!=prediction.end();++it) out.insert(it.key(),it.value());
     out.insert(QStringLiteral("scope"),QStringLiteral("runtime"));
     out.insert(QStringLiteral("engineReady"),isReady());
+    // WHY names and counts only: which recogniser is active, never what was typed.
+    out.insert(QStringLiteral("swipeEngine"),m_own ? QString::fromLatin1(m_own->mode()) : QStringLiteral("futo"));
+    out.insert(QStringLiteral("ownEngineSwipes"),m_ownAnswered);
+    out.insert(QStringLiteral("ownEngineFallbacks"),m_ownFellBack);
     return out;
 }
 

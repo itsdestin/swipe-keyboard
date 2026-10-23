@@ -19,7 +19,7 @@
 #include <QQuickItem>
 #include <QEvent>
 #include <memory>
-namespace swipekb { class Recognizer; }
+namespace swipekb { class Recognizer; class OwnSwipe; }
 
 class SwipeInputMethod : public QVirtualKeyboardAbstractInputMethod {
     Q_OBJECT
@@ -85,6 +85,11 @@ private:
     void resolveCurrentProfile();
     swipekb::ProfileEpoch m_profiles;
     std::shared_ptr<swipekb::Recognizer> m_recognizer;
+    // The project's own swipe engine, only when the owner opted in (see ownswipe.h). FUTO's m_recognizer stays
+    // loaded beside it: it is the fallback for any swipe the own engine cannot answer.
+    std::shared_ptr<swipekb::OwnSwipe> m_own;
+    // Counts only (never words): how many swipes each engine answered, shown in diagnostics.
+    quint64 m_ownAnswered = 0, m_ownFellBack = 0;
     QString m_locale, m_layoutId, m_inputMode;
     void ensureContextConnections();
     EditorSnapshot predictionEditor() const;

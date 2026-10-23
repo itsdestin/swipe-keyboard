@@ -93,7 +93,14 @@ qt_add_qml_module(swipekeyboard
     QML_FILES SwipeCapture.qml
     SOURCES swipeinputmethod.h swipeinputmethod.cpp nextwordworker.h nextwordworker.cpp windowblur.h windowblur.cpp
 )
-target_link_libraries(swipekeyboard PRIVATE Qt6::Quick Qt6::VirtualKeyboard KF6::WindowSystem swipekb_session swipekb_recorder swipekb_engine swipekb_language)
+# WHY a static library of the project's own swipe engine (card #179): opt-in alternative to FUTO's recogniser. It uses
+# NgramLM from the shared swipekb_engine, so ngram.cpp is not compiled a second time.
+add_library(swipekb_ownswipe STATIC ownswipe.cpp ../engine/src/swipe_layout.cpp ../engine/src/swipe_net.cpp
+    ../engine/src/swipe_beam.cpp ../engine/src/swipe_geo.cpp ../engine/src/swipe_engine.cpp ../engine/src/swipe_lm.cpp)
+set_target_properties(swipekb_ownswipe PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_include_directories(swipekb_ownswipe PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} ../engine/include)
+target_link_libraries(swipekb_ownswipe PUBLIC swipekb_engine Qt6::Core)
+target_link_libraries(swipekeyboard PRIVATE Qt6::Quick Qt6::VirtualKeyboard KF6::WindowSystem swipekb_session swipekb_recorder swipekb_engine swipekb_language swipekb_ownswipe)
 # WHY: flags-only observations must not exist in ordinary release builds or change authorization policy.
 option(SWIPEKB_PRIVATE_FLAGS_DIAGNOSTIC "PRIVATE flags-only Deck diagnostic (not a release)" OFF)
 if(SWIPEKB_PRIVATE_FLAGS_DIAGNOSTIC)
@@ -136,6 +143,11 @@ qt_add_executable(tst_languageintegration tests/tst_languageintegration.cpp)
 target_include_directories(tst_languageintegration PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(tst_languageintegration PRIVATE swipekeyboard Qt6::Quick Qt6::Qml Qt6::VirtualKeyboard Qt6::Test)
 add_test(NAME plugin_languageintegration COMMAND tst_languageintegration)
+qt_add_executable(tst_ownswipeintegration tests/tst_ownswipeintegration.cpp)
+target_include_directories(tst_ownswipeintegration PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(tst_ownswipeintegration PRIVATE swipekeyboard swipekb_ownswipe Qt6::Quick Qt6::Qml Qt6::VirtualKeyboard Qt6::Test)
+target_compile_definitions(tst_ownswipeintegration PRIVATE SWIPEKB_TEST_DATA="${CMAKE_CURRENT_SOURCE_DIR}/../tests/data")
+add_test(NAME plugin_ownswipeintegration COMMAND tst_ownswipeintegration)
 set_tests_properties(plugin_languageprofile plugin_languagepacks PROPERTIES ENVIRONMENT "${_language_fixture_env}")
 # WHY CTest must expose missing-fixture coverage as skipped, not a misleading green model gate.
 set_tests_properties(plugin_languageprofile plugin_languagepacks plugin_languageintegration PROPERTIES

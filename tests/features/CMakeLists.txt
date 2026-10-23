@@ -94,14 +94,22 @@ if(SWIPEKB_READONLY_UPSTREAM)
     add_test(NAME language_capture COMMAND tst_languagecapture)
     set_tests_properties(language_capture PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_IM_MODULE=")
     add_library(feature_inputmethod STATIC ${ROOT}/plugin/swipeinputmethod.cpp ${ROOT}/plugin/swipeinputmethod.h
-        ${ROOT}/plugin/swipesession.cpp ${ROOT}/plugin/swipeoutcome.cpp ${ROOT}/plugin/swiperecorder.cpp)
-    target_link_libraries(feature_inputmethod PUBLIC feature_engine language_rules Qt6::Qml Qt6::Quick Qt6::VirtualKeyboard)
+        ${ROOT}/plugin/swipesession.cpp ${ROOT}/plugin/swipeoutcome.cpp ${ROOT}/plugin/swiperecorder.cpp ${ROOT}/plugin/ownswipe.cpp)
+    target_include_directories(feature_inputmethod PUBLIC ${ROOT}/plugin)
+    target_link_libraries(feature_inputmethod PUBLIC feature_engine swipe_engine language_rules Qt6::Qml Qt6::Quick Qt6::VirtualKeyboard)
     add_executable(tst_languageintegration ${ROOT}/plugin/tests/tst_languageintegration.cpp)
     target_link_libraries(tst_languageintegration PRIVATE feature_inputmethod Qt6::Test)
     add_test(NAME language_integration COMMAND tst_languageintegration)
     set_tests_properties(language_integration PROPERTIES ENVIRONMENT
         "QT_QPA_PLATFORM=offscreen;QT_IM_MODULE=qtvirtualkeyboard;QT_VIRTUALKEYBOARD_DESKTOP_DISABLE=1"
         SKIP_RETURN_CODE 77)
+    # Own swipe engine inside the plugin (opt-in): integration + glue tests, tiny fixture model from tests/data.
+    add_executable(tst_ownswipeintegration ${ROOT}/plugin/tests/tst_ownswipeintegration.cpp)
+    target_link_libraries(tst_ownswipeintegration PRIVATE feature_inputmethod Qt6::Test)
+    target_compile_definitions(tst_ownswipeintegration PRIVATE SWIPEKB_TEST_DATA="${ROOT}/tests/data")
+    add_test(NAME ownswipe_integration COMMAND tst_ownswipeintegration)
+    set_tests_properties(ownswipe_integration PROPERTIES ENVIRONMENT
+        "QT_QPA_PLATFORM=offscreen;QT_IM_MODULE=qtvirtualkeyboard;QT_VIRTUALKEYBOARD_DESKTOP_DISABLE=1")
     foreach(name swipesession swipeoutcome swiperecorder)
         add_executable(tst_${name} ${ROOT}/plugin/tests/tst_${name}.cpp)
         target_link_libraries(tst_${name} PRIVATE feature_inputmethod Qt6::Test)
