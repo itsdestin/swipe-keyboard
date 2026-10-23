@@ -51,12 +51,14 @@ public:
     Qt::InputMethodHints hints=Qt::ImhNoPredictiveText;
     mutable int surroundingQueries=0;
     bool suppressInputMethodUpdate=false;
+    // Lets a test deliver an app's cursor notification before its text notification (Qt may do either order).
+    bool lagText=false;QString laggedText;
     InputListenerItem(QQuickItem *parent):QQuickItem(parent) { setFlag(ItemAcceptsInputMethod); setWidth(400);setHeight(100); }
     QVariant inputMethodQuery(Qt::InputMethodQuery q) const override {
         switch(q) {
         case Qt::ImEnabled:return true;
         case Qt::ImHints:return int(hints);
-        case Qt::ImSurroundingText:++surroundingQueries;return text;
+        case Qt::ImSurroundingText:++surroundingQueries;return lagText?laggedText:text;
         case Qt::ImCursorPosition:case Qt::ImAnchorPosition:case Qt::ImAbsolutePosition:return cursor;
         case Qt::ImCurrentSelection:return QString();
         case Qt::ImCursorRectangle:return QRectF(0,0,2,20);
@@ -332,18 +334,29 @@ private slots:
     }
     void ownTypingNeverLooksLikeATap() {
         // WHY: after every typed letter the cursor sits right after a word; that must not open alternatives.
+        // Qt reports an edit's cursor and text separately, in either order, so both orders are exercised.
         if (qEnvironmentVariable("SWIPEKB_TEST_PROFILE_ASSETS").isEmpty()) QSKIP("English assets required");
-        SwapFixture f; QVERIFY(f.init("we can ", 7, {}, "en_US")); QTRY_VERIFY(f.ic->inputItem() == f.edit.get());
-        for (auto c : QStringLiteral("sea")) {
-            const QString letter(c);
-            f.method->keyEvent(Qt::Key(letter.front().toUpper().unicode()), letter, Qt::NoModifier);
-            f.ic->commit(letter); QGuiApplication::inputMethod()->update(Qt::ImQueryAll); f.method->update();
-            QVERIFY(f.bar().size() <= 3);
+        for (bool cursorFirst : {true, false}) {
+            SwapFixture f; QVERIFY(f.init("we can sea ", 11, {}, "en_US")); QTRY_VERIFY(f.ic->inputItem() == f.edit.get());
+            f.edit->suppressInputMethodUpdate = true;
+            f.method->keyEvent(Qt::Key_S, "s", Qt::NoModifier);
+            const QString old = f.edit->text;
+            f.ic->commit("s");                            // the app now holds "we can sea s", cursor 12
+            if (cursorFirst) {
+                f.edit->lagText = true; f.edit->laggedText = old;
+                QGuiApplication::inputMethod()->update(Qt::ImCursorPosition | Qt::ImAnchorPosition); f.method->update();
+                QVERIFY2(f.bar().isEmpty(), "cursor arrived before the text of our own edit");
+                f.edit->lagText = false;
+                QGuiApplication::inputMethod()->update(Qt::ImSurroundingText); f.method->update();
+            } else {
+                QGuiApplication::inputMethod()->update(Qt::ImSurroundingText); f.method->update();
+                f.method->update();
+                QGuiApplication::inputMethod()->update(Qt::ImCursorPosition | Qt::ImAnchorPosition); f.method->update();
+            }
+            QVERIFY(!f.bar().contains("see"));
+            QVERIFY(!f.bar().contains("sea"));
+            QCOMPARE(f.edit->text, QStringLiteral("we can sea s"));
         }
-        QCOMPARE(f.edit->text, QStringLiteral("we can sea"));
-        QTest::qWait(400);
-        QGuiApplication::inputMethod()->update(Qt::ImQueryAll); f.method->update();
-        QVERIFY(!f.bar().contains("see"));            // only typed-word completions, never swap alternatives
     }
     void tappingASwipedWordLaterOffersThatSwipesOtherGuesses() {
         // WHY: the keyboard remembers (in memory only) the guesses of recent swipes, anchored to the text around the word.
