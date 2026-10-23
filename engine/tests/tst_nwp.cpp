@@ -66,8 +66,9 @@ class NwpTest : public QObject {
     }
 private slots:
     void matchesPyTorchFloat() { check("nwp-tiny", 1e-4f); }
-    // WHY a looser bound is not needed: the expected numbers are computed from the same rounded weights.
-    void matchesPyTorchInt8() { check("nwp-tiny8", 1e-4f); }
+    // The expected numbers come from the same rounded weights; the remaining difference is the 13-bit rounding of
+    // the vectors the runner multiplies by (about 1e-4 of their largest entry), hence the looser bound.
+    void matchesPyTorchInt8() { check("nwp-tiny8", 1e-3f); }
 
     void refusesDamagedFiles()
     {

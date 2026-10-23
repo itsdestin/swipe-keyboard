@@ -73,14 +73,18 @@ std::vector<std::string> NwpPredictor::predict(const std::vector<std::string> &c
     const std::string typed = prefix.empty() ? std::string() : NgramLM::alphaForm(prefix);
     if (!prefix.empty() && typed.empty()) return {};
     // The neural model's own best words (matching the typed letters), so a word the n-gram ranks low can still win.
+    // WHY a small heap instead of sorting the 24k matching words: all but a handful are rejected by one compare.
     std::vector<std::pair<float, uint32_t>> lmTop;
+    const auto worse = [](const auto &a, const auto &b) { return a.first > b.first; };   // min-heap on score
     for (uint32_t t = 3; t < lm_.vocabSize(); ++t) {
+        if (lmTop.size() == kCandidates && logp_[t] <= lmTop.front().first) continue;
         if (tokenToIndex_[t] < 0) continue;
         if (!typed.empty() && lm_.word(t).compare(0, typed.size(), typed) != 0) continue;
+        if (lmTop.size() == kCandidates) { std::pop_heap(lmTop.begin(), lmTop.end(), worse); lmTop.pop_back(); }
         lmTop.emplace_back(logp_[t], t);
+        std::push_heap(lmTop.begin(), lmTop.end(), worse);
     }
-    const size_t keep = std::min(kCandidates, lmTop.size());
-    std::partial_sort(lmTop.begin(), lmTop.begin() + keep, lmTop.end(), [](const auto &a, const auto &b) { return a.first > b.first; });
+    const size_t keep = lmTop.size();
 
     constexpr float kLog10 = 2.30258509f;
     std::unordered_set<uint32_t> seen;

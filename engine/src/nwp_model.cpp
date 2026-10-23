@@ -28,34 +28,99 @@ size_t pad16(size_t n) { return (n + 15) & ~size_t(15); }
 #define SWKB_CLONES
 #endif
 
-// out[r] (+)= scale[r] * sum_c q[r*cols+c] * x[c]
-SWKB_CLONES void dotInt8(const int8_t *q, const float *scale, const float *x, float *out, uint32_t rows,
+// out[r] (+)= scale[r] * xs * sum_c q[r*cols+c] * xq[c]   (whole-number arithmetic; xq = the vector rounded to 13 bits)
+// WHY whole numbers: a float sum must be added in a fixed order, so the compiler cannot spread it over SIMD lanes
+// without help; integer sums have no such rule and run 10x faster (measured: 0.86 ms -> 0.07 ms for the 24k-word
+// output layer). The vector is rounded to +-8191 first (error ~1e-4 of its largest entry, far below ranking noise);
+// 127 * 8191 * 2048 columns stays below 2^31, so the sum cannot overflow (load() limits columns to 2048).
+SWKB_CLONES void dotInt8(const int8_t *q, const float *scale, const int16_t *xq, float xs, float *out, uint32_t rows,
                          uint32_t cols, bool add)
 {
     for (uint32_t r = 0; r < rows; ++r) {
         const int8_t *row = q + size_t(r) * cols;
-        float acc = 0.f;
-        for (uint32_t c = 0; c < cols; ++c) acc += float(row[c]) * x[c];
-        acc *= scale[r];
-        out[r] = add ? out[r] + acc : acc;
+        int32_t acc = 0;
+        for (uint32_t c = 0; c < cols; ++c) acc += int32_t(row[c]) * int32_t(xq[c]);
+        const float v = float(acc) * (scale[r] * xs);
+        out[r] = add ? out[r] + v : v;
     }
+}
+// Rounds x to whole numbers in [-8191, 8191]; returns the factor that turns them back into x.
+SWKB_CLONES float quantize(const float *x, int16_t *xq, uint32_t n)
+{
+    float peak = 0.f;
+    for (uint32_t i = 0; i < n; ++i) peak = std::max(peak, std::fabs(x[i]));
+    if (peak == 0.f) { for (uint32_t i = 0; i < n; ++i) xq[i] = 0; return 1.f; }
+    const float mul = 8191.f / peak;
+    for (uint32_t i = 0; i < n; ++i) xq[i] = int16_t(std::lrintf(x[i] * mul));
+    return peak / 8191.f;
 }
 SWKB_CLONES void dotFloat(const float *w, const float *x, float *out, uint32_t rows, uint32_t cols, bool add)
 {
+    const uint32_t body = cols & ~15u;
     for (uint32_t r = 0; r < rows; ++r) {
         const float *row = w + size_t(r) * cols;
+        float lane[16] = {};
+        for (uint32_t c = 0; c < body; c += 16)
+            for (int k = 0; k < 16; ++k) lane[k] += row[c + k] * x[c + k];
         float acc = 0.f;
-        for (uint32_t c = 0; c < cols; ++c) acc += row[c] * x[c];
+        for (int k = 0; k < 16; ++k) acc += lane[k];
+        for (uint32_t c = body; c < cols; ++c) acc += row[c] * x[c];
         out[r] = add ? out[r] + acc : acc;
     }
 }
-float sigmoid(float v) { return 1.f / (1.f + std::exp(-v)); }
+
+// WHY our own exp: std::exp is a scalar library call, and one word costs ~5,000 of them in the LSTM plus 24,000 in
+// the output softmax. This one is plain arithmetic (2^x split into a whole part, set directly in the float's
+// exponent bits, and a short polynomial for the rest), so the compiler turns the loops into SIMD. Relative error
+// about 3e-6 - far below what changes a ranking (the PyTorch equivalence test bounds it at 1e-4).
+inline float fastExp(float x)
+{
+    x = x < -80.f ? -80.f : (x > 80.f ? 80.f : x);
+    const float t = x * 1.44269504f;
+    const float n = std::floor(t + 0.5f);
+    const float f = t - n;
+    const float p = 1.f + f * (0.69314718f + f * (0.24022651f + f * (0.05550411f + f * (0.00961813f + f * 0.00133336f))));
+    const uint32_t bits = uint32_t(int32_t(n) + 127) << 23;
+    float scale;
+    std::memcpy(&scale, &bits, 4);
+    return p * scale;
+}
+inline float sigmoid(float v) { return 1.f / (1.f + fastExp(-v)); }
+inline float fastTanh(float v) { return 2.f * sigmoid(2.f * v) - 1.f; }
+
+// One LSTM cell update over `H` units; gates hold W_ih x + W_hh h (before bias) in order input, forget, cell, output.
+SWKB_CLONES void lstmCell(const float *gates, const float *bias, float *c, float *hfull, uint32_t H)
+{
+    for (uint32_t j = 0; j < H; ++j) {
+        const float i = sigmoid(gates[j] + bias[j]);
+        const float fg = sigmoid(gates[H + j] + bias[H + j]);
+        const float g = fastTanh(gates[2 * H + j] + bias[2 * H + j]);
+        const float o = sigmoid(gates[3 * H + j] + bias[3 * H + j]);
+        c[j] = fg * c[j] + i * g;
+        hfull[j] = o * fastTanh(c[j]);
+    }
+}
+
+// out[t] = exp(out[t] - best) summed; separate so the SIMD clone is chosen at start-up like the dot products.
+SWKB_CLONES float sumExp(const float *v, float best, uint32_t n)
+{
+    float lane[8] = {};
+    uint32_t i = 0;
+    for (; i + 8 <= n; i += 8)
+        for (int k = 0; k < 8; ++k) lane[k] += fastExp(v[i + k] - best);
+    float sum = 0.f;
+    for (int k = 0; k < 8; ++k) sum += lane[k];
+    for (; i < n; ++i) sum += fastExp(v[i] - best);
+    return sum;
+}
 }
 
 void NwpModel::matvec(const Matrix &m, const float *x, float *out, bool add) const
 {
-    if (m.q) dotInt8(m.q, m.scale, x, out, m.rows, m.cols, add);
-    else dotFloat(m.f, x, out, m.rows, m.cols, add);
+    if (m.q) {
+        const float xs = quantize(x, xq_.data(), m.cols);
+        dotInt8(m.q, m.scale, xq_.data(), xs, out, m.rows, m.cols, add);
+    } else dotFloat(m.f, x, out, m.rows, m.cols, add);
 }
 
 bool NwpModel::load(const std::string &path)
@@ -78,7 +143,7 @@ bool NwpModel::load(const std::string &path)
     std::memcpy(&version, &blob_[8], 4); std::memcpy(&dtype, &blob_[12], 4);
     std::memcpy(&V, &blob_[16], 4); std::memcpy(&D, &blob_[20], 4); std::memcpy(&H, &blob_[24], 4);
     std::memcpy(&wordBytes, &blob_[28], 4); std::memcpy(&lambda, &blob_[32], 4); std::memcpy(&oov, &blob_[36], 4);
-    if (version != 1 || dtype > 1 || V < 4 || V > 262144 || D == 0 || D > 1024 || H == 0 || H > 8192 ||
+    if (version != 1 || dtype > 1 || V < 4 || V > 262144 || D == 0 || D > 1024 || H == 0 || H > 2048 ||
         wordBytes > (32u << 20) || !std::isfinite(lambda) || !std::isfinite(oov))
         return fail();
     const bool q8 = dtype == 1;
@@ -122,7 +187,7 @@ bool NwpModel::load(const std::string &path)
     emb_ = matrix(embAt, V, D); wih_ = matrix(wihAt, 4 * H, D); whh_ = matrix(whhAt, 4 * H, D); proj_ = matrix(projAt, D, H);
     outBias_ = reinterpret_cast<const float *>(&blob_[outBiasAt]);
     bias_ = reinterpret_cast<const float *>(&blob_[biasAt]);
-    gates_.assign(size_t(4) * H, 0.f); x_.assign(D, 0.f); hfull_.assign(H, 0.f); hnew_.assign(D, 0.f);
+    gates_.assign(size_t(4) * H, 0.f); x_.assign(D, 0.f); hfull_.assign(H, 0.f); hnew_.assign(D, 0.f); xq_.assign(std::max(D, H), 0);
     return true;
 }
 
@@ -146,19 +211,18 @@ void NwpModel::embedRow(uint32_t token, float *out) const
 void NwpModel::step(State &s, uint32_t token) const
 {
     if (!loaded() || token >= vocab_) return;
-    embedRow(token, x_.data());
     // gates = W_ih x + W_hh h + b, in PyTorch's order: input, forget, cell candidate, output.
-    matvec(wih_, x_.data(), gates_.data(), false);
-    matvec(whh_, s.h.data(), gates_.data(), true);
-    const uint32_t H = hidden_;
-    for (uint32_t j = 0; j < H; ++j) {
-        const float i = sigmoid(gates_[j] + bias_[j]);
-        const float fg = sigmoid(gates_[H + j] + bias_[H + j]);
-        const float g = std::tanh(gates_[2 * H + j] + bias_[2 * H + j]);
-        const float o = sigmoid(gates_[3 * H + j] + bias_[3 * H + j]);
-        s.c[j] = fg * s.c[j] + i * g;
-        hfull_[j] = o * std::tanh(s.c[j]);
+    if (emb_.q) {
+        // The word vector is already whole numbers (int8) with its own scale: use it as it is, no rounding at all.
+        const int8_t *row = emb_.q + size_t(token) * dim_;
+        for (uint32_t i = 0; i < dim_; ++i) xq_[i] = row[i];
+        dotInt8(wih_.q, wih_.scale, xq_.data(), emb_.scale[token], gates_.data(), wih_.rows, wih_.cols, false);
+    } else {
+        embedRow(token, x_.data());
+        matvec(wih_, x_.data(), gates_.data(), false);
     }
+    matvec(whh_, s.h.data(), gates_.data(), true);
+    lstmCell(gates_.data(), bias_, s.c.data(), hfull_.data(), hidden_);
     // The projection squeezes the hidden layer to `dim` numbers; the output layer then reuses the word vectors.
     matvec(proj_, hfull_.data(), s.h.data(), false);
 }
@@ -166,13 +230,15 @@ void NwpModel::step(State &s, uint32_t token) const
 void NwpModel::logProbs(const State &s, std::vector<float> &out) const
 {
     out.resize(vocab_);
-    if (emb_.q) dotInt8(emb_.q, emb_.scale, s.h.data(), out.data(), vocab_, dim_, false);
+    if (emb_.q) {
+        const float xs = quantize(s.h.data(), xq_.data(), dim_);
+        dotInt8(emb_.q, emb_.scale, xq_.data(), xs, out.data(), vocab_, dim_, false);
+    }
     else dotFloat(emb_.f, s.h.data(), out.data(), vocab_, dim_, false);
     float best = -INFINITY;
     for (uint32_t t = 0; t < vocab_; ++t) { out[t] += outBias_[t]; best = std::max(best, out[t]); }
-    double sum = 0;
-    for (uint32_t t = 0; t < vocab_; ++t) sum += std::exp(double(out[t] - best));
-    const float logZ = best + float(std::log(sum));
+    // WHY float exp: 24k of them per sentence state; float precision is far finer than the ranking needs.
+    const float logZ = best + std::log(sumExp(out.data(), best, vocab_));
     for (uint32_t t = 0; t < vocab_; ++t) out[t] -= logZ;
 }
 

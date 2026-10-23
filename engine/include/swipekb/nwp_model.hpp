@@ -69,6 +69,7 @@ private:
     std::vector<std::string> words_;
     std::unordered_map<std::string_view, uint32_t> ids_;
     mutable std::vector<float> gates_, x_, hfull_, hnew_;
+    mutable std::vector<int16_t> xq_;   // the vector being multiplied, rounded to whole numbers (int8 files)
 };
 
 } // namespace swipekb
