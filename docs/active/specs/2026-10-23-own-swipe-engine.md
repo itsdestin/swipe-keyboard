@@ -74,3 +74,21 @@ not a shape problem. The synthetic generator exists so the language gap can be c
 
 English >= 93.3% first / 96.6% top 3 on bench-2000; <= ~5 ms/swipe single thread (measured 3.5 ms with the 290k
 model in a loaded machine, -O3 without -march=native); model <= ~4 MB; lexicon trie ~533k nodes for 232k words.
+
+## 6. First results (CPU smoke run, 2026-10-22; bench-2000 not touched)
+
+290k-parameter model, 40 epochs on dev.jsonl only (54k real swipes, no synthetic, no sentence prior), 8 CPU threads,
+~75 s/epoch, ~50 min. Scored on devhold-5000 (3,380 swipes; the spike's geometric decoder gets 83.9% / 89.8% there):
+
+| search | first guess | top 3 | top 5 | ms/swipe, 1 thread (net + search) |
+|---|---|---|---|---|
+| beam 48, 8 keys/step, freq weight 0.05-0.07 | 91.4-91.6% | 95.3-95.5% | 96.1% | 3.8 + 1.3 = 5.1 (loaded machine; 2.4 + 0.8 with 8 jobs) |
+| beam 128, 12 keys/step | 91.5% | 95.7% | 96.4% | 4.4+ |
+
+Search constants are flat (beam, keys per step, lookahead barely matter); the frequency weight peaks near 0.05-0.07
+nats per point. Plain unigram from the n-gram file gives the same as dictionary frequency (90.1% vs 90.5% at epoch 15).
+Greedy key-sequence exact match was still rising at epoch 40 (73%), so more epochs / data / width should help.
+
+GPU run (owner's 4070): `python -I scripts/swipe/train.py --train dev.npz --train synth-en.npz --val devhold.npz
+--out run --device cuda --epochs 60 --batch 256 --hidden 128 --layers 2 --conv 96,96` (needs a CUDA torch wheel).
+Inference cost grows with width: the 5 ms budget allows roughly hidden 128 x 2 layers.
