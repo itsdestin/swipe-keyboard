@@ -16,9 +16,7 @@ TimeoutStartSec=30min
 Nice=19
 IOSchedulingClass=idle
 # WHY these limits: the updater talks to the internet as root. It needs to write the system (to install), but never
-# your home folder or other programs' temporary files.
+# your home folder or other programs' temporary files. WHY no kernel limits: a dependency pulled in by pacman or dnf may
+# run sysctl or depmod in its install step, and that must not fail inside this service (review, 2026-10-23).
 PrivateTmp=yes
 ProtectHome=read-only
-ProtectKernelTunables=yes
-ProtectKernelModules=yes
-ProtectControlGroups=yes

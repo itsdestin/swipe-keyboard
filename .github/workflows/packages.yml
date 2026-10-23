@@ -919,7 +919,9 @@ jobs:
         run: python3 scripts/update_site.py build --release release --tag "$GITHUB_REF_NAME" --key-id "$GPG_KEY_ID" --out site
       - name: Prove each platform's own tool accepts it, with the signature checked
         if: ${{ vars.FLATPAK_REPO_PUBLISH == 'true' }}
-        run: python3 scripts/update_site.py verify --site site --keyring packaging/updates/update-key.gpg --armored packaging/updates/update-key.asc --bundle "release/swipe-keyboard-$(python3 scripts/release.py version)-x86_64.flatpak"
+        env:
+          GPG_KEY_ID: ${{ vars.FLATPAK_REPO_GPG_KEY_ID }}
+        run: python3 scripts/update_site.py verify --site site --keyring packaging/updates/update-key.gpg --armored packaging/updates/update-key.asc --bundle "release/swipe-keyboard-$(python3 scripts/release.py version)-x86_64.flatpak" --key-id "$GPG_KEY_ID"
       - uses: actions/upload-pages-artifact@v3
         if: ${{ vars.FLATPAK_REPO_PUBLISH == 'true' }}
         with:
@@ -952,7 +954,7 @@ jobs:
           gpg --batch --export "$key" > rehearsal.gpg
           gpg --batch --armor --export "$key" > rehearsal.asc
           python3 scripts/update_site.py build --release release --tag "v$(python3 scripts/release.py version)" --key-id "$key" --out site --test-key
-          python3 scripts/update_site.py verify --site site --keyring rehearsal.gpg --armored rehearsal.asc --bundle "release/swipe-keyboard-$(python3 scripts/release.py version)-x86_64.flatpak"
+          python3 scripts/update_site.py verify --site site --keyring rehearsal.gpg --armored rehearsal.asc --bundle "release/swipe-keyboard-$(python3 scripts/release.py version)-x86_64.flatpak" --key-id "$key"
   update-site:
     # WHY a separate job: only this one may write to GitHub Pages, and it never sees the signing key.
     if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && github.repository == 'itsdestin/swipe-keyboard' && vars.FLATPAK_REPO_PUBLISH == 'true' }}

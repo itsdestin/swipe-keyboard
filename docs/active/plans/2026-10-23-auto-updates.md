@@ -78,6 +78,14 @@ Real CI-built 0.4.1 and a throwaway 0.4.2 (never published), a local copy of the
 
 Still unverified: GitHub Pages serving the live site (first seen at the 0.4.1 release).
 
+Second review (2026-10-23), fixed: the CI Deck proof now builds a re-stamped, re-signed newer commit and requires a
+real update with our key and a refusal with another (checked locally with the 0.4.0 bundle); certificate failures are
+loud errors, not "offline"; 404/403/5xx (nothing published yet, Pages redeploying) are quiet; downloads read with
+`read1` so the deadline holds; kernel sandbox limits dropped so dependency install steps (sysctl, depmod) still work.
+Still open: why SteamOS drops the helper's bundle origin (install.sh recreates it, and a re-run repairs it if it is
+dropped again later); `flatpak update` exits 0 when it refuses a remote, so a persistently refused Deck update is
+only visible in the journal.
+
 ## Independent review (2026-10-23) and what changed
 
 Fixed: Deck origin remotes now get `--gpg-verify` (importing the key alone left signature checks off on a bundle's

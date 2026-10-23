@@ -178,7 +178,18 @@ def bundle_origin_accepts(site, bundle, keyring):
         return after == wanted or (before == wanted and after == before)
 
 
-def verify(site, keyring, armored, bundle=None):
+def newer_copy(site, key_id):
+    """A copy of the site's Flatpak repository whose app commit is re-stamped now and re-signed: a real update."""
+    newer = Path(tempfile.mkdtemp(prefix='swipekb-newer-'))
+    shutil.copytree(Path(site) / 'repo', newer / 'repo', symlinks=True)
+    ref = f'app/{MAIN_ID}/x86_64/master'
+    run('flatpak', 'build-commit-from', '--force', '--timestamp=NOW', f'--gpg-sign={key_id}', f'--src-ref={ref}',
+        str(newer / 'repo'), ref)
+    run('flatpak', 'build-update-repo', f'--gpg-sign={key_id}', '--title=Swipe Keyboard', str(newer / 'repo'))
+    return newer
+
+
+def verify(site, keyring, armored, bundle=None, key_id=None):
     """Each platform's own tool must accept the site with the signature checked (a wrong site strands every keyboard)."""
     site = Path(site).resolve()
     # WHY absolute: gpgv reads a bare keyring name from inside ~/.gnupg, not the current folder (seen in CI).
@@ -200,14 +211,23 @@ def verify(site, keyring, armored, bundle=None):
     if bundle:
         if not bundle_origin_accepts(site, bundle, keyring):
             raise SystemExit('a Deck installed from the bundle cannot update from the site with the right key')
+        if key_id:
+            # WHY a newer copy: the site holds the same build as the bundle, so "nothing to update" would pass the check
+            # above. A re-stamped, re-signed commit makes a real update: it must install with our key (below, wrong key).
+            newer = newer_copy(site, key_id)
+            if not bundle_origin_accepts(newer, bundle, keyring):
+                raise SystemExit('a Deck did not install a newer, correctly signed update')
         with tempfile.TemporaryDirectory() as gnupg:
             run('gpg', '--batch', '--quiet', '--homedir', gnupg, '--passphrase', '', '--quick-generate-key',
                 'Wrong key (verify only)', 'ed25519', 'sign', '1d')
             wrong = Path(gnupg) / 'wrong.gpg'
             wrong.write_bytes(subprocess.run(['gpg', '--batch', '--homedir', gnupg, '--export'], check=True,
                                              capture_output=True).stdout)
-            if bundle_origin_accepts(site, bundle, wrong):
-                raise SystemExit('a Deck that trusts a different key still accepted the site: signatures are not checked')
+            for candidate in ([site] + ([newer] if key_id else [])):
+                if bundle_origin_accepts(candidate, bundle, wrong):
+                    raise SystemExit('a Deck that trusts a different key still accepted the site: signatures are not checked')
+        if key_id:
+            shutil.rmtree(newer, ignore_errors=True)
     # WHY a real Fedora: dnf itself must accept the signed index (repo_gpgcheck) and see this version.
     repo = (ROOT / 'packaging/updates/swipe-keyboard.repo').read_text()
     repo = '\n'.join('baseurl=file:///site/fedora/$basearch/' if l.startswith('baseurl=') else
@@ -241,9 +261,10 @@ def main():
     v.add_argument('--keyring', required=True)
     v.add_argument('--armored', required=True)
     v.add_argument('--bundle', help='the release .flatpak: also prove a bundle install updates only with the right key')
+    v.add_argument('--key-id', help='signing key: with --bundle, also prove a real newer update installs')
     args = parser.parse_args()
     if args.command == 'verify':
-        verify(args.site, args.keyring, args.armored, args.bundle)
+        verify(args.site, args.keyring, args.armored, args.bundle, args.key_id)
     else:
         print(build(args.release, args.tag, args.key_id, args.out, args.base_url.rstrip('/'),
                     args.downloads.rstrip('/'), args.test_key))

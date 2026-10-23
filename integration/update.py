@@ -15,6 +15,7 @@ import os
 from pathlib import Path
 import platform
 import shutil
+import ssl
 import subprocess
 import sys
 import tempfile
@@ -62,7 +63,8 @@ def fetch(url, limit):
     try:
         with urllib.request.urlopen(url, timeout=60) as response:
             while True:
-                chunk = response.read(1024 * 1024)
+                # WHY read1: it returns whatever has arrived, so the deadline is checked even when a server drips bytes.
+                chunk = response.read1(64 * 1024)
                 if not chunk:
                     break
                 size += len(chunk)
@@ -72,11 +74,18 @@ def fetch(url, limit):
                     raise Unreachable(f'{url} is downloading too slowly')
                 chunks.append(chunk)
     except urllib.error.HTTPError as error:
-        # WHY: a missing file (4xx) means the site is wrong, which is worth an error; a 5xx is the site being down.
-        if error.code >= 500:
+        # WHY 404/403 and 5xx are quiet: before the first site is published, and while Pages redeploys, there is simply
+        # nothing to fetch. Other answers mean the site is wrong, which is worth an error.
+        if error.code >= 500 or error.code in (403, 404):
             raise Unreachable(f'{url}: the update site answered {error.code}') from error
         raise UpdateError(f'{url}: the update site answered {error.code}') from error
-    except (urllib.error.URLError, TimeoutError, ConnectionError) as error:
+    except urllib.error.URLError as error:
+        # WHY loud: a certificate failure is not "offline" (it can be someone in the middle, or a broken clock); hiding
+        # it would leave the machine silently un-updated for good.
+        if isinstance(error.reason, ssl.SSLError):
+            raise UpdateError(f'{url}: secure connection failed ({error.reason})') from error
+        raise Unreachable(f'{url}: {error}') from error
+    except (TimeoutError, ConnectionError) as error:
         raise Unreachable(f'{url}: {error}') from error
     return b''.join(chunks)
 

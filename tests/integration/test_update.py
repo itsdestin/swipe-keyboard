@@ -153,6 +153,23 @@ class ArchUpdater(unittest.TestCase):
         self.assertEqual(self.run_updater('check'), 0)
         self.assertEqual(self.installs(), [])
 
+    def test_no_site_published_yet_is_not_an_error(self):
+        # WHY: every 0.4.1 install checks before the first site exists; a daily failed unit would be noise.
+        self.assertEqual(self.run_updater('check'), 0)        # setUp made an empty site: latest.json is missing
+        self.assertEqual(self.installs(), [])
+
+    def test_a_certificate_failure_is_an_error_not_offline(self):
+        import ssl, urllib.error
+        with mock.patch.dict(os.environ, self.env):
+            spec = importlib.util.spec_from_file_location('swipekb_update_tls', UPDATE)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+        failure = urllib.error.URLError(ssl.SSLCertVerificationError('certificate verify failed'))
+        with mock.patch.object(module.urllib.request, 'urlopen', side_effect=failure), \
+             mock.patch.object(module.os, 'geteuid', return_value=0), \
+             mock.patch.object(module.shutil, 'which', side_effect=lambda n: n == 'pacman' or shutil.which(n)):
+            self.assertEqual(module.main(['check']), 1)
+
     def test_a_malformed_but_signed_index_is_refused_without_a_crash(self):
         self.publish('0.4.2-1')
         index = self.site / 'arch/latest.json'
