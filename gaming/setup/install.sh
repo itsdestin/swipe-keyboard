@@ -15,6 +15,8 @@
 #                                    whatever you already have: a first install gets the Desktop keyboard only.
 #   bash install.sh --skip-flatpaks  do not install the apps (they are already installed)
 #   bash install.sh --force          allow installing an OLDER version over a newer one
+#   bash install.sh --no-auto-update don't install updates by themselves (they are on by default; update by hand
+#                                    by running a newer download's install.sh). --auto-update turns them back on.
 #
 # Safe to run again: a second run changes nothing that is already right, an upgrade is simply running the newer
 # download's install.sh, and running it again is also how you turn Gaming Mode on later or off. Everything is
@@ -27,6 +29,11 @@ HELPER_ID=org.itsdestin.SwipeKeyboard.GamingHelper
 MARKER_NAME=.cef-enable-remote-debugging
 UNITS=(swipekb-engine.service swipekb-helper.service swipekb-switch-watch.service swipekb-switch-watch.timer)
 WATCH_NAME=switch-watch.sh   # looks whether Steam's developer-switch file is still there and tells you if not
+# Automatic updates (plan: docs/active/plans/2026-10-23-auto-updates.md): a daily timer runs auto-update.sh, which asks
+# Flatpak to update our apps from the signed update site. Separate from UNITS: it is on for the Desktop keyboard too.
+UPDATE_UNITS=(swipekb-update.service swipekb-update.timer)
+UPDATE_NAME=auto-update.sh
+UPDATE_SITE="${SWIPEKB_UPDATE_REPO:-https://itsdestin.github.io/swipe-keyboard/repo/}"
 CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
 DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
 UNIT_DIR="$CONFIG_HOME/systemd/user"
@@ -37,6 +44,7 @@ RECORD="$RECORD_DIR/install-record.json"
 STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/swipekb-gaming"
 OUTSIDE_FILE="$STATE_DIR/outside-access"
 WATCH_SCRIPT="$RECORD_DIR/$WATCH_NAME"
+UPDATE_SCRIPT="$RECORD_DIR/$UPDATE_NAME"
 # The outside door: SteamOS's own system socket that forwards Steam's debug port (8080, this Deck only) to port
 # 8081 on EVERY network interface. The two variables below exist so the tests can point at a throwaway folder; on a
 # real Deck they are never set.
@@ -47,7 +55,7 @@ PROC_NET="${SWIPEKB_PROC_NET:-/proc/net}"
 DROPIN_DIR="$SYSTEM_UNIT_DIR/$SOCKET_UNIT.d"
 DROPIN="$DROPIN_DIR/swipekb-loopback-only.conf"
 
-DRY_RUN=0; ASSUME_YES=0; SKIP_FLATPAKS=0; FORCE=0; CHOICE=""; OUTSIDE=""
+DRY_RUN=0; ASSUME_YES=0; SKIP_FLATPAKS=0; FORCE=0; CHOICE=""; OUTSIDE=""; AUTO=""
 for arg in "$@"; do
     case "$arg" in
         --dry-run) DRY_RUN=1 ;;
@@ -58,7 +66,9 @@ for arg in "$@"; do
         --desktop-only) CHOICE=desktop ;;
         --block-outside) OUTSIDE=blocked ;;
         --leave-open) OUTSIDE=open ;;
-        -h|--help) sed -n '2,23p' "${BASH_SOURCE[0]}"; exit 0 ;;
+        --auto-update) AUTO=yes ;;
+        --no-auto-update) AUTO=no ;;
+        -h|--help) sed -n '2,25p' "${BASH_SOURCE[0]}"; exit 0 ;;
         *) echo "Unknown option: $arg (try --help)" >&2; exit 2 ;;
     esac
 done
@@ -122,6 +132,8 @@ write_record() {
         echo "  \"gaming\": \"$GAMING_STATE\","
         # WHY recorded: it is your choice about other devices on your network, and re-running changes it on purpose only.
         echo "  \"outside_access\": \"$OUTSIDE_STATE\","
+        # WHY recorded: a later run keeps your automatic-update choice unless you pass --auto-update/--no-auto-update.
+        echo "  \"auto_update\": \"$AUTO_STATE\","
         json_list created_markers "${CREATED_MARKERS[@]+"${CREATED_MARKERS[@]}"}"
         json_list existing_markers "${EXISTING_MARKERS[@]+"${EXISTING_MARKERS[@]}"}"
         json_list created_units "${CREATED_UNITS[@]+"${CREATED_UNITS[@]}"}"
@@ -249,7 +261,8 @@ if [ "$SKIP_FLATPAKS" = 0 ]; then
     { [ -f "${MAIN_BUNDLE[0]}" ] && [ "${#MAIN_BUNDLE[@]}" = 1 ]; } || die "Expected exactly one Swipe Keyboard .flatpak file next to install.sh."
     { [ -f "${HELPER_BUNDLE[0]}" ] && [ "${#HELPER_BUNDLE[@]}" = 1 ]; } || die "Expected exactly one Gaming Mode helper .flatpak file next to install.sh."
 fi
-for unit in "${UNITS[@]}"; do [ -f "$HERE/units/$unit" ] || die "units/$unit missing from the download."; done
+for unit in "${UNITS[@]}" "${UPDATE_UNITS[@]}"; do [ -f "$HERE/units/$unit" ] || die "units/$unit missing from the download."; done
+{ [ -f "$HERE/$UPDATE_NAME" ] && [ -f "$HERE/update-key.gpg" ]; } || die "$UPDATE_NAME or update-key.gpg missing from the download. Download it again."
 
 OLD_VERSION="$(record_value version)"
 if [ -n "$OLD_VERSION" ] && [ "$OLD_VERSION" != "$VERSION" ] && [ "$FORCE" = 0 ]; then
@@ -354,6 +367,17 @@ fi
 # Second question, only for Gaming Mode: who else may reach Steam's developer switch? Its own choice because some people
 # want network access on purpose (developer tools on another computer). Enter = Block, the safer reading.
 CURRENT_OUTSIDE="$(record_value outside_access)"; [ -n "$CURRENT_OUTSIDE" ] || CURRENT_OUTSIDE=blocked
+# WHY on unless you said no: owner decision (2026-10-23), updates install by themselves on every platform. A record
+# from before this choice existed gets it on too; an explicit earlier "no" is kept.
+CURRENT_AUTO="$(record_value auto_update)"
+[ -n "$AUTO" ] || AUTO="$CURRENT_AUTO"
+[ -n "$AUTO" ] || AUTO=yes
+AUTO_BLOCKED=""
+for unit in "${UPDATE_UNITS[@]}"; do
+    if [ -e "$UNIT_DIR/$unit" ] && [ "$(head -n 1 "$UNIT_DIR/$unit")" != '# swipekb-gaming-managed' ]; then
+        AUTO_BLOCKED="$UNIT_DIR/$unit already exists and was not made by this installer"
+    fi
+done
 DEFAULT_OUTSIDE=blocked; [ "$CURRENT_GAMING" = yes ] && DEFAULT_OUTSIDE="$CURRENT_OUTSIDE"
 outside_text() {
     cat <<TEXT
@@ -434,10 +458,20 @@ elif [ "$CURRENT_GAMING" = yes ]; then
     echo "    installer created it (kept if Decky Loader is installed, because it relies on that file), remove the Gaming Mode helper app if this installer added it, and remove the outside-door"
     echo "    block (asks for the administrator password once). The Desktop keyboard stays."
 fi
+if [ "$AUTO" = yes ] && [ -z "$AUTO_BLOCKED" ]; then
+    echo "  - turn on automatic updates: point the installed apps at the signed update site"
+    echo "      $UPDATE_SITE"
+    echo "    and write $UNIT_DIR/swipekb-update.timer, which once a day asks Flatpak to install a newer Swipe Keyboard"
+    echo "    (only our apps; Flatpak refuses anything not signed with our key). Turn off: run this with --no-auto-update."
+elif [ "$AUTO" = yes ]; then
+    echo "  - automatic updates stay off: $AUTO_BLOCKED. Move it away and run this again to turn them on."
+else
+    echo "  - automatic updates off, as you chose: update by running a newer download's install.sh."
+fi
 echo "  - write a note of what was created to $RECORD, so uninstall.sh removes only that."
 cat <<TEXT
 
-Nothing is sent to the internet by Swipe Keyboard.
+The keyboard itself never uses the internet. Automatic updates only fetch new versions of Swipe Keyboard.
 TEXT
 if [ "$SHOW_GAMING" = 1 ]; then
     cat <<TEXT
@@ -474,6 +508,7 @@ while IFS= read -r line; do [ -n "$line" ] && INSTALLED_APPS+=("$line"); done < 
 INSTALLED_AT="$(record_value installed_at)"; [ -n "$INSTALLED_AT" ] || INSTALLED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 GAMING_STATE="$CURRENT_GAMING"
 OUTSIDE_STATE="$CURRENT_OUTSIDE"
+AUTO_STATE="$CURRENT_AUTO"
 UPGRADE=0; [ -f "$RECORD" ] && [ "$CURRENT_GAMING" = yes ] && UPGRADE=1
 EXIT_CODE=0
 
@@ -501,12 +536,63 @@ install_app() { # install_app ID BUNDLE
     write_record
 }
 
+point_at_update_site() { # point_at_update_site ID: let Flatpak update this app from our signed site
+    local id="$1" origin
+    flatpak info --user "$id" >/dev/null 2>&1 || return 0
+    origin="$(flatpak info --user --show-origin "$id")"
+    # WHY modify the app's own origin: an app installed from a downloaded bundle gets a remote with no address, so
+    # Flatpak never looks for updates. Giving that remote our address and key makes "flatpak update" (and Discover's
+    # Updates page) use the site, without downloading the app again. The key makes Flatpak refuse unsigned updates.
+    flatpak remote-modify --user --url="$UPDATE_SITE" --gpg-import="$HERE/update-key.gpg" "$origin" \
+        || echo "Could not point $id at the update site; it keeps working and can be updated by hand." >&2
+}
+
+auto_update_on() {
+    local unit
+    point_at_update_site "$MAIN_ID"
+    point_at_update_site "$HELPER_ID"
+    mkdir -p "$UNIT_DIR" "$RECORD_DIR"
+    # Copied (not run from the download) so it keeps working if the download folder is deleted.
+    cp "$HERE/$UPDATE_NAME" "$UPDATE_SCRIPT.new" && chmod 755 "$UPDATE_SCRIPT.new" && mv "$UPDATE_SCRIPT.new" "$UPDATE_SCRIPT"
+    for unit in "${UPDATE_UNITS[@]}"; do
+        sed -e "s/@VERSION@/$VERSION/g" -e "s|@UPDATE_SCRIPT@|$UPDATE_SCRIPT|g" "$HERE/units/$unit" > "$UNIT_DIR/$unit.new"
+        mv "$UNIT_DIR/$unit.new" "$UNIT_DIR/$unit"
+        in_list "$unit" "${CREATED_UNITS[@]+"${CREATED_UNITS[@]}"}" || CREATED_UNITS+=("$unit")
+    done
+    systemctl --user daemon-reload
+    systemctl --user enable --now swipekb-update.timer
+    AUTO_STATE=yes
+    write_record
+}
+
+auto_update_off() { # stop and delete only our update timer; the apps stay as they are
+    local unit keep=() item
+    for unit in "${UPDATE_UNITS[@]}"; do
+        if [ -f "$UNIT_DIR/$unit" ] && [ "$(head -n 1 "$UNIT_DIR/$unit")" = '# swipekb-gaming-managed' ]; then
+            systemctl --user disable --now "$unit" 2>/dev/null || true
+            rm -f "${UNIT_DIR:?}/${unit:?}"
+        fi
+    done
+    systemctl --user daemon-reload || true
+    rm -f "${UPDATE_SCRIPT:?}"
+    for item in "${CREATED_UNITS[@]+"${CREATED_UNITS[@]}"}"; do in_list "$item" "${UPDATE_UNITS[@]}" || keep+=("$item"); done
+    CREATED_UNITS=("${keep[@]+"${keep[@]}"}")
+    AUTO_STATE=no
+    write_record
+}
+
+apply_auto_update() {
+    if [ "$AUTO" = yes ] && [ -z "$AUTO_BLOCKED" ]; then auto_update_on
+    elif [ "$AUTO" = no ]; then auto_update_off; fi
+}
+
 # WHY the apps come first: it is the one step that needs the internet and can fail, so if it does we have
 # not yet switched anything on.
 if [ "$SKIP_FLATPAKS" = 0 ]; then
     flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
     install_app "$MAIN_ID" "${MAIN_BUNDLE[0]}"
 fi
+apply_auto_update
 
 gaming_off() { # turn Gaming Mode off, keep the Desktop keyboard; touches only what the record says we made
     local unit marker keep item ours=()
@@ -599,6 +685,7 @@ OUTSIDE_STATE="$OUTSIDE"
 mkdir -p "$STATE_DIR"
 printf '%s\n' "$OUTSIDE" > "$OUTSIDE_FILE"
 [ "$SKIP_FLATPAKS" = 1 ] || install_app "$HELPER_ID" "${HELPER_BUNDLE[0]}"
+[ "$AUTO_STATE" != yes ] || point_at_update_site "$HELPER_ID"
 
 for dir in "${STEAM_DIRS[@]}"; do
     marker="$dir/$MARKER_NAME"

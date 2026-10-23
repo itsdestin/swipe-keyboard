@@ -20,7 +20,7 @@ if [ -n "${CCACHE_DIR:-}" ]; then
     export CMAKE_C_COMPILER_LAUNCHER=ccache CMAKE_CXX_COMPILER_LAUNCHER=ccache
 fi
 make -C third_party/swipe-library host JOBS=4
-cmake -S . -B build-flatpak -G Ninja -DCMAKE_INSTALL_PREFIX=/app -DCMAKE_INSTALL_LIBDIR=lib -DSWIPEKB_PACKAGE_VERSION="$(python3 scripts/release.py version)" -DUSE_MARCH_NATIVE=OFF -DSWIPEKB_STOCK_LAYOUTS=/app/share/plasma/keyboard/layouts -DSWIPEKB_BACKEND_QML_DIR=/app/lib/qml -DSWIPEKB_BUNDLE_LIBDIR=/app/lib -DSWIPEKB_INSTALL_GAMINGD=ON
+cmake -S . -B build-flatpak -G Ninja -DCMAKE_INSTALL_PREFIX=/app -DCMAKE_INSTALL_LIBDIR=lib -DSWIPEKB_PACKAGE_VERSION="$(python3 scripts/release.py version)" -DUSE_MARCH_NATIVE=OFF -DSWIPEKB_STOCK_LAYOUTS=/app/share/plasma/keyboard/layouts -DSWIPEKB_BACKEND_QML_DIR=/app/lib/qml -DSWIPEKB_BUNDLE_LIBDIR=/app/lib -DSWIPEKB_INSTALL_GAMINGD=ON -DSWIPEKB_NATIVE_UPDATES=OFF
 cmake --build build-flatpak -j4
 if [ -n "${CCACHE_DIR:-}" ]; then ccache -s || true; fi
 QT_QPA_PLATFORM=offscreen ctest --test-dir build-flatpak --output-on-failure

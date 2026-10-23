@@ -1,0 +1,15 @@
+# Swipe Keyboard: look for a newer keyboard once a day (plan: docs/active/plans/2026-10-23-auto-updates.md).
+# WHY enabled by a packaged timers.target.wants link, not an install script: the package then contains every file it
+# changes, and removing the package removes the timer. "sudo swipe-keyboard updates off" turns it off.
+[Unit]
+Description=Swipe Keyboard: daily check for a newer keyboard
+
+[Timer]
+OnBootSec=15min
+OnUnitActiveSec=1d
+# WHY spread out: thousands of machines must not all ask the update site at the same minute.
+RandomizedDelaySec=4h
+Persistent=true
+
+[Install]
+WantedBy=timers.target

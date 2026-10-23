@@ -23,6 +23,21 @@ install(FILES "${SWIPEKB_SOURCE}/packaging/SOURCE-PROVENANCE.txt"
 install(FILES "${SWIPEKB_SOURCE}/integration/setup.py" "${SWIPEKB_SOURCE}/integration/layout.py"
     "${SWIPEKB_SOURCE}/integration/swipe-keyboard.desktop" DESTINATION "${_runtime}/integration")
 install(PROGRAMS "${SWIPEKB_SOURCE}/integration/swipe-keyboard" DESTINATION "${_runtime}/integration")
+# Automatic updates (plan: docs/active/plans/2026-10-23-auto-updates.md): the updater, its daily timer and the public
+# update key. The Fedora repository file is installed only where dnf is the package manager.
+# WHY an option: the Deck Flatpak is updated by Flatpak itself and must not carry system units (its build sets OFF).
+option(SWIPEKB_NATIVE_UPDATES "Install the native updater, its daily timer and the update key" ON)
+option(SWIPEKB_DNF_REPO "Install the dnf update repository file (Fedora)" OFF)
+if(SWIPEKB_NATIVE_UPDATES)
+    install(PROGRAMS "${SWIPEKB_SOURCE}/integration/update.py" DESTINATION "${_runtime}/integration")
+    install(FILES "${SWIPEKB_SOURCE}/packaging/updates/update-key.asc" "${SWIPEKB_SOURCE}/packaging/updates/update-key.gpg"
+        DESTINATION "${_runtime}/integration")
+    install(FILES "${SWIPEKB_SOURCE}/packaging/updates/swipe-keyboard-update.service"
+        "${SWIPEKB_SOURCE}/packaging/updates/swipe-keyboard-update.timer" DESTINATION "lib/systemd/system")
+    if(SWIPEKB_DNF_REPO)
+        install(FILES "${SWIPEKB_SOURCE}/packaging/updates/swipe-keyboard.repo" DESTINATION "/etc/yum.repos.d")
+    endif()
+endif()
 install(PROGRAMS "${SWIPEKB_SOURCE}/integration/swipe-keyboard" DESTINATION "${CMAKE_INSTALL_BINDIR}")
 install(FILES "${SWIPEKB_SOURCE}/integration/swipe-keyboard.desktop" DESTINATION "${CMAKE_INSTALL_DATADIR}/applications")
 # WHY the source contract is authoritative even for unstamped developer builds.

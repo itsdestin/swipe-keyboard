@@ -16,7 +16,7 @@ BuildRequires: kf6-kwindowsystem-devel, kf6-kconfig-devel, kf6-kirigami, gtest-d
 BuildRequires: plasma-keyboard
 # Real KConfigWatcher regression uses only dbus-run-session's private bus and busctl.
 BuildRequires: dbus-daemon, systemd
-Requires: python3, systemd, qt6-qtbase, qt6-qttools, kf6-kconfig
+Requires: python3, systemd, dnf, qt6-qtbase, qt6-qttools, kf6-kconfig
 # Fedora's plasma-keyboard has epoch 1. Keep the series gate effective.
 Requires: plasma-keyboard >= 1:6.7
 Requires: plasma-keyboard < 1:6.9
@@ -40,7 +40,7 @@ KWin settings. See the setup guide for tested KDE/Qt baselines and quality limit
 %build
 scripts/fetch-assets.sh
 scripts/build-futo.sh
-%cmake -G Ninja -DUSE_MARCH_NATIVE=OFF -DSWIPEKB_PACKAGE_VERSION=%{version}-%{release}
+%cmake -G Ninja -DUSE_MARCH_NATIVE=OFF -DSWIPEKB_PACKAGE_VERSION=%{version}-%{release} -DSWIPEKB_DNF_REPO=ON
 %cmake_build
 
 %check
@@ -50,10 +50,18 @@ python3 -m unittest discover -s tests/integration -v
 
 %install
 %cmake_install
+# WHY a packaged link instead of %post "systemctl enable": automatic updates are on from install with no scriptlet,
+# and removing the package removes the link. "sudo swipe-keyboard updates off" turns them off.
+mkdir -p %{buildroot}%{_unitdir}/timers.target.wants
+ln -s ../swipe-keyboard-update.timer %{buildroot}%{_unitdir}/timers.target.wants/swipe-keyboard-update.timer
 python3 scripts/package-check.py %{buildroot}
 
 %files
 %{_bindir}/swipe-keyboard
 %{_datadir}/applications/swipe-keyboard.desktop
 %{_datadir}/swipe-keyboard/
+%{_unitdir}/swipe-keyboard-update.service
+%{_unitdir}/swipe-keyboard-update.timer
+%{_unitdir}/timers.target.wants/swipe-keyboard-update.timer
+%config(noreplace) %{_sysconfdir}/yum.repos.d/swipe-keyboard.repo
 %license %{_datadir}/licenses/swipe-keyboard/

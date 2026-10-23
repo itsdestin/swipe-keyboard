@@ -1,0 +1,14 @@
+# Swipe Keyboard updates. Installed by the swipe-keyboard package; removed with it.
+# WHY repo_gpgcheck and not gpgcheck: the packages are the exact released files (their hashes are published with the
+# release), and the signed repository index carries each package's hash, so a changed package is still refused.
+[swipe-keyboard]
+name=Swipe Keyboard updates
+baseurl=https://itsdestin.github.io/swipe-keyboard/fedora/$basearch/
+enabled=1
+gpgcheck=0
+repo_gpgcheck=1
+gpgkey=file:///usr/share/swipe-keyboard/integration/update-key.asc
+metadata_expire=1d
+# WHY: if the update site is ever unreachable, dnf must carry on with every other repository instead of refusing
+# to update the whole system.
+skip_if_unavailable=1

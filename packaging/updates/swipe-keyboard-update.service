@@ -1,0 +1,14 @@
+[Unit]
+Description=Swipe Keyboard: install a newer keyboard if one is published
+Wants=network-online.target
+After=network-online.target
+# WHY a file and not "systemctl disable": a timer enabled by the package cannot be disabled, only masked; this file
+# is what "sudo swipe-keyboard updates off" writes.
+ConditionPathExists=!/etc/swipe-keyboard/auto-update-off
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /usr/share/swipe-keyboard/integration/update.py check
+# WHY low priority: an update must never make the desktop stutter.
+Nice=19
+IOSchedulingClass=idle

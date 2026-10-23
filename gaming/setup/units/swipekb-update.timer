@@ -1,0 +1,16 @@
+# swipekb-gaming-managed
+# swipekb-gaming-version: @VERSION@
+# swipekb-gaming-unit-revision: 1
+# WHY the lines above: see swipekb-switch-watch.service.
+[Unit]
+Description=Swipe Keyboard: look for a newer keyboard once a day
+
+[Timer]
+OnBootSec=15min
+OnUnitActiveSec=1d
+# WHY spread out: every Deck must not ask the update site at the same minute.
+RandomizedDelaySec=4h
+Persistent=true
+
+[Install]
+WantedBy=timers.target

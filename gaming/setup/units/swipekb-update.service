@@ -1,0 +1,16 @@
+# swipekb-gaming-managed
+# swipekb-gaming-version: @VERSION@
+# swipekb-gaming-unit-revision: 1
+# WHY the lines above: see swipekb-switch-watch.service.
+[Unit]
+Description=Swipe Keyboard: install a newer keyboard if one is published (Flatpak checks the signature)
+
+[Service]
+Type=oneshot
+ExecStart=@UPDATE_SCRIPT@
+# WHY low priority: an update must never make a game stutter.
+Nice=19
+IOSchedulingClass=idle
+
+[Install]
+WantedBy=default.target
