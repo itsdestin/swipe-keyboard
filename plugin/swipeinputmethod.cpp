@@ -13,6 +13,7 @@
 #include "predictionpolicy.h"
 #include "languagetextrules.h"
 #include "profilediagnostics.h"
+#include "wordswap.h"
 #include <QPointer>
 #include <QQuickItem>
 #include <QQuickWindow>
@@ -83,6 +84,13 @@ SwipeInputMethod::SwipeInputMethod(QObject *parent, NextWordWorker::Inference in
             for (const auto &word:words)
                 if (swipekb::offeredUnprompted(word, m_profiles.snapshot().effectiveLanguage)) offered << word;
             if (m_nextWord.accept(stamp, swipekb::rankRegionalCandidates(offered, m_profiles.snapshot().requestedLocale, 12))) refreshGuessBar();
+        });
+    connect(&m_predictionWorker, &NextWordWorker::alternativesReady, this,
+        [this](PredictionStamp stamp, const QStringList &ranked) {
+            // WHY the same word and no finger down: a list that changes under a pressed finger would swap in a
+            // word other than the one pressed. A stale answer (cursor moved on) is refused by its stamp.
+            if (!m_swap.active() || !(stamp==m_swapStamp) || !m_swapPress.isEmpty()) return;
+            if (m_swap.setRanked(ranked)) refreshGuessBar();
         });
     connect(&m_predictionWorker, &NextWordWorker::completionReady, this,
         [this](PredictionStamp stamp, const QString &prefix, const QStringList &ranked) {
@@ -193,6 +201,12 @@ bool SwipeInputMethod::keyEvent(Qt::Key key, const QString &text, Qt::KeyboardMo
     if (!alive) return false;
     if (!allowed) { reset(); return false; }
     const bool predictSafe=safePredictionContext();
+    // WHY first: any key ends "alternatives for the tapped word" (typing returns the bar to normal), and
+    // the cursor move and edit this key causes must not look like the person tapping into a word.
+    clearWordSwap();
+    if (!alive) return false;
+    if (!text.isEmpty() || key==Qt::Key_Backspace || key==Qt::Key_Delete || key==Qt::Key_Return
+        || key==Qt::Key_Enter || key==Qt::Key_Tab) m_moves.ownEdit();
     const int autoSpace=m_autoSpaceCursor; m_autoSpaceCursor=-1;
     // WHY: "word" + automatic space + "." should read "word. ", not "word .". Only for the space this
     // keyboard just added, with the cursor still right after it in a readable, allowed field.
@@ -205,7 +219,7 @@ bool SwipeInputMethod::keyEvent(Qt::Key key, const QString &text, Qt::KeyboardMo
             if (!ic) return false;
             reset();
             if (!alive || !ic) return true;
-            ic->commit(text+QLatin1Char(' '),-1,1);
+            m_moves.ownEdit(); /* WHY: our own typing is not a tap (card #187) */ ic->commit(text+QLatin1Char(' '),-1,1);
             if (alive) m_autoSpaceCursor=editor.cursor+1;
             return true;
         }
@@ -275,7 +289,7 @@ bool SwipeInputMethod::keyEvent(Qt::Key key, const QString &text, Qt::KeyboardMo
         // For an unchanged safe target, consume an applied word deletion; an empty plan retains
         // ordinary stock Backspace. Invalidated notifications above instead consume without editing.
         if (!plan.isEmpty()) {
-            ic->commit(plan.text, plan.replaceFrom, plan.replaceLength);
+            m_moves.ownEdit(); /* WHY: our own typing is not a tap (card #187) */ ic->commit(plan.text, plan.replaceFrom, plan.replaceLength);
             return true;
         }
         return false;
@@ -293,7 +307,7 @@ bool SwipeInputMethod::keyEvent(Qt::Key key, const QString &text, Qt::KeyboardMo
             QPointer<QVirtualKeyboardInputContext> context(ic);
             QPointer<QObject> item(ic->inputItem());
             const int generation = m_generation;
-            ic->commit(QStringLiteral(" "));
+            m_moves.ownEdit(); /* WHY: our own typing is not a tap (card #187) */ ic->commit(QStringLiteral(" "));
             if (!alive) return false;
             if (!context || !item || context != inputContext() || item != context->inputItem()
                 || generation != m_generation) { reset(); return false; }
@@ -381,7 +395,7 @@ void SwipeInputMethod::selectionListItemSelected(Type type, int index)
             }
             stageOwnedCommit(plan,true);
             if(!self || !ic || !item || generation!=m_generation)return;
-            ic->commit(plan.text,plan.replaceFrom,plan.replaceLength);
+            m_moves.ownEdit(); /* WHY: our own typing is not a tap (card #187) */ ic->commit(plan.text,plan.replaceFrom,plan.replaceLength);
             if(!self)return;
             if(!ic || !item || ic!=inputContext() || item!=ic->inputItem() || generation!=m_generation){reset();return;}
             m_autoSpaceCursor=plan.text.endsWith(QLatin1Char(' ')) ? previous.cursor+plan.replaceFrom+int(plan.text.size()) : -1;
@@ -389,6 +403,30 @@ void SwipeInputMethod::selectionListItemSelected(Type type, int index)
             if(!self)return;
         }
         refreshGuessBar();return;
+    }
+    if (m_swap.active() && !m_session.isActive()) {
+        // Tap-to-swap (card #187): replaces exactly the tapped word, adds no space, moves nothing else.
+        QPointer<SwipeInputMethod> self(this);
+        const bool safe=safePredictionContext();
+        if (!self || !ic || ic!=inputContext()) return;
+        if (!safe || predictionPolicy().source!=PredictionPolicySource::RawBridge) { reset(); return; }
+        const auto editor=predictionEditor();
+        const auto pressed=m_swapPress; m_swapPress.clear();
+        const QString oldWord=m_swap.word(); const int oldStart=m_swap.start();
+        const auto plan=m_swap.take(index,pressed,editor.text,editor.cursor);
+        if (plan.isEmpty()) { qCInfo(lcSwipe)<<"swap tap refused: press"<<!pressed.isEmpty()<<"index"<<index; clearWordSwap(); refreshGuessBar(); return; }
+        m_recentSwipes.forget(editor.text.left(oldStart), oldWord);
+        QPointer<QObject> item(ic->inputItem()); const int generation=m_generation;
+        m_predictionWorker.invalidate();
+        m_outcome.abandon(); m_lastRecordedSwipeTs=0; clearAfterSwipe();
+        m_moves.ownEdit(); /* WHY: the replacement is our edit, not a tap */
+        ic->commit(plan.text, plan.replaceFrom, plan.replaceLength);
+        if (!self) return;
+        if (!ic || !item || ic!=inputContext() || item!=ic->inputItem() || generation!=m_generation) { reset(); return; }
+        observePredictionEcho();
+        if (!self) return;
+        refreshGuessBar();
+        return;
     }
     if (!m_session.isActive() && !m_nextWord.candidates().isEmpty()) {
         // WHY a prediction insertion has the same live/privacy/deletion boundary as a swipe commit.
@@ -417,7 +455,7 @@ void SwipeInputMethod::selectionListItemSelected(Type type, int index)
             stageOwnedCommit(plan);
             if (!self || !ic || !item || generation!=m_generation) return;
             // WHY explicit zeros: a prediction must never enter the correction replacement path.
-            ic->commit(plan.text, 0, 0);
+            m_moves.ownEdit(); /* WHY: our own typing is not a tap (card #187) */ ic->commit(plan.text, 0, 0);
             if (!self) return;
             if (!ic || !item || ic!=inputContext() || item!=ic->inputItem()
                 || generation!=m_generation) { reset(); return; }
@@ -445,7 +483,7 @@ void SwipeInputMethod::selectionListItemSelected(Type type, int index)
         const int generation = m_generation;
         stageOwnedCommit(plan,true);
         if (!self || !ic || !item || generation!=m_generation) return;
-        ic->commit(plan.text, plan.replaceFrom, plan.replaceLength);
+        m_moves.ownEdit(); /* WHY: our own typing is not a tap (card #187) */ ic->commit(plan.text, plan.replaceFrom, plan.replaceLength);
         // WHY: commit sends a synchronous public event; its handler may delete this method,
         // replace the target or reset policy. Check the snapshot before any member access/call.
         if (!self) return;
@@ -471,6 +509,8 @@ void SwipeInputMethod::reset()
     m_ownedHistory.clear();m_typedWord.clear();m_typedPress.clear();
     // WHY prediction-bar notifications are synchronous deletion boundaries too.
     QPointer<SwipeInputMethod> self(this);
+    clearWordSwap();
+    if (!self) return;
     invalidatePredictions();
     if (!self) return;
     // WHY: points collected before a focus/privacy/mode reset must never authorize a later commit.
@@ -615,6 +655,8 @@ int SwipeInputMethod::beginSwipe()
     if (!observeFlags("capture")) return -1;
 #endif
     QPointer<SwipeInputMethod> self(this);
+    clearWordSwap(); // WHY: swiping returns the bar to normal
+    if (!self) return -1;
     invalidatePredictions();
     if (!self) return -1;
     ensureContextConnections();
@@ -713,7 +755,7 @@ void SwipeInputMethod::finishSwipe(const QVariantList &points, const QVariantLis
         const int generation = m_generation;
         stageOwnedCommit(plan);
         if (!self || !ic || !item || generation!=m_generation) return;
-        ic->commit(plan.text, plan.replaceFrom, plan.replaceLength);
+        m_moves.ownEdit(); /* WHY: our own typing is not a tap (card #187) */ ic->commit(plan.text, plan.replaceFrom, plan.replaceLength);
         // WHY: a synchronous target callback must not resurrect afterSwipe or record a word
         // after deletion, focus replacement, privacy change or reset.
         if (!self) return;
@@ -726,6 +768,12 @@ void SwipeInputMethod::finishSwipe(const QVariantList &points, const QVariantLis
         m_afterSwipe = true;
         m_afterSwipeCursorBefore = cursorBefore;
         m_afterSwipeCursorAfter = cursorBefore + static_cast<int>(plan.text.size());
+        // Remember this swipe's guesses so tapping the word later can offer them (memory only, see wordswap.h).
+        // WHY only where tap-to-swap may read text: the same field gate as prediction, raw-policy bridge only.
+        if (predictionPolicy().source==PredictionPolicySource::RawBridge
+            && NextWordSession::allowed(predictionEditor(), predictionPolicy()))
+            m_recentSwipes.remember(before + (plan.text.startsWith(QLatin1Char(' ')) ? QStringLiteral(" ") : QString()),
+                                    plan.text.trimmed(), candidates);
     }
     const int barGeneration = m_generation;
     QPointer<QObject> barItem(ic->inputItem());
@@ -856,6 +904,8 @@ void SwipeInputMethod::ensureContextConnections()
         QPointer<SwipeInputMethod> self(this);
         setPredictionPolicySource(ic->inputItem());
         if (!self) return;
+        // WHY: other field, other words; the baseline for "cursor moved" starts over too.
+        m_recentSwipes.clear(); m_moves.clear();
         watchInputWindow();
         if (self) reset();
     });
@@ -874,7 +924,7 @@ void SwipeInputMethod::ensureContextConnections()
             QPointer<SwipeInputMethod> self(this);
             const bool safe=safePredictionContext();
             if (!self) return;
-            if (!safe) { m_ownedHistory.clear(); m_typedWord.clear(); m_typedPress.clear(); invalidatePredictions(); return; }
+            if (!safe) { m_ownedHistory.clear(); m_typedWord.clear(); m_typedPress.clear(); m_moves.clear(); clearWordSwap(); if (self) invalidatePredictions(); return; }
             const bool visible = !m_nextWord.candidates().isEmpty();
             const auto editor=predictionEditor();
             m_ownedHistory.changed(editor,predictionPolicy(),m_profiles.snapshot().epoch);
@@ -883,12 +933,14 @@ void SwipeInputMethod::ensureContextConnections()
             if(typedVisible && m_typedWord.candidates().isEmpty())refreshGuessBar();
             if(!self)return; // candidate notifications may synchronously delete the method
             m_nextWord.editorChanged(editor, predictionPolicy(), m_profiles.snapshot().epoch, predictionCapable());
-            if (!m_nextWord.pendingOrVisible()) {
+            // WHY not while alternatives are open: the running job is their sentence ranking.
+            if (!m_nextWord.pendingOrVisible() && !m_swap.active()) {
                 m_predictionWorker.invalidate();
                 if (m_predictionModelState==swipekb::PredictionModelState::Loading)
                     m_predictionModelState=swipekb::PredictionModelState::NotRequested;
             }
             if (visible && m_nextWord.candidates().isEmpty()) refreshGuessBar();
+            if (self) observeWordSwap(editor);
             if (self) emit diagnosticsChanged();
         });
     }
@@ -999,7 +1051,7 @@ void SwipeInputMethod::observePredictionEcho()
     QPointer<SwipeInputMethod> self(this);
     const bool safe=safePredictionContext();
     if (!self) return;
-    if (!safe) { m_ownedHistory.clear(); m_typedWord.clear(); m_typedPress.clear(); invalidatePredictions(); return; }
+    if (!safe) { m_ownedHistory.clear(); m_typedWord.clear(); m_typedPress.clear(); m_moves.clear(); clearWordSwap(); if (self) invalidatePredictions(); return; }
     const auto old = m_nextWord.candidates();
     const auto editor=predictionEditor();
     m_ownedHistory.observe(editor,predictionPolicy(),m_profiles.snapshot().epoch);
@@ -1033,7 +1085,7 @@ void SwipeInputMethod::observePredictionEcho()
     } else if (!m_nextWord.pendingOrVisible()) {
         // WHY not while a word is being typed: the running job is that word's completion, not a stale
         // next-word request (those are refused by their stamp anyway).
-        if (m_typedWord.token().isEmpty()) m_predictionWorker.invalidate();
+        if (m_typedWord.token().isEmpty() && !m_swap.active()) m_predictionWorker.invalidate();
         if (m_predictionModelState==swipekb::PredictionModelState::Loading) {
             m_predictionModelState=swipekb::PredictionModelState::NotRequested;
             emit diagnosticsChanged();
@@ -1042,6 +1094,76 @@ void SwipeInputMethod::observePredictionEcho()
     // WHY after the next-word block: the worker keeps only the latest job, and mid-word the completion matters.
     if (self && completionWanted) requestContextCompletion(editor);
     if (self && old != m_nextWord.candidates()) refreshGuessBar();
+    if (self) observeWordSwap(editor);
+}
+
+void SwipeInputMethod::clearWordSwap()
+{
+    QPointer<SwipeInputMethod> self(this);
+    const bool was = m_swap.active();
+    m_swap.clear(); m_swapPress.clear();
+    ++m_swapStamp.requestId; // a late sentence-ranking answer for the old word is refused
+    if (!was) return;
+    m_predictionWorker.invalidate();
+    refreshGuessBar();
+    Q_UNUSED(self);
+}
+
+void SwipeInputMethod::observeWordSwap(const EditorSnapshot &editor)
+{
+    // Tap-to-swap (card #187). WHY raw-policy bridge only: under owned-history the keyboard may inspect only
+    // words it committed itself and cannot attest the rest of the field, so the feature stays off there.
+    const auto policy = predictionPolicy();
+    if (policy.source != PredictionPolicySource::RawBridge || !NextWordSession::allowed(editor, policy) || !isReady()) {
+        m_moves.clear(); clearWordSwap(); return;
+    }
+    QPointer<SwipeInputMethod> self(this);
+    const bool tapped = m_moves.observe(editor.text, editor.cursor);
+    if (m_swap.active() && !m_swap.stillValid(editor.text, editor.cursor)) {
+        clearWordSwap();
+        if (!self) return;
+    }
+    if (!tapped) return;
+    // A tap away from a swiped word ends that swipe's guess bar (update() would, a moment later).
+    if (m_session.isActive() && !m_session.cursorStillAfterWord(editor.text.left(editor.cursor))) {
+        m_outcome.abandon();
+        clearSession();
+        if (!self) return;
+    }
+    if (m_session.isActive() || !m_typedWord.token().isEmpty()) return;
+    const auto span = WordSwap::wordAt(editor.text, editor.cursor);
+    if (!span) { clearWordSwap(); return; }
+    if (m_swap.active() && m_swap.start() == span->start && m_swap.word() == span->word) return;
+    const auto snapshot = m_profiles.snapshot();
+    // Dictionary neighbours: the same swipe shape's other spelling (its / it's), then one-edit words.
+    QStringList neighbours;
+    for (const auto &o : m_recognizer->otherSpellings(span->word.toLower().toStdString()))
+        neighbours << QString::fromStdString(o);
+    for (const auto &c : m_recognizer->similar(span->word.toStdString(), 12))
+        neighbours << QString::fromStdString(c.word);
+    // WHY filtered unless the person's own word is one: a clean word is never answered with a swear word it
+    // merely resembles; for a word they typed that is blocked, its neighbours derive from their word, so allowed.
+    if (swipekb::offeredUnprompted(span->word, snapshot.effectiveLanguage)) {
+        QStringList clean;
+        for (const auto &n : neighbours) if (swipekb::offeredUnprompted(n, snapshot.effectiveLanguage)) clean << n;
+        neighbours = clean;
+    }
+    neighbours = swipekb::rankRegionalCandidates(neighbours, snapshot.requestedLocale, 12);
+    const auto swiped = m_recentSwipes.candidatesFor(editor.text.left(span->start), span->word);
+    if (!m_swap.begin(editor.text, editor.cursor, swiped, neighbours)) { clearWordSwap(); return; }
+    m_swapPress.clear();
+    ++m_swapStamp.requestId;
+    m_swapStamp.profileEpoch = snapshot.epoch;
+    refreshGuessBar();
+    if (!self) return;
+    // Sentence ranking only with an n-gram pack; English without one stays on dictionary order (like completion).
+    if (!predictionCapable() || !snapshot.assets.value(QStringLiteral("contextModel")).compatibility.endsWith(QStringLiteral(":context-ngram-v1"))) return;
+    const auto model = snapshot.assets.value(QStringLiteral("contextModel"));
+    const auto vocab = snapshot.assets.value(QStringLiteral("contextVocab"));
+    PredictionJob job{m_swapStamp, model.path, vocab.path, swipekb::textContextWords(editor.text.left(span->start).right(4096)),
+        model.sha256 + vocab.sha256, span->word.left(1).toLower()};
+    job.alternatives = true; job.topK = 64;
+    m_predictionWorker.submit(job);
 }
 
 void SwipeInputMethod::requestContextCompletion(const EditorSnapshot &editor)
@@ -1106,6 +1228,7 @@ QVariantMap SwipeInputMethod::diagnostics() const
 QString SwipeInputMethod::predictionSelectionToken() const
 {
     if(!m_typedWord.candidates().isEmpty())return m_typedWord.selectionToken();
+    if(m_swap.active() && !m_session.isActive())return m_swap.token();
     const auto stamp = m_nextWord.candidateStamp();
     if (!stamp) return {};
     return QString::number(stamp->profileEpoch) + ':' + QString::number(stamp->editorEpoch) + ':' + QString::number(stamp->requestId);
@@ -1118,7 +1241,8 @@ quint64 SwipeInputMethod::beginPredictionSelection(const QString &token)
     ++m_predictionPressId;
     const quint64 pressId=m_predictionPressId;
     m_typedPress=!token.isEmpty() && token==m_typedWord.selectionToken()?token:QString();
-    m_predictionTap = !token.isEmpty() && token == predictionSelectionToken() ? m_nextWord.candidateStamp() : std::nullopt;
+    m_swapPress = m_swap.active() && !token.isEmpty() && token == m_swap.token() ? token : QString();
+    m_predictionTap = !m_swap.active() && !token.isEmpty() && token == predictionSelectionToken() ? m_nextWord.candidateStamp() : std::nullopt;
     // WHY after freezing the pressed set: the release check must compare against the live field. If
     // the refresh changes the suggestions under the finger, the frozen token no longer matches and
     // the tap is refused rather than inserting a word the person did not see.
@@ -1133,13 +1257,14 @@ void SwipeInputMethod::endPredictionSelection(quint64 pressId)
 {
     // WHY identify the press too: a deferred cleanup from an old gesture must not
     // revoke a fresh press on an unchanged candidate set.
-    if (pressId == m_predictionPressId) {m_predictionTap.reset();m_typedPress.clear();}
+    if (pressId == m_predictionPressId) {m_predictionTap.reset();m_typedPress.clear();m_swapPress.clear();}
 }
 
 QStringList SwipeInputMethod::barCandidates() const
 {
     if(!m_typedWord.candidates().isEmpty())return m_typedWord.candidates();
-    return m_session.isActive() ? m_session.alternatives() : m_nextWord.candidates();
+    if (m_session.isActive()) return m_session.alternatives();
+    return m_swap.active() ? m_swap.candidates() : m_nextWord.candidates();
 }
 
 void SwipeInputMethod::refreshGuessBar()

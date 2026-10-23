@@ -58,7 +58,7 @@ void NextWordWorker::run()
                 modelLoaded=predictor.ready();
                 std::vector<std::string> context;
                 for (const auto &word : job.context) context.push_back(word.toStdString());
-                for (const auto &word : predictor.predict(context, 12, job.prefix.toStdString()))
+                for (const auto &word : predictor.predict(context, job.topK, job.prefix.toStdString()))
                     words << QString::fromStdString(word);
             }
         } catch (...) { words.clear(); }
@@ -68,7 +68,8 @@ void NextWordWorker::run()
                 // WHY no model path/context in status: only the current profile's
                 // loaded bit may cross into support diagnostics.
                 emit modelStateChanged(job.stamp.profileEpoch,modelLoaded);
-                if (job.prefix.isEmpty()) emit resultReady(job.stamp, words);
+                if (job.alternatives) emit alternativesReady(job.stamp, words);
+                else if (job.prefix.isEmpty()) emit resultReady(job.stamp, words);
                 else emit completionReady(job.stamp, job.prefix, words);
             }
         }

@@ -353,6 +353,55 @@ std::vector<Candidate> Recognizer::complete(const std::string &prefix, int top_k
     return out;
 }
 
+std::vector<Candidate> Recognizer::similar(const std::string &word, int top_k) const
+{
+    if(!impl_->ready || !impl_->dict || top_k<=0) return {};
+    const auto text=QString::fromStdString(word).normalized(QString::NormalizationForm_C).toLower();
+    if(text.size()<2 || text.size()>64) return {};
+    std::vector<int> wanted;
+    for(auto cp:text.toUcs4()) {
+        if(cp=='\'' || cp==0x2019 || cp=='-') continue;
+        int c=impl_->dict->lookup_codepoint(cp);if(c<0)return {};wanted.push_back(c);
+    }
+    if(wanted.size()<2)return {};
+    // WHY a separate walk from complete(): complete() ranks words that merely START with the letters, so for
+    // "sea" the top twelve are search/season/seat and the real neighbours (see, sew) never surface. Here only
+    // WHOLE words one edit away count: a swapped, dropped, added or replaced letter (Damerau, "teh" -> "the").
+    std::vector<Candidate> pool;
+    size_t visited=0;
+    const size_t n=wanted.size();
+    std::vector<int> initial(n+1);std::iota(initial.begin(),initial.end(),0);
+    std::function<void(uint32_t,const std::vector<int>&,const std::vector<int>&,int)> walk;
+    walk=[&](uint32_t index,const std::vector<int>&row,const std::vector<int>&prevRow,int lastChar) {
+        if(++visited>60000)return;
+        const auto *node=impl_->dict->get_node(index);if(!node || node->depth>64)return;
+        // distance 0 is the tapped word itself, never an alternative
+        if(node->is_word && row.back()==1) {
+            auto display=impl_->spellings.spell(impl_->dict->reconstruct_word(index));
+            pool.push_back({display,node->log_frequency});
+        }
+        // WHY prune at 2: nothing below this node can come back within one edit.
+        if(*std::min_element(row.begin(),row.end())>1)return;
+        for(int c=0;c<impl_->dict->num_chars();++c)if(node->children[c]) {
+            std::vector<int> next(row.size());next[0]=row[0]+1;
+            for(size_t j=1;j<next.size();++j) {
+                next[j]=std::min({next[j-1]+1,row[j]+1,row[j-1]+(wanted[j-1]!=c)});
+                if(j>1 && lastChar>=0 && c==wanted[j-2] && lastChar==wanted[j-1]) next[j]=std::min(next[j],prevRow[j-2]+1);
+            }
+            walk(node->children[c],next,row,c);
+        }
+    };
+    walk(0,initial,initial,-1);
+    std::stable_sort(pool.begin(),pool.end(),[](const auto&a,const auto&b){return a.score>b.score;});
+    std::vector<Candidate> out;
+    for(const auto &candidate:pool) {
+        if(QString::fromStdString(candidate.word).toLower()==text)continue;
+        if(std::none_of(out.begin(),out.end(),[&](const auto &x){return x.word==candidate.word;}))out.push_back(candidate);
+        if(int(out.size())>=std::min(top_k,24))break;
+    }
+    return out;
+}
+
 bool Recognizer::ready() const { return impl_->ready; }
 bool Recognizer::usingNgram() const { return impl_->ready && impl_->ngram.loaded(); }
 bool Recognizer::usingNlm() const { return impl_->ready && impl_->nlm != nullptr; }

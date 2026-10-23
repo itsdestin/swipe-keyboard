@@ -28,7 +28,7 @@ target_link_libraries(swipekb-profilecheck PRIVATE swipekb_language)
 install(TARGETS swipekb-profilecheck RUNTIME DESTINATION share/swipe-keyboard/integration)
 
 # Pure text logic, no keyboard or engine: unit-tested on its own.
-add_library(swipekb_session STATIC swipesession.cpp swipeoutcome.cpp nextwordsession.cpp predictionpolicy.cpp predictiondiagnostics.cpp)
+add_library(swipekb_session STATIC swipesession.cpp swipeoutcome.cpp nextwordsession.cpp predictionpolicy.cpp predictiondiagnostics.cpp wordswap.cpp)
 target_include_directories(swipekb_session PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 # WHY the engine: SwipeSession::contextWords forwards to swipekb::contextWords (one shared implementation).
 target_link_libraries(swipekb_session PUBLIC Qt6::Core swipekb_engine)
@@ -43,7 +43,7 @@ add_test(NAME plugin_outcome COMMAND tst_swipeoutcome)
 
 # WHY these tests are independent of a compositor/installed keyboard: prediction
 # insertion and policy authority must be pinned without activating a host backend.
-foreach(feature IN ITEMS nextwordsession predictionpolicy predictiondiagnostics ownedhistory typedwordsession)
+foreach(feature IN ITEMS nextwordsession predictionpolicy predictiondiagnostics ownedhistory typedwordsession wordswap)
     qt_add_executable(tst_${feature} tests/tst_${feature}.cpp)
     target_link_libraries(tst_${feature} PRIVATE swipekb_session Qt6::Test)
     add_test(NAME plugin_${feature} COMMAND tst_${feature})

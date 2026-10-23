@@ -14,6 +14,11 @@ struct PredictionJob {
     // Letters typed so far of the current word: non-empty makes this a completion job, answered by
     // completionReady instead of resultReady.
     QString prefix;
+    // Tap-to-swap ranking (card #187): `prefix` is then the tapped word's first letter and `topK` is wide, so the
+    // answer lists many words that fit the sentence and the caller keeps the ones that are real neighbours.
+    // Answered by alternativesReady, never by resultReady/completionReady.
+    bool alternatives = false;
+    int topK = 12;
 };
 // Serial, thread-confined inference with one latest pending request. No GUI-side
 // inference lock or synchronous profile drain; a changed identity reloads on run().
@@ -30,6 +35,7 @@ public:
 signals:
     void resultReady(PredictionStamp, QStringList);
     void completionReady(PredictionStamp, QString prefix, QStringList);
+    void alternativesReady(PredictionStamp, QStringList);
     void requestSettled();
     void modelStateChanged(quint64 profileEpoch, bool loaded);
 protected:

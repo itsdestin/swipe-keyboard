@@ -8,6 +8,7 @@
 #include <QTemporaryDir>
 #include <QFileInfo>
 #include <QSemaphore>
+#include <QRegularExpression>
 #include <QJsonDocument>
 #include <future>
 #include <QtVirtualKeyboard/QVirtualKeyboardInputContext>
@@ -201,6 +202,216 @@ private slots:
         QVERIFY(done.tryAcquire(1,15000));
         if(native)QCOMPARE(captured,QStringList{selected.toLower()});
         QTRY_VERIFY(!method.predictionSelectionToken().isEmpty());ic->inputEngine()->setInputMethod(nullptr);
+    }
+    // ---- Tap a word to see and swap alternatives (card #187) -------------------------------------------------
+private:
+    // One field with a raw-policy bridge (the supported mode); tests change the text/cursor like an app would.
+    struct SwapFixture {
+        QTemporaryDir data; QQmlEngine engine; QQmlComponent fixture{&engine};
+        std::unique_ptr<QObject> root; QQuickWindow window; std::unique_ptr<InputListenerItem> edit;
+        QVirtualKeyboardInputContext *ic = nullptr; std::unique_ptr<SwipeInputMethod> method; TestPolicyBridge bridge;
+        QStringList jobPrefixes, jobContexts; QSemaphore ranked;
+        bool init(const QString &text, int cursor, Qt::InputMethodHints extra, const QString &locale,
+                  SwipeInputMethod *own = nullptr, bool native = false) {
+            qputenv("SWIPEKB_DATA", data.path().toUtf8());
+            if (locale.startsWith("en")) qputenv("SWIPEKB_MODEL_DATA", qgetenv("SWIPEKB_TEST_PROFILE_ASSETS"));
+            if (native) qputenv("SWIPEKB_NATIVE_PREDICTION", "owned-history-v1");
+            fixture.setData("import QtQuick; import QtQuick.VirtualKeyboard; Item {property var context:InputContext}", QUrl());
+            root.reset(fixture.create()); if (!root) return false;
+            auto *item = qobject_cast<QQuickItem*>(root.get()); window.resize(500, 200); item->setParentItem(window.contentItem());
+            edit = std::make_unique<InputListenerItem>(item); edit->text = text; edit->cursor = cursor; edit->hints |= extra;
+            window.show(); window.requestActivate(); edit->forceActiveFocus();
+            ic = qvariant_cast<QVirtualKeyboardInputContext*>(root->property("context"));
+            method.reset(own ? own : new SwipeInputMethod(nullptr, [this](const PredictionJob &job) {
+                if (job.alternatives) { jobPrefixes << job.prefix; jobContexts = job.context; ranked.release(); return QStringList{"paso", "casi"}; }
+                return QStringList{"x", "y", "z"}; }));
+            ic->inputEngine()->setInputMethod(method.get()); method->setInputMode(locale, QVirtualKeyboardInputEngine::InputMode::Latin);
+            method->setPhysicalLayout("qwerty");
+            if (!native) method->setPredictionPolicySource(&bridge);
+            QGuiApplication::inputMethod()->update(Qt::ImQueryAll); method->update();
+            return true;
+        }
+        ~SwapFixture() { if (ic) ic->inputEngine()->setInputMethod(nullptr); qunsetenv("SWIPEKB_NATIVE_PREDICTION"); }
+        // The person taps in the text: only the cursor moves, then Qt reports it.
+        void tapAt(int cursor) { edit->cursor = cursor; QGuiApplication::inputMethod()->update(Qt::ImQueryAll); method->update(); }
+        QStringList bar() const {
+            QStringList words; const auto type = QVirtualKeyboardSelectionListModel::Type::WordCandidateList;
+            for (int i = 0; i < method->selectionListItemCount(type); ++i)
+                words << method->selectionListData(type, i, QVirtualKeyboardSelectionListModel::Role::Display).toString();
+            return words;
+        }
+        void choose(int index) {
+            method->beginPredictionSelection(method->predictionSelectionToken());
+            method->selectionListItemSelected(QVirtualKeyboardSelectionListModel::Type::WordCandidateList, index);
+        }
+    };
+private slots:
+    void tappingAWordShowsAlternativesAndChangesNothing() {
+        if (qEnvironmentVariable("SWIPEKB_TEST_PROFILE_ASSETS").isEmpty()) QSKIP("English assets required");
+        SwapFixture f; const QString text = QStringLiteral("we can sea you today ");
+        QVERIFY(f.init(text, text.size(), {}, "en_US")); QTRY_VERIFY(f.ic->inputItem() == f.edit.get());
+        QVERIFY2(f.method->isReady(), qPrintable(f.method->profileSnapshot().unavailableReason));
+        QVERIFY(f.bar().isEmpty());
+        f.tapAt(9);                                   // inside "sea"
+        const auto shown = f.bar();
+        QVERIFY(!shown.isEmpty() && shown.size() <= 3);
+        QVERIFY2(shown.contains("see"), qPrintable(shown.join(",")));
+        QVERIFY(!shown.contains("sea"));
+        QCOMPARE(f.edit->text, text);                 // nothing swapped by itself
+        QCOMPARE(f.edit->cursor, 9);
+        f.tapAt(7);                                   // directly before the word: same word
+        QCOMPARE(f.bar(), shown);
+    }
+    void choosingAnAlternativeReplacesOnlyThatWordKeepingItsCapitals_data() {
+        QTest::addColumn<QString>("text"); QTest::addColumn<int>("tap"); QTest::addColumn<QString>("expected"); QTest::addColumn<int>("cursorAfter");
+        QTest::newRow("lower") << "we can sea you today " << 9 << "we can see you today " << 10;
+        QTest::newRow("capitalized") << "Sea is calm and sea is deep." << 1 << "See is calm and sea is deep." << 3;
+        QTest::newRow("all caps") << "WE CAN SEA YOU" << 9 << "WE CAN SEE YOU" << 10;
+        QTest::newRow("cursor just after the word") << "we can sea, you" << 10 << "we can see, you" << 10;
+        QTest::newRow("same word twice") << "sea and sea" << 9 << "sea and see" << 11;
+    }
+    void choosingAnAlternativeReplacesOnlyThatWordKeepingItsCapitals() {
+        if (qEnvironmentVariable("SWIPEKB_TEST_PROFILE_ASSETS").isEmpty()) QSKIP("English assets required");
+        QFETCH(QString, text); QFETCH(int, tap); QFETCH(QString, expected); QFETCH(int, cursorAfter);
+        SwapFixture f; QVERIFY(f.init(text, text.size(), {}, "en_US")); QTRY_VERIFY(f.ic->inputItem() == f.edit.get());
+        f.tapAt(tap);
+        const auto shown = f.bar();
+        const int index = shown.indexOf(QRegularExpression("^[Ss][Ee][Ee]$"));
+        QVERIFY2(index >= 0, qPrintable(shown.join(",")));
+        f.choose(index);
+        QCOMPARE(f.edit->text, expected);             // no added space, no other word touched
+        QCOMPARE(f.edit->cursor, cursorAfter);        // cursor ends right after the replaced word
+        QGuiApplication::inputMethod()->update(Qt::ImQueryAll); f.method->update();
+        QVERIFY(f.bar().isEmpty());                   // and the bar is normal again, with nothing left to swap
+    }
+    void nothingIsOfferedInPrivateOrDeniedFields_data() {
+        QTest::addColumn<int>("hints"); QTest::addColumn<bool>("offered");
+        QTest::newRow("ordinary") << 0 << true;
+        QTest::newRow("lowercase hint") << int(Qt::ImhPreferLowercase) << true;
+        QTest::newRow("password") << int(Qt::ImhHiddenText | Qt::ImhSensitiveData) << false;
+        QTest::newRow("private") << int(Qt::ImhSensitiveData) << false;
+        QTest::newRow("hidden") << int(Qt::ImhHiddenText) << false;
+        QTest::newRow("web address") << int(Qt::ImhUrlCharactersOnly) << false;
+        QTest::newRow("email") << int(Qt::ImhEmailCharactersOnly) << false;
+        QTest::newRow("number") << int(Qt::ImhDigitsOnly) << false;
+    }
+    void nothingIsOfferedInPrivateOrDeniedFields() {
+        if (qEnvironmentVariable("SWIPEKB_TEST_PROFILE_ASSETS").isEmpty()) QSKIP("English assets required");
+        QFETCH(int, hints); QFETCH(bool, offered);
+        SwapFixture f; const QString text = QStringLiteral("we can sea you today ");
+        QVERIFY(f.init(text, text.size(), Qt::InputMethodHints(hints), "en_US")); QTRY_VERIFY(f.ic->inputItem() == f.edit.get());
+        f.tapAt(9);
+        QCOMPARE(!f.bar().isEmpty(), offered);
+        if (!offered) {
+            // not even a press can swap: the field is simply not readable for this feature
+            f.choose(0); QCOMPARE(f.edit->text, text);
+        }
+    }
+    void typingSwipingOrMovingAwayReturnsTheBarToNormal() {
+        if (qEnvironmentVariable("SWIPEKB_TEST_PROFILE_ASSETS").isEmpty()) QSKIP("English assets required");
+        SwapFixture f; const QString text = QStringLiteral("we can sea you today ");
+        QVERIFY(f.init(text, text.size(), {}, "en_US")); QTRY_VERIFY(f.ic->inputItem() == f.edit.get());
+        // moving the cursor out into empty space
+        f.tapAt(9); QVERIFY(!f.bar().isEmpty());
+        f.tapAt(text.size()); QVERIFY(f.bar().isEmpty());
+        // tapping a different word replaces the list
+        f.tapAt(9); const auto sea = f.bar(); f.tapAt(12); QVERIFY(!f.bar().isEmpty()); QVERIFY(f.bar() != sea);
+        // typing a letter
+        f.tapAt(9); QVERIFY(!f.bar().isEmpty());
+        f.method->keyEvent(Qt::Key_S, "s", Qt::NoModifier);
+        QVERIFY(f.bar().isEmpty());
+        // starting a swipe
+        f.ic->commit("s"); QGuiApplication::inputMethod()->update(Qt::ImQueryAll); f.method->update();
+        QTest::qWait(300);                            // the typing above has settled
+        f.tapAt(9); QVERIFY(!f.bar().isEmpty());
+        f.method->beginSwipe(); QVERIFY(f.bar().isEmpty());
+        // a field that turns private takes the bar away
+        f.tapAt(f.edit->text.size()); f.tapAt(9); QVERIFY(!f.bar().isEmpty());
+        f.edit->hints |= Qt::ImhSensitiveData; QGuiApplication::inputMethod()->update(Qt::ImQueryAll); f.method->update();
+        QVERIFY(f.bar().isEmpty());
+    }
+    void ownTypingNeverLooksLikeATap() {
+        // WHY: after every typed letter the cursor sits right after a word; that must not open alternatives.
+        if (qEnvironmentVariable("SWIPEKB_TEST_PROFILE_ASSETS").isEmpty()) QSKIP("English assets required");
+        SwapFixture f; QVERIFY(f.init("we can ", 7, {}, "en_US")); QTRY_VERIFY(f.ic->inputItem() == f.edit.get());
+        for (auto c : QStringLiteral("sea")) {
+            const QString letter(c);
+            f.method->keyEvent(Qt::Key(letter.front().toUpper().unicode()), letter, Qt::NoModifier);
+            f.ic->commit(letter); QGuiApplication::inputMethod()->update(Qt::ImQueryAll); f.method->update();
+            QVERIFY(f.bar().size() <= 3);
+        }
+        QCOMPARE(f.edit->text, QStringLiteral("we can sea"));
+        QTest::qWait(400);
+        QGuiApplication::inputMethod()->update(Qt::ImQueryAll); f.method->update();
+        QVERIFY(!f.bar().contains("see"));            // only typed-word completions, never swap alternatives
+    }
+    void tappingASwipedWordLaterOffersThatSwipesOtherGuesses() {
+        // WHY: the keyboard remembers (in memory only) the guesses of recent swipes, anchored to the text around the word.
+        if (qEnvironmentVariable("SWIPEKB_TEST_PROFILE_ASSETS").isEmpty()) QSKIP("English assets required");
+        SwapFixture f; QVERIFY(f.init("we say ", 7, {}, "en_US")); QTRY_VERIFY(f.ic->inputItem() == f.edit.get());
+        QVariantList keys, points; const QStringList rows{"qwertyuiop", "asdfghjkl", "zxcvbnm"};
+        for (int r = 0; r < rows.size(); ++r) for (int c = 0; c < rows[r].size(); ++c)
+            keys << QVariantMap{{"letter", QString(rows[r][c])}, {"x", c * 100}, {"y", r * 100}, {"w", 100}, {"h", 100}};
+        QPointF previous;
+        for (auto letter : QStringLiteral("hello")) {
+            QPointF center;
+            for (const auto &v : keys) { auto k = v.toMap(); if (k["letter"].toString() == QString(letter)) center = {k["x"].toDouble() + 50, k["y"].toDouble() + 50}; }
+            if (points.isEmpty()) points << QVariantMap{{"x", center.x()}, {"y", center.y()}, {"t", 0}};
+            else for (int step = 1; step <= 8; ++step) { auto p = previous + (center - previous) * (step / 8.0); points << QVariantMap{{"x", p.x()}, {"y", p.y()}, {"t", points.size() * 16}}; }
+            previous = center;
+        }
+        const int generation = f.method->beginSwipe(); QVERIFY(generation >= 0);
+        f.method->finishSwipe(points, keys, generation);
+        QGuiApplication::inputMethod()->update(Qt::ImQueryAll); f.method->update();
+        const QString typed = f.edit->text.mid(7); QVERIFY(typed.size() >= 2);
+        const auto swipeGuesses = f.bar();            // right after the swipe the bar shows that swipe's other guesses
+        QVERIFY(!swipeGuesses.isEmpty());
+        QTest::qWait(400);                            // the swipe's own edit has settled: a move now is a tap
+        f.tapAt(7 + typed.size() / 2);
+        const auto shown = f.bar();
+        for (const auto &guess : swipeGuesses) QVERIFY2(shown.contains(guess), qPrintable(guess + " not in " + shown.join(",")));
+        QVERIFY(!shown.contains(typed));
+        QCOMPARE(f.edit->text, QStringLiteral("we say ") + typed);
+        f.tapAt(0);                                   // "we": a different word, none of the swipe's guesses
+        for (const auto &guess : swipeGuesses) QVERIFY(!f.bar().contains(guess));
+    }
+    void aCleanWordIsNeverAnsweredWithASwearWordItResembles() {
+        // WHY: alternatives are derived from the tapped word, but a swear word must not appear for an innocent one.
+        if (qEnvironmentVariable("SWIPEKB_TEST_PROFILE_ASSETS").isEmpty()) QSKIP("English assets required");
+        SwapFixture f; const QString text = QStringLiteral("a duck swam ");
+        QVERIFY(f.init(text, text.size(), {}, "en_US")); QTRY_VERIFY(f.ic->inputItem() == f.edit.get());
+        f.tapAt(4);
+        const auto shown = f.bar();
+        QVERIFY(!shown.isEmpty());
+        QVERIFY2(!shown.contains(QStringLiteral("f") + QStringLiteral("uck")), qPrintable(shown.join(",")));
+    }
+    void unbridgedNativeModeNeverOffersAlternatives() {
+        // WHY: under owned-history the keyboard may read only words it committed itself; the feature stays off.
+        if (qEnvironmentVariable("SWIPEKB_TEST_PROFILE_ASSETS").isEmpty()) QSKIP("English assets required");
+        SwapFixture f; const QString text = QStringLiteral("we can sea you today ");
+        QVERIFY(f.init(text, text.size(), {}, "en_US", nullptr, true)); QTRY_VERIFY(f.ic->inputItem() == f.edit.get());
+        f.tapAt(9);
+        QVERIFY(f.bar().isEmpty());
+        f.choose(0); QCOMPARE(f.edit->text, text);
+    }
+    void sentenceAwareRankingUsesTheWordsBeforeTheTappedWord() {
+        // WHY: with an n-gram pack the worker reorders the dictionary's neighbours by the words before the tapped word.
+        const QString packs = qEnvironmentVariable("SWIPEKB_TEST_LANGUAGE_PACKS");
+        if (packs.isEmpty()) QSKIP("Explicit local language pack fixture not supplied");
+        qputenv("SWIPEKB_LANGUAGE_PACKS", packs.toUtf8());
+        struct EnvReset { ~EnvReset() { qunsetenv("SWIPEKB_LANGUAGE_PACKS"); } } envReset;
+        SwapFixture f; const QString text = QStringLiteral("vivo en una caso ");
+        QVERIFY(f.init(text, text.size(), {}, "es_ES")); QTRY_VERIFY(f.ic->inputItem() == f.edit.get());
+        f.tapAt(14);                                  // inside "caso"
+        const auto dictionaryOrder = f.bar();
+        QVERIFY(!dictionaryOrder.isEmpty()); QVERIFY(!dictionaryOrder.contains("caso"));
+        QVERIFY(f.ranked.tryAcquire(1, 15000));
+        QCOMPARE(f.jobContexts, QStringList({"vivo", "en", "una"}));
+        QCOMPARE(f.jobPrefixes.last(), QStringLiteral("c"));
+        // dictionary order was casi | casa | paso (best in the middle); the sentence puts paso first, then casi
+        QCOMPARE(dictionaryOrder, (QStringList{"casi", "casa", "paso"}));
+        QTRY_COMPARE_WITH_TIMEOUT(f.bar(), (QStringList{"casi", "paso", "casa"}), 5000);
+        QCOMPARE(f.edit->text, text);
     }
     void spanishCompletionRanksBySentenceBeforeTheWord_data() {
         QTest::addColumn<int>("hints");QTest::addColumn<bool>("private_");
