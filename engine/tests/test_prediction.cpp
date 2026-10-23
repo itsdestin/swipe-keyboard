@@ -1,5 +1,7 @@
 #include "swipekb/prediction.hpp"
 #include "swipekb/ngram.hpp"
+#include "swipekb/ngram_predictor.hpp"
+#include "swipekb/nwp_predictor.hpp"
 #include "swipekb/recognizer.hpp"
 #include <atomic>
 #include <future>
@@ -99,6 +101,36 @@ private slots:
         for (const auto &context : std::vector<std::vector<std::string>>{{}, {d.words[0]}, {d.words[5]}, {"zzz"}})
             for (int k : {1, 3, 12})
                 QCOMPARE(predictor.predict(context, k), predictor.predict(context, k, "a"));
+    }
+    // Card #170: the keyboard's Predictor (what the plugin's worker runs) must use LANG.nwp.bin when it sits next to
+    // LANG.ngram, give exactly what the hybrid gives, and behave as the plain n-gram when the file is not there.
+    void neuralModelNextToNgramIsUsedAutomatically() {
+
+        QTemporaryDir dir; QVERIFY(dir.isValid());
+        const QStringList words = {"the", "of", "and", "a", "to", "in", "is", "you", "that", "it", "he", "was", "for", "on",
+            "are", "as", "with", "his", "they", "at", "be", "this", "have", "from", "or", "one", "had", "by", "word", "but"};
+        swipekb::NgramModelData d;
+        d.uni_lp = {-2.f, -99.f, -1.5f}; d.uni_bo = {0.f, 0.f, 0.f};
+        QByteArray vocabText;
+        for (int i = 0; i < words.size(); ++i) {
+            d.words.push_back(words[i].toStdString()); d.uni_lp.push_back(-1.f - 0.1f * float(i)); d.uni_bo.push_back(0.f);
+            vocabText += words[i].toUtf8() + "\t100\t" + words[i].toUtf8() + "\n";
+        }
+        const auto model = dir.filePath("xx.ngram").toStdString(), vocab = dir.filePath("xx.vocab.tsv").toStdString();
+        QVERIFY(swipekb::NgramLM::write(model, d));
+        QFile v(QString::fromStdString(vocab)); QVERIFY(v.open(QIODevice::WriteOnly)); v.write(vocabText); v.close();
+        const std::vector<std::string> context = {"to", "it", "the", "is"};
+
+        swipekb::Predictor plain; QVERIFY(plain.init(model, vocab));
+        swipekb::NgramPredictor ngramOnly; QVERIFY(ngramOnly.load(model, vocab));
+        QCOMPARE(plain.predict(context, 3), ngramOnly.predict(context, 3));
+
+        QVERIFY(QFile::copy(QStringLiteral(SWIPEKB_TEST_DATA "/nwp-tiny.nwp.bin"), dir.filePath("xx.nwp.bin")));
+        swipekb::Predictor hybrid; QVERIFY(hybrid.init(model, vocab));
+        swipekb::NwpPredictor expected; QVERIFY(expected.load(model, vocab)); QVERIFY(expected.hasLm());
+        QCOMPARE(hybrid.predict(context, 3), expected.predict(context, 3));
+        QVERIFY(hybrid.predict(context, 3) != plain.predict(context, 3));   // the neural model really changed the answer
+        for (const auto &w : hybrid.predict(context, 5, "t")) QVERIFY(w[0] == 't');
     }
     void absentModelIsUnavailable() {
         swipekb::Predictor p;
