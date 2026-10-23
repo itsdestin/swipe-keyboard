@@ -171,6 +171,7 @@ def main():
     ap.add_argument("--hidden", type=int, default=96)
     ap.add_argument("--layers", type=int, default=2)
     ap.add_argument("--pointer", type=int, default=32)
+    ap.add_argument("--save-last", action="store_true", help="keep the final epoch, not the best-validation one (use when validation data is also in training)")
     ap.add_argument("--dropout", type=float, default=0.0)
     ap.add_argument("--no-aug", action="store_true")
     ap.add_argument("--geo-aug", type=float, default=0.0, help="board-geometry augmentation strength (1 = default scale)")
@@ -224,7 +225,7 @@ def main():
         vl = sum(r[0] for r in res) / len(res)
         per = " ".join(f"[{r[0]:.3f}/{r[1] * 100:.1f}%]" for r in res)
         say(f"epoch {ep + 1}/{a.epochs} train_loss {run / tr.n:.3f} val_loss {vl:.3f} val_greedy_keyseq_acc {res[0][1] * 100:.1f}% sets {per} ({time.time() - t0:.0f}s)")
-        if vl < best:
+        if vl < best or a.save_last:
             best = vl
             torch.save({"cfg": cfg, "state": net.state_dict()}, os.path.join(a.out, "model.pt"))
             size = S.export_model(net, os.path.join(a.out, "model.bin"))
