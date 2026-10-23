@@ -137,6 +137,13 @@ Phase 0 results (2026-10-22):
   only on a clear margin (undo-able).
 - Ship together with the 6× faster suggestion code already on `feature/170-open-nextword`.
 
+Item status (2026-10-22):
+- Files: done for all four (published, installer fetches them). Word lists still wordfreq-derived — open.
+- Swear words (Destin's choice): never offered as an unprompted next word; swiping and completing them
+  still work (fd59e68). Password/private/hidden fields: test added (9e3cc55); four separate checks guard it.
+- Speed: next word scores only plausible words, identical results, English 34 → 6.5 ms (b01db92).
+- Previous-word fix: open.
+
 Status 2026-10-22: Spanish/French/German web+Tatoeba packs built (FineWeb-2 300M words + Tatoeba ×30,
 t2=10/t3=20; `~/.cache/swipe-keyboard-train/LANG/mix30-S`, 40/42/51 MB vs 6/8/9 MB today). Scoreboard
 (`bench/scoreboard.tsv`): ahead of Gboard on every query type in all three languages (+1.6 to +12 points;
