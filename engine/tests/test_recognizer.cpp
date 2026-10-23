@@ -90,7 +90,7 @@ TEST(Recognizer, SimilarGivesWholeWordsOneEditAwayNeverTheWordOrItsExtensions)
             {"search",250},{"season",250},{"the",255},{"teh",0},{"sleep",100},{"a",200}})
             out<<" word="<<w<<",f="<<f<<",flags=,originalFreq="<<f<<"\n";
     }
-    auto paths=ModelPaths::fromDir(assets());paths.dictionary=dictionary;paths.decoder.clear();paths.lm_model.clear();paths.lm_vocab.clear();paths.ngram.clear();paths.nlm.clear();
+    auto paths=ModelPaths::fromDir(assets());paths.dictionary=dictionary;paths.decoder.clear();paths.lm_model.clear();paths.lm_vocab.clear();paths.ngram.clear();
     Recognizer r;ASSERT_TRUE(r.init(paths,RecognizerOptions{}));
     const auto sea=r.similar("sea",12);
     std::vector<std::string> words;for(const auto &c:sea)words.push_back(c.word);
@@ -113,7 +113,7 @@ TEST(Recognizer, CompletionUsesOnlyLoadedProfileDictionaryAndDisplayForms)
     for(const auto &[language,word,prefix,display]:cases) {
         QTemporaryDir dir;ASSERT_TRUE(dir.isValid());const auto dictionary=dir.filePath("tiny.combined").toStdString();
         {std::ofstream out(dictionary);out<<"dictionary=fixture,locale="<<language<<"\n word="<<word<<",f=200,flags=,originalFreq=200\n";}
-        auto paths=ModelPaths::fromDir(assets());paths.dictionary=dictionary;paths.decoder.clear();paths.lm_model.clear();paths.lm_vocab.clear();paths.ngram.clear();paths.nlm.clear();
+        auto paths=ModelPaths::fromDir(assets());paths.dictionary=dictionary;paths.decoder.clear();paths.lm_model.clear();paths.lm_vocab.clear();paths.ngram.clear();
         RecognizerOptions options;options.language=language;options.alphabet="abcdefghijklmnopqrstuvwxyzñçàâæéèêëîïôœùûüÿäöß";
         if(language!="en") {
             options.ngram=true; paths.ngram=dir.filePath("missing-context.ngram").toStdString();

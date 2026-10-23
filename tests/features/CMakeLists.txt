@@ -61,17 +61,12 @@ set(TEST_PROFILE_ASSETS "${SWIPEKB_READONLY_UPSTREAM}/assets" CACHE PATH "Explic
 if(SWIPEKB_READONLY_UPSTREAM)
     find_package(GTest REQUIRED)
     set(UPSTREAM_ENGINE "${SWIPEKB_READONLY_UPSTREAM}/build/qml/SwipeKeyboard/libswipekb_engine.so")
-    # The small optional scorer DSO must sit beside this isolated test executable for ownDir().
-    if(EXISTS "${SWIPEKB_READONLY_UPSTREAM}/build/qml/SwipeKeyboard/libswipekb_nlm.so")
-        configure_file("${SWIPEKB_READONLY_UPSTREAM}/build/qml/SwipeKeyboard/libswipekb_nlm.so"
-            "${CMAKE_CURRENT_BINARY_DIR}/libswipekb_nlm.so" COPYONLY)
-    endif()
     add_library(feature_engine STATIC ${ROOT}/engine/src/recognizer.cpp ${ROOT}/engine/src/normalize.cpp
-        ${ROOT}/engine/src/spelling.cpp ${ROOT}/engine/src/context.cpp ${ROOT}/engine/src/ngram.cpp ${ROOT}/engine/src/nlm_loader.cpp)
+        ${ROOT}/engine/src/spelling.cpp ${ROOT}/engine/src/context.cpp ${ROOT}/engine/src/ngram.cpp)
     set_target_properties(feature_engine PROPERTIES POSITION_INDEPENDENT_CODE ON)
     target_include_directories(feature_engine PUBLIC ${ROOT}/engine/include PRIVATE ${SWIPEKB_READONLY_UPSTREAM}/third_party/swipe-library/include)
     target_link_libraries(feature_engine PUBLIC Qt6::Core "${UPSTREAM_ENGINE}" ${CMAKE_DL_LIBS})
-    foreach(name normalize spelling recognizer context ngram nlm)
+    foreach(name normalize spelling recognizer context ngram)
         add_executable(test_${name} ${ROOT}/engine/tests/test_${name}.cpp)
         target_link_libraries(test_${name} PRIVATE feature_engine GTest::gtest_main)
         add_test(NAME engine_${name} COMMAND test_${name})

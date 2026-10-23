@@ -135,7 +135,7 @@ def check(root):
     assert '/usr/share/swipe-keyboard/integration/setup.py' in wrapper.read_text(), 'Wrong runtime path'
     check_desktop(root/'usr/share/applications/swipe-keyboard.desktop')
     assert json.loads((base/'runtime.json').read_text())['qt'].startswith('6.'), 'Missing Qt ABI gate'
-    for unwanted in ('eval', 'nlm', 'lm', 'dict-src'):
+    for unwanted in ('eval', 'lm', 'dict-src'):
         assert not (base/unwanted).exists(), f'Unexpected optional/source payload: {unwanted}'
     helper = base/'integration/swipekb-preflight'
     assert helper.stat().st_mode & 0o111, 'Native preflight must be executable'

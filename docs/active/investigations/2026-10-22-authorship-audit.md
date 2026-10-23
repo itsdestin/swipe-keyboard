@@ -2,6 +2,8 @@
 status: active
 cards: 179
 ---
+
+> Removed 2026-10-23: the neural re-rank (nlm.hpp, nlm.cpp, nlm_loader.cpp, test_nlm.cpp, swipekb-nlm-score.cpp, bench/tune-nlm.py) no longer exists; rows below that name them describe the audit-time tree.
 # Authorship audit: what in swipe-keyboard is FUTO-derived (2026-10-22)
 
 Scope: 239 tracked files outside `third_party/`, compared against FUTO swipe-library (`/home/destin/swipe-keyboard/third_party/swipe-library`, submodule empty in this worktree). Method: grep of every file for FUTO / swipe_decoder / ExecuTorch / model names, then reading the hits against FUTO's `src/engine.cpp`, `beam_search.cpp`, `models/scoring.json`. Files with no hit are classed CLEAN by absence of evidence, not line-by-line reading. Not legal advice.

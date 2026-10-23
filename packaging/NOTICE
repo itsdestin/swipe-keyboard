@@ -29,4 +29,4 @@ The English, Spanish, French and German next-word n-gram models, word lists and 
 
 Contextual prediction is language-specific; an unavailable or corrupt pack never falls back to English. Current-word completion uses the selected profile's own dictionary; next-word suggestions use that profile's model when available. On stock Plasma, next-word model input is limited to words this keyboard confirmed in the current field because raw application completion preferences are not fully exposed. Sensitive and restricted fields remain blocked. The bundled Deck backend retains its raw-policy bridge and stricter application vetoes.
 
-Optional evaluation data and neural reranking models are not included.
+Optional evaluation data is not included.

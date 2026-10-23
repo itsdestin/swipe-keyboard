@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Removed the optional neural re-rank of the top swipe guesses (the SmolLM2 model run through llama.cpp, switched on by a `use-nlm` file). It was off by default, so typing behaves exactly as before: the n-gram ranking, our own swipe engine, prediction and tap-to-swap are untouched. The install and download scripts no longer fetch or copy the model, and the build no longer looks for llama.cpp. A future sentence-reading model of our own is planned to replace it. (Owner decision 2026-10-23.)
+
 - Word lists and the Spanish, French, German and English swipe dictionaries are now counted from FineWeb/FineWeb-2 text (ODC-By 1.0) and Tatoeba sentences (CC BY 2.0 FR) instead of wordfreq; the English dictionary keeps the AOSP list (Apache-2.0). No share-alike (CC BY-SA) licence applies any more. On our tests no typing measure got worse by more than 0.1 point; French completions improved by up to 2 points and the lists now spell German nouns, names and French elisions as written.
 - Next-word suggestions, completions and swipe ranking for English, Spanish, French and German now come from open language files (FineWeb web text under ODC-By 1.0 plus Tatoeba sentences under CC BY 2.0 France), downloaded by checksum at build time from the `language-files-2026-10-22` release. They are larger (about 24 to 38 MB each) and noticeably better than the old Tatoeba-only packs.
 - English uses its n-gram instead of FUTO's neural context model when the English files are installed and verified; otherwise it keeps FUTO's model. A missing or damaged Spanish, French or German file now turns off only that language's suggestions instead of the whole language.

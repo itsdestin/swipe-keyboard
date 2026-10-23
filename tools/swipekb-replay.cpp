@@ -35,11 +35,6 @@ struct Args {
     bool noDecoder = false, noLm = false, noNgram = false, useNgram = false;
     int beam = 0;
     swipekb::RerankWeights weights;
-    // The neural re-ranking (step 1b): on/off like the n-gram flags, plus its weights.
-    std::string nlm;
-    bool useNlm = false, noNlm = false;
-    int nlmThreads = 4;
-    swipekb::NlmWeights nlmWeights;
 };
 
 void usage()
@@ -59,8 +54,7 @@ void usage()
                  "  --no-ngram      rank with FUTO's context model (the old way)\n"
                  "  --ngram PATH    rank with this n-gram model file\n"
                  "  --alpha X       weight of the n-gram model in the ranking\n"
-                 "  --use-nlm / --no-nlm / --nlm FILE.gguf   neural re-ranking of the best few guesses on/off/model\n"
-                 "  --nlm-n N --nlm-beta X --nlm-beta-short X --nlm-margin X --nlm-per-token --nlm-no-word-end\n");
+                 );
 }
 
 bool parseArgs(int argc, char **argv, Args &a)
@@ -95,25 +89,6 @@ bool parseArgs(int argc, char **argv, Args &a)
             std::string n;
             if (!value(n)) return false;
             a.weights.alpha = std::strtof(n.c_str(), nullptr);
-        } else if (s == "--use-nlm") {
-            a.useNlm = true;
-        } else if (s == "--no-nlm") {
-            a.noNlm = true;
-        } else if (s == "--nlm") {
-            if (!value(a.nlm)) return false;
-            a.useNlm = true;
-        } else if (s == "--nlm-n" || s == "--nlm-beta" || s == "--nlm-beta-short" || s == "--nlm-margin") {
-            std::string n;
-            if (!value(n)) return false;
-            const float v = std::strtof(n.c_str(), nullptr);
-            if (s == "--nlm-n") a.nlmWeights.n = int(v);
-            else if (s == "--nlm-beta") a.nlmWeights.beta = v;
-            else if (s == "--nlm-beta-short") a.nlmWeights.beta_short = v;
-            else a.nlmWeights.margin = v;
-        } else if (s == "--nlm-per-token") {
-            a.nlmWeights.per_token = true;
-        } else if (s == "--nlm-no-word-end") {
-            a.nlmWeights.word_end = false;
         } else if (s == "--no-ngram") {
             a.noNgram = true;
         } else if (s == "--no-decoder") {
@@ -123,7 +98,7 @@ bool parseArgs(int argc, char **argv, Args &a)
         } else {
             // WHY name the argument: an unknown option used to print only the usage text, on stderr. A run that
             // hides stderr (2>/dev/null) then showed nothing at all and looked like a crash. That happened with
-            // o="--use-ngram --use-nlm"; $R ... $o in zsh, which (unlike bash) passes $o as ONE argument with
+            // o="--use-ngram --no-lm"; $R ... $o in zsh, which (unlike bash) passes $o as ONE argument with
             // a space inside, so no option matched. Saying exactly which argument was refused, and why it
             // might have happened, turns that silent "crash" into a one-line explanation.
             std::fprintf(stderr, "swipekb-replay: unknown option '%s'\n", s.c_str());
@@ -245,8 +220,6 @@ int main(int argc, char **argv)
         paths.dictionary = a.dict;
     if (!a.ngram.empty())
         paths.ngram = a.ngram;
-    if (!a.nlm.empty())
-        paths.nlm = a.nlm;
 
     std::vector<Swipe> swipes;
     QStringList expected;
@@ -260,9 +233,7 @@ int main(int argc, char **argv)
     swipekb::Recognizer r;
     // WHY the keyboard's default unless a flag says otherwise: by default the tool measures what ships.
     const bool ngram = !a.noNgram && (a.useNgram || swipekb::RecognizerOptions{}.ngram);
-    const bool nlm = !a.noNlm && (a.useNlm || swipekb::RecognizerOptions{}.nlm);
-    if (!r.init(paths, {.beam_width = a.beam, .ngram = ngram, .weights = a.weights, .nlm = nlm,
-                        .nlm_weights = a.nlmWeights, .nlm_threads = a.nlmThreads})) {
+    if (!r.init(paths, {.beam_width = a.beam, .ngram = ngram, .weights = a.weights})) {
         std::fprintf(stderr, "engine failed to load from %s\n", a.data.c_str());
         return 1;
     }
@@ -270,7 +241,7 @@ int main(int argc, char **argv)
     // WHY "ranking": a missing n-gram file silently falls back to FUTO's ranking; the output must say which ran.
     std::printf("settings: decoder=%s lm=%s beam=%s dict=%s ranking=%s\n", a.noDecoder ? "off" : "on",
                 a.noLm ? "off" : "on", a.beam ? std::to_string(a.beam).c_str() : "default", paths.dictionary.c_str(),
-                r.usingNgram() ? (r.usingNlm() ? "ngram+nlm" : "ngram") : (r.usingNlm() ? "futo+nlm" : "futo"));
+                r.usingNgram() ? "ngram" : "futo");
     std::printf("%-4s %s%s%s%s%s%s\n", "#", cell("expected", 14).c_str(), cell("guess1", 14).c_str(),
                 cell("guess2", 14).c_str(), cell("guess3", 14).c_str(), cell("result", 8).c_str(), "live-typed");
 
