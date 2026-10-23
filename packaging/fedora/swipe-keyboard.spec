@@ -19,9 +19,10 @@ BuildRequires: plasma-keyboard
 # Real KConfigWatcher regression uses only dbus-run-session's private bus and busctl.
 BuildRequires: dbus-daemon, systemd
 Requires: python3, systemd, qt6-qtbase, qt6-qttools, kf6-kconfig
-# Fedora's plasma-keyboard has epoch 1. Keep the series gate effective.
+# Fedora's plasma-keyboard has epoch 1, so the lower bound needs the 1: prefix to mean 6.7.
+# WHY no upper bound: a Plasma 6.9 upgrade must never be blocked by this package. On 6.9+ the launcher
+# (integration/setup.py) sees the newer keyboard and starts the plain KDE keyboard instead.
 Requires: plasma-keyboard >= 1:6.7
-Requires: plasma-keyboard < 1:6.9
 # RPM generates Qt/KF/libstdc++ ABI dependencies automatically from installed ELF.
 
 %description

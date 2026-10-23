@@ -48,13 +48,15 @@ package)
     rm -rf "$PKGDIR/build"; mkdir -p "$PKGDIR/build"
     # WHY the installed package's own dependency list: the staged binaries are built on this machine against the same
     # libraries, and `pacman -Qi` is read-only.
+    # WHY the upper bound is dropped: an installed older package still lists `plasma-keyboard<6.9`, which would make the
+    # test build block a Plasma 6.9 upgrade just like that package does (packaging/arch/PKGBUILD no longer has it).
     DEPENDS=$(pacman -Qi swipe-keyboard | sed -n 's/^Depends On *: //p')
     {
         echo "pkgname=swipe-keyboard"; echo "pkgver=$VERSION"; echo "pkgrel=$REL"
         echo "pkgdesc='Swipe Keyboard test build (own engine + trained models)'"; echo "arch=('x86_64')"
         echo "url='https://github.com/itsdestin/swipe-keyboard'"
         echo "license=('GPL-3.0-or-later' 'Apache-2.0' 'ODC-By-1.0' 'LicenseRef-FUTO-Model-Weights-1.0' 'MIT' 'custom:TATOEBA-CC-BY-2.0-FR.txt')"
-        printf "depends=("; for d in $DEPENDS; do [ "$d" = None ] || printf "'%s' " "$d"; done; echo ")"
+        printf "depends=("; for d in $DEPENDS; do case "$d" in None|plasma-keyboard\<*) ;; *) printf "'%s' " "$d" ;; esac; done; echo ")"
         echo "options=('!strip' '!debug')"
         echo "package() { cp -a '$STAGE/usr' \"\$pkgdir/usr\"; }"
     } > "$PKGDIR/build/PKGBUILD"

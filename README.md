@@ -100,7 +100,7 @@ If you choose to block and then skip or fail the password, the installer asks ag
 
 **[Download the x86_64 package](https://github.com/itsdestin/swipe-keyboard/releases/download/v0.4.0-1/swipe-keyboard-0.4.0-1-x86_64.pkg.tar.zst)**
 
-Requires KDE Plasma Wayland with Plasma Keyboard 6.7.x or 6.8.x.
+Requires KDE Plasma Wayland with Plasma Keyboard 6.7 or newer. It works with 6.7.x and 6.8.x; on Plasma 6.9 and later it steps aside (you get KDE's plain keyboard) until a version made for 6.9 is released, and it never blocks the Plasma upgrade.
 
 1. Save the download to **Downloads**, then open **Konsole** from the application menu and paste:
 
@@ -129,7 +129,7 @@ If restoring the keyboard fails, removal stops. Follow the error or use the [rec
 
 ### Fedora 44 / Plasma Mobile
 
-For KDE Plasma or Plasma Mobile with Plasma Keyboard 6.7.x or 6.8.x. Choose the file matching your device:
+For KDE Plasma or Plasma Mobile with Plasma Keyboard 6.7.x or 6.8.x (on 6.9 and later it steps aside, see above). Choose the file matching your device:
 
 | Device | Download |
 |---|---|

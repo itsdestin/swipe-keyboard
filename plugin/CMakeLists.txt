@@ -212,6 +212,10 @@ set_tests_properties(plugin_languageprofile plugin_languagepacks plugin_language
     SKIP_RETURN_CODE 77)
 set_tests_properties(plugin_languageintegration PROPERTIES ENVIRONMENT
     "${_language_fixture_env};QT_QPA_PLATFORM=offscreen;QT_IM_MODULE=qtvirtualkeyboard;QT_VIRTUALKEYBOARD_DESKTOP_DISABLE=1")
+# WHY like the language integration test: it needs the same fixtures and an offscreen display. Without this it ran on
+# the real display (fails when the fixtures are supplied) and otherwise only skipped, so a break stayed invisible.
+set_tests_properties(plugin_ownswipeintegration PROPERTIES SKIP_RETURN_CODE 77 ENVIRONMENT
+    "${_language_fixture_env};QT_QPA_PLATFORM=offscreen;QT_IM_MODULE=qtvirtualkeyboard;QT_VIRTUALKEYBOARD_DESKTOP_DISABLE=1")
 # WHY SHARED + same output folder: a STATIC backing library makes the plugin static too, which Qt cannot load.
 # The three .so files (plugin, backing library, engine) sit side by side so the module folder is
 # self-contained and relocatable.

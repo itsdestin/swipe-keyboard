@@ -119,6 +119,13 @@ class Controller:
         if self.env.get('PLASMA_KEYBOARD_USE_QT_LAYOUTS', '0') not in ('', '0'):
             raise SetupError('Custom Qt layout override is enabled. Disable that override before using this Plasma layout extension.')
         version = self.command(['plasma-keyboard', '--version'], env={**self.env, 'QT_QPA_PLATFORM': 'offscreen'})
+        found = re.search(r'\b(\d+)\.(\d+)\.\d+\b', version)
+        # WHY newer versions step aside instead of being refused as "unknown": the package no longer blocks a Plasma 6.9
+        # upgrade (no upper bound on plasma-keyboard), and from 6.9 on KDE's keyboard has its own input engine instead of
+        # the Qt Virtual Keyboard this add-on plugs into. `launch` turns this error into "start the plain KDE keyboard".
+        if found and (int(found.group(1)), int(found.group(2))) >= (6, 9):
+            raise SetupError('Plasma Keyboard ' + found.group(0) + ' is newer than this version of Swipe Keyboard supports (6.7/6.8); '
+                             'it steps aside and the plain KDE keyboard is used until a version made for Plasma 6.9 is released.')
         if not re.search(r'\b6\.(?:7|8)\.\d+\b', version):
             raise SetupError('This candidate targets Plasma Keyboard 6.7.x/6.8.x; installed version: ' + version)
         try:

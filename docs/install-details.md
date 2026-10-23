@@ -70,7 +70,7 @@ The choices are recorded in `~/.local/share/swipe-keyboard-gaming/install-record
 
 ## Native packages: Arch/CachyOS and Fedora Plasma Mobile
 
-Native packages require KDE Plasma Wayland and **Plasma Keyboard 6.7.x/6.8.x**, not Maliit. The release provides **Arch/CachyOS x86_64**, **Fedora 44 x86_64** and **Fedora 44 ARM64/aarch64** packages. The package records its build ABI; dependency resolution and `swipe-keyboard check` must both succeed. Do not ignore library dependencies or force a plugin onto an incompatible desktop.
+Native packages require KDE Plasma Wayland and **Plasma Keyboard 6.7 or newer**, not Maliit. They install alongside any 6.7+ keyboard and never block a Plasma upgrade; the add-on itself works with 6.7.x/6.8.x, and on 6.9 or later `swipe-keyboard launch` starts KDE's plain keyboard unchanged (and logs one line saying so) until a version made for 6.9 is released. The release provides **Arch/CachyOS x86_64**, **Fedora 44 x86_64** and **Fedora 44 ARM64/aarch64** packages. The package records its build ABI; dependency resolution and `swipe-keyboard check` must both succeed. Do not ignore library dependencies or force a plugin onto an incompatible desktop.
 
 For Plasma Mobile on ARM64, use the **aarch64 Fedora RPM** only on a compatible Fedora 44/glibc system. `uname -m` reports the CPU architecture. It is not an ARM32, Android/iOS or postmarketOS/Alpine APK package; other distributions, especially musl-based ones, need their own builds. ARM64 is a required release target and needs its own build/load and Plasma Mobile input acceptance, not an inference from x86 testing. Emulated ARM checks do not establish physical-phone performance, battery use or touch ergonomics.
 

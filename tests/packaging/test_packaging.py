@@ -421,9 +421,13 @@ printf '%s\\n' "${depends[@]}"
         arch = (ROOT/'packaging/arch/PKGBUILD').read_text()
         rpm = (ROOT/'packaging/fedora/swipe-keyboard.spec').read_text()
         self.assertIn('plasma-keyboard>=6.7', arch)
-        self.assertIn('plasma-keyboard<6.9', arch)
         self.assertIn('Requires: plasma-keyboard >= 1:6.7', rpm)
-        self.assertIn('Requires: plasma-keyboard < 1:6.9', rpm)
+        # WHY no upper bound: a Plasma 6.9 system upgrade must never be refused because of this package. From 6.9 on the
+        # launcher starts the plain KDE keyboard instead (tests/integration/test_setup.py).
+        self.assertNotRegex(arch, r"plasma-keyboard\s*(<|=|>(?!=))")
+        self.assertNotRegex(rpm, r"(?m)^Requires:\s*plasma-keyboard\s*(<|=|>(?!=))")
+        stage = (ROOT/'scripts/stage-test-install.sh').read_text()
+        self.assertIn('plasma-keyboard\\<*', stage)   # the test package drops a bound inherited from an older install
         for text in (arch, rpm):
             for forbidden in ('kwriteconfig', 'kreadconfig', '%post', '%preun', 'post_install', '-march=native'):
                 self.assertNotIn(forbidden, text)
