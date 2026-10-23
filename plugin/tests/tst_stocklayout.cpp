@@ -282,11 +282,14 @@ private slots:
         QVERIFY(capture);
         auto *touchArea = qobject_cast<QQuickItem *>(capture->property("touchArea").value<QObject *>());
         QVERIFY(touchArea);
-        QVariant geometry;
-        QVERIFY(QMetaObject::invokeMethod(capture, "letterKeys", Q_RETURN_ARG(QVariant, geometry)));
-        QVERIFY(geometry.toList().size() >= 26);
-        const double unit = geometry.toList().first().toMap().value("w").toDouble();
-        QVERIFY(unit > 10);
+        // Letter key width, the unit the slide measures in (0 until the layout shows its letters).
+        auto letterUnit = [&]() -> double {
+            QVariant geometry;
+            if (!QMetaObject::invokeMethod(capture, "letterKeys", Q_RETURN_ARG(QVariant, geometry))
+                    || geometry.toList().size() < 26)
+                return 0;
+            return geometry.toList().first().toMap().value("w").toDouble();
+        };
         // Find the real Space key in the layout, then wait until the bottom row has given it a width. WHY wait:
         // on a slow machine (Fedora CI, Qt 6.11) the row was measured while Space still had zero width, so a finger
         // at its spot hit the Period key beside it.
@@ -298,7 +301,18 @@ private slots:
         };
         walk(window.contentItem());
         QVERIFY2(space, "No Space key in the real stock layout");
-        QTRY_VERIFY2_WITH_TIMEOUT(space->width() > unit, "The real Space key never got its width", 10000);
+        // WHY wait for a settled layout: on a slow machine (Fedora CI, Qt 6.11) the keyboard was still resizing, so
+        // Space had zero width at first and letter keys later shrank, and distances measured in the old width moved
+        // the cursor one character too far. A real press measures the width afresh, so only the test needs this.
+        double unit = 0;
+        QTRY_VERIFY2_WITH_TIMEOUT(([&] {
+            const double before = letterUnit();
+            QTest::qWait(250);
+            unit = letterUnit();
+            return before > 10 && qFuzzyCompare(before, unit) && space->width() > unit;
+        })(), "The real stock layout never settled with a full-width Space key", 15000);
+        QVariant geometry;   // the settled letter keys, used for the swipe below
+        QVERIFY(QMetaObject::invokeMethod(capture, "letterKeys", Q_RETURN_ARG(QVariant, geometry)));
         // Then ask Qt's own hit test, exactly as a finger would, that the middle of Space really is Space.
         const QPointF middle = touchArea->mapFromItem(space, QPointF(space->width() / 2, space->height() / 2));
         QVariant hit;
