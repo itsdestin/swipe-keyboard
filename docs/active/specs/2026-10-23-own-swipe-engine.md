@@ -130,3 +130,37 @@ es 97.5%, fr 98.2%, de 91.9%). The 100k `.combined` lists cover only es 90.5%, f
 which caps accuracy; with them F1-class models score es 77.9 / 85.4, fr 60.9 / 73.5, de 65.3 / 72.3. Today's FUTO
 engine (old packs): en 84.5 / 93.4, es 77.7 / 85.1, fr 64.6 / 76.9, de 69.7 / 76.4 -- a different dictionary, so
 compare with care.
+
+### FUTO public collections (swipe-1 train, swipe-2..5; MIT data) and the final model T1 (2026-10-23)
+
+Downloaded to the training desktop and filtered by `assemble_futo.py`: two-finger swipes and `distance` > 150 dropped
+(invalid markers are 100001+). **Overlap check** against bench-2000, test-extra-10000, test.jsonl and the validation
+sessions (56,005 swipe keys, 768 sessions): zero overlapping swipes or sessions in every collection (swipe-1 901,908
+kept, swipe-2 23,774, swipe-3 34,769, swipe-4 43,909, swipe-5 50,507 -- no `dropped_*_overlap` counts occurred).
+swipe-5 holds real multilingual swipes on 11 layouts (de/fr/es/en/pl/lt, dvorak, clearflow, kasroz...); its swipes are
+usable for training (MIT). The collections store the sentence and each word's position, so previous words are known.
+
+T1 = R2 recipe (529k parameters, 30 epochs, batch 512) on a ~317k-swipe session subset of swipe-1..4 (35% of
+sessions) + dev-train + all swipe-5 groups (fr/de/es slices repeated 3x, own layouts) + 100k synthetic each es/fr/de.
+No synthetic English. Trained once on the RTX 4070 Super: 16 min. Model 2.1 MB, sha256 prefix 941272a7.
+
+| model | trv8k (7,198 clean swipes, new) | clean3000 | swipe-5 real fr / de / de-qwertz (own layouts, val slices) |
+|---|---|---|---|
+| F1 (dev-trained, previous) | 91.82 / 95.61 | 90.77 / 94.57 | 79.8 / 84.7 / 81.6 |
+| T1 (+317k real, +real multilingual) | 92.19 / 95.79 | 90.77 / 94.90 | 83.2 / 90.2 / 83.2 |
+
+Six times more real English barely moves the English clean numbers (+0.4 on trv8k, 0 on clean3000): English accuracy is
+near what this model family reaches; the real multilingual swipes help the other languages a lot. Hence the full
+~900k run was not done (agreed stopping rule).
+
+Final scoring of T1 (frequency prior 0.06, geometric cross-check 40, beam 48; second scoring of these sets, for the
+final chosen model only): bench-2000 90.40 / 94.95 all swipes, 92.34 / 96.99 in-dictionary (1,958); test-extra-10000
+90.77 / 94.97 all, 92.80 / 97.10 in-dictionary (9,781); 3.5 ms/swipe, one thread. clean3000 in-dictionary 93.13 / 97.37
+(FUTO 92.5 / 96.3 on the 2,909 swipes it scores). HeliBoard (test only, 260k lists; case-insensitive; all 5,000): en 82.1 / 91.5,
+es 81.1 / 89.8, fr 71.7 / 85.9, de 73.3 / 82.3.
+
+**Sentence-context prior** (previous words rebuilt from `sentence` + `word_idx`; `NgramWordPrior` with
+`release-v2/en.ngram`, weight 1.0, `swipekb-swipenet-bench --ngram ... --context`): on trv8k T1 goes from 92.19 / 95.79
+(frequency prior) to 93.10 / 95.92 first/top-3 (in-dictionary 95.28 / 98.17): +0.9 first guess; plain-unigram n-gram
+prior without context is 0.3 worse than the frequency prior. This lever only exists when the keyboard knows the
+previous words.
