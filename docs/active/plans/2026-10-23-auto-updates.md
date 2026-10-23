@@ -60,9 +60,23 @@ RPMs and the Arch package are the exact released bytes (not re-signed), so relea
   0.4.1 candidate, then are offered a throwaway 0.4.2 and must install it by themselves. Arch updater logic is
   tested in a container (no Arch VM).
 
-## Unverified until then
+## Rehearsal results (2026-10-23)
 
-Pages serving the OSTree layout; dnf5 `repo_gpgcheck` on Fedora 44; the helper restart after a Flatpak update.
+Real CI-built 0.4.1 and a throwaway 0.4.2 (never published), a local copy of the site signed with the real key.
+- **SteamOS VM (Flatpak 1.16.6):** install.sh 0.4.1 (Gaming Mode on), then the real `swipekb-update.service`: both
+  apps 0.4.1 -> 0.4.2 (`runtime.json` 0.4.2-1), engine and helper restarted onto it, a second run "up to date". Found
+  and fixed: the helper's bundle origin remote was already gone after install (now recreated); one refused app
+  aborted the other (now one at a time). Flatpak refuses a commit with an older timestamp: real releases are built
+  in order, the rehearsal re-stamped its parallel-built helper.
+- **Laptop, isolated Flatpak 1.18.4:** right key updates, wrong key refused (listing fails, app unchanged); the
+  pre-review command without `--gpg-verify` installed a wrongly signed update.
+- **Fedora 44 VM (dnf5 5.4.6):** RPM 0.4.1, then the real `swipe-keyboard-update.service`: 0.4.1 -> 0.4.2. Wrong key on
+  repomd.xml: "GPG signature verification error", nothing installed. Tampered package: "checksum doesn't match",
+  nothing installed. Installing the RPM while the site does not exist yet works (skip_if_unavailable).
+- **Arch (laptop, real gpgv and vercmp, stand-in pacman):** signed index -> exactly `pacman -U` of the 0.4.2 file;
+  wrong key -> refused, nothing installed.
+
+Still unverified: GitHub Pages serving the live site (first seen at the 0.4.1 release).
 
 ## Independent review (2026-10-23) and what changed
 
