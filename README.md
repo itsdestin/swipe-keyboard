@@ -2,15 +2,15 @@
 
 Swipe across letters to type, or tap normally. English (US/UK), Spanish, French and German. Works locally; typing recording is off by default.
 
-**Test release v0.3.1-1 · KDE Plasma Wayland**
+**Test release v0.4.0-1 · KDE Plasma Wayland**
 
-Choose your platform: [Steam Deck](#steam-deck--desktop-mode) · [Gaming Mode (preview)](#steam-deck--gaming-mode-preview-not-yet-released) · [Arch / CachyOS](#arch--cachyos) · [Fedora 44 / Plasma Mobile](#fedora-44--plasma-mobile)
+Choose your platform: [Steam Deck](#steam-deck--desktop-mode) · [Gaming Mode (preview)](#steam-deck--gaming-mode-preview) · [Arch / CachyOS](#arch--cachyos) · [Fedora 44 / Plasma Mobile](#fedora-44--plasma-mobile)
 
 ## Install
 
 ### Steam Deck — Desktop Mode
 
-**[Download the Steam Deck Flatpak](https://github.com/itsdestin/swipe-keyboard/releases/download/v0.3.1-1/swipe-keyboard-0.3.1-1-x86_64.flatpak)**
+**[Download the Steam Deck Flatpak](https://github.com/itsdestin/swipe-keyboard/releases/download/v0.4.0-1/swipe-keyboard-0.4.0-1-x86_64.flatpak)**
 
 Desktop Mode only; this does not change Steam's Gaming Mode keyboard (see the Gaming Mode preview below). Do not unlock SteamOS or install the Arch/Fedora packages on your Deck.
 
@@ -19,7 +19,7 @@ Desktop Mode only; this does not change Steam's Gaming Mode keyboard (see the Ga
 
    ```sh
    flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-   flatpak install --user ~/Downloads/swipe-keyboard-0.3.1-1-x86_64.flatpak
+   flatpak install --user ~/Downloads/swipe-keyboard-0.4.0-1-x86_64.flatpak
    ```
 
    Allow Flatpak to download any required supporting components.
@@ -49,15 +49,22 @@ flatpak run --user --command=kcmshell6 org.itsdestin.SwipeKeyboard kcm_plasmakey
 flatpak uninstall --user org.itsdestin.SwipeKeyboard
 ```
 
-### Steam Deck — Gaming Mode (preview, not yet released)
+### Steam Deck — Gaming Mode (preview)
 
-**Not available yet.** There is no download for this, and the release has not been tried on a real Steam Deck. This section describes what is being built so you can see what to expect. The Desktop Mode install above is unaffected.
+**[Download the SteamOS file](https://github.com/itsdestin/swipe-keyboard/releases/download/v0.4.0-1/swipe-keyboard-0.4.0-1-steamos-x86_64.tar.gz)**
 
-Gaming Mode support keeps Steam's own on-screen keyboard exactly as it is and adds swipe typing and a row of word suggestions on top of it. It is a separate, opt-in step you take in Desktop Mode, and it can be undone completely.
+**Preview: tested only on a virtual Steam Deck so far, not yet on a real one.** If something goes wrong, Steam's normal keyboard keeps working, and `bash uninstall.sh` removes everything. Please [report problems](https://github.com/itsdestin/swipe-keyboard/issues), especially text that comes out jumbled. Read the warning below before installing.
 
-When it is released, it will be a single download for SteamOS with a short install script. In Desktop Mode, in Konsole, you will:
+Gaming Mode support keeps Steam's own on-screen keyboard exactly as it is and adds swipe typing and a row of word suggestions on top of it. It is a separate, opt-in step you take in Desktop Mode, and it can be undone completely. This one download also contains the Desktop Mode keyboard, so you do not need the Flatpak above as well.
 
-1. Download the SteamOS file and run `bash install.sh`. It asks two plain-language questions and shows you everything it will change before doing anything.
+1. Switch to **Desktop Mode** and save the download to **Downloads**. Open **Konsole** and run, **without `sudo`**:
+
+   ```sh
+   cd ~/Downloads && tar xzf swipe-keyboard-0.4.0-1-steamos-x86_64.tar.gz && cd swipe-keyboard-steamos-0.4.0-1
+   bash install.sh
+   ```
+
+   It asks two plain-language questions and shows you everything it will change before doing anything.
 2. Restart Steam once if it was already open (the installer never restarts Steam while a game is running).
 3. Switch to Gaming Mode, touch a text field and swipe across the letters.
 
@@ -91,14 +98,14 @@ If you choose to block and then skip or fail the password, the installer asks ag
 
 ### Arch / CachyOS
 
-**[Download the x86_64 package](https://github.com/itsdestin/swipe-keyboard/releases/download/v0.3.1-1/swipe-keyboard-0.3.1-1-x86_64.pkg.tar.zst)**
+**[Download the x86_64 package](https://github.com/itsdestin/swipe-keyboard/releases/download/v0.4.0-1/swipe-keyboard-0.4.0-1-x86_64.pkg.tar.zst)**
 
 Requires KDE Plasma Wayland with Plasma Keyboard 6.7.x or 6.8.x.
 
 1. Save the download to **Downloads**, then open **Konsole** from the application menu and paste:
 
    ```sh
-   sudo pacman -U ~/Downloads/swipe-keyboard-0.3.1-1-x86_64.pkg.tar.zst
+   sudo pacman -U ~/Downloads/swipe-keyboard-0.4.0-1-x86_64.pkg.tar.zst
    ```
 
 2. Enable the keyboard **without `sudo`**:
@@ -126,8 +133,8 @@ For KDE Plasma or Plasma Mobile with Plasma Keyboard 6.7.x or 6.8.x. Choose the 
 
 | Device | Download |
 |---|---|
-| Intel / AMD — x86_64 | [Fedora x86_64 RPM](https://github.com/itsdestin/swipe-keyboard/releases/download/v0.3.1-1/swipe-keyboard-0.3.1-1.fc44.x86_64.rpm) |
-| ARM64 — aarch64 | [Fedora ARM64 RPM](https://github.com/itsdestin/swipe-keyboard/releases/download/v0.3.1-1/swipe-keyboard-0.3.1-1.fc44.aarch64.rpm) |
+| Intel / AMD — x86_64 | [Fedora x86_64 RPM](https://github.com/itsdestin/swipe-keyboard/releases/download/v0.4.0-1/swipe-keyboard-0.4.0-1.fc44.x86_64.rpm) |
+| ARM64 — aarch64 | [Fedora ARM64 RPM](https://github.com/itsdestin/swipe-keyboard/releases/download/v0.4.0-1/swipe-keyboard-0.4.0-1.fc44.aarch64.rpm) |
 
 Unsure which? `uname -m` in a terminal reports `x86_64` or `aarch64`.
 
@@ -135,12 +142,12 @@ Unsure which? `uname -m` in a terminal reports `x86_64` or `aarch64`.
 
    **Intel / AMD:**
    ```sh
-   sudo dnf install ~/Downloads/swipe-keyboard-0.3.1-1.fc44.x86_64.rpm
+   sudo dnf install ~/Downloads/swipe-keyboard-0.4.0-1.fc44.x86_64.rpm
    ```
 
    **ARM64:**
    ```sh
-   sudo dnf install ~/Downloads/swipe-keyboard-0.3.1-1.fc44.aarch64.rpm
+   sudo dnf install ~/Downloads/swipe-keyboard-0.4.0-1.fc44.aarch64.rpm
    ```
 
 2. Enable the keyboard **without `sudo`**:
@@ -177,7 +184,7 @@ If restoring the keyboard fails, removal stops. Follow the error or use the [rec
 - **No next-word suggestions?** Select a supported language, enter a word through this keyboard and press Space. Native predictions start from keyboard-entered words, not pasted text. Password and restricted fields do not offer suggestions.
 - **Only one app has trouble?** Try another KDE Wayland app; application support varies.
 
-[More help, recovery and privacy](docs/install-details.md) · [Report a bug](https://github.com/itsdestin/swipe-keyboard/issues/new?template=bug.yml) · [Release notes](docs/releases/v0.3.1-1.md)
+[More help, recovery and privacy](docs/install-details.md) · [Report a bug](https://github.com/itsdestin/swipe-keyboard/issues/new?template=bug.yml) · [Release notes](docs/releases/v0.4.0-1.md)
 
 For bug reports, include your system, app, keyboard version and steps using made-up text. **Do not send passwords, recordings or personal typing.**
 

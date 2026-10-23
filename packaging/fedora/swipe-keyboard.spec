@@ -1,5 +1,5 @@
 Name: swipe-keyboard
-Version: 0.3.1
+Version: 0.4.0
 Release: 1%{?dist}
 Summary: English, Spanish, French and German swipe typing, completions and next-word suggestions for Plasma Keyboard
 # WHY SPDX lists CC-BY-2.0 (Generic), not the Tatoeba France port: retain its

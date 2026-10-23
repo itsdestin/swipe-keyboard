@@ -3,7 +3,7 @@
 ## Supported required set
 
 `packaging/release-targets.json` is the authoritative version/release number and exact
-required file list. Current release: **0.3.1-1** (tag **v0.3.1-1**).
+required file list. Current release: **0.4.0-1** (tag **v0.4.0-1**).
 It requires Arch/CachyOS x86_64, Fedora **44** x86_64, Fedora **44 aarch64**
 for Linux ARM64 Plasma Mobile, SteamOS **Desktop** x86_64 Flatpak, complete
 corresponding source, one shared Fedora source RPM, Flatpak build inputs,
@@ -84,10 +84,8 @@ Dependency-only speed caches exist (see "Dependency caches" below); release tags
   if `gaming/helper/` is absent), installs it and checks it has network as its only extra
   permission, then assembles the download with `scripts/steamos_bundle.py`. The download
   embeds the `flatpak` job's own bundle; the gate rejects it unless its recorded hash equals
-  the standalone `.flatpak`. The download is built and gated but the README's Gaming Mode section carries no link yet:
-  the only published tag has no steamos asset and assets are never replaced, so the link and
-  the exemption in `tests/packaging/test_release_workflow.py` change together in the first
-  release that includes it (this needs a version bump in `release-targets.json` and the recipes). Native Arch/Fedora packages ship no Gaming
+  the standalone `.flatpak`. The README links it like every other installer
+  (first released in v0.4.0-1). Native Arch/Fedora packages ship no Gaming
   Mode file; `scripts/package-check.py` fails them if one appears.
 - `gaming-tests`: Python and Node tests for the helper, gesture layer, canary, installer and
   SteamOS release contract; runs on every pull request and tag, and `publish` waits for it. The

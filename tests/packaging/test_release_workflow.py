@@ -23,13 +23,6 @@ class WorkflowTests(unittest.TestCase):
         for name, target in contract['targets'].items():
             if name == 'source':
                 continue
-            if name == 'steamos':
-                # TODO(first release that contains the steamos target): the README's Gaming Mode section (M10) is
-                # written and marked preview, but deliberately has no download link yet because the only
-                # published tag (v0.3.1-1) has no steamos asset and assets are never replaced. In the change that
-                # bumps the version (release-targets.json + recipes), delete this exemption and add the link
-                # .../releases/download/<tag>/swipe-keyboard-<version>-steamos-x86_64.tar.gz to the README.
-                continue
             installer = target['files'][0].format(version=contract['version'], release=contract['release'])
             with self.subTest(target=name):
                 self.assertIn(f'https://github.com/itsdestin/swipe-keyboard/releases/download/{tag}/{installer}', guide)
