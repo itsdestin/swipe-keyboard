@@ -57,7 +57,10 @@ bool offeredUnprompted(const QString &word,const QString &language)
                 words << line.trimmed() << line.trimmed().replace(QChar(0xDF),QStringLiteral("ss"));
         it=blocked.insert(language,words);
     }
-    return !it->contains(word.normalized(QString::NormalizationForm_C).toLower().replace(QChar(0x2019),QLatin1Char('\'')));
+    const auto key=word.normalized(QString::NormalizationForm_C).toLower().replace(QChar(0x2019),QLatin1Char('\''));
+    // WHY the part before an apostrophe too: "dick's" or "fuck'n" must not slip past a list of bare words.
+    const auto apostrophe=key.indexOf(QLatin1Char('\''));
+    return !it->contains(key) && (apostrophe<=0 || !it->contains(key.left(apostrophe)));
 }
 QStringList rankRegionalCandidates(const QStringList &words,const QString &locale,int limit,const QString &rawShape)
 {
