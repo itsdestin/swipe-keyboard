@@ -187,6 +187,14 @@ not zero. Fix: hold out whole sessions from dev as the validation set; select on
 test-extra-10000 stay final-only. The geometric spike (82.0 / 90.0) never trained on dev and stands.
 Next: clean sweep, one final bench-2000 score, C++ fallback port (done, f752806).
 
+Phase 3 final scoring (2026-10-23, chosen model F1: one model for en/es/fr/de, 2.1 MB, 3.5 ms/swipe, geometric
+cross-check + no-model fallback): bench-2000 89.85 / 94.25 all swipes, 91.78 / 96.27 in-dictionary (FUTO 93.32 /
+96.56); test-extra-10000 90.41 / 94.88, in-dict 92.43 / 97.00. Not yet a drop-in replacement for English (about
+1.5–3.5 points behind). HeliBoard real swipes (ours with 260k open word lists vs today's FUTO with old packs; not
+like-for-like): es 81.1 vs 77.7, fr 70.4 vs 64.6, de 72.0 vs 69.7, en 81.5 vs 84.5. Next: FUTO's full MIT dataset —
+train.jsonl (~1M real swipes) + swipe-2..5 runs were never downloaded (we trained on 48k dev swipes); retrain on it
+(desktop), test the sentence-context prior on its sentence-ordered swipes, then score again.
+
 ## Phase 2: learn from the user (≈1–2 weeks; can start any time, independent of swipe)
 
 Local only: often-typed words, new words (names, slang) after a few uses, favourite word pairs; decays over
