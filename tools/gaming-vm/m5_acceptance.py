@@ -220,11 +220,31 @@ def swipe(word_keys, ms=350):
 
 
 # ---- commands ----------------------------------------------------------------------------------------------
+CANARY = 'abcdefgh '
+
+
+def text_call_healthy(tries=8, gap=4.0):
+    """Does Steam's own text call type what it is given? WHY (found in the SteamOS VM, M8): independent of our layer and helper
+    (reproduced with both stopped), Steam's ControllerKeyboardSendText sometimes types garbage in a guest that is slow or busy:
+    the first letters are right, the rest come out as counting digits (`abcdefgh ` -> `ab3456789`, `\\b` -> `0`), and the call can lag
+    by several seconds. A swipe test run then would blame our code for Steam's behaviour, so every rig step that types waits for
+    a clean canary first. The canary is cleared with taps on Backspace, never with the text call that may be the broken part."""
+    for _ in range(tries):
+        ev("SteamClient.Input.ControllerKeyboardSendText(%s)" % json.dumps(CANARY), title='SharedJSContext')
+        time.sleep(3.0)
+        v = field().get('value')
+        clear_field()
+        if v == CANARY:
+            return True
+        time.sleep(gap)
+    raise SystemExit("Steam's own text call keeps typing garbage in this guest (last canary read back %r): not a Swipe Keyboard fault; wait or restart the guest" % v)
+
+
 def cmd_hello():
     """Swipe words in the search box. 'world' is the clean case (the engine's top word is the typed word). 'hello' is the finding case:
     on a straight-line scripted path the engine ranks 'help' above 'hello' (same as the desktop engine; see the M5 status), so the
     word is then fixed by tapping the 'hello' candidate, which exercises the replacement path."""
-    open_field(); clear_field()
+    open_field(); clear_field(); text_call_healthy()
     out = {'layer': layer()}
     until(lambda: strip()['strip'], 5, what='strip shown')
     out['strip_before_swipe'] = strip()
