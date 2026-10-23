@@ -42,7 +42,7 @@ class WorkflowTests(unittest.TestCase):
         # fast path reports under a different name and so can never satisfy the merge requirement.
         self.assertIn("name: ${{ needs.prepare.outputs.mode == 'fast' && 'Keyboard CI (fast path, not mergeable)' || 'Keyboard CI' }}", gate)
         self.assertIn('if: ${{ always() }}', gate)
-        self.assertIn('needs: [prepare, arch, fedora, fedora-arm64, flatpak, steamos]', gate)
+        self.assertIn('needs: [prepare, arch, fedora, fedora-arm64, flatpak, steamos, gaming-tests]', gate)
         self.assertIn('${{ toJSON(needs) }}', gate)
         self.assertIn('scripts/release.py gate', gate)
         for name, build in [('arch', 'makepkg --noconfirm'), ('fedora', 'rpmbuild -ba'), ('fedora-arm64', 'rpmbuild -bb'), ('flatpak', 'packaging/flatpak/build.py'), ('steamos', 'scripts/steamos_bundle.py assemble')]:
@@ -305,12 +305,19 @@ exit "$result"
         gate = self.jobs['keyboard-ci']
         self.assertNotIn('steamos-helper', gate)
 
-    def test_gaming_tests_run_in_every_mode_but_are_not_a_producer(self):
+    def test_gaming_tests_run_in_every_mode_and_block_keyboard_ci_without_being_a_producer(self):
         # WHY: ~1 minute, no Qt or Flatpak, and it catches Gaming Mode regressions on drafts too. It is not a
-        # producer: it writes no release files and is not in release.PRODUCERS (publish needs it directly).
+        # producer: it writes no release files and is not in release.PRODUCERS. The gate still waits on it, so a
+        # green "Keyboard CI" can never sit next to failing Gaming Mode tests.
         gaming = self.jobs['gaming-tests']
         self.assertNotRegex(gaming, r'(?m)^    if:')
-        self.assertNotIn('gaming-tests', self.jobs['keyboard-ci'].split('steps:')[0])
+        self.assertIn('test_switch_watch.py', gaming)
+        gate = self.jobs['keyboard-ci']
+        self.assertIn('flatpak, steamos, gaming-tests]', gate.split('steps:')[0])
+        self.assertIn('GAMING_RESULT: ${{ needs.gaming-tests.result }}', gate)
+        self.assertIn('if [[ "$GAMING_RESULT" != success ]]', gate)
+        self.assertIn('''del(."gaming-tests")''', gate)
+        self.assertIn('--statuses "$statuses"', gate)
         self.assertIn('needs: [keyboard-ci, gaming-tests]', self.jobs['publish'])
 
     def test_flatpak_runner_supports_inherited_wayland_permission(self):

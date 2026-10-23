@@ -697,3 +697,10 @@ An independent reviewer read the whole branch; each finding was re-checked again
 Not changed, as agreed: the dev-only deploy scripts' hardcoded paths. Documented only: `SHA256SUMS` travels inside the tarball it covers, so it proves the download was not damaged, not who made it.
 
 Left for whoever merges: `tests/packaging/test_switch_watch.py` (22 tests, including the new ones) is not run by any workflow; `test_build_patches.py` and `test_metadata_contract.py` need the `third_party/swipe-library` submodule, which this worktree does not have.
+
+### Integration: Keyboard CI now waits on the Gaming Mode tests (2026-10-22)
+
+After merging ci-speed (7431d0a) and the pre-merge review fixes (4be97e0), the `keyboard-ci` gate also `needs`
+`gaming-tests` and fails unless it succeeded, in every mode. `gaming-tests` stays out of `release.PRODUCERS` (it builds no
+release file); the gate removes it from the statuses it hands to `release.py gate`. `gaming-tests` now also runs
+`tests/packaging/test_switch_watch.py`, which no workflow ran before.

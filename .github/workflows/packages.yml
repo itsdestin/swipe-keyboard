@@ -816,18 +816,27 @@ jobs:
           python3 -I -m unittest discover -s tests/packaging -p test_gaming_setup.py -v
           python3 -I -m unittest discover -s tests/packaging -p test_flatpak_gaming.py -v
           python3 -I -m unittest discover -s tests/packaging -p test_release_steamos.py -v
+          python3 -I -m unittest discover -s tests/packaging -p test_switch_watch.py -v
   keyboard-ci:
     # WHY the name changes with the mode: branch protection requires the exact check "Keyboard CI".
     # A fast-path run reports under a different name, so it can never satisfy that requirement; only
     # a run that built and verified every platform can. Tags are always the full set.
     name: ${{ needs.prepare.outputs.mode == 'fast' && 'Keyboard CI (fast path, not mergeable)' || 'Keyboard CI' }}
     if: ${{ always() }}
-    needs: [prepare, arch, fedora, fedora-arm64, flatpak, steamos]
+    # WHY gaming-tests is waited on here but kept out of the producer set: it builds no release file, yet a green
+    # "Keyboard CI" must mean the Gaming Mode tests passed too, in every mode (it runs on drafts as well).
+    needs: [prepare, arch, fedora, fedora-arm64, flatpak, steamos, gaming-tests]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - name: Gaming Mode tests must pass
+        if: ${{ always() }}
+        env:
+          GAMING_RESULT: ${{ needs.gaming-tests.result }}
+        run: |
+          if [[ "$GAMING_RESULT" != success ]]; then echo "gaming-tests finished as: $GAMING_RESULT"; exit 1; fi
       # No run-id/repository override: downloads belong only to this workflow run.
       # WHY tags only: files are re-downloaded to hash the exact bytes that get published. Non-release
       # runs publish nothing, and every producer already recorded its own file hashes at creation.
@@ -849,10 +858,12 @@ jobs:
           PR_DRAFT: ${{ github.event.pull_request.draft }}
           FULL_INPUT: ${{ inputs.full }}
         run: |
+          # WHY removed: the producer check wants exactly the producer jobs; gaming-tests has its own step above.
+          statuses=$(jq -c 'del(."gaming-tests")' <<< "$PRODUCER_STATUSES")
           flag=''
           # Tags always verify the real bytes (the script also refuses this flag on tags).
           if [[ "$GITHUB_REF" != refs/tags/* ]]; then flag='--evidence-only'; fi
-          python3 scripts/release.py gate --sha "$GITHUB_SHA" --statuses "$PRODUCER_STATUSES" $flag
+          python3 scripts/release.py gate --sha "$GITHUB_SHA" --statuses "$statuses" $flag
       - uses: actions/upload-artifact@v4
         if: ${{ startsWith(github.ref, 'refs/tags/') }}
         with:
