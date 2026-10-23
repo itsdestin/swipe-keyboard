@@ -287,42 +287,24 @@ private slots:
         QVERIFY(geometry.toList().size() >= 26);
         const double unit = geometry.toList().first().toMap().value("w").toDouble();
         QVERIFY(unit > 10);
-        // Find the real Space key by asking Qt's own hit test, exactly as a finger would.
+        // Find the real Space key in the layout, then wait until the bottom row has given it a width. WHY wait:
+        // on a slow machine (Fedora CI, Qt 6.11) the row was measured while Space still had zero width, so a finger
+        // at its spot hit the Period key beside it.
         QQuickItem *space = nullptr;
-        for (double y = 0; y < touchArea->height() && !space; y += 4)
-            for (double x = 0; x < touchArea->width() && !space; x += 4) {
-                QVariant hit;
-                QVERIFY(QMetaObject::invokeMethod(touchArea, "keyOnPoint", Q_RETURN_ARG(QVariant, hit),
-                                                  Q_ARG(QVariant, x), Q_ARG(QVariant, y)));
-                auto *key = qobject_cast<QQuickItem *>(hit.value<QObject *>());
-                if (key && key->property("key").toInt() == Qt::Key_Space) space = key;
-            }
-        // WHY the report: Fedora's Plasma Keyboard 6.7.5 / Qt 6.11 once found no Space here while Arch found it; say
-        // what the hit test and the item tree each saw, so the next failure explains itself.
-        QString report;
-        if (!space) {
-            const QRectF area = touchArea->mapRectToScene(QRectF(0, 0, touchArea->width(), touchArea->height()));
-            report = QStringLiteral("touchArea scene %1,%2 %3x%4;").arg(area.x()).arg(area.y()).arg(area.width()).arg(area.height());
-            std::function<void(QQuickItem *)> walk = [&](QQuickItem *node) {
-                const QVariant code = node->property("key");
-                if (code.isValid() && code.toInt() == Qt::Key_Space) {
-                    const QRectF r = node->mapRectToScene(QRectF(0, 0, node->width(), node->height()));
-                    const QPointF c = touchArea->mapFromScene(r.center());
-                    QVariant hit;
-                    QMetaObject::invokeMethod(touchArea, "keyOnPoint", Q_RETURN_ARG(QVariant, hit),
-                                              Q_ARG(QVariant, c.x()), Q_ARG(QVariant, c.y()));
-                    auto *got = qobject_cast<QQuickItem *>(hit.value<QObject *>());
-                    report += QStringLiteral(" Space item %1 visible=%2 scene %3,%4 %5x%6, hit at centre=%7 key=%8;")
-                                  .arg(QString::fromLatin1(node->metaObject()->className())).arg(node->isVisible())
-                                  .arg(r.x()).arg(r.y()).arg(r.width()).arg(r.height())
-                                  .arg(got ? QString::fromLatin1(got->metaObject()->className()) : QStringLiteral("none"))
-                                  .arg(got ? got->property("key").toInt() : 0);
-                }
-                for (QQuickItem *child : node->childItems()) walk(child);
-            };
-            walk(window.contentItem());
-        }
-        QVERIFY2(space, qPrintable(QStringLiteral("No Space key found in the real stock layout: ") + report));
+        std::function<void(QQuickItem *)> walk = [&](QQuickItem *node) {
+            const QVariant code = node->property("key");
+            if (!space && node->isVisible() && code.isValid() && code.toInt() == Qt::Key_Space) space = node;
+            for (QQuickItem *child : node->childItems()) walk(child);
+        };
+        walk(window.contentItem());
+        QVERIFY2(space, "No Space key in the real stock layout");
+        QTRY_VERIFY2_WITH_TIMEOUT(space->width() > unit, "The real Space key never got its width", 10000);
+        // Then ask Qt's own hit test, exactly as a finger would, that the middle of Space really is Space.
+        const QPointF middle = touchArea->mapFromItem(space, QPointF(space->width() / 2, space->height() / 2));
+        QVariant hit;
+        QVERIFY(QMetaObject::invokeMethod(touchArea, "keyOnPoint", Q_RETURN_ARG(QVariant, hit),
+                                          Q_ARG(QVariant, middle.x()), Q_ARG(QVariant, middle.y())));
+        QCOMPARE(qobject_cast<QQuickItem *>(hit.value<QObject *>()), space);
         const QPoint start = space->mapToScene(QPointF(space->width() / 2, space->height() / 2)).toPoint();
         // 1.25 keys left of the press: past the 0.5-key start, then 0.3-key steps, first one at once: 3 characters.
         const int distance = int(unit * 1.25);
