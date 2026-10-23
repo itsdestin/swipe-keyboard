@@ -48,7 +48,39 @@ std::vector<float> transpose(const std::vector<float> &m, size_t rows, size_t co
     return t;
 }
 
-inline float sigmoid(float x) { return 1.f / (1.f + std::exp(-x)); }
+// WHY our own exp/tanh/sigmoid: libm calls do not vectorise, and the gates + pointer head evaluate ~60k of them per
+// swipe. exp(x) = 2^n * e^r with n = round(x / ln2), |r| <= ln2/2, e^r by a degree-6 Taylor polynomial (error ~1e-7,
+// far below the 2e-4 tolerance against PyTorch). Plain float arithmetic, so the compiler can use SIMD.
+inline float fastExp(float x) {
+    x = x < -87.f ? -87.f : (x > 87.f ? 87.f : x);
+    const float t = x * 1.44269504089f;
+    const float n = (t + 12582912.f) - 12582912.f;          // round to nearest integer without a libm call
+    const float r = (t - n) * 0.69314718056f;
+    float p = 1.f / 720.f;
+    p = p * r + 1.f / 120.f; p = p * r + 1.f / 24.f; p = p * r + 1.f / 6.f; p = p * r + 0.5f; p = p * r + 1.f; p = p * r + 1.f;
+    const int32_t bits = (int32_t(n) + 127) << 23;           // 2^n built directly in the exponent field
+    float scale;
+    std::memcpy(&scale, &bits, 4);
+    return p * scale;
+}
+// out[o] += sum_i x[i] * W[i * nOut + o]. WHY four rows at a time: the weight rows stream from cache once, but the
+// output vector would otherwise be loaded and stored once per row; blocking quarters that traffic.
+inline void gemvAccum(float *__restrict out, int nOut, const float *__restrict x, int nIn, const float *__restrict W) {
+    int i = 0;
+    for (; i + 4 <= nIn; i += 4) {
+        const float x0 = x[i], x1 = x[i + 1], x2 = x[i + 2], x3 = x[i + 3];
+        const float *w0 = W + size_t(i) * nOut, *w1 = w0 + nOut, *w2 = w1 + nOut, *w3 = w2 + nOut;
+        for (int o = 0; o < nOut; ++o) out[o] += x0 * w0[o] + x1 * w1[o] + x2 * w2[o] + x3 * w3[o];
+    }
+    for (; i < nIn; ++i) {
+        const float xv = x[i];
+        const float *w = W + size_t(i) * nOut;
+        for (int o = 0; o < nOut; ++o) out[o] += xv * w[o];
+    }
+}
+
+inline float sigmoid(float x) { return 1.f / (1.f + fastExp(-x)); }
+inline float fastTanh(float x) { return 1.f - 2.f / (fastExp(2.f * x) + 1.f); }
 
 }
 
@@ -166,6 +198,10 @@ bool SwipeNet::buildInput(const std::vector<SwipePoint> &trace, const SwipeLayou
     return true;
 }
 
+// WHY target_clones: one binary runs the AVX2/FMA version on CPUs that have it and the baseline elsewhere (portable).
+#if defined(__GNUC__) && defined(__x86_64__)
+__attribute__((target_clones("avx2,fma", "default")))
+#endif
 bool SwipeNet::forward(const SwipeInput &in, std::vector<float> &logProbs) const {
     if (steps_ <= 0 || in.steps != steps_ || in.keyCount <= 0) return false;
     const int T = steps_, K = in.keyCount, H = hidden_, P = pointer_;
@@ -181,13 +217,7 @@ bool SwipeNet::forward(const SwipeInput &in, std::vector<float> &logProbs) const
             for (int k = 0; k < kernel_; ++k) {
                 const int tt = t + k - pad;
                 if (tt < 0 || tt >= T) continue;
-                const float *x = &cur[size_t(tt) * c.cin];
-                const float *w = &c.w[size_t(k) * c.cin * c.cout];
-                for (int ci = 0; ci < c.cin; ++ci) {
-                    const float xv = x[ci];
-                    const float *wr = w + size_t(ci) * c.cout;
-                    for (int co = 0; co < c.cout; ++co) o[co] += xv * wr[co];
-                }
+                gemvAccum(o, c.cout, &cur[size_t(tt) * c.cin], c.cin, &c.w[size_t(k) * c.cin * c.cout]);
             }
             for (int co = 0; co < c.cout; ++co) o[co] = std::max(0.f, o[co]);
         }
@@ -202,28 +232,19 @@ bool SwipeNet::forward(const SwipeInput &in, std::vector<float> &logProbs) const
             for (int t = 0; t < T; ++t) {   // input projection for every step at once
                 float *g = &gi[size_t(t) * 3 * H];
                 std::memcpy(g, dir.bih.data(), sizeof(float) * 3 * H);
-                const float *x = &cur[size_t(t) * ch];
-                for (int i = 0; i < ch; ++i) {
-                    const float xv = x[i];
-                    const float *wr = &dir.wih[size_t(i) * 3 * H];
-                    for (int o = 0; o < 3 * H; ++o) g[o] += xv * wr[o];
-                }
+                gemvAccum(g, 3 * H, &cur[size_t(t) * ch], ch, dir.wih.data());
             }
             std::fill(h.begin(), h.end(), 0.f);
             for (int s = 0; s < T; ++s) {
                 const int t = d == 0 ? s : T - 1 - s;
                 std::memcpy(gh.data(), dir.bhh.data(), sizeof(float) * 3 * H);
-                for (int i = 0; i < H; ++i) {
-                    const float hv = h[i];
-                    const float *wr = &dir.whh[size_t(i) * 3 * H];
-                    for (int o = 0; o < 3 * H; ++o) gh[o] += hv * wr[o];
-                }
+                gemvAccum(gh.data(), 3 * H, h.data(), H, dir.whh.data());
                 const float *g = &gi[size_t(t) * 3 * H];
                 float *dst = &out[size_t(t) * 2 * H + size_t(d) * H];
                 for (int j = 0; j < H; ++j) {
                     const float r = sigmoid(g[j] + gh[j]);
                     const float z = sigmoid(g[H + j] + gh[H + j]);
-                    const float nn = std::tanh(g[2 * H + j] + r * gh[2 * H + j]);   // PyTorch GRU: r scales the hidden part only
+                    const float nn = fastTanh(g[2 * H + j] + r * gh[2 * H + j]);   // PyTorch GRU: r scales the hidden part only
                     h[j] = (1.f - z) * nn + z * h[j];
                     dst[j] = h[j];
                 }
@@ -233,30 +254,25 @@ bool SwipeNet::forward(const SwipeInput &in, std::vector<float> &logProbs) const
     }
     // ---- pointer head: every step scores every key from where the finger is relative to that key
     logProbs.assign(size_t(T) * (K + 1), 0.f);
-    std::vector<float> a(P), bk(size_t(K) * P);
+    std::vector<float> a(P), ab(P);
     for (int t = 0; t < T; ++t) {
         const float *z = &cur[size_t(t) * 2 * H];
         std::memcpy(a.data(), Ab_.data(), sizeof(float) * P);
-        for (int i = 0; i < 2 * H; ++i) {
-            const float zv = z[i];
-            const float *wr = &A_[size_t(i) * P];
-            for (int p = 0; p < P; ++p) a[p] += zv * wr[p];
-        }
+        gemvAccum(a.data(), P, z, 2 * H, A_.data());
         float *row = &logProbs[size_t(t) * (K + 1)];
         float bl = blankB_[0];
         for (int i = 0; i < 2 * H; ++i) bl += z[i] * blankW_[i];
         row[0] = bl;
         const float px = in.pos[size_t(t) * 2], py = in.pos[size_t(t) * 2 + 1];
+        for (int p = 0; p < P; ++p) ab[p] = a[p] + Bb_[p];
+        const float *B0 = &B_[0], *B1 = &B_[size_t(P)], *B2 = &B_[size_t(2 * P)], *B3 = &B_[size_t(3 * P)];
         for (int k = 0; k < K; ++k) {
             const float *kk = &in.keys[size_t(k) * 4];
-            const float f[4] = {px - kk[0], py - kk[1], kk[2], kk[3]};
-            float acc = wb_[0];
-            for (int p = 0; p < P; ++p) {
-                float v = a[p] + Bb_[p];
-                for (int i = 0; i < 4; ++i) v += f[i] * B_[size_t(i) * P + p];
-                acc += w_[p] * std::tanh(v);
-            }
-            row[1 + k] = acc;
+            const float f0 = px - kk[0], f1 = py - kk[1], f2 = kk[2], f3 = kk[3];
+            float acc = 0.f;
+            for (int p = 0; p < P; ++p)   // vectorises: independent lanes, one tanh each
+                acc += w_[p] * fastTanh(ab[p] + f0 * B0[p] + f1 * B1[p] + f2 * B2[p] + f3 * B3[p]);
+            row[1 + k] = acc + wb_[0];
         }
         float mx = row[0];
         for (int k = 1; k <= K; ++k) mx = std::max(mx, row[k]);

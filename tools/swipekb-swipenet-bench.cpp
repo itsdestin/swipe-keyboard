@@ -17,6 +17,7 @@
 
 #include "swipekb/swipe_beam.hpp"
 #include "swipekb/ngram.hpp"
+#include "swipekb/swipe_geo.hpp"
 #include "swipekb/swipe_layout.hpp"
 #include "swipekb/swipe_lm.hpp"
 #include "swipekb/swipe_net.hpp"
@@ -38,7 +39,7 @@ int main(int argc, char **argv) {
     std::string model, words, layoutPath, input, ngramPath;
     float lmWeight = 1.0f, freqWeight2 = 0.0f;
     BeamParams bp;
-    int jobs = 1, topN = 5; size_t limit = 0;
+    int jobs = 1, topN = 5; bool geo = false; size_t limit = 0;
     for (int i = 1; i < argc; ++i) {
         const std::string a = argv[i];
         auto val = [&]() -> const char * {
@@ -49,18 +50,18 @@ int main(int argc, char **argv) {
         else if (a == "--beam") bp.beam = std::atoi(val()); else if (a == "--keys-per-step") bp.keysPerStep = std::atoi(val());
         else if (a == "--lookahead") bp.lookahead = float(std::atof(val())); else if (a == "--freq-weight") bp.freqWeight = float(std::atof(val()));
         else if (a == "--jobs") jobs = std::atoi(val()); else if (a == "--limit") limit = size_t(std::atoll(val()));
-        else if (a == "--top") topN = std::atoi(val());
+        else if (a == "--geo") geo = true; else if (a == "--top") topN = std::atoi(val());
         else if (a == "--ngram") ngramPath = val(); else if (a == "--lm-weight") lmWeight = float(std::atof(val()));
         else if (a == "--lm-freq-weight") freqWeight2 = float(std::atof(val()));
         else if (a[0] != '-') input = a; else { std::fprintf(stderr, "unknown option %s\n", a.c_str()); return 2; }
     }
-    if (model.empty() || words.empty() || layoutPath.empty() || input.empty()) {
+    if ((model.empty() && !geo) || words.empty() || layoutPath.empty() || input.empty()) {
         std::fprintf(stderr, "usage: %s --model m.bin --words words.tsv --layout keys.tsv [--beam N --keys-per-step N --lookahead x --freq-weight x --jobs N --limit N] swipes.jsonl\n", argv[0]);
         return 2;
     }
     SwipeLayout layout; SwipeNet net; SwipeLexicon lex;
     if (!layout.loadTsv(layoutPath)) { std::fprintf(stderr, "cannot read layout\n"); return 1; }
-    if (!net.load(model)) { std::fprintf(stderr, "cannot load model\n"); return 1; }
+    if (!geo && !net.load(model)) { std::fprintf(stderr, "cannot load model\n"); return 1; }
     auto t0 = Clock::now();
     if (!lex.loadTsv(words, layout)) { std::fprintf(stderr, "cannot read words\n"); return 1; }
     lex.finish();
@@ -89,6 +90,7 @@ int main(int argc, char **argv) {
         prior = std::make_unique<NgramWordPrior>(lm, lex);
         prior->unigramOnly = true; prior->lmWeight = lmWeight; prior->freqWeight = freqWeight2;
     }
+    GeoDecoder geoDecoder(lex, layout);   // used by --geo (the no-model fallback)
     struct Out { std::vector<std::string> top; double netMs = 0, beamMs = 0; };
     std::vector<Out> out(swipes.size());
     std::atomic<size_t> next{0};
@@ -97,6 +99,12 @@ int main(int argc, char **argv) {
         SwipeInput in; std::vector<float> lp;
         for (size_t i; (i = next++) < swipes.size();) {
             const auto a = Clock::now();
+            if (geo) {
+                const auto res = geoDecoder.decode(swipes[i].pts, swipes[i].aspect, topN);
+                for (const auto &r : res) out[i].top.push_back(lettersOnly(lex.text(r.word)));
+                out[i].beamMs = std::chrono::duration<double, std::milli>(Clock::now() - a).count();
+                continue;
+            }
             net.buildInput(swipes[i].pts, layout, swipes[i].aspect, in);
             net.forward(in, lp);
             const auto b = Clock::now();
