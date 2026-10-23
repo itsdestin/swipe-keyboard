@@ -1,6 +1,6 @@
 #include "swipekb/prediction.hpp"
 #include "swipe_decoder/context_lm.hpp"
-#include "swipekb/ngram_predictor.hpp"
+#include "swipekb/nwp_predictor.hpp"
 #include <algorithm>
 #include <fstream>
 
@@ -9,7 +9,8 @@ namespace swipekb {
 // runs that exact code without FUTO's library; only the English ExecuTorch path stays here.
 struct Predictor::Impl {
     swipe_decoder::ContextLMScorer neural;
-    NgramPredictor ngram;
+    // WHY NwpPredictor here: it is the n-gram path, plus the neural model when LANG.nwp.bin sits next to LANG.ngram.
+    NwpPredictor ngram;
     bool useNgram = false;
 };
 Predictor::Predictor() = default;

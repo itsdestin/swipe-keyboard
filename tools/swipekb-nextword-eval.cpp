@@ -30,7 +30,7 @@
 #include <unordered_set>
 #include <vector>
 
-#include "swipekb/ngram_predictor.hpp"
+#include "swipekb/nwp_predictor.hpp"
 #include "swipekb/prediction.hpp"
 #include "swipekb/recognizer.hpp"
 
@@ -43,7 +43,7 @@ QString percent(long long part, long long whole)
 }
 
 // Rows: sentence# word# letters context target gboard_left gboard_middle gboard_right.
-int compareWithGboard(const swipekb::NgramPredictor &predictor, const QString &path, const QString &label)
+int compareWithGboard(const swipekb::NwpPredictor &predictor, const QString &path, const QString &label)
 {
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
@@ -86,8 +86,10 @@ int compareWithGboard(const swipekb::NgramPredictor &predictor, const QString &p
 int main(int argc, char **argv)
 {
     QCoreApplication app(argc, argv);
-    QString model, vocab, sentences, gboard, label = QStringLiteral("unnamed");
-    long long limit = -1;
+    QString model, vocab, sentences, gboard, nwp, label = QStringLiteral("unnamed");
+    long long limit = -1, skip = 0;
+    bool noLm = false, blend = false;
+    float lambda = 0.5f, beta = 0.f;
     int letters = 0;
     bool dump = false;
     const QStringList args = app.arguments();
@@ -102,18 +104,28 @@ int main(int argc, char **argv)
         else if (a == "--limit" && hasValue) limit = args[++i].toLongLong();
         else if (a == "--letters" && hasValue) letters = qBound(0, args[++i].toInt(), 64);
         else if (a == "--dump") dump = true;
+        // WHY: the neural model (LANG.nwp.bin) is found next to the n-gram file like the keyboard does;
+        // --nwp points elsewhere, --no-lm measures the n-gram alone, --lambda/--beta try other blends
+        // (tuning), --skip moves past sentences already used for the scoreboard.
+        else if (a == "--nwp" && hasValue) nwp = args[++i];
+        else if (a == "--no-lm") noLm = true;
+        else if (a == "--lambda" && hasValue) { lambda = args[++i].toFloat(); blend = true; }
+        else if (a == "--beta" && hasValue) { beta = args[++i].toFloat(); blend = true; }
+        else if (a == "--skip" && hasValue) skip = args[++i].toLongLong();
         else { std::fprintf(stderr, "unknown or incomplete option: %s\n", qPrintable(a)); return 2; }
     }
     if (model.isEmpty() || vocab.isEmpty() || (sentences.isEmpty() == gboard.isEmpty())) {
         std::fprintf(stderr, "usage: swipekb-nextword-eval --model M --vocab V (--sentences FILE | --gboard TSV) "
-                             "[--label L] [--limit N] [--letters N] [--dump]\n");
+                             "[--label L] [--limit N] [--skip N] [--letters N] [--dump] [--nwp FILE] [--no-lm] [--lambda X --beta Y]\n");
         return 2;
     }
-    swipekb::NgramPredictor predictor;
-    if (!predictor.load(model.toStdString(), vocab.toStdString())) {
+    swipekb::NwpPredictor predictor;
+    if (!predictor.load(model.toStdString(), vocab.toStdString(), nwp.toStdString())) {
         std::fprintf(stderr, "could not load model %s with vocabulary %s\n", qPrintable(model), qPrintable(vocab));
         return 1;
     }
+    if (noLm) predictor.disableLm();
+    else if (blend && predictor.hasLm()) predictor.setBlend(lambda, beta);
     if (!gboard.isEmpty()) return compareWithGboard(predictor, gboard, label);
     QFile file(sentences);
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
@@ -132,6 +144,7 @@ int main(int argc, char **argv)
     while (!in.atEnd() && (limit < 0 || lines < limit)) {
         const QString line = in.readLine().trimmed();
         if (line.isEmpty()) continue;
+        if (skip > 0) { --skip; continue; }
         ++lines;
         const QStringList chunks = line.split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
         for (qsizetype k = 0; k < chunks.size(); ++k) {

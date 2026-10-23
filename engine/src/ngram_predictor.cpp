@@ -87,25 +87,42 @@ bool NgramPredictor::load(const std::string &model, const std::string &vocab)
     return true;
 }
 
+float NgramPredictor::score(const NgramLM::Context &state, uint32_t i) const
+{
+    return wordIds_[i] == NgramLM::kUnk ? ngram_.logProb(state, alpha_[i], 0) : ngram_.logProb(state, wordIds_[i]);
+}
+
 std::vector<std::string> NgramPredictor::predict(const std::vector<std::string> &context, int topK,
                                                  const std::string &prefix) const
 {
     if (!ready() || topK <= 0) return {};
+    topK = std::min(topK, 64);
+    // WHY want = topK*4: filterPredictedWords drops duplicates/odd tokens, so a few spares are ranked.
+    const auto ranked = rank(context, size_t(topK) * 4, prefix);
+    std::vector<std::pair<std::string, float>> shown;
+    shown.reserve(ranked.top.size());
+    for (const auto &[lp, index] : ranked.top) shown.emplace_back(vocabulary_[index], lp);
+    return filterPredictedWords(shown, topK);
+}
+
+NgramPredictor::Ranked NgramPredictor::rank(const std::vector<std::string> &context, size_t want,
+                                            const std::string &prefix) const
+{
+    Ranked result;
+    if (!ready() || want == 0) return result;
     // WHY letters-only: "l'" or "Stra" must match "l'homme"/"straße" the way the model spells words.
     const std::string typed = prefix.empty() ? std::string() : NgramLM::alphaForm(prefix);
-    if (!prefix.empty() && typed.empty()) return {};
-    topK = std::min(topK, 64);
+    if (!prefix.empty() && typed.empty()) return result;
+    want = std::min<size_t>(want, 256);
     std::vector<std::string> history;
     for (const auto &word : boundedContext(context))
         history.push_back(QString::fromUtf8(word.data(), int(word.size())).toLower().toUtf8().toStdString());
     const auto state = ngram_.context(history);
+    result.state = state;
     // WHY (score, index) pairs: sorting numbers instead of copying 100k strings per request; ties still
     // break on the spelling, exactly as before.
     std::vector<std::pair<float, uint32_t>> scored;
-    const size_t want = size_t(topK) * 4;
-    const auto score = [&](uint32_t i) {
-        return wordIds_[i] == NgramLM::kUnk ? ngram_.logProb(state, alpha_[i], 0) : ngram_.logProb(state, wordIds_[i]);
-    };
+    const auto score = [&](uint32_t i) { return this->score(state, i); };
     bool shortcut = typed.empty();
     if (shortcut) {
         // WHY exact: a word never seen after this context scores max(floor, constant + its unigram), so the
@@ -142,9 +159,7 @@ std::vector<std::string> NgramPredictor::predict(const std::vector<std::string> 
     std::partial_sort(scored.begin(), scored.begin() + keep, scored.end(), [this](const auto &a, const auto &b) {
         return a.first == b.first ? vocabulary_[a.second] < vocabulary_[b.second] : a.first > b.first;
     });
-    std::vector<std::pair<std::string, float>> ranked;
-    ranked.reserve(keep);
-    for (size_t i = 0; i < keep; ++i) ranked.emplace_back(vocabulary_[scored[i].second], scored[i].first);
-    return filterPredictedWords(ranked, topK);
+    result.top.assign(scored.begin(), scored.begin() + keep);
+    return result;
 }
 }

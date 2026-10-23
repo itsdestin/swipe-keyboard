@@ -27,7 +27,7 @@ target_link_libraries(tst_languageevaluation PRIVATE language_rules Qt6::Test)
 add_test(NAME language_evaluation COMMAND tst_languageevaluation)
 # WHY FUTO-free sources, not feature_engine: the next-word scorer must build without FUTO's library (card #179).
 add_executable(swipekb-nextword-eval ${ROOT}/tools/swipekb-nextword-eval.cpp ${ROOT}/engine/src/ngram_predictor.cpp
-    ${ROOT}/engine/src/ngram.cpp ${ROOT}/engine/src/context.cpp)
+    ${ROOT}/engine/src/nwp_model.cpp ${ROOT}/engine/src/nwp_predictor.cpp ${ROOT}/engine/src/ngram.cpp ${ROOT}/engine/src/context.cpp)
 target_include_directories(swipekb-nextword-eval PRIVATE ${ROOT}/engine/include)
 target_link_libraries(swipekb-nextword-eval PRIVATE Qt6::Core)
 add_executable(tst_nextwordeval ${ROOT}/tools/tests/tst_nextwordeval.cpp ${ROOT}/engine/src/ngram.cpp)
@@ -54,6 +54,14 @@ foreach(name swipenet swipebeam swipegeo swipeengine)
         SWIPEKB_TEST_DATA="${ROOT}/tests/data")
     add_test(NAME swipe_${name} COMMAND tst_${name})
 endforeach()
+
+# The next-word neural model: runner vs PyTorch, damaged files, hybrid predictor (card #170). FUTO-free sources.
+add_executable(tst_nwp ${ROOT}/engine/tests/tst_nwp.cpp ${ROOT}/engine/src/nwp_model.cpp ${ROOT}/engine/src/nwp_predictor.cpp
+    ${ROOT}/engine/src/ngram_predictor.cpp ${ROOT}/engine/src/ngram.cpp ${ROOT}/engine/src/context.cpp)
+target_include_directories(tst_nwp PRIVATE ${ROOT}/engine/include)
+target_compile_definitions(tst_nwp PRIVATE SWIPEKB_TEST_DATA="${ROOT}/tests/data")
+target_link_libraries(tst_nwp PRIVATE Qt6::Core Qt6::Test)
+add_test(NAME nwp_model COMMAND tst_nwp)
 
 # Optional reuse of existing read-only FUTO symbols: no upstream configure/build or dependency downloads.
 set(SWIPEKB_READONLY_UPSTREAM "" CACHE PATH "Existing source/build to link FUTO symbols from, read-only")
@@ -112,7 +120,8 @@ if(SWIPEKB_READONLY_UPSTREAM)
     endforeach()
     # WHY one adapter engine: compile both feature deltas against the same language-owned
     # runtime; this lightweight route remains distinct from final SDK/package acceptance.
-    target_sources(feature_engine PRIVATE ${ROOT}/engine/src/ngram_predictor.cpp ${ROOT}/engine/src/prediction.cpp)
+    target_sources(feature_engine PRIVATE ${ROOT}/engine/src/ngram_predictor.cpp ${ROOT}/engine/src/nwp_model.cpp
+        ${ROOT}/engine/src/nwp_predictor.cpp ${ROOT}/engine/src/prediction.cpp)
     target_sources(feature_inputmethod PRIVATE ${ROOT}/plugin/nextwordsession.cpp
         ${ROOT}/plugin/nextwordworker.cpp ${ROOT}/plugin/nextwordworker.h
         ${ROOT}/plugin/predictionpolicy.cpp ${ROOT}/plugin/predictiondiagnostics.cpp ${ROOT}/plugin/wordswap.cpp)

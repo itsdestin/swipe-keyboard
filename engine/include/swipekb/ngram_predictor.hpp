@@ -29,6 +29,18 @@ public:
                                      const std::string &prefix = {}) const;
     const std::vector<std::string> &vocabulary() const { return vocabulary_; }
 
+    // For the hybrid with the neural model (nwp_predictor.cpp): the same ranking as predict(), but as
+    // (log10 score, vocabulary index) pairs, `want` of them (max 256), plus the context state so the neural
+    // side can score words the n-gram did not rank without recomputing it.
+    struct Ranked {
+        std::vector<std::pair<float, uint32_t>> top;
+        NgramLM::Context state;
+    };
+    Ranked rank(const std::vector<std::string> &context, size_t want, const std::string &prefix = {}) const;
+    float score(const NgramLM::Context &state, uint32_t vocabIndex) const;
+    // Letters-only lower-case form of a vocabulary word (what the models spell words as).
+    const std::string &alphaOf(uint32_t vocabIndex) const { return alpha_[vocabIndex]; }
+
 private:
     NgramLM ngram_;
     std::vector<std::string> vocabulary_;
