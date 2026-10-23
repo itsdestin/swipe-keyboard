@@ -76,3 +76,62 @@ def zipf_to_f(zipf):
     word gets about the same weight whichever list it came from.
     """
     return max(1, min(255, round(27.5 * zipf - 1)))
+
+
+# WHY 30: about one step of ten in how often a word is used (AOSP's scale rises ~27.5 per step of ten). A plain
+# word much rarer than its apostrophe twin ("aircrafts" 64 vs "aircraft's" 97) is not worth preferring.
+TWIN_MARGIN = 30
+
+
+def order_apostrophe_twins(entries, wl, base_words):
+    """Decides, for words that differ only by an apostrophe ("its"/"it's", "lets"/"let's"), which one a swipe
+    types, by making that one the more frequent of the pair. Returns the adjusted [(word, freq, flags)].
+
+    WHY this is needed: the swipe engine ignores apostrophes, so both spellings are one swipe shape, and the
+    keyboard types the more frequent spelling (offering the other in the guess bar).
+    WHY this rule: AOSP's own keyboard ships an "always replace" list (whitelist) that says exactly which plain
+    words should become their apostrophe twin: lets -> let's, ill -> I'll, id -> I'd, cant -> can't,
+    wont -> won't, whats -> what's. It deliberately does NOT do that for its, well, were, hell, shell, wed or
+    shed, nor for plurals like years/year's. So:
+      - plain word whitelisted to its twin  -> the apostrophe spelling must be more frequent;
+      - any other plain word that is a real AOSP word and not much rarer than its twin (TWIN_MARGIN) -> the
+        plain spelling must be more frequent ("its" over "it's", "worlds" over "world's" by default; the twin
+        is then one tap away in the guess bar);
+      - otherwise the frequencies are left alone. WHY AOSP only: wordfreq counts web text with apostrophes
+        stripped, so its plain forms ("japans", "nasas", "hitlers") are mostly broken possessives and must
+        never outrank the real spelling.
+    Only the losing side's number moves, and only by the 1 point needed, so the pair's best frequency (what the
+    engine ranks the swipe shape by) changes by at most 1.
+    """
+    def plain_key(w):
+        return w.replace("'", "").lower()
+
+    # Best (highest) plain entry per letters-only key, and best apostrophe entry per key.
+    plain, apos = {}, {}
+    for i, (w, f, fl) in enumerate(entries):
+        if "'" in w:
+            k = plain_key(w)
+            if k not in apos or f > entries[apos[k]][1]:
+                apos[k] = i
+        else:
+            k = w.lower()
+            if k not in plain or f > entries[plain[k]][1]:
+                plain[k] = i
+    wl_lower = {k.lower(): v.lower() for k, v in wl.items()}
+    out = list(entries)
+    for k, ai in apos.items():
+        pi = plain.get(k)
+        if pi is None:
+            continue
+        pw, pf, pfl = out[pi]
+        aw, af, afl = out[ai]
+        # WHY skip: a plain word AOSP marks as not a real word (flags=nonword, f=0) never competes.
+        if pf <= 0 or "nonword" in pfl:
+            continue
+        prefer_apostrophe = wl_lower.get(pw.lower()) == aw.lower()
+        if prefer_apostrophe:
+            if pf >= af:
+                out[pi] = (pw, max(1, af - 1), pfl)
+        elif pw in base_words and pf <= af and af - pf <= TWIN_MARGIN:
+            out[pi] = (pw, min(255, af + 1), pfl)
+    return out

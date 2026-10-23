@@ -5,6 +5,9 @@ Data only: read the wheel's documented cBpack bins directly (no package code,
 network, tokenizer, personal words or model training). Tokens already processed
 by wordfreq are filtered to declared Latin alphabets; display forms remain NFC.
 This establishes reproducibility, not native-language swipe accuracy.
+
+dictionary_from_counts() is the wheel-free successor (word lists counted from FineWeb-2 + Tatoeba, no CC BY-SA);
+see packaging/language-models/README.md, "Word lists counted from open text".
 """
 import argparse
 import gzip
@@ -13,8 +16,11 @@ import json
 import pathlib
 import shutil
 import unicodedata
+import sys
 import zipfile
 
+# WHY: corpus_dictionary.py sits next to this file; it is loaded by path in tests and by fetch-assets.
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 TRANSFORMATION = 'wordfreq-latin-v2'
 # WHY a bounded, explicit display-form erratum, not generic German title-casing:
@@ -92,6 +98,22 @@ def dictionary_bytes(bins, language, maximum):
                 words[display] = words[base]
     header = f'dictionary=wordfreq_{language},locale={language},description=Language,version=2\n'
     return (header + ''.join(f' word={w},f={f}\n' for w, f in words.items())).encode('utf-8')
+
+
+def dictionary_from_counts(counts_path, language, maximum=100000, min_pages=3, typo_ratio=None, foreign=()):
+    """The es/fr/de swipe dictionary counted from FineWeb-2 + Tatoeba (scripts/lm/count-words.py), no wordfreq.
+
+    WHY same layout and 0..255 scale as dictionary_bytes: the engine and the n-gram vocabulary read both alike.
+    Casing, German noun capitals, ß and French elisions come straight from the counted text, so the hand-made
+    GERMAN_DISPLAY / FRENCH_ELISIONS errata the wordfreq path needed do not apply here.
+    """
+    import corpus_dictionary
+    if typo_ratio is None:
+        typo_ratio = corpus_dictionary.LANGUAGE_TYPO_RATIO
+    entries = corpus_dictionary.language_entries(counts_path, language, ALPHABETS[language], clean_word,
+                                                 maximum, min_pages, typo_ratio, foreign)
+    header = f'dictionary=fineweb_{language},locale={language},description=Language,version=3\n'
+    return (header + ''.join(f' word={w},f={f}\n' for w, f in entries)).encode('utf-8')
 
 
 def context_pack_files(language, lock, source):
