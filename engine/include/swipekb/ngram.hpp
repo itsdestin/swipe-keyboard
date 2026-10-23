@@ -75,6 +75,11 @@ public:
     // only used if the model doesn't know the word.
     float logProb(const Context &c, std::string_view alpha, float dictFreq) const;
     float logProb(const Context &c, uint32_t w) const;
+    // Words the model has seen right after this context (trigram, then bigram continuations; may repeat).
+    // Every other known word scores max(floor, bo3 + bo2 + unigram), i.e. in unigram order.
+    void continuations(const Context &c, std::vector<uint32_t> &out) const;
+    float unigramLogProb(uint32_t w) const { return loaded() && w < vocab_ ? uni_lp_[w] : floor_; }
+    float floorLogProb() const { return floor_; }
 
     // Writes `d` as a model file (atomically: temp file + rename). False on any I/O error.
     static bool write(const std::string &path, const NgramModelData &d);

@@ -71,6 +71,35 @@ private slots:
         QVERIFY(predictor.predict({"yo"}, 3, "'").empty());
         QCOMPARE(predictor.predict({"yo"}, 1).front(), std::string("soy"));
     }
+    void fastNextWordMatchesScoringEveryWord() {
+        // WHY every word starts with "a": the completion path (prefix "a") scores every word, so it is the
+        // reference the next-word shortcut (continuations + most frequent others) must reproduce exactly.
+        using swipekb::NgramLM;
+        swipekb::NgramModelData d;
+        // WHY 200 words with rare bigram targets: more than the 4 x 12 leaders, so a shortcut that skipped the
+        // continuations would miss them.
+        for (int i = 0; i < 200; ++i)   // letters only: the model drops digits, so "a1"/"a2" would be one word
+            d.words.push_back(std::string("a") + char('a' + i / 26) + char('a' + i % 26));
+        const size_t V = d.words.size() + 3;
+        d.uni_lp.resize(V); d.uni_bo.assign(V, -0.3f);
+        for (size_t w = 0; w < V; ++w) d.uni_lp[w] = -1.f - float((w * 7) % 13) * 0.2f;   // many ties
+        for (uint32_t w : {90u, 150u, 199u}) d.uni_lp[w] = -6.f;
+        for (uint32_t w : {90u, 150u, 199u}) { d.bi_keys.push_back(NgramLM::key(3, w)); d.bi_lp.push_back(-0.2f); d.bi_bo.push_back(-0.1f); }
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const auto model = dir.filePath("t.ngram").toStdString(), vocab = dir.filePath("t.vocab.tsv").toStdString();
+        QVERIFY(NgramLM::write(model, d));
+        QFile v(QString::fromStdString(vocab));
+        QVERIFY(v.open(QIODevice::WriteOnly));
+        for (const auto &w : d.words) v.write((w + "\t100\t" + w + "\n").c_str());
+        v.write("azzunknown\t100\tazzunknown\n");   // not in the model: the dictionary fallback path
+        v.close();
+        swipekb::Predictor predictor;
+        QVERIFY(predictor.init(model, vocab));
+        for (const auto &context : std::vector<std::vector<std::string>>{{}, {d.words[0]}, {d.words[5]}, {"zzz"}})
+            for (int k : {1, 3, 12})
+                QCOMPARE(predictor.predict(context, k), predictor.predict(context, k, "a"));
+    }
     void absentModelIsUnavailable() {
         swipekb::Predictor p;
         QVERIFY(!p.init("/missing/model", "/missing/vocab"));

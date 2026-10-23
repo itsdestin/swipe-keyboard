@@ -73,6 +73,17 @@ bool NgramPredictor::load(const std::string &model, const std::string &vocab)
         alpha_.push_back(NgramLM::alphaForm(vocabulary_[i]));
         wordIds_.push_back(ngram_.id(alpha_.back()));
     }
+    byUnigram_.clear(); unknownBySpelling_.clear(); indicesOfId_.clear();
+    for (uint32_t i = 0; i < vocabulary_.size(); ++i) {
+        if (wordIds_[i] == NgramLM::kUnk) unknownBySpelling_.push_back(i);
+        else { byUnigram_.push_back(i); indicesOfId_[wordIds_[i]].push_back(i); }
+    }
+    std::sort(byUnigram_.begin(), byUnigram_.end(), [this](uint32_t a, uint32_t b) {
+        const float x = ngram_.unigramLogProb(wordIds_[a]), y = ngram_.unigramLogProb(wordIds_[b]);
+        return x == y ? vocabulary_[a] < vocabulary_[b] : x > y;
+    });
+    std::sort(unknownBySpelling_.begin(), unknownBySpelling_.end(),
+              [this](uint32_t a, uint32_t b) { return vocabulary_[a] < vocabulary_[b]; });
     return true;
 }
 
@@ -91,13 +102,43 @@ std::vector<std::string> NgramPredictor::predict(const std::vector<std::string> 
     // WHY (score, index) pairs: sorting numbers instead of copying 100k strings per request; ties still
     // break on the spelling, exactly as before.
     std::vector<std::pair<float, uint32_t>> scored;
-    scored.reserve(vocabulary_.size());
-    for (uint32_t i = 0; i < vocabulary_.size(); ++i) {
-        if (!typed.empty() && alpha_[i].compare(0, typed.size(), typed) != 0) continue;
-        scored.emplace_back(wordIds_[i] == NgramLM::kUnk ? ngram_.logProb(state, alpha_[i], 0)
-                                                        : ngram_.logProb(state, wordIds_[i]), i);
+    const size_t want = size_t(topK) * 4;
+    const auto score = [&](uint32_t i) {
+        return wordIds_[i] == NgramLM::kUnk ? ngram_.logProb(state, alpha_[i], 0) : ngram_.logProb(state, wordIds_[i]);
+    };
+    bool shortcut = typed.empty();
+    if (shortcut) {
+        // WHY exact: a word never seen after this context scores max(floor, constant + its unigram), so the
+        // best of them are the first in unigram order; unknown words all tie and sort by spelling. Scoring
+        // the continuations plus those leaders gives the same top list as scoring every word.
+        std::vector<uint32_t> ids;
+        ngram_.continuations(state, ids);
+        std::unordered_set<uint32_t> seen;
+        for (uint32_t id : ids)
+            if (const auto it = indicesOfId_.find(id); it != indicesOfId_.end())
+                for (uint32_t i : it->second) if (seen.insert(i).second) scored.emplace_back(score(i), i);
+        size_t others = 0;
+        float lastOther = 0;
+        for (uint32_t i : byUnigram_) {
+            if (others == want) break;
+            if (seen.count(i)) continue;
+            scored.emplace_back(lastOther = score(i), i);
+            ++others;
+        }
+        for (size_t k = 0; k < std::min(want, unknownBySpelling_.size()); ++k)
+            scored.emplace_back(score(unknownBySpelling_[k]), unknownBySpelling_[k]);
+        // WHY fall back: if the leaders already sit on the floor, many words tie there and spelling, not
+        // frequency, decides between them; only a full pass reproduces that order.
+        if (others == want && lastOther <= ngram_.floorLogProb()) { scored.clear(); shortcut = false; }
     }
-    const size_t keep = std::min<size_t>(scored.size(), size_t(topK) * 4);
+    if (!shortcut) {
+        scored.reserve(vocabulary_.size());
+        for (uint32_t i = 0; i < vocabulary_.size(); ++i) {
+            if (!typed.empty() && alpha_[i].compare(0, typed.size(), typed) != 0) continue;
+            scored.emplace_back(score(i), i);
+        }
+    }
+    const size_t keep = std::min<size_t>(scored.size(), want);
     std::partial_sort(scored.begin(), scored.begin() + keep, scored.end(), [this](const auto &a, const auto &b) {
         return a.first == b.first ? vocabulary_[a.second] < vocabulary_[b.second] : a.first > b.first;
     });

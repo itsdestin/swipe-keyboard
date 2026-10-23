@@ -224,6 +224,13 @@ float NgramLM::logProb(const Context &c, uint32_t w) const
     return std::max(floor_, c.bo3 + c.bo2 + uni_lp_[w]);
 }
 
+void NgramLM::continuations(const Context &c, std::vector<uint32_t> &out) const
+{
+    if (!loaded()) return;
+    for (uint32_t i = c.tri_lo; i < c.tri_hi; ++i) out.push_back(tri_w_[i]);
+    for (uint32_t i = c.bi_lo; i < c.bi_hi; ++i) out.push_back(bi_w_[i]);
+}
+
 float NgramLM::logProb(const Context &c, std::string_view alpha, float dictFreq) const
 {
     if (!loaded())

@@ -6,6 +6,7 @@
 #pragma once
 
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -33,6 +34,11 @@ private:
     std::vector<std::string> vocabulary_;
     std::vector<uint32_t> wordIds_;            // model number per vocabulary word; kUnk when unknown
     std::vector<std::string> alpha_;           // letters-only lower-case form of every vocabulary word
+    // WHY these three: next-word prediction scores only the words seen after the context plus the most
+    // frequent others, instead of all ~100-230k words (same ranking, many times faster; see predict()).
+    std::vector<uint32_t> byUnigram_;          // known-word indices, most frequent first, ties by spelling
+    std::vector<uint32_t> unknownBySpelling_;  // indices of words the model lacks, by spelling
+    std::unordered_map<uint32_t, std::vector<uint32_t>> indicesOfId_;
 };
 
 }
