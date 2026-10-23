@@ -69,12 +69,12 @@ private slots:
         auto write = [&](const QString &name, const QByteArray &data) {
             QFile f(dir.filePath(name)); QVERIFY(f.open(QIODevice::WriteOnly)); QCOMPARE(f.write(data), data.size());
         };
-        if (!languagefixtures::available()) QSKIP("Explicit pinned English assets and CC license fixtures not supplied");
+        if (!languagefixtures::available()) QSKIP("Explicit pinned English assets and language pack fixtures not supplied");
         QJsonObject manifest;
         QVERIFY(languagefixtures::populate(dir.path(),manifest));
         const auto data=languagefixtures::read(dir.filePath("dict.combined"));
         const auto metadata=languagefixtures::read(dir.filePath("metadata.json"));
-        const auto notice=languagefixtures::read(dir.filePath("NOTICE"));
+        const auto notice=languagefixtures::read(dir.filePath("LANGUAGE-FILES-NOTICE.md"));
         auto asset = [&](const QString &path, const QString &compatibility) {
             const auto bytes=languagefixtures::read(dir.filePath(path));
             return QJsonObject{{"path",path},{"sha256",languagefixtures::hash(bytes)},{"size",bytes.size()},{"compatibility",compatibility}};
@@ -94,7 +94,7 @@ private slots:
         manifest["scripts"]=QJsonArray{"Cyrl"}; QVERIFY(!resolve().capabilities.swipe); manifest=original;
         auto source=manifest["source"].toObject(); source["sha256"]="wrong"; manifest["source"]=source;
         QVERIFY(!resolve().capabilities.swipe); manifest=original;
-        write("NOTICE","tampered"); QVERIFY(!resolve().capabilities.swipe); write("NOTICE",notice);
+        write("LANGUAGE-FILES-NOTICE.md","tampered"); QVERIFY(!resolve().capabilities.swipe); write("LANGUAGE-FILES-NOTICE.md",notice);
         write("metadata.json","tampered"); QVERIFY(!resolve().capabilities.swipe); write("metadata.json",metadata);
         QTemporaryDir outside;
         QFile external(outside.filePath("dictionary")); QVERIFY(external.open(QIODevice::WriteOnly)); external.write(data); external.close();
@@ -113,11 +113,11 @@ private slots:
     }
     void rejectsSelfAttestedFixedAssets_data() {
         QTest::addColumn<QString>("role");
-        for (const auto &role:{"encoder","metadata","encoderLicense","dataTerms"}) QTest::newRow(role)<<QString(role);
+        for (const auto &role:{"encoder","metadata","encoderLicense","dataTerms","tatoebaTerms","notice"}) QTest::newRow(role)<<QString(role);
     }
     void rejectsSelfAttestedFixedAssets() {
         QFETCH(QString,role);
-        if (!languagefixtures::available()) QSKIP("Explicit pinned English assets and CC license fixtures not supplied");
+        if (!languagefixtures::available()) QSKIP("Explicit pinned English assets and language pack fixtures not supplied");
         QTemporaryDir dir; QJsonObject manifest; QVERIFY(languagefixtures::populate(dir.path(),manifest));
         auto resolve=[&] {
             if (!languagefixtures::write(dir.path(),"fr.json",QJsonDocument(manifest).toJson())) return ProfileSnapshot{};
@@ -132,8 +132,12 @@ private slots:
         else if (role=="metadata") { file="metadata.json"; encoder["metadataSha256"]=replacementHash; }
         else if (role=="encoderLicense") {
             file="FUTO-LICENSE"; auto license=manifest["encoderLicense"].toObject(); license["sha256"]=replacementHash; manifest["encoderLicense"]=license;
+        } else if (role=="dataTerms") {
+            file="ODC-By-1.0.txt"; auto license=manifest["license"].toObject(); license["termsSha256"]=replacementHash; manifest["license"]=license;
+        } else if (role=="tatoebaTerms") {
+            file="TATOEBA-CC-BY-2.0-FR.txt"; auto license=manifest["license"].toObject(); license["tatoebaTermsSha256"]=replacementHash; manifest["license"]=license;
         } else {
-            file="CC-BY-SA-4.0.txt"; auto license=manifest["license"].toObject(); license["termsSha256"]=replacementHash; manifest["license"]=license;
+            file="LANGUAGE-FILES-NOTICE.md"; auto license=manifest["license"].toObject(); license["sha256"]=replacementHash; manifest["license"]=license;
         }
         assets["encoder"]=encoder; manifest["assets"]=assets;
         QVERIFY(languagefixtures::write(dir.path(),file,incompatible));

@@ -98,7 +98,11 @@ private slots:
         for(const QString &name:{QString("ODC-By-1.0.txt"),QString("LANGUAGE-FILES-NOTICE.md"),QString("TATOEBA-CC-BY-2.0-FR.txt"),QString("es-CONTRIBUTORS.txt")}) {
             const auto original=languagefixtures::read(copy.filePath(name)); QVERIFY2(!original.isEmpty(),qPrintable(name));
             QVERIFY(languagefixtures::write(copy.path(),name,original+"tampered"));
-            expectSwipeWithoutPrediction(qPrintable(name));
+            // WHY the notice and both licence texts take the whole language down but the credit list only prediction:
+            // the swipe dictionary is itself counted from FineWeb (ODC-By) and Tatoeba (CC BY 2.0 FR) text, so, like the
+            // CC BY-SA text before them, its licence texts are part of the swipe-level pins; authors are context-only.
+            if(name.endsWith("CONTRIBUTORS.txt")) expectSwipeWithoutPrediction(qPrintable(name));
+            else QVERIFY2(!resolveProfile("es-MX","qwerty","Latin",copy.path()).capabilities.swipe,qPrintable(name));
             QVERIFY(languagefixtures::write(copy.path(),name,original));
             QVERIFY2(resolveProfile("es-MX","qwerty","Latin",copy.path()).capabilities.nextWord,qPrintable(name));
         }
@@ -120,7 +124,7 @@ private slots:
         if(!withNgram) return true;
         if(!QDir().mkpath(QDir(root).filePath("language-packs"))) return false;
         for(const QString &name:{QString("en.ngram"),QString("en.vocab.tsv"),QString("en-CONTRIBUTORS.txt"),QString("TATOEBA-CC-BY-2.0-FR.txt"),
-                QString("ODC-By-1.0.txt"),QString("LANGUAGE-FILES-NOTICE.md"),QString("CC-BY-SA-4.0.txt")}) {
+                QString("ODC-By-1.0.txt"),QString("LANGUAGE-FILES-NOTICE.md"),QString("Apache-2.0.txt")}) {
             if(!QFile::copy(QDir(packs).filePath(name),QDir(root).filePath("language-packs/"+name))) { why=name; return false; }
         }
         return true;
@@ -160,7 +164,7 @@ private slots:
         // Anything wrong with the English files (missing, damaged, or a missing/changed licence text) means FUTO's
         // model keeps working exactly as before: no crash, no blank keyboard.
         for(const QString &name:{QString("en.ngram"),QString("en.vocab.tsv"),QString("en-CONTRIBUTORS.txt"),QString("ODC-By-1.0.txt"),
-                QString("LANGUAGE-FILES-NOTICE.md"),QString("TATOEBA-CC-BY-2.0-FR.txt"),QString("CC-BY-SA-4.0.txt")}) {
+                QString("LANGUAGE-FILES-NOTICE.md"),QString("TATOEBA-CC-BY-2.0-FR.txt"),QString("Apache-2.0.txt")}) {
             const QString relative="language-packs/"+name; const auto original=languagefixtures::read(dir.filePath(relative));
             QVERIFY2(!original.isEmpty(),qPrintable(name));
             QVERIFY(languagefixtures::write(dir.path(),relative,original+"damage")); expectFuto(qPrintable("damaged "+name));
@@ -223,9 +227,12 @@ private slots:
         QVERIFY2(!candidates.empty(),"Synthetic trace produced no candidates (not an accuracy threshold)");
         QFile dict(p.assets["dictionary"].path); QVERIFY(dict.open(QIODevice::ReadOnly));
         const QString data=QString::fromUtf8(dict.readAll());
+        // WHY compare lower-cased: the open word lists keep real capitals (names, German nouns, "Ecole"), while the
+        // engine reports the lower-case search form of a dictionary word; a candidate must still be a dictionary word.
+        const QString lowerData=data.toLower();
         for (const auto &c:candidates) {
             const auto spelling=QString::fromStdString(c.word);
-            QVERIFY2(data.contains(" word="+spelling+",") || data.contains(" word="+spelling.toLower()+","),qPrintable(spelling));
+            QVERIFY2(lowerData.contains(" word="+spelling.toLower()+","),qPrintable(spelling));
         }
         QVERIFY(!engine.bestShapeWord().empty());
     }

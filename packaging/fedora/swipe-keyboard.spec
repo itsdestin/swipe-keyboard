@@ -5,7 +5,7 @@ Summary: English, Spanish, French and German swipe typing, completions and next-
 # WHY SPDX lists CC-BY-2.0 (Generic), not the Tatoeba France port: retain its
 # jurisdiction-specific terms under a custom LicenseRef and install its notice.
 # WHY ODC-By-1.0: the next-word files are also built from FineWeb web text (Open Data Commons Attribution).
-License: GPL-3.0-or-later AND Apache-2.0 AND CC-BY-SA-4.0 AND ODC-By-1.0 AND LicenseRef-FUTO-Model-Weights-1.0 AND LicenseRef-Tatoeba-CC-BY-2.0-FR
+License: GPL-3.0-or-later AND Apache-2.0 AND ODC-By-1.0 AND LicenseRef-FUTO-Model-Weights-1.0 AND LicenseRef-Tatoeba-CC-BY-2.0-FR
 URL: https://github.com/itsdestin/swipe-keyboard
 Source0: %{name}-%{version}.tar.gz
 ExclusiveArch: x86_64 aarch64

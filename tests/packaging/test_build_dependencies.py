@@ -79,7 +79,7 @@ class BuildDependencies(unittest.TestCase):
         self.assertNotIn('--upgrade', command)
 
     def test_scripts_use_provisioner_not_mutable_pip(self):
-        for name in ('scripts/build-futo.sh', 'scripts/dict/build-en-swipe.sh'):
+        for name in ('scripts/build-futo.sh',):
             text = (ROOT/name).read_text()
             self.assertIn('provision-build-deps.py', text)
             self.assertNotIn('pip" install', text)

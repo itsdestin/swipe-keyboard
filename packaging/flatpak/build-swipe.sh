@@ -23,7 +23,7 @@ done
 for locale in en-US en-GB es-ES es-MX fr-FR de-DE; do
     layout=qwerty
     case "$locale" in fr-FR) layout=azerty;; de-DE) layout=qwertz;; es-ES|es-MX) layout=qwerty;; esac
-    /app/share/swipe-keyboard/integration/swipekb-profilecheck --model-root /app/share/swipe-keyboard --locale "$locale" --layout "$layout" --mode Latin | python3 -c 'import json,sys; p=json.load(sys.stdin); assert p["swipeCapable"]; assert p["nextWordCapable"] and p["contextRankingCapable"] if p["language"] in ("es","fr","de") else p["nextWordCapable"]; assert p["packId"] == "wordfreq-es" if p["locale"] in ("es-ES","es-MX") else True'
+    /app/share/swipe-keyboard/integration/swipekb-profilecheck --model-root /app/share/swipe-keyboard --locale "$locale" --layout "$layout" --mode Latin | python3 -c 'import json,sys; p=json.load(sys.stdin); assert p["swipeCapable"]; assert p["nextWordCapable"] and p["contextRankingCapable"] if p["language"] in ("es","fr","de") else p["nextWordCapable"]; assert p["packId"] == "fineweb-es" if p["locale"] in ("es-ES","es-MX") else True'
 done
 # WHY: native activation is unsupported on SteamOS 6.4; don't export its CLI or
 # desktop entry alongside the manual-selection Flatpak entry.

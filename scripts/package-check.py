@@ -154,7 +154,7 @@ def check(root):
         if not locale.startswith('en'):
             assert capability['nextWordCapable'] and capability['contextRankingCapable'], f'Context pack unavailable for {locale}'
         if locale.startswith('es-'):
-            assert capability['packId'] == 'wordfreq-es', f'{locale} must use the shared Spanish pack'
+            assert capability['packId'] == 'fineweb-es', f'{locale} must use the shared Spanish pack'
     for library in [helper, config_probe, profile_probe, *(base/'qml/SwipeKeyboard').glob('*.so*')]:
         check_native_machine(library)
         check_public_qt_abi(library)

@@ -16,16 +16,16 @@ their own licenses/notices. Their source files and notices are included in the
 companion source archive; installed third-party notices are collected at build
 time. ExecuTorch is BSD-3-Clause; see the corresponding upstream LICENSE.
 
-English dictionary is generated from Android LatinIME/AOSP word lists
-(Apache-2.0, original notices retained) and wordfreq 3.1.1 English frequency
-data (CC-BY-SA-4.0). Transformation: scripts/dict/wordfreq_combined.py combines
-entries, preserves AOSP frequencies, adjusts apostrophe pairs, and filters
-likely misspellings, with a 250000-entry cap. The resulting combined dictionary
-is distributed under CC-BY-SA-4.0 with attribution to AOSP contributors and
-Robyn Speer/wordfreq contributors. Original input URLs/revisions/checksums
-are in assets.lock.json; wordfreq source and attribution/license information:
-https://github.com/rspeer/wordfreq and https://pypi.org/project/wordfreq/3.1.1/.
-The English, Spanish, French and German next-word n-gram models (language files release `language-files-2026-10-22`, downloaded by checksum from assets.lock.json) are built from FineWeb / FineWeb-2 web text by Hugging Face (Open Data Commons Attribution License 1.0, `ODC-By-1.0.txt`; derived from Common Crawl, whose terms of use also apply) plus Tatoeba sentences (CC BY 2.0 France). Only word counts are kept, never text. They contain no FUTO neural weights. Retain each language's full Tatoeba contributor list (`<language>-CONTRIBUTORS.txt`), the Tatoeba notice (installed beside the package license at `share/licenses/swipe-keyboard/TATOEBA-CC-BY-2.0-FR.txt`, normally `/usr/share/licenses/...` or `/app/share/licenses/...`), `ODC-By-1.0.txt` and `LANGUAGE-FILES-NOTICE.md` (all in `language-packs/`). The word lists (`<language>.vocab.tsv`) derive from wordfreq data (CC BY-SA 4.0) and are offered under that licence. Spanish Spain and Mexico share one Spanish model; hashes and provenance are in assets.lock.json and packaging/language-models/README.md. When English files are installed and verified, English next-word suggestions, completions and swipe ranking use the English n-gram instead of FUTO's English context model; without them FUTO's model is used. These are small general baselines and make no region-specific Spanish or Gboard-parity claim.
+Word lists. The English swipe dictionary keeps every word, frequency and flag of the Android LatinIME/AOSP US English
+word list (Apache-2.0, original notices retained; `Apache-2.0.txt` ships in `language-packs/`) and adds words counted
+from FineWeb text. The Spanish, French and German swipe dictionaries and all `<language>.vocab.tsv` word lists are
+counted from FineWeb / FineWeb-2 web text by Hugging Face (Open Data Commons Attribution License 1.0, `ODC-By-1.0.txt`;
+derived from Common Crawl, whose terms of use also apply) plus Tatoeba sentences (CC BY 2.0 France). Only word counts
+are kept, never text. No share-alike term applies; keep the attribution texts below. Transformation:
+scripts/lm/count-words.py (counting) and scripts/dict/corpus_dictionary.py (filtering; rebuild with
+scripts/dict/build-corpus-dictionaries.sh from the counts and the AOSP lists). Original AOSP input URLs/revisions/checksums
+and the language files release are in assets.lock.json.
+The English, Spanish, French and German next-word n-gram models, word lists and Spanish/French/German dictionaries (language files release `language-files-2026-10-22-open-words`, downloaded by checksum from assets.lock.json) are built from the same FineWeb / FineWeb-2 text plus Tatoeba sentences. They contain no FUTO neural weights. Retain each language's full Tatoeba contributor list (`<language>-CONTRIBUTORS.txt`), the Tatoeba notice (installed beside the package license at `share/licenses/swipe-keyboard/TATOEBA-CC-BY-2.0-FR.txt`, normally `/usr/share/licenses/...` or `/app/share/licenses/...`), `ODC-By-1.0.txt`, `Apache-2.0.txt` and `LANGUAGE-FILES-NOTICE.md` (all in `language-packs/`). Spanish Spain and Mexico share one Spanish model; hashes and provenance are in assets.lock.json and packaging/language-models/README.md. When English files are installed and verified, English next-word suggestions, completions and swipe ranking use the English n-gram instead of FUTO's English context model; without them FUTO's model is used. These are small general baselines and make no region-specific Spanish or Gboard-parity claim.
 
 Contextual prediction is language-specific; an unavailable or corrupt pack never falls back to English. Current-word completion uses the selected profile's own dictionary; next-word suggestions use that profile's model when available. On stock Plasma, next-word model input is limited to words this keyboard confirmed in the current field because raw application completion preferences are not fully exposed. Sensitive and restricted fields remain blocked. The bundled Deck backend retains its raw-policy bridge and stricter application vetoes.
 

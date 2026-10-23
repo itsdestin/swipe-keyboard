@@ -138,13 +138,9 @@ Phase 0 results (2026-10-22):
 - Ship together with the 6× faster suggestion code already on `feature/170-open-nextword`.
 
 Item status (2026-10-22):
-- Files: done for all four (published, installer fetches them). Word lists still wordfreq-derived in the PUBLISHED
-  files; replacements built and measured, waiting for the owner to approve publishing (below).
-- Word lists counted from FineWeb/FineWeb-2 + Tatoeba (built 2026-10-22, staged in
-  `~/.cache/swipe-keyboard-train/release-v2/`, not published, pins unchanged): `scripts/lm/count-words.py` ->
-  `scripts/dict/build-corpus-dictionaries.sh` -> n-grams rebuilt with the same recipe. No measure fell more than
-  1 point (next word, completion, English real swipes, es/fr/de synthetic swipes); details and the switch-over
-  checklist: `packaging/language-models/README.md`, "Word lists counted from open text".
+- Files: done for all four (published, installer fetches them). Word lists: counted from FineWeb/FineWeb-2 + Tatoeba, published as
+  `language-files-2026-10-22-open-words` and pinned (no wordfreq / CC BY-SA anywhere); no typing measure fell more than 0.1 point
+  (`packaging/language-models/README.md`). Baseline row "open word lists 2026-10-22" in `bench/scoreboard.tsv`.
 - Swear words (Destin's choice): never offered as an unprompted next word; swiping and completing them
   still work (fd59e68). Password/private/hidden fields: test added (9e3cc55); four separate checks guard it.
 - Speed: next word scores only plausible words, identical results, English 34 → 6.5 ms (b01db92).

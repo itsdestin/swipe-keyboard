@@ -151,7 +151,7 @@ class FlatpakContractTests(unittest.TestCase):
             self.assertIn(locale,build)
         self.assertIn('nextWordCapable',build)
         self.assertIn('contextRankingCapable',build)
-        self.assertIn('wordfreq-es',build)
+        self.assertIn('fineweb-es',build)
 
     def test_runtime_updates_fail_closed(self):
         spec = importlib.util.spec_from_file_location('flatpakbuild', BUNDLE / 'build.py')

@@ -115,7 +115,7 @@ set_tests_properties(plugin_nextwordintegration PROPERTIES ENVIRONMENT
 # WHY register in the ordinary build too: the lightweight feature project is not the normal CTest gate.
 # Fixtures are explicit opt-ins. Tests QSKIP when absent, but supplied invalid fixtures fail rather than pass.
 set(_language_fixture_env)
-foreach(fixture ENGLISH_ASSETS LANGUAGE_PACKS CC_LICENSE)
+foreach(fixture ENGLISH_ASSETS LANGUAGE_PACKS)
     set(SWIPEKB_TEST_${fixture} "" CACHE PATH "Explicit read-only language ${fixture} test fixture")
     if(SWIPEKB_TEST_${fixture})
         list(APPEND _language_fixture_env "SWIPEKB_TEST_${fixture}=${SWIPEKB_TEST_${fixture}}")

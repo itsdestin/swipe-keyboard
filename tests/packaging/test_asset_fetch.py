@@ -81,13 +81,15 @@ class AssetFetch(unittest.TestCase):
         lock = json.loads((ROOT/'packaging/assets.lock.json').read_text())
         assets = module.language_file_assets(lock)
         names = {a['path']: a for a in assets}
-        # Four languages x (n-gram, word list, credits) + ODC-By terms + notice.
-        self.assertEqual(len(assets), 14)
+        # Four languages x (n-gram, word list, credits, dictionary) + ODC-By, Apache-2.0 terms + notice.
+        self.assertEqual(len(assets), 19)
         for language in ('en', 'es', 'fr', 'de'):
             for suffix in ('.ngram', '.vocab.tsv', '-CONTRIBUTORS.txt'):
                 entry = names[language + suffix]
                 self.assertEqual(entry['url'], lock['language_files']['baseUrl'] + language + suffix)
                 self.assertRegex(entry['sha256'], r'^[a-f0-9]{64}$')
+        for name in ('es.combined', 'fr.combined', 'de.combined', 'en_swipe.combined', 'Apache-2.0.txt', 'ODC-By-1.0.txt'):
+            self.assertEqual(names[name]['url'], lock['language_files']['baseUrl'] + name)
         # The notice is stored under a clearer installed name than the release's generic NOTICE.md.
         self.assertTrue(names['LANGUAGE-FILES-NOTICE.md']['url'].endswith('/NOTICE.md'))
         # A tampered download is rejected and leaves nothing behind.

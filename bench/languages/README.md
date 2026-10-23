@@ -92,3 +92,9 @@ First provisional results (installed packs, 400 words each, bench CPU about 2 ms
 es first guess 85.0% / top 3 98.2%; fr 82.8% / 93.2%; de 86.8% / 96.5%. Most misses are short
 words and near-neighbour words; Spanish `que`/`qué`, `como`/`cómo` and French `ou`/`où` are
 accent-only confusions the swipe path cannot resolve (needs context).
+
+Update 2026-10-22: after the word lists moved to the open (FineWeb/Tatoeba) dictionaries, which spell German nouns with
+their capital, the German targets of `synthetic-noisy-v1-de.json` were re-spelled with `display-targets.py` (86 of 400;
+traces unchanged). The case-sensitive top1/top3 therefore stay meaningful (a lower-case "beitrag" output is still a miss)
+instead of counting a correct "Beitrag" as wrong. New baseline with the new files: es 89.00/98.25, fr 83.25/93.00,
+de 87.75/97.00 (first guess / top 3, 400 words each, 99.5% of targets in the dictionary).

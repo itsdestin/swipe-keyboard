@@ -179,7 +179,9 @@ private slots:
         window.show();window.requestActivate();edit.forceActiveFocus();
         auto *ic=qvariant_cast<QVirtualKeyboardInputContext*>(root->property("context"));QVERIFY(ic);
         QStringList captured;QSemaphore done;
-        SwipeInputMethod method(nullptr,[&](const PredictionJob&job){captured=job.context;done.release();return QStringList{"world","again","today"};});
+        // WHY only next-word jobs (empty prefix) are recorded: with the open English n-gram installed every typed letter also
+        // sends a completion job, and counting those let `done` be satisfied by a completion, racing the check below.
+        SwipeInputMethod method(nullptr,[&](const PredictionJob&job){if(job.prefix.isEmpty()){captured=job.context;done.release();}return QStringList{"world","again","today"};});
         ic->inputEngine()->setInputMethod(&method);method.setInputMode("en_US",QVirtualKeyboardInputEngine::InputMode::Latin);method.setPhysicalLayout("qwerty");
         TestPolicyBridge bridge;if(!native)method.setPredictionPolicySource(&bridge);
         QGuiApplication::inputMethod()->update(Qt::ImQueryAll);QTRY_VERIFY(ic->inputItem()==&edit);
@@ -278,7 +280,7 @@ private:
         if(withNgram) {
             QVERIFY(QDir().mkpath(modelRoot.filePath("language-packs")));
             for(const QString &name:{QString("en.ngram"),QString("en.vocab.tsv"),QString("en-CONTRIBUTORS.txt"),QString("TATOEBA-CC-BY-2.0-FR.txt"),
-                QString("ODC-By-1.0.txt"),QString("LANGUAGE-FILES-NOTICE.md"),QString("CC-BY-SA-4.0.txt")})
+                QString("ODC-By-1.0.txt"),QString("LANGUAGE-FILES-NOTICE.md"),QString("Apache-2.0.txt")})
                 QVERIFY2(QFile::copy(QDir(packs).filePath(name),modelRoot.filePath("language-packs/"+name)),qPrintable(name));
         }
         qputenv("SWIPEKB_MODEL_DATA",modelRoot.path().toUtf8());
@@ -341,7 +343,9 @@ private slots:
         InputListenerItem edit(item);window.show();window.requestActivate();edit.forceActiveFocus();
         auto *ic=qvariant_cast<QVirtualKeyboardInputContext*>(root->property("context"));QVERIFY(ic);
         QStringList captured;QSemaphore completed;
-        SwipeInputMethod method(nullptr,[&](const PredictionJob &job){captured=job.context;completed.release();return QStringList{"world","again","today"};});
+        // WHY ignore completion jobs: when the open English n-gram is installed (as in every real install) each tapped
+        // letter also asks for completions; this test is about the next-word request after the space.
+        SwipeInputMethod method(nullptr,[&](const PredictionJob &job){if(!job.prefix.isEmpty())return QStringList{};captured=job.context;completed.release();return QStringList{"world","again","today"};});
         ic->inputEngine()->setInputMethod(&method);method.setInputMode("en_US",QVirtualKeyboardInputEngine::InputMode::Latin);method.setPhysicalLayout("qwerty");
         QGuiApplication::inputMethod()->update(Qt::ImQueryAll);
         QTRY_VERIFY_WITH_TIMEOUT(ic->inputItem()==&edit,15000);

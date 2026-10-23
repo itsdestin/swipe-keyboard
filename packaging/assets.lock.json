@@ -58,22 +58,10 @@
       "sha256": "2d5279ec018d50b4b191389f53c12e55c9e5f777634aece58022ea78cd031e06"
     }
   ],
-  "wordfreq_wheel": {
-    "url": "https://files.pythonhosted.org/packages/24/61/62835c475d69872d30689f284497853fe33fe1d6dd18f57346d13305861d/wordfreq-3.1.1-py3-none-any.whl",
-    "sha256": "4b1c6ecffc6198be3396d5cf871c4423ca71c907c231348d352dd54d62b97473"
-  },
-  "wordfreq_source": {
-    "url": "https://files.pythonhosted.org/packages/4c/cd/9581ff0ea2c581012d0caae4bba024f3ff6b46e030a55ddec1ce545e2caf/wordfreq-3.1.1.tar.gz",
-    "sha256": "7943098975f25c2a70e1151ee5a62083b14a5f86f6cc5703cc9526f716ceb408"
-  },
-  "cc_license_source": {
-    "url": "https://raw.githubusercontent.com/spdx/license-list-data/main/text/CC-BY-SA-4.0.txt",
-    "sha256": "cde7883b9050a1104f4ac19a1572aafd6e5d7323b68351aaf51fbf4beba54966"
-  },
   "tatoeba_license_notice_sha256": "32bbf7b725f098dd6c63a822684583dc7784b8a15ff929598ac10d7e13a6dce1",
   "language_files": {
-    "release": "language-files-2026-10-22",
-    "baseUrl": "https://github.com/itsdestin/swipe-keyboard/releases/download/language-files-2026-10-22/",
+    "release": "language-files-2026-10-22-open-words",
+    "baseUrl": "https://github.com/itsdestin/swipe-keyboard/releases/download/language-files-2026-10-22-open-words/",
     "odcTerms": {
       "path": "ODC-By-1.0.txt",
       "sha256": "b1c4de4bf91c95eec945ea7cbe0575fd52e7ee8fa430acb01d323d8214b1c482",
@@ -82,8 +70,13 @@
     "notice": {
       "path": "LANGUAGE-FILES-NOTICE.md",
       "remote": "NOTICE.md",
-      "sha256": "0f449d3b81f2267257c3d34a959572cb5f4661a3ac486a0851358420c3803032",
-      "bytes": 2017
+      "sha256": "9561ea4af9eabdf643b12a48ee44fb38dba6a229fa8061e9a6e940d7d26ffcf0",
+      "bytes": 2538
+    },
+    "apacheTerms": {
+      "path": "Apache-2.0.txt",
+      "sha256": "074e6e32c86a4c0ef8b3ed25b721ca23aca83df277cd88106ef7177c354615ff",
+      "bytes": 10280
     }
   },
   "multilingual_context_models": {
@@ -93,10 +86,10 @@
         "en",
         "en_*"
       ],
-      "modelSha256": "b159fb99b0a4a735cb1e8ef20fa27903cee0e390e2917a59b318f60e7f213370",
-      "modelBytes": 38029072,
-      "vocabSha256": "5064baa7267388e277a128b7b306896597ed82b67955f359ede7cac6052d24fa",
-      "vocabBytes": 4996675,
+      "modelSha256": "73c630f0e0392d0d482edf924a9cfbcb79ea1d06faf4f53ba3327cbfe4c5534d",
+      "modelBytes": 38317152,
+      "vocabSha256": "299d3bd07ccaeee13af66f028866ec887095bcb8a0efe6de3db3f7af6486cb80",
+      "vocabBytes": 4969373,
       "contributorsSha256": "f866d5b34a34222dae4566f931cb5b50d09bf60e82c7d05225ba67b0a4dbd5be",
       "contributorsBytes": 61496
     },
@@ -106,10 +99,10 @@
         "es_ES",
         "es_MX"
       ],
-      "modelSha256": "aac545a0a0629961fb69ca28efaa81fda31924c801fd1ee3ab892bde42cac4f6",
-      "modelBytes": 23845496,
-      "vocabSha256": "759ec88b7be35ccc7508db33ef3ffa31112694e316d9af0ed3f0df17d114fdf3",
-      "vocabBytes": 2115137,
+      "modelSha256": "03e9e02afb5adcb99ed76f71b08ed93e49015c086fbf9b7d72f29722fa8f34de",
+      "modelBytes": 23659248,
+      "vocabSha256": "a000399a14836cabb5bb1ebb843bbe8a446b6c3b167e9037b1a0fe9ad509a30d",
+      "vocabBytes": 2235016,
       "contributorsSha256": "a8c992e017ec5de8c97643da8c35dde8aed556fee8c93e5b1385cefe208274f2",
       "contributorsBytes": 17587
     },
@@ -118,10 +111,10 @@
       "locales": [
         "fr_FR"
       ],
-      "modelSha256": "602b78ae2ed70038be44756de2bb06a7b81119be02dd5261314d1f626fae40cd",
-      "modelBytes": 25052368,
-      "vocabSha256": "29411d5d1260addee7c1cda0d0c922198e610fc20957f501d308ea3d067dd103",
-      "vocabBytes": 2092641,
+      "modelSha256": "2eb075b3ccd646ce4b6aaf2883e1ff6cf1ef8804ea0796faed6130f8ba6bac35",
+      "modelBytes": 26234112,
+      "vocabSha256": "6197b01e2dc59bb0e460506487d50d580aceb64f08725818bc6fad108808e898",
+      "vocabBytes": 2240374,
       "contributorsSha256": "500cfd2f8b0e639883d4e86555d3211b98b027ce6f29a56b8fea3422f5d2e891",
       "contributorsBytes": 17528
     },
@@ -130,13 +123,39 @@
       "locales": [
         "de_DE"
       ],
-      "modelSha256": "9a64e054cba3e792ea28887f5d063f64ccf5ebc783a71bba3340f1ee0c02e98e",
-      "modelBytes": 29780872,
-      "vocabSha256": "2999319c02c4978ae4bc34169946336a77b4138678bd413e506952486520cb01",
-      "vocabBytes": 2364104,
+      "modelSha256": "2d3fa528da3bdc6982f14fa7714b08db75330be804e00247dfa5382848b5119d",
+      "modelBytes": 30050088,
+      "vocabSha256": "d849b49efb05687551b8d57cee5253e031af285022e5f4eca2b36f450f121916",
+      "vocabBytes": 2520007,
       "contributorsSha256": "2808ec41ba8114f604e16644f777f829408a83d6b2fc34203863f99f45d0a2a7",
       "contributorsBytes": 15157
     }
   },
-  "dictionary_sha256": "ff49678bb2afec6d088dca84fa599b39df0311b6e393ef0daf5a3731143b7ebe"
+  "dictionary_sha256": "70ff45c76412fb8de1a9c47b204d5982344a8a1bbce23945af7d7dc27f9e84bb",
+  "language_dictionaries": {
+    "en": {
+      "path": "en_swipe.combined",
+      "sha256": "70ff45c76412fb8de1a9c47b204d5982344a8a1bbce23945af7d7dc27f9e84bb",
+      "bytes": 10849906
+    },
+    "es": {
+      "path": "es.combined",
+      "sha256": "8608a598f8f0cd75dc8784850a9780171d5879d2c9cf2172d0e5f533c0ea20cc",
+      "bytes": 2074133
+    },
+    "fr": {
+      "path": "fr.combined",
+      "sha256": "8178d85d6bc2f3ada92f3faa370b73218ddd1f97efe9f31bb055b5217a749fdb",
+      "bytes": 2097662
+    },
+    "de": {
+      "path": "de.combined",
+      "sha256": "a17e4b71e07f6304643b8f474b29b837432824c6879f60e11734e3f9772e7f71",
+      "bytes": 2217177
+    }
+  },
+  "word_list_source": {
+    "url": "https://github.com/itsdestin/swipe-keyboard/releases/download/language-files-2026-10-22-open-words/SHA256SUMS",
+    "sha256": "bd5786013571301098ad46a288e8cbcbdb8991c1b609c4f225e41312c1b6de85"
+  }
 }

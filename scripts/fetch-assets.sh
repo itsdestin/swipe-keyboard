@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build-time preparation only: checksum-pinned FUTO base models and English
-# AOSP + wordfreq English dictionary and es/fr/de packs, including license notices. Not an end-user install.
+# language files (dictionaries, n-gram models, word lists) and es/fr/de packs, including license notices. Not an end-user install.
 # Optional evaluation/neural data requires SWIPEKB_FETCH_DEVELOPER_EXTRAS=1.
 # Optional n-gram generation remains an explicit scripts/lm/build-lm.sh operation.
 set -euo pipefail
@@ -8,7 +8,6 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 A="${SWIPEKB_ASSETS:-$ROOT/assets}"
 # Base payloads are immutable and verified, including cached files.
 python3 "$ROOT/scripts/fetch-assets.py" --assets "$A"
-"$ROOT/scripts/dict/build-en-swipe.sh" "$A"
 echo "Powered by FUTO Swipe — base assets ready in $A"
 # Evaluation and neural assets are intentionally excluded from the base package.
 # Legacy developer fetches below require explicit opt-in and are never packaged.

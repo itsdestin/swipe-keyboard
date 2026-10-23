@@ -2,14 +2,14 @@
 
 English, Spanish, French and German each have a word-level trigram model (`<lang>.ngram`), a word list
 (`<lang>.vocab.tsv`) and a Tatoeba credit file (`<lang>-CONTRIBUTORS.txt`). They are **not stored in this repository**:
-they are published once as the GitHub release `language-files-2026-10-22` and every build downloads them by
+they are published once as the GitHub release `language-files-2026-10-22-open-words` and every build downloads them by
 SHA-256 (`language_files` and `multilingual_context_models` in `../assets.lock.json`; `scripts/fetch-assets.py`
 puts them in `assets/language-files/`, `scripts/dict/language_pack.py` copies them into `assets/language-packs/`,
 and the installer/packages ship that folder). A file that does not match its pin is refused at build time and again
 at run time.
 
 What stays in this folder: `TATOEBA-CC-BY-2.0-FR.txt` (the Tatoeba terms notice, pinned by hash) and
-`LANGUAGE-FILES-2026-10-22-NOTICE.md` (the same text as the release's `NOTICE.md`, installed as
+`LANGUAGE-FILES-2026-10-22-open-words-NOTICE.md` (the same text as the release's `NOTICE.md`, installed as
 `language-packs/LANGUAGE-FILES-NOTICE.md`).
 
 ## Sources and licences
@@ -18,9 +18,9 @@ What stays in this folder: `TATOEBA-CC-BY-2.0-FR.txt` (the Tatoeba terms notice,
   License 1.0 (`ODC-By-1.0.txt`); derived from Common Crawl, whose terms of use also apply. Only word counts are kept.
 - Short everyday sentences: Tatoeba, CC BY 2.0 France. Every contributing author is listed in `<lang>-CONTRIBUTORS.txt`
   and the terms are in `TATOEBA-CC-BY-2.0-FR.txt`. Both must travel with the models.
-- Word lists (`<lang>.vocab.tsv`) and the `<lang>.combined` swipe dictionaries of the files published 2026-10-22 (the
-  ones pinned today): derived from wordfreq 3.1.1 (Robyn Speer), CC BY-SA 4.0 (`CC-BY-SA-4.0.txt`; wordfreq's code is
-  Apache-2.0). **Being replaced** by word lists counted from the text above, see "Word lists counted from open text".
+- Word lists (`<lang>.vocab.tsv`) and the `<lang>.combined` swipe dictionaries (also `en_swipe.combined`): counted from the
+  same two sources, so they carry the same attribution terms (no share-alike). The English dictionary additionally keeps
+  every word, frequency and flag of the Android LatinIME US English list, Apache-2.0 (`Apache-2.0.txt`).
 - No FUTO neural weights or data are in these files. FUTO's swipe encoder/decoder is still used for the swipe shape itself.
 
 Each pack manifest (`es.json`, `fr.json`, `de.json`) records `contextLicense` with id `ODC-By-1.0 AND CC-BY-2.0-FR` and the
@@ -45,36 +45,32 @@ word pairs kept when seen 20+ times, triples 40+), `scripts/lm/tatoeba-credits.p
 in `../assets.lock.json` (every hash and byte size is checked by `tests/packaging`). The earlier small Tatoeba-only packs
 (`scripts/lm/build-tatoeba-model.py`) were replaced by these files and are no longer shipped.
 
-## Word lists counted from open text (staged for the next release, not yet pinned)
-
-Nothing in the share-alike chain is needed any more: the word lists are counted from the same FineWeb / FineWeb-2 slice
-and Tatoeba training sentences as the n-grams, so they carry only attribution terms (ODC-By 1.0, CC BY 2.0 FR; the
-English swipe dictionary also keeps AOSP's list, Apache-2.0). The notice for the release is drafted in
-`LANGUAGE-FILES-NEXT-NOTICE.draft.md`.
+## Word lists: how they are made and rebuilt
 
 1. `scripts/lm/count-words.py LANG OUT.tsv --parquet ... --exclude <3 test sets> --tatoeba ...` writes
    `LANG.wordcounts.tsv`: per word the occurrences, distinct pages and usual spelling (capitals kept for names and German
    nouns; sentence-initial capitals ignored). Same text slice and token rules as `build-fineweb2-model.py`; test text never
-   feeds the counts. These four files are the pinned inputs of everything below.
-2. `scripts/dict/build-corpus-dictionaries.sh COUNTS_DIR AOSP_DIR OUT_DIR` builds `{es,fr,de}.combined` (top 100k words)
-   and `en_swipe.combined` (AOSP kept exactly, plus up to 250k words AOSP lacks). Filters: 3+ pages, the language's letters,
-   likely misspellings, words far more typical of another of the four languages, web debris
-   (`scripts/dict/corpus_dictionary.py`; tests in `tests/test_corpus_dictionary.py`).
+   feeds the counts. The four count files are published in the release (not fetched by the installer).
+2. `scripts/dict/build-corpus-dictionaries.sh COUNTS_DIR AOSP_DIR OUT_DIR` builds `{es,fr,de}.combined` (top 100k words) and
+   `en_swipe.combined` (AOSP kept exactly, plus up to 250k words AOSP lacks). **It replaces the old
+   `build-en-swipe.sh` / `wordfreq_combined.py`**: the AOSP inputs stay pinned in `assets.lock.json` (`dict-src/*.b64`,
+   fetched by `scripts/fetch-assets.py`; decode with `base64 -d X.gz.b64 | gunzip > X`) and are the `AOSP_DIR` input, so the
+   English dictionary is rebuildable. Filters: 3+ pages, the language's letters, likely misspellings, words far more typical of
+   another of the four languages, rare all-capital abbreviations, old German ß spellings, web debris
+   (`scripts/dict/corpus_dictionary.py`; tests in `tests/test_corpus_dictionary.py`). The installer does not rebuild them: it
+   downloads the pinned files.
 3. `build-fineweb2-model.py` + `ngram-build` rebuild the four n-gram packs against those dictionaries (the vocabulary ids
    are the dictionary's words, so a new dictionary always means a new `.ngram` + `.vocab.tsv`).
 
-Switching the pins is a separate step that needs the owner's approval of a new release: upload the new files, replace the
-hashes in `../assets.lock.json` (`language_files`, `multilingual_context_models`, `dictionary_sha256`), generate the packs
-from the counts instead of the wordfreq wheel, accept the open licence in `plugin/languageprofile.cpp` and
-`scripts/dict/language-pack.schema.json` (they still require `CC-BY-SA-4.0` and the wheel), then drop the wheel,
-`CC-BY-SA-4.0.txt`, `scripts/dict/wordfreq_combined.py`, `build-en-swipe.sh` and the wordfreq sentences in
-`packaging/NOTICE` / `docs/install-details.md`.
+What the keyboard checks at run time (`plugin/languageprofile.cpp`): the manifest's licence set must be `ODC-By-1.0 AND
+CC-BY-2.0-FR` with the notice, ODC-By text and Tatoeba text matching the lock (a damaged licence text makes the language
+unavailable; a damaged n-gram or credit list only removes suggestions); English's n-gram additionally needs `Apache-2.0.txt`.
 
-Measured 2026-10-22, published files vs the staged ones (2,000 test sentences per set; no measure fell more than 0.1 point):
-next word right in top 3 and completion after 1 and 3 letters right in top 2, every set, every language, +0.0 to +2.0
-(French gained most, +0.4 to +2.0). English real swipes (2,000, with the English n-gram): first guess 93.11 -> 93.01 %,
-top 3 96.40 -> 96.30 %. Spanish/French/German synthetic swipes (400 words each, case-folded):
-first guess 88.25/83.00/87.50 -> 89.00/83.25/87.75 %, top 3 98.50/93.75/96.75 -> 98.25/93.00/97.00 %. Words of the test
-sentences found in the word list: English 99.7/97.9/98.8 -> 99.7/98.0/99.8 %, French 95.0/95.1/96.8 -> 96.7/97.1/98.7 %,
-German 95.6/92.8/96.9 -> 95.9/93.2/97.5 %, Spanish 97.9/97.8/98.7 -> 97.4/97.3/98.5 % (the one list that shrank
-slightly: single letters and slang such as "pibe", "joda" that web text rarely spells out).
+Measured when the open word lists replaced the wordfreq ones, 2026-10-22 (published files vs these; 2,000 test sentences per
+set): no measure fell more than 0.1 point. Next word right in top 3 and completion after 1 and 3 letters right in top 2:
+-0.09 to +2.0 points on every set and language (French gained most). English real swipes (2,000, with the English n-gram):
+first guess 93.11 -> 93.01 %, top 3 96.40 -> 96.30 %. Spanish/French/German synthetic swipes (400 words each): first guess
+88.25/83.00/87.50 -> 89.00/83.25/87.75 %, top 3 98.50/93.75/96.75 -> 98.25/93.00/97.00 %. Words of the test sentences found
+in the word list: English 99.7/97.9/98.8 -> 99.7/98.0/99.8 %, French 95.0/95.1/96.8 -> 96.7/97.1/98.7 %, German
+95.6/92.8/96.9 -> 95.9/93.2/97.5 %, Spanish 97.9/97.8/98.7 -> 97.4/97.3/98.5 % (slightly lower: single letters and slang).
+The German synthetic targets are now spelled as the dictionary shows them (`bench/languages/display-targets.py`).

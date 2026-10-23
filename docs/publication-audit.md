@@ -23,7 +23,7 @@ All 98 flagged files were byte-identical to blobs at their owning pinned public 
 
 ## Attribution and distribution
 
-- GPL code is distinguished from FUTO Model Weights License 1.0 weights and CC-BY-SA dictionary data.
+- GPL code is distinguished from FUTO Model Weights License 1.0 weights and the dictionary data (AOSP Apache-2.0 plus ODC-By/CC BY 2.0 FR word counts; no share-alike).
 - Visible “Powered by FUTO Swipe” attribution is present in the keyboard selection desktop entry and documentation; model terms/notices are distributed.
 - Binary files are accompanied by their complete frozen corresponding-source tarball and Fedora source RPM. GitHub's automatic source archives omit submodules, so they are not advertised as complete build source.
 - Required model/build inputs are pinned and hash-checked. Public source changes after the verified build are publication documentation; executable/build/test inputs were compared against the frozen archive with zero differences across 78 files.

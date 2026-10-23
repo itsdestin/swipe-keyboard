@@ -74,9 +74,12 @@ static bool contextFilesVerified(const QString &language, const QString &dir, co
         !check(language+"-CONTRIBUTORS.txt",pins["contributorsSha256"].toString(),-1) ||
         !check("TATOEBA-CC-BY-2.0-FR.txt",lock["tatoeba_license_notice_sha256"].toString(),-1) ||
         !check(shared["odcTerms"].toObject()["path"].toString(),shared["odcTerms"].toObject()["sha256"].toString(),-1) ||
-        !check(shared["notice"].toObject()["path"].toString(),shared["notice"].toObject()["sha256"].toString(),-1) ||
-        !check("CC-BY-SA-4.0.txt",lock["cc_license_source"].toObject()["sha256"].toString(),-1))
+        !check(shared["notice"].toObject()["path"].toString(),shared["notice"].toObject()["sha256"].toString(),-1))
         return false;
+    // WHY Apache-2.0 only for English: its dictionary keeps AOSP's word list (Apache-2.0), whose text must travel with
+    // the files; the other languages' word lists come only from FineWeb/Tatoeba (ODC-By + CC BY 2.0 FR, checked above).
+    const auto apache=shared["apacheTerms"].toObject();
+    if (language=="en" && !check(apache["path"].toString(),apache["sha256"].toString(),-1)) return false;
     out=files; return true;
 }
 // WHY the manifest is only cross-checked: it may describe the context files, but it cannot widen what the lock allows.
@@ -184,9 +187,9 @@ ProfileSnapshot resolveProfile(const QString &locale, const QString &layoutId, c
         m["futoRevision"].toString()!="1b13f2c85d6b347f6ea3fbc4b3aaf01fce42429a" ||
         m["executorchRevision"].toString()!="0b0e2c5cdd67c8b4396a46ea1d1aa72ffb0128d7" ||
         m["textRulesVersion"].toString()!=TextRulesVersion ||
-        // WHY retain the authenticated v1 format while accepting the explicit v2 orthography erratum;
-        // arbitrary transform versions still fail closed and every role hash/size remains verified.
-        !QStringList{"wordfreq-latin-v1","wordfreq-latin-v2"}.contains(m["transformationVersion"].toString())) return unavailable(p,"Pack schema/version/compatibility mismatch");
+        // WHY a single accepted transformation: the word lists are counted from FineWeb/Tatoeba (scripts/lm/count-words.py);
+        // any other transform version fails closed and every role hash/size remains verified.
+        m["transformationVersion"].toString()!="fineweb-counts-v1") return unavailable(p,"Pack schema/version/compatibility mismatch");
     const bool localeOK=contains(m["locales"],p.requestedLocale) ||
         contains(m["locales"],p.effectiveLanguage+"-*") || (p.requestedLocale==p.effectiveLanguage && contains(m["locales"],p.effectiveLanguage));
     if (!localeOK || !contains(m["layouts"],layoutId) || !contains(m["modes"],inputMode))
@@ -200,24 +203,29 @@ ProfileSnapshot resolveProfile(const QString &locale, const QString &layoutId, c
     const auto encoderHash=fixedHashes.value("models/honorable_sturgeon/model_fp32.pte");
     const auto metadataHash=fixedHashes.value("models/honorable_sturgeon/metadata.json");
     const auto encoderTermsHash=fixedHashes.value("models/FUTO-MODEL-LICENSE.md");
-    const auto dataTermsHash=lock["cc_license_source"].toObject()["sha256"].toString();
-    if (encoderHash.size()!=64 || metadataHash.size()!=64 || encoderTermsHash.size()!=64 || dataTermsHash.size()!=64)
+    // WHY the word list's terms are ODC-By 1.0 (FineWeb text) AND CC BY 2.0 FR (Tatoeba), both pinned in the lock.
+    const auto dataTermsHash=lock["language_files"].toObject()["odcTerms"].toObject()["sha256"].toString();
+    const auto tatoebaTermsHash=lock["tatoeba_license_notice_sha256"].toString();
+    const auto noticeHash=lock["language_files"].toObject()["notice"].toObject()["sha256"].toString();
+    if (noticeHash.size()!=64 || encoderHash.size()!=64 || metadataHash.size()!=64 || encoderTermsHash.size()!=64 || dataTermsHash.size()!=64 || tatoebaTermsHash.size()!=64)
         return unavailable(p,"Embedded fixed asset/license pins unavailable");
     const auto license=m["license"].toObject();
     const auto licensePath=localPath(root,license["path"].toString());
     const auto encoderLicense=m["encoderLicense"].toObject();
     const auto encoderTerms=localPath(root,encoderLicense["path"].toString());
     const auto dataTerms=localPath(root,license["termsPath"].toString());
+    const auto tatoebaTerms=localPath(root,license["tatoebaTermsPath"].toString());
     // WHY a manifest cannot authenticate itself: fixed model/metadata/license identities come only from
     // the embedded repository lock. The derived dictionary/attribution hashes remain local integrity checks.
-    if (license["id"].toString()!="CC-BY-SA-4.0" || license["attribution"].toString().isEmpty() ||
-        licensePath.isEmpty() || QFileInfo(licensePath).size()==0 || license["sha256"].toString().size()!=64 ||
-        digest(licensePath)!=license["sha256"].toString() || encoderTerms.isEmpty() ||
+    if (license["id"].toString()!="ODC-By-1.0 AND CC-BY-2.0-FR" || license["attribution"].toString().isEmpty() ||
+        licensePath.isEmpty() || QFileInfo(licensePath).size()==0 || license["sha256"].toString()!=noticeHash ||
+        digest(licensePath)!=noticeHash || encoderTerms.isEmpty() ||
         encoderLicense["sha256"].toString()!=encoderTermsHash || digest(encoderTerms)!=encoderTermsHash ||
-        dataTerms.isEmpty() || license["termsSha256"].toString()!=dataTermsHash || digest(dataTerms)!=dataTermsHash)
+        dataTerms.isEmpty() || license["termsSha256"].toString()!=dataTermsHash || digest(dataTerms)!=dataTermsHash ||
+        tatoebaTerms.isEmpty() || license["tatoebaTermsSha256"].toString()!=tatoebaTermsHash || digest(tatoebaTerms)!=tatoebaTermsHash)
         return unavailable(p,"Pack license/attribution missing or repository pin mismatch");
     const auto source=m["source"].toObject();
-    if (source!=lock["wordfreq_wheel"].toObject() || m["modelRevision"]!=lock["model_revision"])
+    if (source!=lock["word_list_source"].toObject() || m["modelRevision"]!=lock["model_revision"])
         return unavailable(p,"Pack source/model revision mismatch");
     const auto assets=m["assets"].toObject();
     if (!assets.contains("encoder") || !assets.contains("dictionary")) return unavailable(p,"Required encoder/dictionary missing");
