@@ -63,6 +63,15 @@ add_test(NAME plugin_predictioncapture COMMAND tst_predictioncapture)
 set_tests_properties(plugin_predictioncapture PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_IM_MODULE=qtvirtualkeyboard")
 qt_add_executable(test_prediction ../engine/tests/test_prediction.cpp)
 target_link_libraries(test_prediction PRIVATE swipekb_engine Qt6::Test)
+# WHY: test_prediction.cpp reads the neural-model fixtures in tests/data (the features build already defines this);
+# without it the full build failed to compile this test.
+target_compile_definitions(test_prediction PRIVATE SWIPEKB_TEST_DATA="${CMAKE_CURRENT_SOURCE_DIR}/../tests/data")
+# The neural next-word model's own test (runner vs PyTorch, damaged files, hybrid predictor); same sources as the features build.
+qt_add_executable(tst_nwp ../engine/tests/tst_nwp.cpp)
+target_include_directories(tst_nwp PRIVATE ../engine/include)
+target_compile_definitions(tst_nwp PRIVATE SWIPEKB_TEST_DATA="${CMAKE_CURRENT_SOURCE_DIR}/../tests/data")
+target_link_libraries(tst_nwp PRIVATE swipekb_engine Qt6::Test)
+add_test(NAME engine_nwp COMMAND tst_nwp)
 add_test(NAME engine_prediction COMMAND test_prediction)
 set(_engine_prediction_env "SWIPEKB_TEST_ASSETS=${SWIPEKB_ASSETS}")
 if(SWIPEKB_TEST_MULTILINGUAL_MODELS)
@@ -102,6 +111,10 @@ set_target_properties(swipekb_ownswipe PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_include_directories(swipekb_ownswipe PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} ../engine/include)
 target_link_libraries(swipekb_ownswipe PUBLIC swipekb_engine Qt6::Core)
 target_link_libraries(swipekeyboard PRIVATE Qt6::Quick Qt6::VirtualKeyboard KF6::WindowSystem swipekb_session swipekb_recorder swipekb_engine swipekb_language swipekb_ownswipe)
+# WHY PUBLIC include of the engine headers: swipekeyboard links the engine PRIVATE, so tests that include the plugin's
+# learningmanager.h (which includes swipekb/learning.hpp) could not find it and the full build stopped at the first
+# of them (the lighter tests/features project adds this include by hand).
+target_include_directories(swipekeyboard PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../engine/include)
 # WHY: flags-only observations must not exist in ordinary release builds or change authorization policy.
 option(SWIPEKB_PRIVATE_FLAGS_DIAGNOSTIC "PRIVATE flags-only Deck diagnostic (not a release)" OFF)
 if(SWIPEKB_PRIVATE_FLAGS_DIAGNOSTIC)
