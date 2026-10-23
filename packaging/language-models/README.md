@@ -69,3 +69,12 @@ from the counts instead of the wordfreq wheel, accept the open licence in `plugi
 `scripts/dict/language-pack.schema.json` (they still require `CC-BY-SA-4.0` and the wheel), then drop the wheel,
 `CC-BY-SA-4.0.txt`, `scripts/dict/wordfreq_combined.py`, `build-en-swipe.sh` and the wordfreq sentences in
 `packaging/NOTICE` / `docs/install-details.md`.
+
+Measured 2026-10-22, published files vs the staged ones (2,000 test sentences per set; no measure fell more than 0.1 point):
+next word right in top 3 and completion after 1 and 3 letters right in top 2, every set, every language, +0.0 to +2.0
+(French gained most, +0.4 to +2.0). English real swipes (2,000, with the English n-gram): first guess 93.11 -> 93.01 %,
+top 3 96.40 -> 96.30 %. Spanish/French/German synthetic swipes (400 words each, case-folded):
+first guess 88.25/83.00/87.50 -> 89.00/83.25/87.75 %, top 3 98.50/93.75/96.75 -> 98.25/93.00/97.00 %. Words of the test
+sentences found in the word list: English 99.7/97.9/98.8 -> 99.7/98.0/99.8 %, French 95.0/95.1/96.8 -> 96.7/97.1/98.7 %,
+German 95.6/92.8/96.9 -> 95.9/93.2/97.5 %, Spanish 97.9/97.8/98.7 -> 97.4/97.3/98.5 % (the one list that shrank
+slightly: single letters and slang such as "pibe", "joda" that web text rarely spells out).
