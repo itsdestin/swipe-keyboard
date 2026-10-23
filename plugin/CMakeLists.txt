@@ -18,6 +18,9 @@ add_library(swipekb_language STATIC languageprofile.cpp languageruntime.cpp prof
 # WHY engine headers are PUBLIC: languageruntime.h hands out the engine's settings structs.
 target_include_directories(swipekb_language PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} ../engine/include)
 target_link_libraries(swipekb_language PUBLIC Qt6::Core)
+# WHY: CI may route compiles through ccache (content-hashed). The language assets embedded by this
+# QRC are packaged data, so this target is always compiled fresh, with or without a launcher.
+set_target_properties(swipekb_language PROPERTIES C_COMPILER_LAUNCHER "" CXX_COMPILER_LAUNCHER "")
 qt_add_executable(tst_languageprofile tests/tst_languageprofile.cpp)
 target_link_libraries(tst_languageprofile PRIVATE swipekb_language Qt6::Test)
 add_test(NAME plugin_languageprofile COMMAND tst_languageprofile)

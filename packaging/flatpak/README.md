@@ -31,7 +31,7 @@ python3 bundle/build.py build --repo repo
 flatpak build-bundle repo org.itsdestin.SwipeKeyboard.flatpak org.itsdestin.SwipeKeyboard master --runtime-repo=https://flathub.org/repo/flathub.flatpakrepo
 ```
 
-The build uses two jobs, `/app`, Python 3.13-specific hash-locked dependencies,
+The build uses four jobs (one flat bound on the 4-CPU hosted runner), `/app`, Python 3.13-specific hash-locked dependencies,
 and rebuilds ExecuTorch/engine/plugin/helpers against SDK Qt 6.10.3/glibc 2.42.
 The 3.14 native build path remains unchanged by default. Only hash-verified
 `torchgen` Python/templates are extracted from the existing torch wheel; torch
