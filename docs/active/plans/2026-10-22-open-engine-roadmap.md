@@ -142,7 +142,8 @@ Item status (2026-10-22):
 - Swear words (Destin's choice): never offered as an unprompted next word; swiping and completing them
   still work (fd59e68). Password/private/hidden fields: test added (9e3cc55); four separate checks guard it.
 - Speed: next word scores only plausible words, identical results, English 34 → 6.5 ms (b01db92).
-- Previous-word fix: open.
+- Previous-word fix: dropped (Destin 2026-10-22: no automatic swaps behind the cursor). Sentence-aware
+  swipe search (Phase 3) and learning (Phase 2) address the same errors; tap-a-word-to-swap is its own card.
 
 Status 2026-10-22: Spanish/French/German web+Tatoeba packs built (FineWeb-2 300M words + Tatoeba ×30,
 t2=10/t3=20; `~/.cache/swipe-keyboard-train/LANG/mix30-S`, 40/42/51 MB vs 6/8/9 MB today). Scoreboard
