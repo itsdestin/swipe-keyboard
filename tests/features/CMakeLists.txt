@@ -39,6 +39,22 @@ add_test(NAME tools_nextwordeval COMMAND tst_nextwordeval)
 add_executable(swipekb-profilecheck ${ROOT}/integration/profilecheck.cpp)
 target_link_libraries(swipekb-profilecheck PRIVATE language_rules)
 
+# Our own swipe engine (card #179): FUTO-free sources only, so these build without SWIPEKB_READONLY_UPSTREAM.
+# WHY a static library: the network runner, the lexicon search and the n-gram prior are shared by tests and tools.
+add_library(swipe_engine STATIC ${ROOT}/engine/src/swipe_layout.cpp ${ROOT}/engine/src/swipe_net.cpp
+    ${ROOT}/engine/src/swipe_beam.cpp ${ROOT}/engine/src/swipe_geo.cpp ${ROOT}/engine/src/swipe_engine.cpp ${ROOT}/engine/src/swipe_lm.cpp ${ROOT}/engine/src/ngram.cpp)
+target_include_directories(swipe_engine PUBLIC ${ROOT}/engine/include)
+target_link_libraries(swipe_engine PUBLIC Qt6::Core)
+add_executable(swipekb-swipenet-bench ${ROOT}/tools/swipekb-swipenet-bench.cpp)
+target_link_libraries(swipekb-swipenet-bench PRIVATE swipe_engine)
+foreach(name swipenet swipebeam swipegeo swipeengine)
+    add_executable(tst_${name} ${ROOT}/engine/tests/tst_${name}.cpp)
+    target_link_libraries(tst_${name} PRIVATE swipe_engine Qt6::Test)
+    target_compile_definitions(tst_${name} PRIVATE SWIPEKB_QWERTY_TSV="${ROOT}/scripts/swipe/layouts/qwerty.tsv"
+        SWIPEKB_TEST_DATA="${ROOT}/tests/data")
+    add_test(NAME swipe_${name} COMMAND tst_${name})
+endforeach()
+
 # Optional reuse of existing read-only FUTO symbols: no upstream configure/build or dependency downloads.
 set(SWIPEKB_READONLY_UPSTREAM "" CACHE PATH "Existing source/build to link FUTO symbols from, read-only")
 set(TEST_PROFILE_ASSETS "${SWIPEKB_READONLY_UPSTREAM}/assets" CACHE PATH "Explicit checksum-verified English profile fixture")
