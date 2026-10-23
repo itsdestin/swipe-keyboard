@@ -79,6 +79,31 @@ TEST(Recognizer, OwnedTypedPrefixAndOneEditCorrection)
     EXPECT_TRUE(r.complete(std::string(65,'a'),3).empty());
 }
 
+TEST(Recognizer, SimilarGivesWholeWordsOneEditAwayNeverTheWordOrItsExtensions)
+{
+    if(!haveAssets())GTEST_SKIP()<<"explicit encoder fixture required";
+    QTemporaryDir dir;ASSERT_TRUE(dir.isValid());const auto dictionary=dir.filePath("tiny.combined").toStdString();
+    {
+        std::ofstream out(dictionary);out<<"dictionary=fixture,locale=en\n";
+        // search/season are far more frequent than see/sew: the case that hid the neighbours before (card #187)
+        for(const auto &[w,f]:std::vector<std::pair<std::string,int>>{{"sea",120},{"see",150},{"sew",90},{"set",180},{"seat",130},
+            {"search",250},{"season",250},{"the",255},{"teh",0},{"sleep",100},{"a",200}})
+            out<<" word="<<w<<",f="<<f<<",flags=,originalFreq="<<f<<"\n";
+    }
+    auto paths=ModelPaths::fromDir(assets());paths.dictionary=dictionary;paths.decoder.clear();paths.lm_model.clear();paths.lm_vocab.clear();paths.ngram.clear();paths.nlm.clear();
+    Recognizer r;ASSERT_TRUE(r.init(paths,RecognizerOptions{}));
+    const auto sea=r.similar("sea",12);
+    std::vector<std::string> words;for(const auto &c:sea)words.push_back(c.word);
+    for(const char *want:{"see","sew","set","seat"})EXPECT_NE(std::find(words.begin(),words.end(),want),words.end())<<want;
+    for(const char *never:{"sea","search","season","sleep"})EXPECT_EQ(std::find(words.begin(),words.end(),never),words.end())<<never;
+    EXPECT_EQ(words.front(),"set"); // most frequent neighbour first
+    // a swapped pair of letters is one edit ("teh" is not a word; "the" is)
+    const auto swapped=r.similar("teh",5);ASSERT_FALSE(swapped.empty());EXPECT_EQ(swapped.front().word,"the");
+    // capitalization of the tapped word does not matter; a single letter, empty and over-long words give nothing
+    EXPECT_FALSE(r.similar("SEA",5).empty());
+    EXPECT_TRUE(r.similar("a",5).empty());EXPECT_TRUE(r.similar("",5).empty());EXPECT_TRUE(r.similar(std::string(65,'a'),5).empty());
+}
+
 TEST(Recognizer, CompletionUsesOnlyLoadedProfileDictionaryAndDisplayForms)
 {
     if(!haveAssets())GTEST_SKIP()<<"explicit encoder fixture required";

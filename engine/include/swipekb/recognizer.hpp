@@ -193,6 +193,9 @@ public:
     bool ready() const;
     // Dictionary-only tap completion/correction; bounded traversal of the loaded profile trie.
     std::vector<Candidate> complete(const std::string &ownedPrefix, int top_k = 3) const;
+    // Whole dictionary words exactly one edit from `word` (replaced, dropped, added or swapped letter), most
+    // frequent first, never `word` itself. Used when the person taps an existing word to swap it.
+    std::vector<Candidate> similar(const std::string &word, int top_k = 12) const;
 
     // Best-first guesses, at most top_k. Empty when not ready, input invalid, or anything fails.
     // `context` = up to the last few words before the cursor, oldest first.

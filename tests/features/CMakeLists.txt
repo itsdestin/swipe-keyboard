@@ -120,8 +120,8 @@ if(SWIPEKB_READONLY_UPSTREAM)
     target_sources(feature_engine PRIVATE ${ROOT}/engine/src/ngram_predictor.cpp ${ROOT}/engine/src/prediction.cpp)
     target_sources(feature_inputmethod PRIVATE ${ROOT}/plugin/nextwordsession.cpp
         ${ROOT}/plugin/nextwordworker.cpp ${ROOT}/plugin/nextwordworker.h
-        ${ROOT}/plugin/predictionpolicy.cpp ${ROOT}/plugin/predictiondiagnostics.cpp)
-    foreach(name nextwordsession nextwordworker predictionpolicy predictiondiagnostics nextwordintegration ownedhistory typedwordsession)
+        ${ROOT}/plugin/predictionpolicy.cpp ${ROOT}/plugin/predictiondiagnostics.cpp ${ROOT}/plugin/wordswap.cpp)
+    foreach(name nextwordsession nextwordworker predictionpolicy predictiondiagnostics nextwordintegration ownedhistory typedwordsession wordswap)
         add_executable(tst_${name} ${ROOT}/plugin/tests/tst_${name}.cpp)
         target_link_libraries(tst_${name} PRIVATE feature_inputmethod Qt6::Test)
         add_test(NAME prediction_${name} COMMAND tst_${name})

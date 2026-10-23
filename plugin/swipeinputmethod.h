@@ -11,6 +11,7 @@
 #include "nextwordsession.h"
 #include "ownedhistory.h"
 #include "typedwordsession.h"
+#include "wordswap.h"
 #include "nextwordworker.h"
 #include "languageprofile.h"
 #include "predictiondiagnostics.h"
@@ -100,6 +101,14 @@ private:
     bool predictionCapable() const;
     CaseMode caseMode() const;
     QStringList barCandidates() const;
+    // Tap-to-swap (card #187): tapping an existing word shows alternatives; nothing swaps by itself.
+    void observeWordSwap(const EditorSnapshot &editor);
+    void clearWordSwap();
+    WordSwapSession m_swap;
+    CursorMoveTracker m_moves;
+    RecentSwipes m_recentSwipes;   // memory only, never written to disk
+    QString m_swapPress;
+    PredictionStamp m_swapStamp;
     quint64 m_predictionPressId = 0;
     std::optional<PredictionStamp> m_predictionTap;
     NextWordSession m_nextWord;
