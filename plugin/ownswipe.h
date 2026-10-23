@@ -40,6 +40,10 @@ public:
     // "own" (network + search) or "own-geometry" (no usable model file).
     const char *mode() const { return hasModel() ? "own" : "own-geometry"; }
 
+    // Words the person taught the keyboard (names, slang) join the swipe word list, with a 0..255 frequency. The list
+    // is rebuilt at the next swipe (a short pause once, only when this set changes). Replaces any earlier set.
+    void setExtraWords(const std::vector<std::pair<std::string, int>> &words);
+
     struct Result {
         std::vector<std::string> words;   // best first, display spelling (apostrophes/accents from the dictionary)
         std::string bestShape;            // the word whose path fits the swipe best, before the sentence prior

@@ -92,6 +92,7 @@ qt_add_qml_module(swipekeyboard
     OUTPUT_DIRECTORY ${SWIPEKB_QML_DIR}/SwipeKeyboard
     QML_FILES SwipeCapture.qml
     SOURCES swipeinputmethod.h swipeinputmethod.cpp nextwordworker.h nextwordworker.cpp windowblur.h windowblur.cpp
+            learningmanager.h learningmanager.cpp
 )
 # WHY a static library of the project's own swipe engine (card #179): opt-in alternative to FUTO's recogniser. It uses
 # NgramLM from the shared swipekb_engine, so ngram.cpp is not compiled a second time.

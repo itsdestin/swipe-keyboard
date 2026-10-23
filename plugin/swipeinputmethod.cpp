@@ -16,6 +16,7 @@
 #include "profilediagnostics.h"
 #include "wordswap.h"
 #include <QPointer>
+#include <QRegularExpression>
 #include <QQuickItem>
 #include <QQuickWindow>
 #include <QTimer>
@@ -63,7 +64,8 @@ void SwipeInputMethod::setPhysicalLayout(const QString &layoutId)
 SwipeInputMethod::SwipeInputMethod(QObject *parent) : SwipeInputMethod(parent, {}) {}
 
 SwipeInputMethod::SwipeInputMethod(QObject *parent, NextWordWorker::Inference inference)
-    : QVirtualKeyboardAbstractInputMethod(parent), m_predictionWorker(std::move(inference))
+    : QVirtualKeyboardAbstractInputMethod(parent), m_learning([] { return SwipeRecorder::dataDir(); }),
+      m_predictionWorker(std::move(inference))
 {
     connect(this, &SwipeInputMethod::profileChanged, this, &SwipeInputMethod::diagnosticsChanged);
     connect(&m_predictionWorker, &NextWordWorker::modelStateChanged, this, [this](quint64 epoch,bool loaded) {
@@ -82,8 +84,14 @@ SwipeInputMethod::SwipeInputMethod(QObject *parent, NextWordWorker::Inference in
             // WHY next words only: a swear word is never offered out of the blue, but swiping or completing
             // one from typed letters still works (Destin, 2026-10-22).
             QStringList offered;
-            for (const auto &word:words)
-                if (swipekb::offeredUnprompted(word, m_profiles.snapshot().effectiveLanguage)) offered << word;
+            // WHY learned pairs join here: a word the person usually types after this one can lead the list, even
+            // when the n-gram file did not list it. Forgotten words are dropped inside personalize().
+            auto *pm=personal();
+            const auto typedByPerson=[pm](const QString &key) { return pm && pm->usedByPerson(key.toStdString()); };
+            // WHY a swear word they typed or swiped themselves passes (owner: "i swipe 'fuck' often"); one they never
+            // used still never appears unprompted.
+            for (const auto &word:personalize(words, m_nextPrev, QString(), true, 12))
+                if (swipekb::offeredUnprompted(word, m_profiles.snapshot().effectiveLanguage, typedByPerson)) offered << word;
             if (m_nextWord.accept(stamp, swipekb::rankRegionalCandidates(offered, m_profiles.snapshot().requestedLocale, 12))) refreshGuessBar();
         });
     connect(&m_predictionWorker, &NextWordWorker::alternativesReady, this,
@@ -105,6 +113,9 @@ SwipeInputMethod::SwipeInputMethod(QObject *parent, NextWordWorker::Inference in
             // the typed letters; the dictionary still offers one-letter-off corrections when nothing matches.
             QStringList words=ranked;
             for (const auto &candidate:m_recognizer->complete(prefix.toStdString(),12)) words<<QString::fromStdString(candidate.word);
+            // WHY after both lists are joined: the person's own words (names, favourites after this word) are weighed
+            // against the n-gram's order and the dictionary's, never replacing them wholesale.
+            words=personalize(words, m_completionPrev, prefix, true, 12);
             const auto old=m_typedWord.candidates();
             m_typedWord.suggest(swipekb::rankRegionalCandidates(words,m_profiles.snapshot().requestedLocale,3));
             if (old!=m_typedWord.candidates()) refreshGuessBar();
@@ -174,6 +185,8 @@ void SwipeInputMethod::resolveCurrentProfile()
             snapshot.capabilities={}; snapshot.assets.clear(); snapshot.unavailableReason="Verified profile engine initialization failed";
         }
     }
+    // WHY forced: a fresh recognizer / own engine has none of the taught words yet.
+    syncLearnedWords(true);
     if (m_profiles.publish(snapshot)) emit profileChanged();
 }
 
@@ -260,6 +273,12 @@ bool SwipeInputMethod::keyEvent(Qt::Key key, const QString &text, Qt::KeyboardMo
         const auto unfinished=m_typedWord.token();
         m_typedWord.clear();
         const auto previous = predictionEditor();
+        // Learning: Space finishes the word just typed on this keyboard (never a pasted or preexisting one: the
+        // typed-word session only holds letters whose echo this keyboard confirmed).
+        if(!unfinished.isEmpty()) {
+            learnWord(unfinished, prevBeforeToken(previous, unfinished));
+            if(!alive) return false;
+        }
         // WHY backspace conservatively drops sentence history, but an exact-echo
         // confirmed owned unfinished token remains valid input when Space finalizes it.
         if(!unfinished.isEmpty() && predictionPolicy().source==PredictionPolicySource::OwnedHistory) {
@@ -293,6 +312,8 @@ bool SwipeInputMethod::keyEvent(Qt::Key key, const QString &text, Qt::KeyboardMo
         const int generation = m_generation;
         const auto outcome = m_outcome.keyTapped(true, text);
         const CommitPlan plan = m_session.takeBackspace(textBeforeCursor(), false);
+        // Learning: erasing the whole swiped word says it was wrong, so its count is taken back.
+        if (!plan.isEmpty()) retractLastLearn();
         refreshGuessBar();
         // WHY: candidate notifications may synchronously move focus/reset policy while leaving
         // this method alive. Consume this stale Backspace, never replay a word/stock deletion into
@@ -338,6 +359,14 @@ bool SwipeInputMethod::keyEvent(Qt::Key key, const QString &text, Qt::KeyboardMo
         writeOutcome(m_outcome.keyTapped(key == Qt::Key_Backspace, text));
     else
         m_outcome.abandon();
+    // Learning: a word ended by punctuation or Enter counts like one ended by Space (the typed-word session below
+    // forgets it on this key).
+    if (predictSafe && !m_typedWord.token().isEmpty() && modifiers==Qt::NoModifier
+        && (key==Qt::Key_Return || key==Qt::Key_Enter || (text.size()==1 && QStringLiteral(".,!?;:").contains(text)))) {
+        const auto token=m_typedWord.token();
+        learnWord(token, prevBeforeToken(predictionEditor(), token));
+        if (!alive) return false;
+    }
     if (predictSafe && predictionText) {
         const auto previous=predictionEditor();auto expected=previous;
         if(modifiers==Qt::NoModifier && key==Qt::Key_Backspace && !m_typedWord.token().isEmpty() && expected.cursor>0) {
@@ -383,6 +412,15 @@ QVariant SwipeInputMethod::selectionListData(Type type, int index, QVirtualKeybo
         return alts.at(index);
     case QVirtualKeyboardSelectionListModel::Role::WordCompletionLength:
         return 0;
+    case QVirtualKeyboardSelectionListModel::Role::Dictionary:
+        // WHY "User": Qt then words the long-press menu as "Remove from dictionary" (its "Block word" is for built-ins).
+        return int(QVirtualKeyboardSelectionListModel::DictionaryType::User);
+    case QVirtualKeyboardSelectionListModel::Role::CanRemoveSuggestion: {
+        // WHY only learned words: a long press offers "remove" where the person's own typing put the word, so the
+        // menu never appears for ordinary dictionary words and cannot hide them.
+        auto *pm = personal();
+        return pm && pm->removable(personalKey(alts.at(index)).toStdString());
+    }
     default:
         return {};
     }
@@ -398,6 +436,7 @@ void SwipeInputMethod::selectionListItemSelected(Type type, int index)
         if(!safePredictionContext() || !self || !ic) {qCInfo(lcSwipe)<<"typed tap refused: field not allowed";if(self)reset();return;}
         const bool pressed=!m_typedPress.isEmpty(), sameSet=m_typedPress==m_typedWord.selectionToken();
         const auto previous=predictionEditor();
+        const QString prevForLearning=prevBeforeToken(previous, m_typedWord.token());
         const auto plan=m_typedWord.take(index,m_typedPress,previous,predictionPolicy(),m_profiles.snapshot().epoch);
         m_typedPress.clear();
         // WHY metadata only (never words): tells a failed device test which gate refused the tap.
@@ -419,6 +458,9 @@ void SwipeInputMethod::selectionListItemSelected(Type type, int index)
             if(!ic || !item || ic!=inputContext() || item!=ic->inputItem() || generation!=m_generation){reset();return;}
             m_autoSpaceCursor=plan.text.endsWith(QLatin1Char(' ')) ? previous.cursor+plan.replaceFrom+int(plan.text.size()) : -1;
             observePredictionEcho();
+            if(!self)return;
+            // Learning: the person chose this word (a completion, or their own spelling kept as typed).
+            learnWord(plan.text.trimmed(), prevForLearning);
             if(!self)return;
         }
         refreshGuessBar();return;
@@ -481,6 +523,9 @@ void SwipeInputMethod::selectionListItemSelected(Type type, int index)
             m_autoSpaceCursor = plan.text.endsWith(QLatin1Char(' ')) ? previous.cursor + int(plan.text.size()) : -1;
             observePredictionEcho();
             if (!self) return;
+            // Learning: an accepted suggestion is a word the person chose to write after the previous one.
+            learnWord(plan.text.trimmed(), m_nextPrev);
+            if (!self) return;
         }
         refreshGuessBar();
         return;
@@ -513,6 +558,10 @@ void SwipeInputMethod::selectionListItemSelected(Type type, int index)
         if (!self) return;
         if (!recordSafe) { reset(); return; }
         m_outcome.picked();   // WHY: a pick is this swipe's one outcome; no erase/keep line may follow
+        // Learning: the word they picked is the word they meant; the first guess's count is taken back.
+        retractLastLearn();
+        learnSwiped(plan.text.trimmed(), m_lastLearnPrev);
+        if (!self) return;
         // Opt-in recording: the word the owner picked is the word they meant for that swipe (see swiperecorder.h).
         if (m_lastRecordedSwipeTs)
             SwipeRecorder::appendPickIfEnabled(SwipeRecorder::dataDir(), QDateTime::currentMSecsSinceEpoch(),
@@ -761,6 +810,10 @@ void SwipeInputMethod::finishSwipe(const QVariantList &points, const QVariantLis
     }
     rawShape=QString::fromStdString(runtime->bestShapeWord());
     }
+    // WHY half-strength boosts: the finger path is strong evidence, so the person's habits only break near-ties
+    // and lift a word a couple of places; the raw-shape guard below still keeps the best path match visible.
+    const QString swipePrev=contextWords.isEmpty() ? QString() : contextWords.last();
+    candidates=personalize(candidates, swipePrev, QString(), false, int(candidates.size()), 0.5);
     candidates=swipekb::rankRegionalCandidates(candidates,snapshot.requestedLocale,3,rawShape);
     if (m_profiles.snapshot().epoch!=snapshot.epoch) return;
 
@@ -799,6 +852,10 @@ void SwipeInputMethod::finishSwipe(const QVariantList &points, const QVariantLis
         const bool stillSafe = safeContext();
         if (!self) return;
         if (!stillSafe) { reset(); return; }
+        // Learning: count the swiped word once the field is confirmed safe; a later fix or erase takes it back.
+        m_lastLearn = {};
+        learnSwiped(plan.text.trimmed(), swipePrev);
+        if (!self) return;
         // Remember that a swiped word is now the last thing typed (see m_afterSwipe in the header).
         m_afterSwipe = true;
         m_afterSwipeCursorBefore = cursorBefore;
@@ -1093,9 +1150,7 @@ void SwipeInputMethod::observePredictionEcho()
     const auto oldTyped=m_typedWord.candidates();
     bool completionWanted=false;
     if(m_typedWord.observe(editor,predictionPolicy(),m_profiles.snapshot().epoch) && isReady()) {
-        QStringList words;
-        for(const auto &candidate:m_recognizer->complete(m_typedWord.token().toStdString(),12))words<<QString::fromStdString(candidate.word);
-        m_typedWord.suggest(swipekb::rankRegionalCandidates(words,m_profiles.snapshot().requestedLocale,3));
+        refreshTypedSuggestions(editor);
         completionWanted=true;
     }
     if(oldTyped!=m_typedWord.candidates())refreshGuessBar();
@@ -1110,8 +1165,10 @@ void SwipeInputMethod::observePredictionEcho()
         const auto words=predictionPolicy().source==PredictionPolicySource::OwnedHistory
             ? m_ownedHistory.context() : swipekb::textContextWords(m_nextWord.textBeforeCursor());
         // WHY never use a native validation snapshot as model input, including pasted prefixes.
-        if (!words.isEmpty()) m_predictionWorker.submit({*request, model.path, vocab.path,
-            words, model.sha256 + vocab.sha256});
+        if (!words.isEmpty()) {
+            m_nextPrev=words.last();   // for the personal re-ranking of this request's answer
+            m_predictionWorker.submit({*request, model.path, vocab.path, words, model.sha256 + vocab.sha256});
+        }
         else {
             m_nextWord.invalidate(); m_predictionWorker.invalidate();
             m_predictionModelState=swipekb::PredictionModelState::NotRequested;
@@ -1183,6 +1240,8 @@ void SwipeInputMethod::observeWordSwap(const EditorSnapshot &editor)
         for (const auto &n : neighbours) if (swipekb::offeredUnprompted(n, snapshot.effectiveLanguage)) clean << n;
         neighbours = clean;
     }
+    // WHY boost 0: only drops forgotten words and taught words that are no longer wanted; the order stays as is.
+    neighbours = personalize(neighbours, QString(), QString(), false, 12, 0.0);
     neighbours = swipekb::rankRegionalCandidates(neighbours, snapshot.requestedLocale, 12);
     const auto swiped = m_recentSwipes.candidatesFor(editor.text.left(span->start), span->word);
     if (!m_swap.begin(editor.text, editor.cursor, swiped, neighbours)) { clearWordSwap(); return; }
@@ -1223,6 +1282,7 @@ void SwipeInputMethod::requestContextCompletion(const EditorSnapshot &editor)
     }
     const auto model=m_profiles.snapshot().assets.value(QStringLiteral("contextModel"));
     const auto vocab=m_profiles.snapshot().assets.value(QStringLiteral("contextVocab"));
+    m_completionPrev=words.isEmpty() ? QString() : words.last();
     m_predictionWorker.submit({m_typedWord.stamp(), model.path, vocab.path, words, model.sha256 + vocab.sha256, token});
 }
 
@@ -1261,6 +1321,13 @@ QVariantMap SwipeInputMethod::diagnostics() const
     out.insert(QStringLiteral("swipeEngine"),m_own ? QString::fromLatin1(m_own->mode()) : QStringLiteral("futo"));
     out.insert(QStringLiteral("ownEngineSwipes"),m_ownAnswered);
     out.insert(QStringLiteral("ownEngineFallbacks"),m_ownFellBack);
+    // WHY counts only: whether learning is on and how much is remembered, never which words.
+    auto *self=const_cast<SwipeInputMethod *>(this);
+    const bool learning=self->m_learning.enabled();
+    out.insert(QStringLiteral("learning"),learning);
+    auto *pm=learning ? self->personal() : nullptr;
+    out.insert(QStringLiteral("learnedWords"),pm ? quint64(pm->wordCount()) : quint64(0));
+    out.insert(QStringLiteral("learnedPairs"),pm ? quint64(pm->pairCount()) : quint64(0));
     return out;
 }
 
@@ -1312,4 +1379,176 @@ void SwipeInputMethod::refreshGuessBar()
     emit selectionListChanged(Type::WordCandidateList);
     if (!self) return;
     emit selectionListActiveItemChanged(Type::WordCandidateList, -1);
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Phase 2: learning from the person's own typing. Everything below is inert while <data>/learn-typing is absent.
+// ---------------------------------------------------------------------------------------------------------------
+
+swipekb::PersonalModel *SwipeInputMethod::personal()
+{
+    const auto language=m_profiles.snapshot().effectiveLanguage;
+    return language.isEmpty() ? nullptr : m_learning.model(language);
+}
+
+QString SwipeInputMethod::personalKey(const QString &word) const
+{
+    // WHY the same folding for every language: one key per word however it was typed (case, curly apostrophe).
+    return swipekb::displayForm(word).toLower().replace(QChar(0x2019),QLatin1Char('\''));
+}
+
+QString SwipeInputMethod::prevBeforeToken(const EditorSnapshot &editor, const QString &token) const
+{
+    if (token.isEmpty()) return {};
+    QStringList words;
+    if (predictionPolicy().source==PredictionPolicySource::OwnedHistory) {
+        // WHY the keyboard's own history, never the editor text: native stock cannot vouch for what else is in the field.
+        words=m_ownedHistory.context();
+        if (!words.isEmpty() && words.last()==token.toLower()) words.removeLast();
+    } else {
+        const auto before=editor.text.left(qMax(0,editor.cursor));
+        if (!before.endsWith(token)) return {};
+        words=swipekb::textContextWords(before.chopped(token.size()).right(4096));
+    }
+    return words.isEmpty() ? QString() : words.last();
+}
+
+swipekb::PersonalModel::Undo SwipeInputMethod::learnWord(const QString &rawWord, const QString &prev)
+{
+    // Hard rules: nothing before the owner switched learning on, nothing while the keyboard cannot vouch for the
+    // field (password, hidden, URL, e-mail, number, date fields; prediction not allowed), nothing it did not type.
+    QPointer<SwipeInputMethod> self(this);
+    if (!m_learning.enabled() || !isReady()) return {};
+    const QString word=swipekb::displayForm(rawWord.trimmed());
+    static const QRegularExpression lexical(QStringLiteral("^[\\p{L}]+(?:['’\\-][\\p{L}]+)*$"));
+    if (word.isEmpty() || word.size()>40 || !lexical.match(word).hasMatch()) return {};
+    // WHY the same gate as prediction, asked now: the field may have changed since the key was pressed.
+    const bool safe=safePredictionContext();
+    if (!self) return {};
+    if (!safe || !NextWordSession::allowed(predictionEditor(), predictionPolicy())) return {};
+    auto *model=personal();
+    if (!model) return {};
+    const bool known=m_recognizer && m_recognizer->hasWord(word.toStdString());
+    if (!known) {
+        // WHY these skips: a lone letter, SHOUTING and "heyyyyy" are slips, not words worth remembering.
+        static const QRegularExpression run(QStringLiteral("(.)\\1{3,}"));
+        if (word.size()<2 || (word.size()>1 && word==word.toUpper()) || run.match(word).hasMatch()) return {};
+    }
+    const bool capitalized=word.front().isUpper() && word!=word.toUpper();
+    const auto undo=model->learn(personalKey(prev).toStdString(), personalKey(word).toStdString(), known, capitalized,
+                                 LearningManager::now());
+    m_learning.changed();
+    syncLearnedWords();
+    return undo;
+}
+
+void SwipeInputMethod::learnSwiped(const QString &word, const QString &prev)
+{
+    m_lastLearn=learnWord(word, prev);
+    m_lastLearnPrev=prev;
+    m_lastLearnModel=m_lastLearn.valid ? personal() : nullptr;
+}
+
+void SwipeInputMethod::retractLastLearn()
+{
+    if (!m_lastLearn.valid) return;
+    // WHY only while it is still the same model: the folder, language or on/off state may have changed since.
+    if (auto *model=personal(); model && model==m_lastLearnModel) {
+        model->undo(m_lastLearn);
+        m_learning.changed();
+        syncLearnedWords();
+    }
+    m_lastLearn={};
+    m_lastLearnModel=nullptr;
+}
+
+QStringList SwipeInputMethod::personalize(const QStringList &base, const QString &prev, const QString &prefix, bool inject,
+                                          int topK, double boostScale)
+{
+    auto *model=personal();
+    const qint64 now=LearningManager::now();
+    // WHY first: FUTO's dictionary cannot drop a word once added, so a taught word that was forgotten (or learning
+    // switched off) is filtered out of every list here instead.
+    QStringList kept;
+    for (const auto &word:base) {
+        const auto key=personalKey(word);
+        if (m_injected.contains(key) && (!model || !model->learnedNewWord(key.toStdString(), now))) continue;
+        kept << word;
+    }
+    if (!model || model->empty()) return kept;
+    std::vector<std::string> keys;
+    keys.reserve(size_t(kept.size()));
+    for (const auto &word:kept) keys.push_back(personalKey(word).toStdString());
+    QStringList out;
+    for (const auto &ranked:model->rerank(keys, personalKey(prev).toStdString(), personalKey(prefix).toStdString(), now,
+                                          size_t(qMax(0,topK)), inject, boostScale)) {
+        QString shown=ranked.baseIndex>=0 ? kept.at(ranked.baseIndex) : QString::fromStdString(ranked.key);
+        // Names are shown with their capital (a word typed capitalised in the middle of sentences).
+        if (model->wantsCapital(ranked.key) && !shown.isEmpty() && shown==shown.toLower())
+            shown=shown.left(1).toUpper()+shown.mid(1);
+        out << shown;
+    }
+    return out;
+}
+
+void SwipeInputMethod::syncLearnedWords(bool force)
+{
+    auto *model=personal();
+    const std::uint64_t version=model ? model->swipeWordsVersion() : 0;
+    if (!force && model==m_syncedModel && version==m_syncedVersion && m_recognizer.get()==m_syncedRecognizer
+        && m_own.get()==m_syncedOwn) return;
+    m_syncedModel=model; m_syncedVersion=version; m_syncedRecognizer=m_recognizer.get(); m_syncedOwn=m_own.get();
+    std::vector<std::pair<std::string,int>> words;
+    if (model) words=model->swipeWords(LearningManager::now());
+    for (const auto &w:words) m_injected.insert(QString::fromStdString(w.first));
+    // WHY both swipe engines: FUTO's dictionary gains the words in place (it cannot drop them: see personalize());
+    // the own engine rebuilds its word list at the next swipe and does drop forgotten ones.
+    if (m_recognizer) m_recognizer->addWords(words);
+    if (m_own) m_own->setExtraWords(words);
+}
+
+void SwipeInputMethod::refreshTypedSuggestions(const EditorSnapshot &editor)
+{
+    const QString token=m_typedWord.token();
+    if (token.isEmpty() || !isReady()) return;
+    QStringList words;
+    for (const auto &candidate:m_recognizer->complete(token.toStdString(),12)) words<<QString::fromStdString(candidate.word);
+    words=personalize(words, prevBeforeToken(editor, token), token, true, 12);
+    m_typedWord.suggest(swipekb::rankRegionalCandidates(words,m_profiles.snapshot().requestedLocale,3));
+}
+
+bool SwipeInputMethod::selectionListRemoveItem(Type type, int index)
+{
+    // Reached from the long-press menu on a suggestion ("Remove from dictionary"); only learned words offer it.
+    const QStringList shown=barCandidates();
+    if (type!=Type::WordCandidateList || index<0 || index>=shown.size()) return false;
+    auto *model=personal();
+    const auto key=personalKey(shown.at(index)).toStdString();
+    if (!model || !model->removable(key)) return false;
+    QPointer<SwipeInputMethod> self(this);
+    model->forget(key);
+    m_learning.changed();
+    syncLearnedWords();
+    // WHY the bar is rebuilt rather than patched: its three slots are ranked and centred as a set, and a press
+    // already under way must not meet a shifted list. The typed word's suggestions come straight back.
+    const bool typed=!m_typedWord.candidates().isEmpty();
+    if (typed) {
+        const auto editor=predictionEditor();
+        refreshTypedSuggestions(editor);
+        if (self) requestContextCompletion(editor);
+    } else {
+        invalidatePredictions();
+    }
+    if (self) refreshGuessBar();
+    return true;
+}
+
+void SwipeInputMethod::forgetEverythingLearned()
+{
+    QPointer<SwipeInputMethod> self(this);
+    m_learning.forgetAll();
+    m_lastLearn={}; m_lastLearnModel=nullptr;
+    syncLearnedWords(true);
+    invalidatePredictions();
+    if (self) refreshGuessBar();
 }

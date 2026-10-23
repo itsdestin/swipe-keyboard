@@ -38,6 +38,19 @@ add_dependencies(tst_nextwordeval swipekb-nextword-eval)
 add_test(NAME tools_nextwordeval COMMAND tst_nextwordeval)
 add_executable(swipekb-profilecheck ${ROOT}/integration/profilecheck.cpp)
 target_link_libraries(swipekb-profilecheck PRIVATE language_rules)
+# The personal-learning layer (Phase 2) and its offline test: FUTO-free, like the next-word scorer above.
+add_library(personal_model STATIC ${ROOT}/engine/src/learning.cpp)
+target_include_directories(personal_model PUBLIC ${ROOT}/engine/include)
+add_executable(swipekb-personal-eval ${ROOT}/tools/swipekb-personal-eval.cpp ${ROOT}/engine/src/ngram_predictor.cpp
+    ${ROOT}/engine/src/ngram.cpp ${ROOT}/engine/src/context.cpp)
+target_link_libraries(swipekb-personal-eval PRIVATE personal_model Qt6::Core)
+add_executable(tst_personalmodel ${ROOT}/plugin/tests/tst_personalmodel.cpp)
+target_link_libraries(tst_personalmodel PRIVATE personal_model Qt6::Test)
+add_test(NAME learning_model COMMAND tst_personalmodel)
+add_executable(tst_learningmanager ${ROOT}/plugin/tests/tst_learningmanager.cpp ${ROOT}/plugin/learningmanager.cpp ${ROOT}/plugin/learningmanager.h)
+target_include_directories(tst_learningmanager PRIVATE ${ROOT}/plugin)
+target_link_libraries(tst_learningmanager PRIVATE personal_model Qt6::Core Qt6::Test)
+add_test(NAME learning_manager COMMAND tst_learningmanager)
 
 # Our own swipe engine (card #179): FUTO-free sources only, so these build without SWIPEKB_READONLY_UPSTREAM.
 # WHY a static library: the network runner, the lexicon search and the n-gram prior are shared by tests and tools.
@@ -66,6 +79,8 @@ if(SWIPEKB_READONLY_UPSTREAM)
     set_target_properties(feature_engine PROPERTIES POSITION_INDEPENDENT_CODE ON)
     target_include_directories(feature_engine PUBLIC ${ROOT}/engine/include PRIVATE ${SWIPEKB_READONLY_UPSTREAM}/third_party/swipe-library/include)
     target_link_libraries(feature_engine PUBLIC Qt6::Core "${UPSTREAM_ENGINE}" ${CMAKE_DL_LIBS})
+    # WHY a separate line: the personal-learning layer sits beside the predictors, not inside them.
+    target_sources(feature_engine PRIVATE ${ROOT}/engine/src/learning.cpp)
     foreach(name normalize spelling recognizer context ngram)
         add_executable(test_${name} ${ROOT}/engine/tests/test_${name}.cpp)
         target_link_libraries(test_${name} PRIVATE feature_engine GTest::gtest_main)
@@ -89,7 +104,8 @@ if(SWIPEKB_READONLY_UPSTREAM)
     add_test(NAME language_capture COMMAND tst_languagecapture)
     set_tests_properties(language_capture PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_IM_MODULE=")
     add_library(feature_inputmethod STATIC ${ROOT}/plugin/swipeinputmethod.cpp ${ROOT}/plugin/swipeinputmethod.h
-        ${ROOT}/plugin/swipesession.cpp ${ROOT}/plugin/swipeoutcome.cpp ${ROOT}/plugin/swiperecorder.cpp ${ROOT}/plugin/ownswipe.cpp)
+        ${ROOT}/plugin/swipesession.cpp ${ROOT}/plugin/swipeoutcome.cpp ${ROOT}/plugin/swiperecorder.cpp ${ROOT}/plugin/ownswipe.cpp
+        ${ROOT}/plugin/learningmanager.cpp ${ROOT}/plugin/learningmanager.h)
     target_include_directories(feature_inputmethod PUBLIC ${ROOT}/plugin)
     target_link_libraries(feature_inputmethod PUBLIC feature_engine swipe_engine language_rules Qt6::Qml Qt6::Quick Qt6::VirtualKeyboard)
     add_executable(tst_languageintegration ${ROOT}/plugin/tests/tst_languageintegration.cpp)
