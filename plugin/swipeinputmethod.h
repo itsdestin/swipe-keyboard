@@ -92,6 +92,7 @@ private:
     QStringList personalize(const QStringList &base, const QString &prev, const QString &prefix, bool inject, int topK,
                             double boostScale = 1.0);
     void syncLearnedWords(bool force = false);
+    QString m_wordsLanguage;   // language the swipe engines were last filled for (see syncLearnedWords)
     void refreshTypedSuggestions(const EditorSnapshot &editor);
     void learnSwiped(const QString &word, const QString &prev);   // learnWord() + remember it for undo
     void retractLastLearn();

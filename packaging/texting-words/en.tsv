@@ -1,0 +1,111 @@
+# word<TAB>strength<TAB>tag<TAB>note   (CC0, see README.md; strength 1-255 like the dictionary; tag is - or swear)
+lol	150	-	laughing out loud
+lmao	150	-	laughing my a-- off
+lmfao	140	swear	stronger lmao
+rofl	110	-	rolling on the floor laughing
+omg	150	-	oh my god
+omfg	110	swear	stronger omg
+wtf	150	swear	what the f--
+stfu	105	swear	shut the f-- up
+fml	120	swear	f-- my life
+idgaf	105	swear	I don't give a f--
+gtfo	100	swear	get the f-- out
+idk	150	-	I don't know
+idc	125	-	I don't care
+tbh	150	-	to be honest
+tbf	110	-	to be fair
+ngl	140	-	not gonna lie
+imo	140	-	in my opinion
+imho	110	-	in my humble opinion
+iirc	110	-	if I remember correctly
+afaik	110	-	as far as I know
+btw	150	-	by the way
+fyi	140	-	for your information
+asap	145	-	as soon as possible
+eta	130	-	estimated time of arrival
+brb	145	-	be right back
+gtg	125	-	got to go
+ttyl	120	-	talk to you later
+omw	145	-	on my way
+wyd	145	-	what are you doing
+hbu	130	-	how about you
+wbu	120	-	what about you
+hmu	130	-	hit me up
+lmk	140	-	let me know
+dm	125	-	direct message
+dms	110	-	direct messages
+irl	130	-	in real life
+tmi	120	-	too much information
+tbd	120	-	to be determined
+rsvp	115	-	please reply
+ikr	130	-	I know, right
+smh	135	-	shaking my head
+nvm	145	-	never mind
+jk	145	-	just kidding
+bff	125	-	best friend forever
+bffs	100	-	best friends
+ofc	140	-	of course
+istg	115	-	I swear to god
+fr	125	-	for real
+atm	125	-	at the moment
+bc	130	-	because
+cuz	130	-	because
+tho	150	-	though
+af	130	-	as f-- (very)
+rn	140	-	right now
+ty	145	-	thank you
+tysm	115	-	thank you so much
+thx	140	-	thanks
+np	140	-	no problem
+yw	100	-	you're welcome
+pls	150	-	please
+plz	140	-	please
+ya	130	-	you
+yall	130	-	you all
+gonna	150	-	going to
+wanna	150	-	want to
+gotta	150	-	got to
+gimme	140	-	give me
+lemme	140	-	let me
+dunno	145	-	don't know
+kinda	150	-	kind of
+sorta	140	-	sort of
+prolly	110	-	probably
+imma	115	-	I am going to
+cmon	115	-	come on
+gotcha	135	-	I got you
+aight	110	-	alright
+nah	150	-	no
+yep	150	-	yes
+yup	150	-	yes
+nope	150	-	no
+kk	115	-	okay
+ok	150	-	okay
+haha	150	-	laughter
+hehe	130	-	laughter
+xoxo	105	-	hugs and kisses
+yay	145	-	cheer
+yeet	105	-	throw
+oof	120	-	ouch
+meh	130	-	indifference
+welp	115	-	resigned
+ugh	150	-	annoyed
+aww	130	-	sweet
+bruh	140	-	bro
+bro	150	-	brother
+sis	135	-	sister
+fam	120	-	family
+sus	115	-	suspicious
+lowkey	120	-	somewhat
+highkey	105	-	very much
+vibe	130	-	mood
+vibes	130	-	mood
+slay	120	-	do great
+fomo	110	-	fear of missing out
+yolo	115	-	you only live once
+ootd	100	-	outfit of the day
+icymi	100	-	in case you missed it
+jfc	100	swear	oh god
+bs	115	-	nonsense
+hella	120	-	very
+ayo	100	-	hey

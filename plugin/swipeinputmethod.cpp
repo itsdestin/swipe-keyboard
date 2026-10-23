@@ -165,6 +165,9 @@ void SwipeInputMethod::resolveCurrentProfile()
         }
     }
     // WHY forced: a fresh recognizer / own engine has none of the taught words yet.
+    // WHY the language is remembered here: the profile is only published after this sync, so the published snapshot
+    // still holds the previous language while the new engines are being filled with words.
+    m_wordsLanguage=snapshot.effectiveLanguage;
     syncLearnedWords(true);
     if (m_profiles.publish(snapshot)) emit profileChanged();
 }
@@ -1508,7 +1511,17 @@ void SwipeInputMethod::syncLearnedWords(bool force)
     // WHY both swipe engines: FUTO's dictionary gains the words in place (it cannot drop them: see personalize());
     // the own engine rebuilds its word list at the next swipe and does drop forgotten ones.
     if (m_recognizer) m_recognizer->addWords(words);
-    if (m_own) m_own->setExtraWords(words);
+    // WHY the built-in texting abbreviations (lol, wyd, jaja, mdr, lg...) after the learned words, for both engines:
+    // the web-text word lists miss or under-count them. liftWords only RAISES a word, so a learned or ordinary word
+    // is never weakened; the own engine keeps the stronger of two equal spellings by itself. They reach swipes and
+    // completions only; the next-word model is not retrained, and swear acronyms stay out of unprompted suggestions.
+    const auto texting=swipekb::textingWordPairs(m_wordsLanguage);
+    if (m_recognizer) m_recognizer->liftWords(texting);
+    if (m_own) {
+        auto both=words;
+        both.insert(both.end(),texting.begin(),texting.end());
+        m_own->setExtraWords(both);
+    }
 }
 
 void SwipeInputMethod::refreshTypedSuggestions(const EditorSnapshot &editor)

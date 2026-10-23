@@ -226,6 +226,30 @@ void Recognizer::addWords(const std::vector<std::pair<std::string, int>> &words)
     }
 }
 
+void Recognizer::liftWords(const std::vector<std::pair<std::string, int>> &words)
+{
+    if (!impl_->ready || !impl_->dict) return;
+    for (const auto &entry : words) {
+        const auto text = QString::fromStdString(entry.first).normalized(QString::NormalizationForm_C).toLower();
+        bool ok = !text.isEmpty() && text.size() <= 64;
+        for (const auto cp : text.toUcs4())
+            ok = ok && impl_->dict->lookup_codepoint(int(cp)) >= 0;
+        if (!ok) continue;
+        const float wanted = float(std::clamp(entry.second, 1, 255));
+        // WHY walk the trie first: Trie::insert overwrites, so an existing stronger word would be weakened.
+        uint32_t node = 0;
+        for (const auto cp : text.toUcs4()) {
+            const auto *n = impl_->dict->get_node(node);
+            const int idx = impl_->dict->lookup_codepoint(int(cp));
+            node = (n && idx >= 0) ? n->children[idx] : 0;
+            if (node == 0) break;
+        }
+        const auto *found = node ? impl_->dict->get_node(node) : nullptr;
+        if (found && found->is_word && found->frequency >= wanted) continue;
+        impl_->dict->insert(text.toStdString(), wanted, true);
+    }
+}
+
 std::vector<Candidate> Recognizer::complete(const std::string &prefix, int top_k) const
 {
     if(!impl_->ready || !impl_->dict || top_k<=0) return {};

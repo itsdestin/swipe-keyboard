@@ -48,6 +48,79 @@ private slots:
                  {"nackt", "de"}, {"word", "xx"}})
             QVERIFY2(offeredUnprompted(word, language), word);
     }
+    // ---- texting abbreviations and slang (packaging/texting-words) ----
+    void textingListsLoadForEveryLanguage() {
+        for (const auto &[language, minimum] : std::initializer_list<std::pair<const char *, size_t>>{{"en", 90}, {"es", 45}, {"fr", 45}, {"de", 40}}) {
+            const auto words = textingWords(language);
+            QVERIFY2(words.size() >= minimum, language);
+            QSet<QString> seen;
+            for (const auto &w : words) {
+                QVERIFY2(!seen.contains(w.word), qPrintable(w.word));   // no repeated word
+                seen.insert(w.word);
+                QVERIFY2(w.strength >= 1 && w.strength <= 150, qPrintable(w.word));   // README: nothing above 150
+                QCOMPARE(w.word, w.word.toLower());   // shown exactly as listed, lower-case
+            }
+        }
+        const auto en = textingWordPairs("en");
+        for (const char *w : {"wyd", "lmao", "rn", "pls", "ya", "brb", "smh", "ikr", "ty", "hbu"})
+            QVERIFY2(std::any_of(en.begin(), en.end(), [&](const auto &e) { return e.first == w; }), w);
+        QVERIFY(textingWords("pt").empty());   // a language without a list gets none
+    }
+    void textingParserSkipsBadLinesAndKeepsGoodOnes() {
+        const QByteArray tsv =
+            "# comment\n\n"
+            "good\t100\t-\tnote\n"
+            "tooweak\t0\t-\tx\n"            // strength below 1
+            "toostrong\t256\t-\tx\n"        // above 255
+            "text\tabc\t-\tx\n"             // not a number
+            "two\twords\n"                    // too few columns
+            "gn8\t50\t-\tx\n"               // digit: cannot be swiped
+            "don't\t50\t-\tx\n"             // apostrophe: cannot be swiped
+            "badtag\t50\tmaybe\tx\n"        // unknown tag
+            "thisisafarfartoolongwordtoswipe\t50\t-\tx\n"
+            "angry\t60\tswear\tx\n"
+            "good\t120\t-\tagain\n"          // repeated: strongest line wins
+            "\xff\xfe\t50\t-\tx\n";       // not valid text
+        const auto words = parseTextingWords(tsv, "en");
+        QCOMPARE(words.size(), size_t(2));
+        QCOMPARE(words[0].word, QString("good"));
+        QCOMPARE(words[0].strength, 120);
+        QCOMPARE(words[1].word, QString("angry"));
+        QVERIFY(words[1].swear);
+        QVERIFY(parseTextingWords("\0\0\0 garbage without tabs", "en").empty());
+        QVERIFY(parseTextingWords(QByteArray(), "en").empty());
+        // A letter the language's keys cannot spell is skipped (a German umlaut in an English list).
+        QVERIFY(parseTextingWords("l\xc3\xa4" "ch\t50\t-\tx\n", "en").empty());
+        QCOMPARE(parseTextingWords("l\xc3\xa4" "ch\t50\t-\tx\n", "de").size(), size_t(1));
+        // Never more than 2000 words, however long the file.
+        QByteArray huge;
+        for (int i = 0; i < 3000; ++i) huge += "w" + QByteArray(1, char('a' + i % 26)) + QByteArray(1, char('a' + i / 26 % 26)) + QByteArray(1, char('a' + i / 676)) + "\t50\t-\tx\n";
+        QCOMPARE(parseTextingWords(huge, "en").size(), size_t(2000));
+    }
+    void aDamagedListFileIsIgnoredSafely() {
+        QTemporaryDir dir;
+        QFile f(dir.filePath("en.tsv"));
+        QVERIFY(f.open(QIODevice::WriteOnly)); f.write("garbage\x01\x02 no tabs at all\nmore garbage\n"); f.close();
+        qputenv("SWIPEKB_TEXTING_WORDS", dir.path().toUtf8());
+        QVERIFY(textingWords("en").empty());     // nothing usable: ignored, no crash, NOT the built-in list
+        QVERIFY(textingWords("es").empty());     // no file for this language in the folder: empty as well
+        QFile::remove(dir.filePath("en.tsv"));
+        QVERIFY(textingWords("en").empty());     // missing file
+        qunsetenv("SWIPEKB_TEXTING_WORDS");
+        QVERIFY(!textingWords("en").empty());    // back to the built-in list
+    }
+    void swearAcronymsAreNeverOfferedUnprompted() {
+        // Tagged `swear` in the texting list: swipe/complete OK (the engines take them), never offered out of the blue.
+        for (const auto &[word, language] : std::initializer_list<std::pair<const char *, const char *>>{
+                 {"wtf", "en"}, {"stfu", "en"}, {"omfg", "en"}, {"ntm", "fr"}, {"nmms", "es"}, {"wtf", "de"}})
+            QVERIFY2(!offeredUnprompted(word, language), word);
+        // The person's own use passes, as for any swear word.
+        QVERIFY(offeredUnprompted("wtf", "en", [](const QString &w) { return w == "wtf"; }));
+        // Ordinary abbreviations are offered like any word.
+        for (const auto &[word, language] : std::initializer_list<std::pair<const char *, const char *>>{
+                 {"lol", "en"}, {"idk", "en"}, {"jaja", "es"}, {"mdr", "fr"}, {"vllt", "de"}})
+            QVERIFY2(offeredUnprompted(word, language), word);
+    }
     void failsClosed() {
         QTemporaryDir dir;
         auto p = resolveProfile("es_ES", "qwerty", "Latin", dir.path(), 2);

@@ -391,6 +391,90 @@ private slots:
         r.word("damn"); r.word("damn"); r.word("hello");
         QVERIFY(!r.settledBar().contains("damn"));
     }
+    // ---- built-in texting abbreviations (packaging/texting-words), with learning OFF: they are not learned words ----
+    void clearField(Rig &r)
+    {
+        r.field->text = "note "; r.field->cursor = r.field->text.size();
+        QGuiApplication::inputMethod()->update(Qt::ImQueryAll); r.method->update();
+    }
+    // The swipe's result: typed into the field as the top guess, or at least one tap away on the guess bar.
+    // WHY not top guess only: a perfectly straight test finger is not a person's swipe, and FUTO's context model
+    // may prefer a common word for it ("smh" -> "any"); that is the swiper's choice to correct with one tap.
+    bool offered(Rig &r, const QString &w)
+    {
+        QTest::qWait(150);
+        return r.field->text.contains(w, Qt::CaseInsensitive) || r.bar().contains(w, Qt::CaseInsensitive);
+    }
+    void abbreviationsCanBeSwipedWithBothEngines_data()
+    {
+        QTest::addColumn<bool>("ownEngine");
+        QTest::addColumn<QString>("word");
+        for (const char *w : {"wyd", "smh", "brb", "ikr"})   // missing from the shipped English dictionary
+            QTest::addRow("own-%s", w) << true << QString(w);
+        // WHY only "wyd" for FUTO: its decoder ranks a perfectly straight test finger toward common words ("smh" ->
+        // "any", "brb" -> "been"); on noisy swipes FUTO reaches about 64% in its top 3 (measured, see CHANGELOG).
+        QTest::addRow("futo-wyd") << false << QString("wyd");
+    }
+    void abbreviationsCanBeSwipedWithBothEngines()
+    {
+        QFETCH(bool, ownEngine); QFETCH(QString, word);
+        if (ownEngine) qputenv("SWIPEKB_ENGINE", "own"); else qunsetenv("SWIPEKB_ENGINE");
+        struct Reset { ~Reset() { qunsetenv("SWIPEKB_ENGINE"); qunsetenv("SWIPEKB_TEXTING_WORDS"); } } reset;
+        Rig r; QVERIFY(r.start(false, false));
+        QVERIFY(!r.method->learningEnabled());
+        QVERIFY(r.swipe(word));
+        QVERIFY2(offered(r, word), qPrintable(r.field->text + " | " + r.bar().join(',')));
+        if (ownEngine) QCOMPARE(r.method->diagnostics().value("swipeEngine").toString().left(3), QString("own"));
+    }
+    void anAbbreviationIsCompletedFromTypedLetters()
+    {
+        Rig r; QVERIFY(r.start(false, false));
+        r.tap("wy");
+        QTRY_VERIFY_WITH_TIMEOUT(r.bar().contains("wyd"), 5000);
+        r.backspaceAll(2);
+        r.tap("hb");
+        QTRY_VERIFY_WITH_TIMEOUT(r.bar().contains("hbu"), 5000);
+    }
+    void aWordMarkedNotAWordIsLiftedAndOrdinarySwipesStillWin()
+    {
+        Rig r; QVERIFY(r.start(false, false));
+        // "pls" is in the shipped dictionary with score 0 ("not a word"): the list lifts it.
+        QVERIFY(r.swipe("pls"));
+        QVERIFY2(offered(r, "pls"), qPrintable(r.field->text + " | " + r.bar().join(',')));
+        // An ordinary word that is a few keys from an abbreviation is still what a clean swipe gives.
+        for (const char *w : {"the", "world", "table"}) {
+            clearField(r);
+            QVERIFY(r.swipe(w));
+            QVERIFY2(r.field->text.contains(w, Qt::CaseInsensitive), qPrintable(r.field->text));
+        }
+    }
+    void aSwearAcronymIsSwipedAndCompletedButNeverOfferedUnprompted()
+    {
+        Rig r; QVERIFY(r.start(false, false));
+        r.nextWords = {QStringLiteral("wtf"), QStringLiteral("world"), QStringLiteral("again")};
+        r.word("hello");
+        QTRY_VERIFY_WITH_TIMEOUT(r.bar().contains("world"), 5000);
+        QVERIFY2(!r.settledBar().contains("wtf"), "a swear acronym is never offered out of the blue");
+        clearField(r);
+        QVERIFY(r.swipe("wtf"));
+        QVERIFY2(offered(r, "wtf"), qPrintable(r.field->text + " | " + r.bar().join(',')));
+        clearField(r);
+        r.tap("wt");
+        QTRY_VERIFY_WITH_TIMEOUT(r.bar().contains("wtf"), 5000);
+    }
+    void aDamagedListFileLeavesTheKeyboardWorkingWithoutAbbreviations()
+    {
+        QTemporaryDir lists; QVERIFY(lists.isValid());
+        QFile f(lists.filePath("en.tsv")); QVERIFY(f.open(QIODevice::WriteOnly)); f.write("garbage\x01 no tabs\n\0\0\0"); f.close();
+        qputenv("SWIPEKB_TEXTING_WORDS", lists.path().toUtf8());
+        struct Reset { ~Reset() { qunsetenv("SWIPEKB_TEXTING_WORDS"); } } reset;
+        Rig r; QVERIFY(r.start(false, false));
+        QVERIFY(r.swipe("wyd"));
+        QVERIFY2(!offered(r, "wyd"), qPrintable(r.field->text + " | " + r.bar().join(',')));   // no list: not reachable (as before this feature)
+        clearField(r);
+        QVERIFY(r.swipe("table"));
+        QVERIFY2(offered(r, "table"), qPrintable(r.field->text));   // everything else untouched
+    }
 };
 
 QTEST_MAIN(LearningIntegrationTest)

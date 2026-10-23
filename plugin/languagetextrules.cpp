@@ -2,6 +2,8 @@
 #include "languageprofile.h"
 #include "swipekb/recognizer.hpp"
 #include <QFile>
+#include <QDir>
+#include <QRegularExpression>
 #include <QHash>
 #include <QSet>
 #include <algorithm>
@@ -43,6 +45,58 @@ QStringList textContextWords(const QString &text,int maxWords)
     for (const auto &word:contextWords(displayForm(text).toStdString(),maxWords)) out.append(QString::fromStdString(word));
     return out;
 }
+std::vector<TextingWord> parseTextingWords(const QByteArray &tsv,const QString &language)
+{
+    std::vector<TextingWord> out;
+    QHash<QString,int> at;
+    // WHY letters of the language only: a swipe cannot draw digits or apostrophes, and the engines skip such words.
+    static const QRegularExpression letters(QStringLiteral("^\\p{L}+$"));
+    for (const auto &raw:QString::fromUtf8(tsv).split('\n')) {
+        if (out.size()>=2000) break;
+        const QString line=raw.trimmed().isEmpty() || raw.startsWith('#') ? QString() : raw;
+        if (line.isEmpty()) continue;
+        const auto cols=line.split('\t');
+        if (cols.size()<3) continue;
+        bool ok=false;
+        const int strength=cols[1].trimmed().toInt(&ok);
+        const QString word=displayForm(cols[0].trimmed()).toLower();
+        const QString tag=cols[2].trimmed();
+        if (!ok || strength<1 || strength>255 || word.isEmpty() || word.size()>24 || !letters.match(word).hasMatch()) continue;
+        if (tag!=QLatin1String("-") && tag!=QLatin1String("swear")) continue;
+        bool inAlphabet=true;
+        // WHY the alphabet check: a word the language's keys cannot spell would only be skipped later, silently.
+        if (!language.isEmpty()) {
+            const auto alphabet=languageAlphabet(language);
+            for (const QChar c:word) inAlphabet=inAlphabet && alphabet.contains(c);
+        }
+        if (!inAlphabet) continue;
+        const bool swear=tag==QLatin1String("swear");
+        const auto it=at.find(word);
+        if (it==at.end()) { at.insert(word,int(out.size())); out.push_back({word,strength,swear}); }
+        else {
+            auto &e=out[size_t(it.value())];
+            e.strength=std::max(e.strength,strength); e.swear=e.swear||swear;
+        }
+    }
+    return out;
+}
+std::vector<TextingWord> textingWords(const QString &language)
+{
+    static const QSet<QString> supported{QStringLiteral("en"),QStringLiteral("es"),QStringLiteral("fr"),QStringLiteral("de")};
+    if (!supported.contains(language)) return {};
+    const QString override=qEnvironmentVariable("SWIPEKB_TEXTING_WORDS");
+    // WHY not cached when overridden: tests change the folder between cases; the built-in lists are tiny anyway.
+    QFile f(override.isEmpty() ? QStringLiteral(":/swipekb/texting/%1.tsv").arg(language)
+                               : QDir(override).filePath(language+QStringLiteral(".tsv")));
+    if (!f.open(QIODevice::ReadOnly)) return {};
+    return parseTextingWords(f.read(1<<20),language);
+}
+std::vector<std::pair<std::string,int>> textingWordPairs(const QString &language)
+{
+    std::vector<std::pair<std::string,int>> out;
+    for (const auto &w:textingWords(language)) out.emplace_back(w.word.toStdString(),w.strength);
+    return out;
+}
 bool offeredUnprompted(const QString &word,const QString &language,const std::function<bool(const QString &)> &typedByPerson)
 {
     // WHY a per-language cache filled once: the lists are small built-in resources and this runs per suggestion.
@@ -55,6 +109,12 @@ bool offeredUnprompted(const QString &word,const QString &language,const std::fu
             // WHY ß and ss both: German packs spell some words with ss (scheisse), the source list with ß.
             for (const auto &line:QString::fromUtf8(f.readAll()).split('\n',Qt::SkipEmptyParts))
                 words << line.trimmed() << line.trimmed().replace(QChar(0xDF),QStringLiteral("ss"));
+        // WHY the built-in texting list too: swear acronyms (wtf, stfu, ntm) are tagged there, never in the shared
+        // word list; they can be swiped or completed but must not appear out of the blue. Read from the built-in
+        // file only (not the test override), because this set is cached for the life of the process.
+        QFile t(QStringLiteral(":/swipekb/texting/%1.tsv").arg(language));
+        if (t.open(QIODevice::ReadOnly))
+            for (const auto &w:parseTextingWords(t.readAll(),language)) if (w.swear) words << w.word;
         it=blocked.insert(language,words);
     }
     const auto key=word.normalized(QString::NormalizationForm_C).toLower().replace(QChar(0x2019),QLatin1Char('\''));

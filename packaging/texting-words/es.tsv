@@ -1,0 +1,59 @@
+# word<TAB>strength<TAB>tag<TAB>note   (CC0, see README.md; strength 1-255 like the dictionary; tag is - or swear)
+jaja	150	-	risa
+jajaja	150	-	risa
+jeje	125	-	risa
+jiji	100	-	risa
+jajajaja	100	-	risa
+lol	140	-	risa
+omg	125	-	oh dios mio
+xd	120	-	risa
+xq	120	-	porque
+pq	120	-	porque
+porq	110	-	porque
+tmb	125	-	tambien
+tb	115	-	tambien
+tbn	100	-	tambien
+ntp	120	-	no te preocupes
+tqm	125	-	te quiero mucho
+tkm	115	-	te quiero mucho
+tq	100	-	te quiero
+porfa	140	-	por favor
+porfis	110	-	por favor
+xfa	110	-	por favor
+bn	110	-	bien
+dnd	100	-	donde
+ntc	95	-	no te creas
+msj	105	-	mensaje
+mjs	95	-	mensaje
+grax	110	-	gracias
+grcs	115	-	gracias
+bss	100	-	besos
+bsos	95	-	besos
+abz	95	-	abrazo
+dps	105	-	despues
+wapa	110	-	guapa
+wey	130	-	amigo (Mexico)
+neta	130	-	de verdad (Mexico)
+chido	120	-	genial (Mexico)
+orale	115	-	vale (Mexico)
+nmms	100	swear	no mames
+finde	115	-	fin de semana
+cole	110	-	colegio
+compa	115	-	companero
+mola	110	-	gusta (Spain)
+guay	130	-	genial (Spain)
+bro	120	-	hermano
+uf	130	-	suspiro
+mmm	110	-	duda
+ok	150	-	vale
+okey	120	-	vale
+nose	100	-	no se
+nop	105	-	no
+sip	115	-	si
+yap	100	-	si
+holi	105	-	hola
+besitos	110	-	besos
+muak	100	-	beso
+jajajajaja	95	-	risa
+tío	135	-	amigo (Espana)
+tía	125	-	amiga (Espana)

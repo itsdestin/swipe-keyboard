@@ -1,0 +1,62 @@
+# word<TAB>strength<TAB>tag<TAB>note   (CC0, see README.md; strength 1-255 like the dictionary; tag is - or swear)
+mdr	150	-	mort de rire
+ptdr	145	-	pete de rire
+lol	150	-	rire
+xptdr	100	-	rire
+stp	145	-	s'il te plait
+svp	145	-	s'il vous plait
+jsp	145	-	je ne sais pas
+jpp	120	-	j'en peux plus
+tkt	140	-	t'inquiete
+slt	140	-	salut
+bjr	130	-	bonjour
+bsr	115	-	bonsoir
+cc	135	-	coucou
+dsl	135	-	desole
+mtn	130	-	maintenant
+pk	110	-	pourquoi
+pcq	130	-	parce que
+pck	115	-	parce que
+qqn	115	-	quelqu'un
+qqch	110	-	quelque chose
+tjrs	115	-	toujours
+tjs	125	-	toujours
+bcp	135	-	beaucoup
+jtm	115	-	je t'aime
+jtd	105	-	je te deteste
+mrc	105	-	merci
+mci	105	-	merci
+rdv	130	-	rendez-vous
+aprem	130	-	apres-midi
+appart	125	-	appartement
+dacc	120	-	d'accord
+oklm	110	-	au calme
+ouf	140	-	fou
+wesh	130	-	salut (argot)
+wsh	120	-	salut (argot)
+relou	130	-	lourd (argot)
+kiff	115	-	plaisir (argot)
+askip	115	-	a ce qu'il parait
+grv	105	-	grave
+bg	110	-	beau gosse
+chui	120	-	je suis
+chuis	110	-	je suis
+ct	110	-	c'etait
+ntm	100	swear	insulte
+fdp	100	swear	insulte
+ptn	100	swear	jure
+tg	100	swear	tais-toi
+vazy	105	-	vas-y
+bof	145	-	bof
+mouais	115	-	doute
+pfff	110	-	soupir
+ouais	150	-	oui
+ouaip	100	-	oui
+ok	150	-	d'accord
+okay	130	-	d'accord
+haha	140	-	rire
+hihi	110	-	rire
+bisous	140	-	baiser
+bises	130	-	baiser
+bisou	120	-	baiser
+trkl	100	-	tranquille

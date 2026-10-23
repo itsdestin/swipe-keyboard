@@ -79,6 +79,39 @@ TEST(Recognizer, OwnedTypedPrefixAndOneEditCorrection)
     EXPECT_TRUE(r.complete(std::string(65,'a'),3).empty());
 }
 
+TEST(Recognizer, LiftWordsBringsInAbbreviationsAndOnlyEverRaises)
+{
+    if(!haveAssets())GTEST_SKIP()<<"explicit encoder fixture required";
+    QTemporaryDir dir;ASSERT_TRUE(dir.isValid());const auto dictionary=dir.filePath("tiny.combined").toStdString();
+    {
+        std::ofstream out(dictionary);out<<"dictionary=fixture,locale=en\n";
+        for(const auto &[w,f,flags]:std::vector<std::tuple<std::string,int,std::string>>{{"see",150,""},{"sew",90,""},{"set",180,""},
+            {"the",255,""},{"rn",0,"nonword"},{"pls",0,"hand-added"},{"wyd",0,"nonword"}})
+            out<<" word="<<w<<",f="<<f<<",flags="<<flags<<",originalFreq="<<f<<"\n";
+    }
+    auto paths=ModelPaths::fromDir(assets());paths.dictionary=dictionary;paths.decoder.clear();paths.lm_model.clear();paths.lm_vocab.clear();paths.ngram.clear();
+    Recognizer r;ASSERT_TRUE(r.init(paths,RecognizerOptions{}));
+    // Before: a word that is missing, and words marked "not a word", cannot be completed.
+    EXPECT_FALSE(inTop(r.complete("lm",12),"lmao"));
+    r.liftWords({{"lmao",100},{"rn",90},{"pls",80},{"wyd",85},{"bad1",50},{"don't",50}});   // digit / apostrophe words are skipped
+    EXPECT_TRUE(inTop(r.complete("lma",12),"lmao"));
+    EXPECT_TRUE(inTop(r.complete("wy",12),"wyd"));
+    EXPECT_TRUE(r.hasWord("rn"));EXPECT_TRUE(r.hasWord("pls"));EXPECT_FALSE(r.hasWord("bad1"));
+    // Only raises: a stronger ordinary word keeps its own score (see 150 stays ahead of sew 90 and set 180 ahead of both) ...
+    r.liftWords({{"see",10},{"set",20},{"the",5}});
+    auto order=[&](){std::vector<std::string> w;for(const auto &c:r.complete("se",12))w.push_back(c.word);return w;};
+    auto at=[&](const std::vector<std::string> &w,const char *x){return std::find(w.begin(),w.end(),x)-w.begin();};
+    auto kept=order();
+    ASSERT_LT(at(kept,"set"),at(kept,"see"));ASSERT_LT(at(kept,"see"),at(kept,"sew"));
+    // ... while addWords (the learned-word path) overwrites, which is exactly what liftWords must not do.
+    r.addWords({{"see",10}});
+    auto overwritten=order();
+    EXPECT_GT(at(overwritten,"see"),at(overwritten,"sew"));
+    // A lift never lowers the word again, and a weaker lift on an already lifted word changes nothing.
+    r.liftWords({{"wyd",5}});
+    EXPECT_TRUE(inTop(r.complete("wy",12),"wyd"));
+}
+
 TEST(Recognizer, SimilarGivesWholeWordsOneEditAwayNeverTheWordOrItsExtensions)
 {
     if(!haveAssets())GTEST_SKIP()<<"explicit encoder fixture required";

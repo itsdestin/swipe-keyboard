@@ -159,6 +159,10 @@ public:
     // done by the caller filtering results, and a restart rebuilds the dictionary.
     // Call only between swipes, from the thread that recognizes.
     void addWords(const std::vector<std::pair<std::string, int>> &words);
+    // Like addWords, but only RAISES: a word the dictionary already has at this score or higher keeps its own score,
+    // and a word the dictionary marked "not a word" (score 0) is brought in at `freq`. For the built-in texting
+    // abbreviation lists, which must never weaken an ordinary word. Same limits and the same calling rule as addWords.
+    void liftWords(const std::vector<std::pair<std::string, int>> &words);
     // Whole dictionary words exactly one edit from `word` (replaced, dropped, added or swapped letter), most
     // frequent first, never `word` itself. Used when the person taps an existing word to swap it.
     std::vector<Candidate> similar(const std::string &word, int top_k = 12) const;
