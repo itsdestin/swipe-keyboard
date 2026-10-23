@@ -97,22 +97,8 @@ Item {
     onMeasuredLayoutIdChanged: syncProfile()
     function syncProfile() {
         var im = InputContext.inputEngine.inputMethod
-        var keys = root.letterKeys()
-        // WHY wait for a laid-out page: coming back from "?123" the letters page first exists with keys of no
-        // size, all at one spot. Reading it then said "unknown", and the correction to "qwerty" a moment later
-        // made the engine reload its swipe model, a visible hitch on every return (owner, 2026-10-23).
-        if (im && typeof im.setPhysicalLayout === "function" && root.layoutSettled(keys))
-            im.setPhysicalLayout(root.identifyLayout(keys))
-    }
-    function layoutSettled(keys) {
-        var seen = {}
-        for (var i = 0; i < keys.length; ++i) {
-            var k = keys[i], spot = Math.round(k.x) + "," + Math.round(k.y)
-            if (!(k.w > 0 && k.h > 0) || seen[spot])
-                return false
-            seen[spot] = true
-        }
-        return keys.length > 0
+        if (im && typeof im.setPhysicalLayout === "function")
+            im.setPhysicalLayout(root.identifyLayout(root.letterKeys()))
     }
     function identifyLayout(keys) {
         if (keys.length < 26) return "unknown"

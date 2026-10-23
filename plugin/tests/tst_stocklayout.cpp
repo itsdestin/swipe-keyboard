@@ -243,7 +243,7 @@ private slots:
         if(recording.exists()) QVERIFY(recording.remove()); // this row's private synthetic trace only
     }
     // Going to "?123" and back on the REAL stock layout keeps the loaded swipe engine. WHY: the returning letters
-    // page is briefly unsized; reading it then made the engine reload its model, a hitch on every return.
+    // page re-announces the same typing mode, which used to reload the model, a hitch on every return.
     void symbolsRoundTripDoesNotReloadTheEngine()
     {
         QQmlEngine engine;
@@ -431,11 +431,11 @@ private slots:
             QCOMPARE(root->property("text").toString(), swiped);
         }
         // A password field: only the cursor moves; the keyboard learns and shows nothing.
-        QVERIFY(QMetaObject::invokeMethod(root.get(), "setPassword", Q_ARG(QVariant, QStringLiteral("hunter22"))));
+        QVERIFY(QMetaObject::invokeMethod(root.get(), "setPassword", Q_ARG(QVariant, QStringLiteral("correcthorse"))));
         QTest::qWait(100);
         slide(true, -distance);
-        QCOMPARE(root->property("passwordCursor").toInt(), 5);
-        QCOMPARE(root->property("passwordText").toString(), QStringLiteral("hunter22"));
+        QCOMPARE(root->property("passwordCursor").toInt(), 4);
+        QCOMPARE(root->property("passwordText").toString(), QStringLiteral("correcthorse"));
         // A plain tap on Space still types a space.
         QVERIFY(QMetaObject::invokeMethod(root.get(), "setText", Q_ARG(QVariant, QStringLiteral("hi"))));
         QTest::qWait(100);
