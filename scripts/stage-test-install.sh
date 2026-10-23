@@ -28,6 +28,12 @@ PKG="$PKGDIR/swipe-keyboard-$VERSION-$REL-x86_64.pkg.tar.zst"
 ROLLBACK="${SWIPEKB_ROLLBACK_PKG:-$WORK/rollback/swipe-keyboard-0.3.1-1-x86_64.pkg.tar.zst}"
 DATA="${XDG_DATA_HOME:-$HOME/.local/share}/swipe-keyboard"
 
+pacman_install() {
+    # WHY pkexec without a terminal: sudo can only ask for a password on a terminal; pkexec shows KDE's own password
+    # dialog, so install/rollback also work when run from a chat shell. --noconfirm because there is no terminal to answer.
+    if [ -t 0 ]; then sudo pacman -U "$1"; else pkexec pacman -U --noconfirm "$1"; fi
+}
+
 restart_keyboard() {
     # Same approach as install.sh: KWin starts a fresh keyboard after the old one exits; kill by pid only.
     local old; old=$(pidof plasma-keyboard || true)
@@ -62,12 +68,12 @@ install)
     [ -f "$ROLLBACK" ] || { echo "rollback package missing: $ROLLBACK (refusing to install without a way back)" >&2; exit 1; }
     (cd "$(dirname "$ROLLBACK")" && sha256sum -c SHA256SUMS)
     echo "installed before: $(pacman -Q swipe-keyboard)"
-    sudo pacman -U "$PKG"
+    pacman_install "$PKG"
     restart_keyboard ;;
 rollback)
     (cd "$(dirname "$ROLLBACK")" && sha256sum -c SHA256SUMS)
     # WHY no extra cleanup: pacman removes the test package's files as part of replacing it with the saved one.
-    sudo pacman -U "$ROLLBACK"
+    pacman_install "$ROLLBACK"
     rm -f "$DATA/own-engine"
     restart_keyboard
     echo "now installed: $(pacman -Q swipe-keyboard)" ;;
