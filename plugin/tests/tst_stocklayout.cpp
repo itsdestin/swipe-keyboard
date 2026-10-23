@@ -242,6 +242,207 @@ private slots:
         QVERIFY(record.remove());
         if(recording.exists()) QVERIFY(recording.remove()); // this row's private synthetic trace only
     }
+    // Going to "?123" and back on the REAL stock layout keeps the loaded swipe engine. WHY: the returning letters
+    // page re-announces the same typing mode, which used to reload the model, a hitch on every return.
+    void symbolsRoundTripDoesNotReloadTheEngine()
+    {
+        QQmlEngine engine;
+        QQmlComponent component(&engine);
+        component.setData(R"(
+            import QtQuick
+            import QtQuick.VirtualKeyboard
+            import QtQuick.VirtualKeyboard.Settings
+            Item {
+                width: 1000; height: 500
+                property QtObject method: InputContext.inputEngine.inputMethod
+                property QtObject kb: panel.keyboard
+                Component.onCompleted: { VirtualKeyboardSettings.locale = "en_US"; editor.forceActiveFocus() }
+                TextInput { id: editor; width: parent.width; height: 40; focus: true }
+                InputPanel { id: panel; width: parent.width; anchors.bottom: parent.bottom; active: true }
+            }
+        )", QUrl());
+        std::unique_ptr<QObject> root(component.create());
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *item = qobject_cast<QQuickItem *>(root.get());
+        QQuickWindow window; window.resize(1000, 500);
+        item->setParentItem(window.contentItem()); window.show();
+        QTRY_VERIFY_WITH_TIMEOUT(swipeLayout(item), 10000);
+        QTRY_VERIFY_WITH_TIMEOUT(root->property("method").value<QObject *>(), 10000);
+        QPointer<QObject> method(root->property("method").value<QObject *>());
+        bool ready = false;
+        QTRY_VERIFY_WITH_TIMEOUT((QMetaObject::invokeMethod(method, "isReady", Q_RETURN_ARG(bool, ready)), ready), 15000);
+        QTest::qWait(500); // the first page's own late sizing is not what this test is about
+        auto *kb = root->property("kb").value<QObject *>();
+        QVERIFY(kb);
+        QSignalSpy reloads(method.data(), SIGNAL(profileChanged()));
+        for (int round = 0; round < 2; ++round) {
+            QVERIFY(kb->setProperty("symbolMode", true));
+            QTRY_VERIFY_WITH_TIMEOUT(!swipeLayout(item), 5000);
+            QVERIFY(kb->setProperty("symbolMode", false));
+            QTRY_VERIFY_WITH_TIMEOUT(swipeLayout(item), 5000);
+            QTest::qWait(500);
+        }
+        QCOMPARE(root->property("method").value<QObject *>(), method.data()); // the same engine, kept
+        QVERIFY2(reloads.isEmpty(), qPrintable(QStringLiteral("engine reloaded %1 times").arg(reloads.count())));
+        QVERIFY(QMetaObject::invokeMethod(method, "isReady", Q_RETURN_ARG(bool, ready)));
+        QVERIFY(ready);
+    }
+    // The Space key of the REAL stock English layout slides the cursor in a real text field, for a mouse and a
+    // finger, also in a password field, and a plain tap on it still types a space.
+    void stockSpacebarSlideMovesCursor()
+    {
+        QQmlEngine engine;
+        QQmlComponent component(&engine);
+        component.setData(R"(
+            import QtQuick
+            import QtQuick.VirtualKeyboard
+            import QtQuick.VirtualKeyboard.Settings
+            Item {
+                width: 1000; height: 500
+                property alias text: editor.text
+                property alias cursor: editor.cursorPosition
+                property alias passwordText: password.text
+                property alias passwordCursor: password.cursorPosition
+                property int candidateCount: InputContext.inputEngine.wordCandidateListModel.count
+                property QtObject hookedInputMethod: InputContext.inputEngine.inputMethod
+                function setText(t) { editor.text = t; editor.cursorPosition = t.length; editor.forceActiveFocus() }
+                function setPassword(t) { password.text = t; password.cursorPosition = t.length; password.forceActiveFocus() }
+                function focusEditor() { editor.forceActiveFocus() }
+                Component.onCompleted: { VirtualKeyboardSettings.locale = "en_US"; editor.forceActiveFocus() }
+                TextInput { id: editor; width: parent.width; height: 40; focus: true }
+                TextInput { id: password; y: 90; width: parent.width; height: 40; echoMode: TextInput.Password }
+                InputPanel { width: parent.width; anchors.bottom: parent.bottom; active: true }
+            }
+        )", QUrl());
+        std::unique_ptr<QObject> root(component.create());
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *item = qobject_cast<QQuickItem *>(root.get());
+        QQuickWindow window;
+        window.resize(1000, 500);
+        item->setParentItem(window.contentItem());
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+        QTRY_VERIFY_WITH_TIMEOUT(swipeLayout(item), 10000);
+        auto *capture = swipeLayout(item)->property("swipeCapture").value<QObject *>();
+        QVERIFY(capture);
+        auto *touchArea = qobject_cast<QQuickItem *>(capture->property("touchArea").value<QObject *>());
+        QVERIFY(touchArea);
+        // WHY a frozen slide clock: the test's moves arrive in microseconds and would read as a fast flick (which
+        // moves further on purpose); stopped, the slide moves exactly one character per step.
+        QVERIFY(capture->setProperty("slideClockMs", 0));
+        // Letter key width, the unit the slide measures in (0 until the layout shows its letters).
+        auto letterUnit = [&]() -> double {
+            QVariant geometry;
+            if (!QMetaObject::invokeMethod(capture, "letterKeys", Q_RETURN_ARG(QVariant, geometry))
+                    || geometry.toList().size() < 26)
+                return 0;
+            return geometry.toList().first().toMap().value("w").toDouble();
+        };
+        // Find the real Space key in the layout, then wait until the bottom row has given it a width. WHY wait:
+        // on a slow machine (Fedora CI, Qt 6.11) the row was measured while Space still had zero width, so a finger
+        // at its spot hit the Period key beside it.
+        QQuickItem *space = nullptr;
+        std::function<void(QQuickItem *)> walk = [&](QQuickItem *node) {
+            const QVariant code = node->property("key");
+            if (!space && node->isVisible() && code.isValid() && code.toInt() == Qt::Key_Space) space = node;
+            for (QQuickItem *child : node->childItems()) walk(child);
+        };
+        walk(window.contentItem());
+        QVERIFY2(space, "No Space key in the real stock layout");
+        // WHY wait for a settled layout: on a slow machine (Fedora CI, Qt 6.11) the keyboard was still resizing, so
+        // Space had zero width at first and letter keys later shrank, and distances measured in the old width moved
+        // the cursor one character too far. A real press measures the width afresh, so only the test needs this.
+        double unit = 0;
+        QTRY_VERIFY2_WITH_TIMEOUT(([&] {
+            const double before = letterUnit();
+            QTest::qWait(250);
+            unit = letterUnit();
+            return before > 10 && qFuzzyCompare(before, unit) && space->width() > unit;
+        })(), "The real stock layout never settled with a full-width Space key", 15000);
+        QVariant geometry;   // the settled letter keys, used for the swipe below
+        QVERIFY(QMetaObject::invokeMethod(capture, "letterKeys", Q_RETURN_ARG(QVariant, geometry)));
+        // Then ask Qt's own hit test, exactly as a finger would, that the middle of Space really is Space.
+        const QPointF middle = touchArea->mapFromItem(space, QPointF(space->width() / 2, space->height() / 2));
+        QVariant hit;
+        QVERIFY(QMetaObject::invokeMethod(touchArea, "keyOnPoint", Q_RETURN_ARG(QVariant, hit),
+                                          Q_ARG(QVariant, middle.x()), Q_ARG(QVariant, middle.y())));
+        QCOMPARE(qobject_cast<QQuickItem *>(hit.value<QObject *>()), space);
+        const QPoint start = space->mapToScene(QPointF(space->width() / 2, space->height() / 2)).toPoint();
+        // 1.25 keys left of the press: past the 0.5-key start, then 0.1-key steps, first one at once: 8 characters.
+        const int distance = int(unit * 1.25);
+        auto device = QTest::createTouchDevice();
+        auto settle = [] { QTest::qWait(40); };
+        auto slide = [&](bool mouse, int dx) {
+            const int d = dx > 0 ? 2 : -2;
+            if (mouse) QTest::mousePress(&window, Qt::LeftButton, {}, start);
+            else QTest::touchEvent(&window, device).press(0, start, &window).commit();
+            for (int x = d; d > 0 ? x <= dx : x >= dx; x += d) {
+                if (mouse) QTest::mouseMove(&window, start + QPoint(x, 0));
+                else QTest::touchEvent(&window, device).move(0, start + QPoint(x, 0), &window).commit();
+            }
+            settle();
+            if (mouse) QTest::mouseRelease(&window, Qt::LeftButton, {}, start + QPoint(dx, 0));
+            else QTest::touchEvent(&window, device).release(0, start + QPoint(dx, 0), &window).commit();
+            settle();
+        };
+        for (const bool mouse : {true, false}) {
+            QVERIFY(QMetaObject::invokeMethod(root.get(), "setText", Q_ARG(QVariant, QStringLiteral("hello world"))));
+            QCOMPARE(root->property("cursor").toInt(), 11);
+            slide(mouse, -distance);
+            QCOMPARE(root->property("cursor").toInt(), 3);
+            QCOMPARE(root->property("text").toString(), QStringLiteral("hello world")); // no space typed
+            slide(mouse, distance);
+            QCOMPARE(root->property("cursor").toInt(), 11);
+            QCOMPARE(root->property("text").toString(), QStringLiteral("hello world"));
+        }
+        // Sliding away from a just-swiped word ends that word's session: its alternatives disappear, so a later tap
+        // on the suggestion bar cannot rewrite text at the wrong place.
+        {
+            QVERIFY(QMetaObject::invokeMethod(root.get(), "setText", Q_ARG(QVariant, QString())));
+            QVariantList trace;
+            QPointF previous;
+            for (const QChar letter : QStringLiteral("the")) {
+                QVariantMap key;
+                for (const auto &value : geometry.toList())
+                    if (value.toMap().value("letter").toString() == QString(letter)) key = value.toMap();
+                QVERIFY(!key.isEmpty());
+                const QPointF center(key.value("x").toDouble() + key.value("w").toDouble() / 2,
+                                     key.value("y").toDouble() + key.value("h").toDouble() / 2);
+                if (trace.isEmpty())
+                    trace.append(QVariantMap{{"x", center.x()}, {"y", center.y()}, {"t", 0}});
+                else
+                    for (int step = 1; step <= 8; ++step) {
+                        const auto p = previous + (center - previous) * (step / 8.0);
+                        trace.append(QVariantMap{{"x", p.x()}, {"y", p.y()}, {"t", trace.size() * 16}});
+                    }
+                previous = center;
+            }
+            auto *engineMethod = root->property("hookedInputMethod").value<QObject *>();
+            int generation = -1;
+            QVERIFY(QMetaObject::invokeMethod(engineMethod, "beginSwipe", Q_RETURN_ARG(int, generation)));
+            QVERIFY(generation >= 0);
+            QVERIFY(QMetaObject::invokeMethod(engineMethod, "finishSwipe", Q_ARG(QVariantList, trace),
+                                              Q_ARG(QVariantList, geometry.toList()), Q_ARG(int, generation)));
+            QTRY_VERIFY_WITH_TIMEOUT(root->property("candidateCount").toInt() > 0, 5000);
+            const QString swiped = root->property("text").toString();
+            QVERIFY(!swiped.isEmpty());
+            slide(true, -distance);
+            QTRY_COMPARE_WITH_TIMEOUT(root->property("candidateCount").toInt(), 0, 3000);
+            QCOMPARE(root->property("text").toString(), swiped);
+        }
+        // A password field: only the cursor moves; the keyboard learns and shows nothing.
+        QVERIFY(QMetaObject::invokeMethod(root.get(), "setPassword", Q_ARG(QVariant, QStringLiteral("correcthorse"))));
+        QTest::qWait(100);
+        slide(true, -distance);
+        QCOMPARE(root->property("passwordCursor").toInt(), 4);
+        QCOMPARE(root->property("passwordText").toString(), QStringLiteral("correcthorse"));
+        // A plain tap on Space still types a space.
+        QVERIFY(QMetaObject::invokeMethod(root.get(), "setText", Q_ARG(QVariant, QStringLiteral("hi"))));
+        QTest::qWait(100);
+        QTest::mousePress(&window, Qt::LeftButton, {}, start);
+        QTest::mouseRelease(&window, Qt::LeftButton, {}, start);
+        QTRY_COMPARE_WITH_TIMEOUT(root->property("text").toString(), QStringLiteral("hi "), 3000);
+    }
     void stockInputPanelHooksSwipe()
     {
         // No compiled-in source/build paths: the driver selects either built or installed QML.

@@ -13,6 +13,7 @@
 #include "livehintsquery.h"
 #include "predictionpolicy.h"
 #include "languagetextrules.h"
+#include "languageruntime.h"
 #include "profilediagnostics.h"
 #include "wordswap.h"
 #include <QPointer>
@@ -42,16 +43,6 @@ static std::vector<swipekb::KeyRect> measuredKeys(const QVariantList &keys)
     }
     return rects;
 }
-static std::unordered_map<char32_t,char32_t> popupAliases(const QString &language)
-{
-    std::unordered_map<char32_t,char32_t> aliases;
-    for (char32_t c:swipekb::languageAlphabet(language).toUcs4()) {
-        const auto base=swipekb::popupBase(c,language);
-        if (base!=c) aliases[c]=base;
-    }
-    return aliases;
-}
-
 SwipeInputMethod::~SwipeInputMethod() = default;
 
 void SwipeInputMethod::setPhysicalLayout(const QString &layoutId)
@@ -135,31 +126,15 @@ void SwipeInputMethod::resolveCurrentProfile()
     m_predictionModelState=swipekb::PredictionModelState::NotRequested;
     emit profileChanged();
     if (!self || m_profiles.snapshot().epoch!=epoch) return;
-    const auto language=swipekb::canonicalLocale(m_locale).section('-',0,0);
-    // WHY packaged packs are the default; an explicit local override never enables English fallback.
-    const QString root=language=="en" ? SwipeRecorder::modelDir() :
-        qEnvironmentVariable("SWIPEKB_LANGUAGE_PACKS",SwipeRecorder::modelDir()+"/language-packs");
+    // WHY the root rule and the profile-to-engine setup live in languageruntime.cpp: the Gaming Mode daemon
+    // uses the very same functions, so both keyboards give the same words.
+    const QString root=swipekb::languageModelRoot(m_locale,SwipeRecorder::modelDir());
     auto snapshot=swipekb::resolveProfile(m_locale,m_layoutId,m_inputMode,root,epoch);
     if (snapshot.capabilities.swipe) {
         swipekb::ModelPaths paths;
-        auto path=[&](const QString &role) { return snapshot.assets.value(role).path.toStdString(); };
-        paths.encoder=path("encoder"); paths.dictionary=path("dictionary"); paths.decoder=path("decoder");
-        // WHY the file kind decides, not the language: English uses the open n-gram when its pack is installed and
-        // verified (compatibility "en:context-ngram-v1"); otherwise it keeps FUTO's neural model as before.
-        const bool ngramContext=snapshot.assets.value("contextModel").compatibility.endsWith(QStringLiteral(":context-ngram-v1"));
-        if (!ngramContext) {
-            paths.lm_model=path("contextModel"); paths.lm_vocab=path("contextVocab");
-        } else {
-            paths.ngram=path("contextModel");
-        }
-        if (qEnvironmentVariableIntValue("SWIPEKB_NO_DECODER")) paths.decoder.clear();
         swipekb::RecognizerOptions options;
-        options.language=snapshot.effectiveLanguage.toStdString();
-        // WHY foreign swipe ranking and completion share only that locale's pinned contextual n-gram;
-        // English joins them when it has one (see above), else the flag stays off and FUTO's model ranks.
-        options.ngram=ngramContext;
-        options.alphabet=swipekb::languageAlphabet(snapshot.effectiveLanguage).toStdString();
-        options.popupAliases=popupAliases(snapshot.effectiveLanguage);
+        swipekb::configureRecognizer(snapshot,paths,options);
+        if (qEnvironmentVariableIntValue("SWIPEKB_NO_DECODER")) paths.decoder.clear();
         // WHY a fresh runtime: never init() on an engine already owned by a consumer/worker.
         auto runtime=std::make_shared<swipekb::Recognizer>();
         if (runtime->init(paths,options)) {
@@ -171,7 +146,8 @@ void SwipeInputMethod::resolveCurrentProfile()
                     swipekb::OwnSwipeSetup setup;
                     setup.dictionary=paths.dictionary;
                     // WHY only an n-gram pack: the sentence prior is our n-gram file; FUTO's neural context model is not usable here.
-                    if (ngramContext) setup.ngram=paths.ngram;
+                    // (configureRecognizer fills paths.ngram only when the English/foreign context is the open n-gram.)
+                    if (!paths.ngram.empty()) setup.ngram=paths.ngram;
                     // WHY same folder as the FUTO models; not pinned/verified yet (test-only model), a missing or
                     // damaged file simply leaves the engine geometry-only.
                     // SWIPEKB_SWIPE_MODEL points at a model anywhere (manual trials and tests); never set in normal use.
@@ -200,8 +176,16 @@ QList<QVirtualKeyboardInputEngine::InputMode> SwipeInputMethod::inputModes(const
 
 bool SwipeInputMethod::setInputMode(const QString &locale, QVirtualKeyboardInputEngine::InputMode mode)
 {
+    const QString inputMode=mode==QVirtualKeyboardInputEngine::InputMode::Latin ? "Latin" : "Unsupported";
+    // WHY skip an unchanged mode: Qt repeats this call on every "?123"/letters switch (the symbols page
+    // names its own mode). Rebuilding the profile reloaded the swipe model each time, a visible hitch
+    // (owner, 2026-10-23). The current word is still cleared, exactly as the rebuild did.
+    if (!m_locale.isEmpty() && locale==m_locale && inputMode==m_inputMode) {
+        reset();
+        return true;
+    }
     m_locale=locale;
-    m_inputMode=mode==QVirtualKeyboardInputEngine::InputMode::Latin ? "Latin" : "Unsupported";
+    m_inputMode=inputMode;
     resolveCurrentProfile();
     return true; // WHY unsupported swiping must not interfere with stock tapping.
 }
@@ -635,7 +619,7 @@ bool SwipeInputMethod::isReadyForLayout(const QVariantList &keys) const
     const auto language=m_profiles.snapshot().effectiveLanguage;
     // WHY check before QML cancels a stock key press: an incomplete alphabet must remain ordinary tapping.
     return swipekb::normalize({{0,0,0},{1,1,1}},measuredKeys(keys),swipekb::languageAlphabet(language).toStdString(),
-        popupAliases(language)).has_value();
+        swipekb::popupAliasesFor(language)).has_value();
 }
 
 QString SwipeInputMethod::textBeforeCursor() const

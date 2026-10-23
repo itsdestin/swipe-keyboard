@@ -14,9 +14,13 @@ install(TARGETS swipekb-preflight RUNTIME DESTINATION share/swipe-keyboard/integ
 
 # WHY a Core-only library: prediction consumers share verified values/rules without QML or GUI types.
 set(CMAKE_AUTORCC ON)
-add_library(swipekb_language STATIC languageprofile.cpp profilediagnostics.cpp languagetextrules.cpp language-assets.qrc ../engine/src/context.cpp)
-target_include_directories(swipekb_language PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} PRIVATE ../engine/include)
+add_library(swipekb_language STATIC languageprofile.cpp languageruntime.cpp profilediagnostics.cpp languagetextrules.cpp language-assets.qrc ../engine/src/context.cpp)
+# WHY engine headers are PUBLIC: languageruntime.h hands out the engine's settings structs.
+target_include_directories(swipekb_language PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} ../engine/include)
 target_link_libraries(swipekb_language PUBLIC Qt6::Core)
+# WHY: CI may route compiles through ccache (content-hashed). The language assets embedded by this
+# QRC are packaged data, so this target is always compiled fresh, with or without a launcher.
+set_target_properties(swipekb_language PROPERTIES C_COMPILER_LAUNCHER "" CXX_COMPILER_LAUNCHER "")
 qt_add_executable(tst_languageprofile tests/tst_languageprofile.cpp)
 target_link_libraries(tst_languageprofile PRIVATE swipekb_language Qt6::Test)
 add_test(NAME plugin_languageprofile COMMAND tst_languageprofile)
@@ -61,6 +65,12 @@ target_compile_definitions(tst_predictioncapture PRIVATE SWIPEKB_CAPTURE_SOURCE=
 target_link_libraries(tst_predictioncapture PRIVATE Qt6::Quick Qt6::Qml Qt6::VirtualKeyboard Qt6::Test)
 add_test(NAME plugin_predictioncapture COMMAND tst_predictioncapture)
 set_tests_properties(plugin_predictioncapture PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_IM_MODULE=qtvirtualkeyboard")
+# WHY real input events: the spacebar slide is decided by SwipeCapture.qml reacting to the touch area, for touch and mouse alike.
+qt_add_executable(tst_spacebarslide tests/tst_spacebarslide.cpp)
+target_compile_definitions(tst_spacebarslide PRIVATE SWIPEKB_CAPTURE_SOURCE="${CMAKE_CURRENT_SOURCE_DIR}/SwipeCapture.qml")
+target_link_libraries(tst_spacebarslide PRIVATE Qt6::Quick Qt6::Qml Qt6::VirtualKeyboard Qt6::Test)
+add_test(NAME plugin_spacebarslide COMMAND tst_spacebarslide)
+set_tests_properties(plugin_spacebarslide PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_IM_MODULE=qtvirtualkeyboard")
 qt_add_executable(test_prediction ../engine/tests/test_prediction.cpp)
 target_link_libraries(test_prediction PRIVATE swipekb_engine Qt6::Test)
 # WHY: test_prediction.cpp reads the neural-model fixtures in tests/data (the features build already defines this);
@@ -178,6 +188,24 @@ target_include_directories(tst_ownswipeintegration PRIVATE ${CMAKE_CURRENT_SOURC
 target_link_libraries(tst_ownswipeintegration PRIVATE swipekeyboard swipekb_ownswipe Qt6::Quick Qt6::Qml Qt6::VirtualKeyboard Qt6::Test)
 target_compile_definitions(tst_ownswipeintegration PRIVATE SWIPEKB_TEST_DATA="${CMAKE_CURRENT_SOURCE_DIR}/../tests/data")
 add_test(NAME plugin_ownswipeintegration COMMAND tst_ownswipeintegration)
+# ORACLE for the Gaming Mode daemon (tests/gaming): records what the real plugin's guess bar shows for the authored
+# multilingual swipes. The daemon test (gaming_daemon) requires this to have run, via the CTest fixture below.
+qt_add_executable(tst_languageoracle tests/tst_languageoracle.cpp)
+target_include_directories(tst_languageoracle PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_compile_definitions(tst_languageoracle PRIVATE SWIPEKB_ORACLE_DATASET="${CMAKE_SOURCE_DIR}/bench/languages/synthetic-centered-v1.json")
+target_link_libraries(tst_languageoracle PRIVATE swipekeyboard Qt6::Quick Qt6::Qml Qt6::VirtualKeyboard Qt6::Test)
+set(SWIPEKB_ORACLE_JSON ${CMAKE_BINARY_DIR}/plugin-language-oracle.json)
+add_test(NAME plugin_languageoracle COMMAND tst_languageoracle)
+# WHY the oracle (and only the oracle) falls back to the build's own assets: it just records what the plugin shows for
+# swipes, using the packs every package build has already fetched. Without this it silently skipped in the package builds
+# (reported as passed, no output file) and gaming_daemon then failed on the missing file. The other language tests keep
+# their explicit opt-in because they exercise generation and licence checks that a plain build must not assume.
+set(_oracle_fixture_env "${_language_fixture_env}")
+if(NOT SWIPEKB_TEST_ENGLISH_ASSETS AND NOT SWIPEKB_TEST_LANGUAGE_PACKS AND IS_DIRECTORY "${SWIPEKB_ASSETS}/language-packs" AND IS_DIRECTORY "${SWIPEKB_ASSETS}/models")
+    set(_oracle_fixture_env "SWIPEKB_TEST_ENGLISH_ASSETS=${SWIPEKB_ASSETS};SWIPEKB_TEST_LANGUAGE_PACKS=${SWIPEKB_ASSETS}/language-packs")
+endif()
+set_tests_properties(plugin_languageoracle PROPERTIES FIXTURES_SETUP plugin_oracle ENVIRONMENT
+    "${_oracle_fixture_env};SWIPEKB_ORACLE_OUT=${SWIPEKB_ORACLE_JSON};QT_QPA_PLATFORM=offscreen;QT_IM_MODULE=qtvirtualkeyboard;QT_VIRTUALKEYBOARD_DESKTOP_DISABLE=1")
 set_tests_properties(plugin_languageprofile plugin_languagepacks PROPERTIES ENVIRONMENT "${_language_fixture_env}")
 # WHY CTest must expose missing-fixture coverage as skipped, not a misleading green model gate.
 set_tests_properties(plugin_languageprofile plugin_languagepacks plugin_languageintegration PROPERTIES
@@ -254,4 +282,5 @@ add_test(NAME plugin_stock_layout
         $<TARGET_FILE:tst_stocklayout>
         --qml-dir ${SWIPEKB_QML_DIR} --model-data ${SWIPEKB_ASSETS}
         --stock-layouts ${SWIPEKB_STOCK_LAYOUTS} ${_swipekb_backend_import_args})
-set_tests_properties(plugin_stock_layout PROPERTIES TIMEOUT 75)
+# WHY 150: the real-layout suite (incl. the spacebar-slide check) takes about 45 s alone, more on a busy machine.
+set_tests_properties(plugin_stock_layout PROPERTIES TIMEOUT 150)

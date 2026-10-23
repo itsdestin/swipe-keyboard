@@ -31,7 +31,7 @@
 namespace {
 
 struct Args {
-    std::string data, swipes, expect, dict, ngram;
+    std::string data, swipes, expect, dict, ngram, candidatesJson;
     bool noDecoder = false, noLm = false, noNgram = false, useNgram = false;
     int beam = 0;
     swipekb::RerankWeights weights;
@@ -54,6 +54,7 @@ void usage()
                  "  --no-ngram      rank with FUTO's context model (the old way)\n"
                  "  --ngram PATH    rank with this n-gram model file\n"
                  "  --alpha X       weight of the n-gram model in the ranking\n"
+                 "  --candidates-json FILE  also write every swipe's exact guesses and scores as JSON\n"
                  );
 }
 
@@ -73,6 +74,10 @@ bool parseArgs(int argc, char **argv, Args &a)
             if (!value(a.swipes)) return false;
         } else if (s == "--expect") {
             if (!value(a.expect)) return false;
+        } else if (s == "--candidates-json") {
+            // WHY: the table above cuts long words to fit its columns; the engine-daemon equivalence test
+            // (tests/gaming/test_daemon.py) needs every guess and score exactly, so it reads this file instead.
+            if (!value(a.candidatesJson)) return false;
         } else if (s == "--dict") {
             if (!value(a.dict)) return false;
         } else if (s == "--beam") {
@@ -245,11 +250,13 @@ int main(int argc, char **argv)
     std::printf("%-4s %s%s%s%s%s%s\n", "#", cell("expected", 14).c_str(), cell("guess1", 14).c_str(),
                 cell("guess2", 14).c_str(), cell("guess3", 14).c_str(), cell("result", 8).c_str(), "live-typed");
 
+    QJsonArray exact;   // per swipe: [[word, score], ...]; empty array for skipped swipes
     const size_t n = std::min<size_t>(swipes.size(), static_cast<size_t>(expected.size()));
     int scored = 0, skipped = 0, first = 0, top3 = 0;
     for (size_t i = 0; i < n; ++i) {
         const QString want = expected.at(static_cast<qsizetype>(i));
         if (want.isEmpty() || want == QStringLiteral("-")) {
+            exact.append(QJsonArray());
             ++skipped;
             std::printf("%-4zu %s(skipped)\n", i + 1, cell("-", 14).c_str());
             continue;
@@ -257,8 +264,12 @@ int main(int argc, char **argv)
         const Swipe &s = swipes[i];
         const auto cands = r.recognize(s.trace, s.keys, s.context, 3);
         QStringList guesses;
-        for (const auto &c : cands)
+        QJsonArray exactRow;
+        for (const auto &c : cands) {
             guesses << QString::fromStdString(c.word);
+            exactRow.append(QJsonArray{QString::fromStdString(c.word), double(c.score)});
+        }
+        exact.append(exactRow);
         // WHY case-insensitive: the engine may capitalize ("I", names); the shape of the swipe is what counts.
         int rank = -1;
         for (int k = 0; k < guesses.size(); ++k)
@@ -280,5 +291,13 @@ int main(int argc, char **argv)
     std::printf("\nsummary: %d scored, %d skipped\n", scored, skipped);
     std::printf("first guess: %d/%d (%.1f%%)\n", first, scored, pct(first, scored));
     std::printf("top 3:       %d/%d (%.1f%%)\n", top3, scored, pct(top3, scored));
+    if (!a.candidatesJson.empty()) {
+        QFile out(QString::fromStdString(a.candidatesJson));
+        if (!out.open(QIODevice::WriteOnly | QIODevice::Truncate)
+            || out.write(QJsonDocument(exact).toJson(QJsonDocument::Compact)) < 0) {
+            std::fprintf(stderr, "cannot write %s\n", a.candidatesJson.c_str());
+            return 1;
+        }
+    }
     return 0;
 }

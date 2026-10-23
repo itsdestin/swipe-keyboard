@@ -29,6 +29,7 @@ add_subdirectory(engine)
 add_subdirectory(plugin)
 add_subdirectory(tools)
 add_subdirectory(integration)
+add_subdirectory(gaming/daemon)
 
 # Capture the build Qt minor for the launcher's fail-closed ABI check.
 find_package(Qt6 6.8 REQUIRED COMPONENTS Core)

@@ -6,10 +6,13 @@ set(CMAKE_AUTORCC ON)
 enable_testing()
 find_package(Qt6 REQUIRED COMPONENTS Core Test)
 get_filename_component(ROOT ../.. ABSOLUTE)
-add_library(language_rules STATIC ${ROOT}/plugin/languageprofile.cpp ${ROOT}/plugin/profilediagnostics.cpp ${ROOT}/plugin/languagetextrules.cpp ${ROOT}/plugin/language-assets.qrc ${ROOT}/engine/src/context.cpp)
-target_include_directories(language_rules PRIVATE ${ROOT}/engine/include)
-target_include_directories(language_rules PUBLIC ${ROOT}/plugin)
+add_library(language_rules STATIC ${ROOT}/plugin/languageprofile.cpp ${ROOT}/plugin/languageruntime.cpp ${ROOT}/plugin/profilediagnostics.cpp ${ROOT}/plugin/languagetextrules.cpp ${ROOT}/plugin/language-assets.qrc ${ROOT}/engine/src/context.cpp)
+# WHY languageruntime.cpp and the PUBLIC engine headers: swipeinputmethod.cpp now sets the engine up through it (shared with the Gaming Mode daemon).
+target_include_directories(language_rules PUBLIC ${ROOT}/plugin ${ROOT}/engine/include)
 target_link_libraries(language_rules PUBLIC Qt6::Core)
+# WHY: CI may route compiles through ccache (content-hashed). The language assets embedded by this
+# QRC are packaged data, so this target is always compiled fresh, with or without a launcher.
+set_target_properties(language_rules PROPERTIES C_COMPILER_LAUNCHER "" CXX_COMPILER_LAUNCHER "")
 add_executable(tst_languageprofile ${ROOT}/plugin/tests/tst_languageprofile.cpp)
 target_link_libraries(tst_languageprofile PRIVATE language_rules Qt6::Test)
 add_test(NAME language_profile COMMAND tst_languageprofile)

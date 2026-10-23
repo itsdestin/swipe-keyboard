@@ -12,6 +12,12 @@
 - Next-word suggestions, completions and swipe ranking for English, Spanish, French and German now come from open language files (FineWeb web text under ODC-By 1.0 plus Tatoeba sentences under CC BY 2.0 France), downloaded by checksum at build time from the `language-files-2026-10-22` release. They are larger (about 24 to 38 MB each) and noticeably better than the old Tatoeba-only packs.
 - English uses its n-gram instead of FUTO's neural context model when the English files are installed and verified; otherwise it keeps FUTO's model. A missing or damaged Spanish, French or German file now turns off only that language's suggestions instead of the whole language.
 
+## v0.4.0-1
+
+- Steam Deck Gaming Mode preview: swipe typing and word suggestions on top of Steam's own on-screen keyboard, from one opt-in SteamOS download (`install.sh` / `uninstall.sh`). Tested on a virtual Steam Deck only; relies on a Valve developer switch (see the README warning).
+- Switching between the `?123` symbols page and the letters no longer pauses: the swipe dictionary stays loaded instead of reloading on every switch.
+- Slide along the Space bar to move the text cursor in the direction your finger moves: one character at a time when sliding slowly, up to three times further when sliding fast, like a touchpad (also in right-to-left text, where it follows the screen, not the reading order). A small wobble or a normal tap still types a space; once the slide starts, no space is typed. Works with touch and mouse, in every language layout, and in password fields (only the cursor moves). Moving the cursor also clears the current word's suggestions so a later suggestion tap cannot replace the wrong text. Not available on the `?123` symbols page, and there is no setting to turn it off yet.
+
 ## v0.1.0-r3 — package revision 0.1.0-3, safety and compatibility test release
 
 - Build the public Arch package against the older July 2026 repository baseline, then test the same bytes on newer Qt/KDE libraries.
