@@ -18,11 +18,32 @@ def verify_runtime(pins, run=subprocess.check_output):
             raise RuntimeError(f'{name} commit mismatch: expected {pins[name]}, got {actual}')
 
 
+# WHY 4: GitHub's public Linux runners have 4 CPUs/16 GB. One flat bound for flatpak-builder,
+# make and cmake (see build-swipe.sh and the manifest env); peak memory is recorded in CI.
+JOBS = 4
+
+
+def builder_command(build_directory, manifest, repo=None, ccache=False, dependencies_only=False):
+    command = ['flatpak-builder', '--user', f'--jobs={JOBS}', '--force-clean', '--disable-rofiles-fuse']
+    if ccache:
+        # WHY: only passed on trusted cache-enabled runs; release tags stay fully cold.
+        command.append('--ccache')
+    if dependencies_only:
+        # WHY: builds and caches only the pinned Qt/Plasma dependency stages; the keyboard's own
+        # module (and anything exported) is never part of a saved cache.
+        command.append('--stop-at=swipe-keyboard')
+    else:
+        command.append('--repo=' + str(repo))
+    return command + [str(build_directory), str(manifest)]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('build_directory', type=Path)
     parser.add_argument('--repo', type=Path, required=True)
     parser.add_argument('--ci-manifest', type=Path, help='Explicit hosted CI entry; default lab guard is unchanged')
+    parser.add_argument('--ccache', action='store_true', help='Persist ExecuTorch compiler results (trusted CI only)')
+    parser.add_argument('--dependencies-only', action='store_true', help='Stop before the keyboard module')
     args = parser.parse_args()
     if args.ci_manifest:
         import os
@@ -35,10 +56,9 @@ def main():
         if 'QEMU' not in Path('/sys/class/dmi/id/sys_vendor').read_text():
             raise RuntimeError('Refusing build without QEMU DMI identity.')
     verify_runtime(json.loads((HERE / 'runtime-lock.json').read_text()))
-    subprocess.run(['flatpak-builder', '--user', '--jobs=2', '--force-clean',
-                    '--disable-rofiles-fuse', '--repo=' + str(args.repo.resolve()),
-                    str(args.build_directory.resolve()),
-                    str(args.ci_manifest.resolve() if args.ci_manifest else HERE / 'org.itsdestin.SwipeKeyboard.json')], check=True)
+    manifest = args.ci_manifest.resolve() if args.ci_manifest else HERE / 'org.itsdestin.SwipeKeyboard.json'
+    repo = args.repo.resolve()
+    subprocess.run(builder_command(args.build_directory.resolve(), manifest, repo, args.ccache, args.dependencies_only), check=True)
 
 
 if __name__ == '__main__':
