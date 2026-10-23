@@ -42,7 +42,7 @@ int main(int argc, char **argv) {
     std::string model, words, layoutPath, layoutsDir, input, ngramPath, match = "ascii";
     EngineParams ep;
     float lmWeight = 1.0f;
-    int jobs = 1, topN = 5; size_t limit = 0, perBoard = 0;
+    int jobs = 1, topN = 5; size_t limit = 0, perBoard = 0, misses = 0;
     for (int i = 1; i < argc; ++i) {
         const std::string a = argv[i];
         auto val = [&]() -> const char * {
@@ -57,6 +57,7 @@ int main(int argc, char **argv) {
         else if (a == "--jobs") jobs = std::atoi(val()); else if (a == "--limit") limit = size_t(std::atoll(val()));
         else if (a == "--top") topN = std::atoi(val()); else if (a == "--match") match = val();
         else if (a == "--per-board") perBoard = size_t(std::atoll(val()));
+        else if (a == "--misses") misses = size_t(std::atoll(val()));
         else if (a == "--ngram") ngramPath = val(); else if (a == "--lm-weight") lmWeight = float(std::atof(val()));
         else if (a[0] != '-') input = a; else { std::fprintf(stderr, "unknown option %s\n", a.c_str()); return 2; }
     }
@@ -131,6 +132,14 @@ int main(int argc, char **argv) {
         ++t.n; t.t1 += h1; t.t3 += h3; t.ms += out[i].ms;
         if (out[i].inDict) { ++t.d; t.d1 += h1; t.d3 += h3; }
     };
+    for (size_t i = 0, shown = 0; i < swipes.size() && shown < misses; ++i) {   // first N first-guess misses: truth -> top 3
+        const std::string truth = norm(swipes[i].word, match);
+        if (!out[i].top.empty() && out[i].top[0] == truth) continue;
+        std::printf("miss %-14s%s ->", truth.c_str(), out[i].inDict ? "" : "*");
+        for (size_t k = 0; k < out[i].top.size() && k < 3; ++k) std::printf(" %s", out[i].top[k].c_str());
+        std::printf("\n");
+        ++shown;
+    }
     Tally all; std::map<std::string, Tally> boards;
     for (size_t i = 0; i < swipes.size(); ++i) { add(all, i); if (!layoutsDir.empty()) add(boards[swipes[i].board], i); }
     auto pct = [](size_t a, size_t n) { return n ? 100.0 * double(a) / double(n) : 0.0; };

@@ -75,20 +75,33 @@ not a shape problem. The synthetic generator exists so the language gap can be c
 English >= 93.3% first / 96.6% top 3 on bench-2000; <= ~5 ms/swipe single thread (measured 3.5 ms with the 290k
 model in a loaded machine, -O3 without -march=native); model <= ~4 MB; lexicon trie ~533k nodes for 232k words.
 
-## 6. First results (CPU smoke run, 2026-10-22; bench-2000 not touched)
+## 6. Results (clean validation; updated 2026-10-23)
 
-290k-parameter model, 40 epochs on dev.jsonl only (54k real swipes, no synthetic, no sentence prior), 8 CPU threads,
-~75 s/epoch, ~50 min. Scored on devhold-5000 (3,380 swipes; the spike's geometric decoder gets 83.9% / 89.8% there):
+**Correction.** `devhold-5000.jsonl` and `tune-*.jsonl` are subsets of `dev.jsonl` (100% of ids and sessions), so
+every earlier "devhold" figure (including 91.5% for the first CPU model and 93.0% for gpu1) was measured on training
+swipes and is not a held-out number. Clean data: `bench-2000`, `test-extra-10000` and `test.jsonl` share no ids or
+sessions with dev. Validation now = 10% of dev's *sessions* (`scripts/swipe/split_by_session.py`, 6,637 swipes, never
+trained on); a second check is a 3,000-swipe diagnostic sample of test.jsonl (excluding bench/test-extra ids;
+never trained on or tuned against). bench-2000 and test-extra-10000 are final scoring only.
 
-| search | first guess | top 3 | top 5 | ms/swipe, 1 thread (net + search) |
+Sweep on the clean split (first guess / top 3, all swipes; search: freq weight 0.06; "+geo" = geometric cross-check,
+weight 30). Same training set for all: dev-train (47.6k real swipes, repeated 3x) + 120k synthetic English.
+
+| run | recipe | params | val first/top3 | clean3000 first/top3 |
 |---|---|---|---|---|
-| beam 48, 8 keys/step, freq weight 0.05-0.07 | 91.4-91.6% | 95.3-95.5% | 96.1% | 3.8 + 1.3 = 5.1 (loaded machine; 2.4 + 0.8 with 8 jobs) |
-| beam 128, 12 keys/step | 91.5% | 95.7% | 96.4% | 4.4+ |
+| R1 | h128 x2 layers, conv 96, no regularisation | 529k | 89.17 / 94.02 | 89.33 / 94.27 |
+| R2 | R1 + dropout 0.2 + board-geometry aug + speed aug | 529k | 90.19 / 94.65 | 90.47 / 94.90 |
+| R3 | R2, real x2, 240k synthetic, dropout 0.3 | 529k | 89.81 / 94.30 | 89.83 / 94.63 |
+| R4 | R2 recipe, h96 x2, conv 64 (small) | 290k | 90.16 / 94.40 | 90.47 / 94.87 |
+| R4 + geo | geometric cross-check weight 30 | 290k | 90.87 / 94.77 | 90.87 / 94.87 |
 
-Search constants are flat (beam, keys per step, lookahead barely matter); the frequency weight peaks near 0.05-0.07
-nats per point. Plain unigram from the n-gram file gives the same as dictionary frequency (90.1% vs 90.5% at epoch 15).
-Greedy key-sequence exact match was still rising at epoch 40 (73%), so more epochs / data / width should help.
+Findings: capacity is not the limit (290k = 529k); regularisation and augmentation are (+1.0); more synthetic data
+at the cost of real share hurts (R3); the geometric cross-check adds +0.7 on clean validation and +3-4 points on
+HeliBoard swipes (a different population). In-dictionary only (97.5% of clean3000): R4 + geo = 93.23 / 97.33.
+The coordinator's FUTO figure on clean3000 is 92.5 / 96.3 over the 2,909 swipes it can score. Speed R4 + geo: 3.0 ms
+per swipe on one thread (loaded laptop), model 1.16 MB (f32).
 
-GPU run (owner's 4070): `python -I scripts/swipe/train.py --train dev.npz --train synth-en.npz --val devhold.npz
---out run --device cuda --epochs 60 --batch 256 --hidden 128 --layers 2 --conv 96,96` (needs a CUDA torch wheel).
-Inference cost grows with width: the 5 ms budget allows roughly hidden 128 x 2 layers.
+Notes: unit = key *pitch*, not drawn key width (boards with gaps between keys are 20% off otherwise). Two common
+HeliBoard English boards with near-identical geometry differ by 5-7 points for *every* decoder (geometry only too):
+the spread is the swipers, not the layout handling. The geometric decoder alone beats the network on HeliBoard top-3,
+which is why the blend is part of the engine.
