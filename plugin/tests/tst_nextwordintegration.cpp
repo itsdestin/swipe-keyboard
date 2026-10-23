@@ -202,7 +202,19 @@ private slots:
         if(native)QCOMPARE(captured,QStringList{selected.toLower()});
         QTRY_VERIFY(!method.predictionSelectionToken().isEmpty());ic->inputEngine()->setInputMethod(nullptr);
     }
+    void spanishCompletionRanksBySentenceBeforeTheWord_data() {
+        QTest::addColumn<int>("hints");QTest::addColumn<bool>("private_");
+        QTest::newRow("ordinary-field")<<0<<false;
+        // Control: a harmless field hint still completes, so the private rows below fail for privacy alone.
+        QTest::newRow("lowercase-hint")<<int(Qt::ImhPreferLowercase)<<false;
+        // WHY: the sentence-aware completion reads the text before the word; it must never run where the
+        // keyboard is told the text is a password or private.
+        QTest::newRow("password")<<int(Qt::ImhHiddenText|Qt::ImhSensitiveData)<<true;
+        QTest::newRow("private")<<int(Qt::ImhSensitiveData)<<true;
+        QTest::newRow("hidden")<<int(Qt::ImhHiddenText)<<true;
+    }
     void spanishCompletionRanksBySentenceBeforeTheWord() {
+        QFETCH(int,hints);QFETCH(bool,private_);
         // WHY: n-gram languages re-rank completions by the words before the typed letters (card #170). The
         // worker stub stands in for the model; the test pins the plumbing: right letters, right sentence,
         // and the context answer replacing the dictionary's list with the typed letters still offered.
@@ -214,12 +226,13 @@ private slots:
         QQmlEngine engine;QQmlComponent fixture(&engine);fixture.setData("import QtQuick; import QtQuick.VirtualKeyboard; Item {property var context:InputContext}",QUrl());
         std::unique_ptr<QObject> root(fixture.create());QVERIFY(root);auto *item=qobject_cast<QQuickItem*>(root.get());
         QQuickWindow window;window.resize(500,200);item->setParentItem(window.contentItem());InputListenerItem edit(item);
-        edit.text=QStringLiteral("vivo en una ");edit.cursor=edit.text.size();
+        edit.text=QStringLiteral("vivo en una ");edit.cursor=edit.text.size();edit.hints|=Qt::InputMethodHints(hints);
         window.show();window.requestActivate();edit.forceActiveFocus();
         auto *ic=qvariant_cast<QVirtualKeyboardInputContext*>(root->property("context"));QVERIFY(ic);
-        QStringList prefixes,contexts;QSemaphore completions;
+        QStringList prefixes,contexts;QSemaphore completions,anyCompletion;
         SwipeInputMethod method(nullptr,[&](const PredictionJob&job){
             if(job.prefix.isEmpty())return QStringList{"x","y","z"};
+            anyCompletion.release();
             // WHY release only for the full "cas" (see englishCompletion): earlier letters ask too.
             if(job.prefix!=QStringLiteral("cas"))return QStringList{};
             prefixes<<job.prefix;contexts=job.context;completions.release();
@@ -230,6 +243,13 @@ private slots:
         for(auto c:QString("cas")){
             method.keyEvent(Qt::Key(QChar(c).toUpper().unicode()),QString(c),Qt::NoModifier);ic->commit(QString(c));
             QGuiApplication::inputMethod()->update(Qt::ImQueryAll);method.update();
+        }
+        if(private_) {
+            // settle: nothing may reach the model, and no suggestion may show.
+            QVERIFY(!anyCompletion.tryAcquire(1,1500));
+            QCOMPARE(method.selectionListItemCount(QVirtualKeyboardSelectionListModel::Type::WordCandidateList),0);
+            ic->inputEngine()->setInputMethod(nullptr);
+            return;
         }
         QVERIFY(completions.tryAcquire(1,15000));
         QCOMPARE(contexts,QStringList({"vivo","en","una"}));
