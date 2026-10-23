@@ -16,7 +16,12 @@ before_helper="$(commit "$HELPER_ID")"; [ -n "$before_helper" ] && apps+=("$HELP
 
 # WHY --noninteractive -y: nobody is there to answer. A failure (offline, site down) leaves the installed version
 # working and is simply tried again tomorrow.
-flatpak update --user --noninteractive -y "${apps[@]}" || exit 1
+# WHY one app at a time: one refused update (seen in the VM: Flatpak refused the helper as "older") must not hold
+# back the other app.
+failed=0
+for app in "${apps[@]}"; do
+    flatpak update --user --noninteractive -y "$app" || failed=1
+done
 
 after_main="$(commit "$MAIN_ID")"; after_helper="$(commit "$HELPER_ID")"
 if [ "$after_main" != "$before_main" ] || [ "$after_helper" != "$before_helper" ]; then
@@ -31,3 +36,4 @@ if [ "$after_main" != "$before_main" ] || [ "$after_helper" != "$before_helper" 
 else
     echo "Swipe Keyboard is up to date."
 fi
+exit "$failed"

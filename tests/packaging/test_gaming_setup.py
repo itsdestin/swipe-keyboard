@@ -35,6 +35,8 @@ case "$1" in
         # WHY a commit per app: auto-update.sh compares commits before and after to know whether anything changed.
         case "$*" in *--show-commit*) cat "$FAKE_APPS.$id" 2>/dev/null || echo old;; esac
         exit 0 ;;
+  remotes) for id in $(cat "$FAKE_APPS"); do [ "$id" = org.itsdestin.SwipeKeyboard.GamingHelper ] && [ -n "$FAKE_LOST_ORIGIN" ] && continue
+             echo "$(echo "$id" | tr -d '.' | tr 'A-Z' 'a-z')-origin"; done ;;
   update) [ "$FAKE_FAIL" = update ] && exit 1
           if [ -n "$FAKE_NEW" ]; then for id; do case "$id" in org.*) echo new > "$FAKE_APPS.$id";; esac; done; fi ;;
   install) [ "$FAKE_FAIL" = install ] && { echo 'fake: install failed' >&2; exit 1; }
@@ -921,6 +923,13 @@ class AutoUpdateTests(unittest.TestCase):
         self.assertNotIn('@', service)
         self.assertTrue((f.home / '.local/share/swipe-keyboard-gaming/auto-update.sh').stat().st_mode & 0o111)
 
+    def test_an_origin_flatpak_already_dropped_is_recreated_with_the_key(self):
+        # WHY: seen on SteamOS: right after the helper bundle was installed its origin remote no longer existed.
+        f = Fixture(self)
+        self.assertEqual(f.run('install.sh', '--gaming', '--leave-open', '--yes', extra={'FAKE_LOST_ORIGIN': '1'}).returncode, 0)
+        self.assertIn(f'flatpak remote-add --user --no-enumerate --gpg-import={f.bundle}/update-key.gpg '
+                      'orgitsdestinswipekeyboardgaminghelper-origin https://itsdestin.github.io/swipe-keyboard/repo/', f.calls())
+
     def test_no_auto_update_adds_nothing_and_is_remembered(self):
         f = Fixture(self)
         self.assertEqual(f.run('install.sh', '--no-auto-update', '--yes').returncode, 0)
@@ -955,7 +964,8 @@ class AutoUpdateTests(unittest.TestCase):
         f.log.write_text('')
         self.assertEqual(self.run_update(f).returncode, 0)                 # nothing new: no restart
         self.assertEqual(f.calls(), [c for c in f.calls() if c.startswith('flatpak ')])
-        self.assertIn(f'flatpak update --user --noninteractive -y {MAIN_ID} {HELPER_ID}', f.calls())
+        self.assertIn(f'flatpak update --user --noninteractive -y {MAIN_ID}', f.calls())
+        self.assertIn(f'flatpak update --user --noninteractive -y {HELPER_ID}', f.calls())
         f.log.write_text('')
         result = self.run_update(f, FAKE_NEW='1')
         self.assertEqual(result.returncode, 0)
