@@ -14,3 +14,4 @@ const field={type:"password"};
 const ctx="SharedJSContext";
 SteamClient.Apps?.AddShortcut(a,b,c,d);
 x.set_content_type(IBus.InputPurpose.FREE_FORM,IBus.InputHints.NONE);
+const origin="https://steamloopback.host";

@@ -121,11 +121,41 @@ class HelperFlatpakTests(unittest.TestCase):
         self.assertTrue(executable)
         # WHY exact PYTHONPATH and no inherited one: the helper talks to Steam's debug port, so it must not
         # import code from a path the caller's environment supplies.
-        self.assertIn('PYTHONPATH=/app/lib/swipekb-helper', wrapper)
+        self.assertIn('/app/lib/swipekb-helper', wrapper)
         self.assertNotIn('${PYTHONPATH', wrapper)
-        self.assertIn('-m swipekb_helper', wrapper)
+        self.assertIn('python3 -I', wrapper)
         # WHY: the status file must land where the installer and the Desktop settings page look, not in the sandbox's private folder.
         self.assertIn('SWIPEKB_STATE_DIR="$HOME/.local/state/swipekb-gaming"', wrapper)
+
+    def test_wrapper_runs_the_helper_in_isolated_mode_importing_nothing_from_the_caller(self):
+        """Review fix 8: `python3 -s -m` still puts the current folder (and PYTHONPATH) on the import path; -I does not."""
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            work, prefix, hostile, cwd = base / 'work', base / 'app', base / 'hostile', base / 'cwd'
+            for d in (hostile, cwd):
+                d.mkdir()
+                (d / 'json.py').write_text('print("PLANTED")\n')
+            pkg = work / 'gaming/helper/swipekb_helper'
+            pkg.mkdir(parents=True)
+            (pkg / '__init__.py').write_text('')
+            # the stand-in helper reports where the standard library's json came from and which package it was started as
+            (pkg / '__main__.py').write_text('import json, sys\nprint(json.__file__)\nprint(__package__)\n')
+            (work / 'gaming/contract').mkdir(parents=True)
+            (work / 'gaming/contract/gaming-contract.json').write_text('{}')
+            built = subprocess.run(['sh', str(BUNDLE / 'build-helper.sh')], cwd=work, capture_output=True, text=True,
+                                   env={'PATH': os.environ['PATH'], 'SWIPEKB_HELPER_PREFIX': str(prefix)})
+            self.assertEqual(built.returncode, 0, built.stderr)
+            wrapper = prefix / 'bin/swipekb-helper'
+            # inside Flatpak the app lives at /app; here the same file is pointed at the temporary copy
+            wrapper.write_text(wrapper.read_text().replace('/app/', str(prefix) + '/'))
+            run = subprocess.run(['sh', str(wrapper)], cwd=cwd, capture_output=True, text=True,
+                                 env={'PATH': os.environ['PATH'], 'HOME': str(base), 'PYTHONPATH': str(hostile)})
+            self.assertEqual(run.returncode, 0, run.stderr)
+            self.assertNotIn('PLANTED', run.stdout)
+            lines = run.stdout.split()
+            self.assertNotIn(str(cwd), lines[0])
+            self.assertNotIn(str(hostile), lines[0])
+            self.assertEqual(lines[1], 'swipekb_helper', 'the package still starts as the helper')
 
 
 class SystemdUnitTests(unittest.TestCase):
@@ -154,10 +184,13 @@ class SystemdUnitTests(unittest.TestCase):
             self.assertNotRegex(text, r'(?m)^Environment')
             self.assertIn('Restart=always', text)
             self.assertIn('RestartSec=3', text)
-            # WHY a start limit: if the Flatpak is removed without running uninstall, the unit stops
-            # retrying after a minute or so instead of failing every 3 s forever on a handheld battery.
-            self.assertIn('StartLimitIntervalSec=300', text)
-            self.assertIn('StartLimitBurst=30', text)
+            # WHY no start limit but a growing wait (review fix 5): a limit of 30 starts in 300 s was reached after about 90 s of a
+            # crash loop and left the unit dead with no explanation. Instead the wait between tries grows from 3 s to a few
+            # minutes, which is just as gentle on a handheld battery if the Flatpak was removed without running uninstall.
+            self.assertIn('StartLimitIntervalSec=0', text)
+            self.assertNotIn('StartLimitBurst', text)
+            self.assertRegex(text, r'(?m)^RestartSteps=\d+$')
+            self.assertRegex(text, r'(?m)^RestartMaxDelaySec=\d+$')
 
     def test_units_carry_ownership_and_version_stamp_for_safe_upgrade_and_uninstall(self):
         # WHY: install.sh and uninstall.sh only overwrite or delete a unit that carries this stamp.
@@ -165,6 +198,11 @@ class SystemdUnitTests(unittest.TestCase):
             lines = self.unit(name).splitlines()
             self.assertEqual(lines[0], '# swipekb-gaming-managed')
             self.assertEqual(lines[1], '# swipekb-gaming-version: @VERSION@')
+
+    def test_helper_stop_asks_it_to_clean_up_first_and_cannot_fail_the_stop(self):
+        # WHY (review fix 8): --die-with-parent turns SIGTERM into an instant kill; the leading "-" means a missing script cannot
+        # make the stop itself fail.
+        self.assertIn('\nExecStop=-@WATCH_SCRIPT@ stop-helper\n', self.unit('swipekb-helper.service'))
 
     def test_helper_starts_after_engine_but_does_not_require_it(self):
         helper = self.unit('swipekb-helper.service')

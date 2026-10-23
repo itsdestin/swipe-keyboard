@@ -99,7 +99,8 @@ def load_contract(path):
     dev = c.get('device', {})
     refs = [t.get('static_check') for t in dev.get('targets', [])]
     refs += [m.get('static_check') for m in dev.get('steam_client_methods', [])]
-    refs += [dev.get('keyboard_dom', {}).get('static_check'), dev.get('password_signal', {}).get('static_check')]
+    refs += [dev.get('keyboard_dom', {}).get('static_check'), dev.get('password_signal', {}).get('static_check'),
+            dev.get('ui_origin', {}).get('static_check')]
     for r in refs:
         if r is not None and r not in ids:
             raise ContractError(f'device block points at unknown static check {r!r}')

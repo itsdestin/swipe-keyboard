@@ -127,11 +127,11 @@ SPY_ON = r"""
  Event.prototype.stopImmediatePropagation = function(){ S.stops++; return S.orig.stop.apply(this, arguments); };
  S.orig.binding = window.__swipekb;
  window.__swipekb = function(p){ S.binding++; return S.orig.binding.apply(this, arguments); };
- S.strokeBefore = window.__swipekbLayer && window.__swipekbLayer.lastStroke ? window.__swipekbLayer.lastStroke.id : null;
+ S.strokeBefore = window.__swipekbLayer && window.__swipekbLayer.lastStrokeId || null;
  return 'on';
 })()
 """
-SPY_READ = "JSON.stringify({stops: window.__m6spy.stops, binding: window.__m6spy.binding, strips: document.querySelectorAll('.swipekb-strip').length, trails: document.querySelectorAll('.swipekb-trail').length, lastStroke: window.__swipekbLayer && window.__swipekbLayer.lastStroke ? window.__swipekbLayer.lastStroke.id : null, strokeBefore: window.__m6spy.strokeBefore})"
+SPY_READ = "JSON.stringify({stops: window.__m6spy.stops, binding: window.__m6spy.binding, strips: document.querySelectorAll('.swipekb-strip').length, trails: document.querySelectorAll('.swipekb-trail').length, lastStroke: window.__swipekbLayer && window.__swipekbLayer.lastStrokeId || null, strokeBefore: window.__m6spy.strokeBefore})"
 SPY_OFF = "(function(){var S=window.__m6spy;if(!S)return 'none';Event.prototype.stopImmediatePropagation=S.orig.stop;window.__swipekb=S.orig.binding;delete window.__m6spy;return 'restored'})()"
 
 

@@ -192,7 +192,7 @@ class InstallTests(unittest.TestCase):
         engine = (f.units / 'swipekb-engine.service').read_text()
         self.assertEqual(engine.splitlines()[1], '# swipekb-gaming-version: 0.3.1-1')
         self.assertNotIn('@VERSION@', engine)
-        self.assertEqual(engine.splitlines()[2], '# swipekb-gaming-unit-revision: 2')   # WHY: bumped when unit files change, so an installed copy is visibly old
+        self.assertEqual(engine.splitlines()[2], '# swipekb-gaming-unit-revision: 3')   # WHY: bumped when unit files change, so an installed copy is visibly old
         self.assertTrue((f.units / 'swipekb-helper.service').is_file())
         record = f.record()
         self.assertEqual(record['version'], '0.3.1-1')
@@ -782,6 +782,102 @@ class UninstallTests(unittest.TestCase):
         f2.dropin.write_text('[Socket]\nListenStream=\n')
         f2.run('install.sh', '--gaming', '--leave-open')
         self.assertTrue(f2.dropin.is_file())
+
+
+class ReviewFixTests(unittest.TestCase):
+    """Fixes from the independent review of the Gaming Mode branch (plan: Pre-merge review fixes)."""
+
+    def gaming(self):
+        f = Fixture(self)
+        self.assertEqual(f.run('install.sh', '--gaming', '--block-outside').returncode, 0)
+        f.log.write_text('')
+        return f
+
+    def decky(self, f, how='folder'):
+        if how == 'folder':
+            (f.home / 'homebrew/services').mkdir(parents=True)
+            (f.home / 'homebrew/services/PluginLoader').write_text('')
+        else:
+            (f.sysdir / 'plugin_loader.service').write_text('[Service]\n')
+
+    def test_uninstall_keeps_the_switch_file_when_decky_loader_was_added_after_us(self):
+        for how in ('folder', 'unit'):
+            f = self.gaming()
+            self.decky(f, how)
+            result = f.run('uninstall.sh', '--yes')
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue((f.steam / MARKER).is_file(), how)
+            self.assertIn('Decky Loader', result.stdout)
+
+    def test_uninstall_says_beforehand_that_it_will_keep_the_file_for_decky(self):
+        f = self.gaming()
+        self.decky(f)
+        result = f.run('uninstall.sh', '--dry-run', stdin='')
+        self.assertIn('Decky Loader', result.stdout)
+        self.assertNotIn('delete the developer-switch file', result.stdout)
+
+    def test_turning_gaming_off_keeps_the_switch_file_for_decky_and_forgets_it_as_ours(self):
+        f = self.gaming()
+        self.decky(f)
+        result = f.run('install.sh', '--desktop-only')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue((f.steam / MARKER).is_file())
+        self.assertIn('Decky Loader', result.stdout)
+        self.assertEqual(f.record()['created_markers'], [])
+        self.assertEqual(f.record()['existing_markers'], [str(f.steam / MARKER)])
+
+    def test_without_decky_the_switch_file_we_made_still_goes(self):
+        f = self.gaming()
+        f.run('uninstall.sh', '--yes')
+        self.assertFalse((f.steam / MARKER).exists())
+
+    def test_a_recorded_path_that_is_not_the_switch_file_in_steams_folder_is_never_deleted(self):
+        for victim in ('Documents/precious.txt', 'Documents/' + MARKER, '.local/share/Steam/config.vdf'):
+            f = self.gaming()
+            target = f.home / victim
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text('mine')
+            rec = f.home / '.local/share/swipe-keyboard-gaming/install-record.json'
+            rec.write_text(rec.read_text().replace(str(f.steam / MARKER), str(target)))
+            result = f.run('uninstall.sh', '--yes')
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(target.read_text(), 'mine', victim)
+            self.assertTrue((f.steam / MARKER).is_file(), 'the real file is not ours any more on paper, so it stays too')
+            f2 = self.gaming()
+            rec = f2.home / '.local/share/swipe-keyboard-gaming/install-record.json'
+            t2 = f2.home / victim
+            t2.parent.mkdir(parents=True, exist_ok=True)
+            t2.write_text('mine')
+            rec.write_text(rec.read_text().replace(str(f2.steam / MARKER), str(t2)))
+            f2.run('install.sh', '--desktop-only')
+            self.assertEqual(t2.read_text(), 'mine', 'turning Gaming Mode off applies the same rule: ' + victim)
+
+    def test_uninstall_does_not_disable_a_unit_that_is_not_ours(self):
+        f = self.gaming()
+        (f.units / 'swipekb-helper.service').write_text('[Service]\nExecStart=/bin/true\n')
+        f.run('uninstall.sh', '--yes')
+        disables = [c for c in f.calls() if c.startswith('systemctl --user disable')]
+        self.assertEqual(len(disables), 1, disables)
+        self.assertNotIn('swipekb-helper.service', disables[0])
+        self.assertIn('swipekb-engine.service', disables[0])
+
+    def test_running_the_installer_again_clears_the_helpers_pause_and_restarts_it(self):
+        f = self.gaming()
+        state = f.home / '.local/state/swipekb-gaming'
+        state.mkdir(parents=True, exist_ok=True)
+        (state / 'retry.json').write_text('{"fingerprint": "x", "failures": 3, "detail": "d"}')
+        f.log.write_text('')
+        self.assertEqual(f.run('install.sh', '--gaming', '--block-outside').returncode, 0)
+        self.assertFalse((state / 'retry.json').exists())
+        self.assertTrue([c for c in f.calls() if c.startswith('systemctl --user restart')], f.calls())
+
+    def test_a_dry_run_leaves_the_pause_alone(self):
+        f = self.gaming()
+        state = f.home / '.local/state/swipekb-gaming'
+        state.mkdir(parents=True, exist_ok=True)
+        (state / 'retry.json').write_text('{}')
+        f.run('install.sh', '--gaming', '--dry-run', stdin='')
+        self.assertTrue((state / 'retry.json').exists())
 
 
 if __name__ == '__main__':

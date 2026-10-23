@@ -22,6 +22,7 @@ DROPIN_DIR="$SYSTEM_UNIT_DIR/$SOCKET_UNIT.d"
 DROPIN="$DROPIN_DIR/swipekb-loopback-only.conf"
 UNITS=(swipekb-engine.service swipekb-helper.service swipekb-switch-watch.service swipekb-switch-watch.timer)
 MAIN_ID=org.itsdestin.SwipeKeyboard
+MARKER_NAME=.cef-enable-remote-debugging
 HELPER_ID=org.itsdestin.SwipeKeyboard.GamingHelper
 
 DRY_RUN=0; ASSUME_YES=0; REMOVE_APPS=0
@@ -50,10 +51,33 @@ while IFS= read -r line; do [ -n "$line" ] && INSTALLED_APPS+=("$line"); done < 
 # happens to share the name.
 ours() { [ -f "$UNIT_DIR/$1" ] && [ "$(head -n 1 "$UNIT_DIR/$1")" = '# swipekb-gaming-managed' ]; }
 
+# Review fix 4. Decky Loader (a popular community tool) uses the same developer-switch file. If it was installed after us, deleting
+# the file here would quietly break it, so the file is kept and the person is told.
+decky_present() { [ -e "$HOME/homebrew/services/PluginLoader" ] || [ -e "$SYSTEM_UNIT_DIR/plugin_loader.service" ]; }
+# A recorded path is deleted only if it really is the switch file inside one of Steam's own folders: the record is a plain text file,
+# and a wrong or edited line must never lead to deleting something else.
+marker_is_switch_file() {
+    case "$1" in */"$MARKER_NAME") ;; *) return 1 ;; esac
+    local real candidate
+    real="$(readlink -f "$(dirname "$1")" 2>/dev/null)" || return 1
+    for candidate in "$HOME/.steam/steam" "$HOME/.local/share/Steam"; do
+        [ -d "$candidate" ] && [ "$(readlink -f "$candidate")" = "$real" ] && return 0
+    done
+    return 1
+}
+
 echo "Swipe Keyboard for Gaming Mode: removal. This will:"
 echo "  - stop and turn off the background services (the engine, the helper and the once-a-minute switch check), and delete their files from $UNIT_DIR (only files this installer wrote)"
 if [ -f "$RECORD" ]; then
-    for marker in "${CREATED_MARKERS[@]+"${CREATED_MARKERS[@]}"}"; do echo "  - delete the developer-switch file $marker (this installer created it)"; done
+    for marker in "${CREATED_MARKERS[@]+"${CREATED_MARKERS[@]}"}"; do
+        if ! marker_is_switch_file "$marker"; then
+            echo "  - leave $marker alone: it is not Steam's developer-switch file in Steam's folder"
+        elif decky_present; then
+            echo "  - keep the developer-switch file $marker: Decky Loader appears to be installed and relies on it"
+        else
+            echo "  - delete the developer-switch file $marker (this installer created it)"
+        fi
+    done
     echo "  - leave any developer-switch file that existed before this install exactly as it is"
 else
     echo "  - leave Steam's developer-switch file alone: there is no install record, so it is not known whether this installer made it"
@@ -80,8 +104,10 @@ fi
 
 HAD_RECORD=0; [ -f "$RECORD" ] && HAD_RECORD=1
 
+# WHY only units that carry our stamp (review fix 4): a file of yours with the same name is not ours to switch off either.
 # disable can complain if a unit is already gone; that is fine, we are removing it anyway.
-systemctl --user disable --now "${UNITS[@]}" || true
+OURS=(); for unit in "${UNITS[@]}"; do if ours "$unit"; then OURS+=("$unit"); fi; done
+if [ "${#OURS[@]}" -gt 0 ]; then systemctl --user disable --now "${OURS[@]}" || true; fi
 for unit in "${UNITS[@]}"; do
     if ours "$unit"; then
         # ${VAR:?} makes the shell stop instead of deleting a wrong path if a name were ever empty.
@@ -93,8 +119,12 @@ done
 systemctl --user daemon-reload || true
 
 for marker in "${CREATED_MARKERS[@]+"${CREATED_MARKERS[@]}"}"; do
+    if ! marker_is_switch_file "$marker"; then
+        echo "Left $marker alone: it is not Steam's developer-switch file in Steam's folder."
+    elif decky_present; then
+        echo "Kept $marker: Decky Loader appears to be installed and relies on this developer-switch file. Remove it yourself if you no longer use Decky Loader."
     # WHY a regular file only: never follow a link or remove a folder because a path was edited by hand.
-    if [ -f "$marker" ] && [ ! -L "$marker" ]; then rm -f "${marker:?}"; fi
+    elif [ -f "$marker" ] && [ ! -L "$marker" ]; then rm -f "${marker:?}"; fi
 done
 
 # WHY only a recorded, stamped file: never remove a system file this installer did not make.

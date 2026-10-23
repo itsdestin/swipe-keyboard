@@ -283,7 +283,9 @@ function swipekbGestures(w, L, opts) {
   function emit(s) {
     var msg = { v: 1, type: 'stroke', id: ++strokeId, trace: s.pts, vw: w.innerWidth, vh: w.innerHeight,
       keys: s.keyList.map(function (k) { return { k: k.key, x: Math.round(k.x * 10) / 10, y: Math.round(k.y * 10) / 10, w: Math.round(k.w), h: Math.round(k.h) }; }) };
-    L.lastStroke = msg;   // kept in page memory only; the next stroke replaces it
+    // WHY only the number (review fix 6): the swipe path (and the keys it crossed) spells the word, and a page that outlives
+    // the keyboard must not hold it. The number lets the VM test rigs prove a stroke happened.
+    L.lastStrokeId = msg.id;
     if (typeof H.stroke === 'function') { H.stroke(msg); return; }   // the session adds context and policy, then sends it
     try { if (typeof w.__swipekb === 'function') w.__swipekb(JSON.stringify(msg)); } catch (err) { /* helper gone: the swipe just does nothing */ }
   }

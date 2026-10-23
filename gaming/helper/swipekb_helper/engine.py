@@ -5,7 +5,9 @@ WHY this file is small and dumb: the daemon owns every decision about words. We 
 word travels, and it is closed when the keyboard session ends so the daemon forgets the layout and the candidate ids.
 """
 import json
+import os
 import socket
+import stat
 import struct
 
 MAX_FRAME = 256 * 1024     # same limit as the daemon; a bigger frame is refused before it is sent
@@ -23,8 +25,28 @@ class EngineGone(Exception):
     """The daemon is not there (no socket, refused, hung up, too slow). The caller gives up quietly: Steam's own keyboard is unaffected."""
 
 
+def _check_private(socket_path, token_path):
+    """Refuse an engine folder that someone else could have made or written to (review fix 7).
+
+    The token is a password for the engine, and the helper sends it to whatever listens on the socket. Both live in a folder the
+    engine makes for our user alone (mode 0700); if the folder or the token belongs to another user, or others can read or write
+    them, whatever is there is not the engine we installed."""
+    me = os.getuid()
+    try:
+        folder = os.stat(os.path.dirname(str(socket_path)) or '.')
+        token = os.stat(str(token_path))
+        sock = os.stat(str(socket_path))
+    except OSError as e:
+        raise EngineGone('cannot reach the engine: %s' % e.__class__.__name__)
+    ok = (folder.st_uid == me and not folder.st_mode & 0o077 and stat.S_ISDIR(folder.st_mode)
+          and token.st_uid == me and not token.st_mode & 0o077 and sock.st_uid == me)
+    if not ok:
+        raise EngineGone('the engine folder is not private to this user')
+
+
 class EngineConn:
     def __init__(self, socket_path, token_path, mode, timeout=30.0):
+        _check_private(socket_path, token_path)
         self.sock = socket.socket(socket.AF_UNIX)
         try:
             with open(token_path) as f:

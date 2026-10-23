@@ -1,12 +1,14 @@
 # swipekb-gaming-managed
 # swipekb-gaming-version: @VERSION@
-# swipekb-gaming-unit-revision: 2
+# swipekb-gaming-unit-revision: 3
 # WHY the two lines above: install.sh and uninstall.sh only overwrite or delete a unit file that carries them,
 # so a file of yours with the same name is never touched.
 [Unit]
 Description=Swipe Keyboard Gaming Mode engine (word guessing; no network)
-StartLimitIntervalSec=300
-StartLimitBurst=30
+# WHY no start limit (review fix 5): "30 starts in 300 s" was used up after about 90 s of a crash loop, and the unit then stayed
+# dead with nothing to say why. systemd waits longer between tries instead (3 s, growing to 2 minutes), so a program that cannot
+# start costs almost nothing, and one that recovers (Steam updated, Flatpak reinstalled) comes back by itself.
+StartLimitIntervalSec=0
 
 [Service]
 # WHY the Flatpak app id and not a path: a Flatpak update replaces the files this runs from, so a path would
@@ -18,6 +20,8 @@ StartLimitBurst=30
 ExecStart=/usr/bin/flatpak run --die-with-parent --user --command=swipekb-gamingd org.itsdestin.SwipeKeyboard
 Restart=always
 RestartSec=3
+RestartSteps=6
+RestartMaxDelaySec=120
 
 [Install]
 WantedBy=default.target

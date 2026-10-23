@@ -68,7 +68,7 @@ test('password box: a counting spy proves nothing is stopped, sent, drawn, remem
   assert.equal(r.calls.length, 0, 'zero binding calls');
   assert.ok(r.strip() === null, 'no strip in the page');
   assert.ok(r.trail() === null, 'no trail canvas');
-  assert.equal(r.L.lastStroke, undefined, 'no stroke recorded');
+  assert.equal(r.L.lastStrokeId, undefined, 'no stroke recorded');
   assert.equal(r.sess.debug().bufferLength, 0, 'nothing remembered');
   assert.deepEqual(r.S.typed.slice(0, 6), [...'secret'], 'Steam typed the letters itself');
   assert.equal(r.L.gestures.stats().tap + r.L.gestures.stats().swipe, 0);

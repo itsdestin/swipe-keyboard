@@ -221,6 +221,22 @@ class CanaryCli(unittest.TestCase):
         self.assertIn('desktop-stable', (self.dir / 's.md').read_text())
         self.assertEqual(len(json.loads(self.path.read_text())['channels']), 4)
 
+    def test_a_download_that_is_not_a_zip_is_a_broken_canary_exit_3_not_a_traceback(self):
+        """Review fix 8: a file that matches its checksum but cannot be opened must not crash the run with exit 1 (= "Steam changed")."""
+        files = {}
+        for m in CHANNELS:
+            add_channel(files, m, '1792618285', b'this is not a zip file', native_zip())
+        server = FakeServer(files)
+        err = io.StringIO()
+        from contextlib import redirect_stderr
+        with redirect_stdout(io.StringIO()), redirect_stderr(err):
+            code = canary.cli(['run', '--contract', str(CONTRACT), '--ledger', str(self.path),
+                                         '--work-dir', str(self.dir), '--now', '2026-10-22T06:00:00Z'],
+                                        fetcher_factory=lambda base: fetch.Fetcher(base, opener=server, sleep=lambda s: None))
+        self.assertEqual(code, 3)
+        self.assertNotIn('Traceback', err.getvalue())
+        self.assertIn('zip', err.getvalue().lower())
+
 
 if __name__ == '__main__':
     unittest.main()

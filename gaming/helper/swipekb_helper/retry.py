@@ -5,9 +5,10 @@ import os
 
 
 class RetryLedger:
-    def __init__(self, path, max_failures):
+    def __init__(self, path, max_failures, boot_id=None):
         self.path = path
         self.max = max_failures
+        self.boot_id = boot_id          # names this boot of the device; None when it cannot be read
         self.fingerprint = None
         self.failures = 0
         self.detail = ''
@@ -20,6 +21,12 @@ class RetryLedger:
             self.fingerprint = d.get('fingerprint')
             self.failures = int(d.get('failures', 0))
             self.detail = str(d.get('detail', ''))
+            # WHY (review fix 3): a pause survives a helper restart (so a changed Steam is not hammered) but not a reboot, so the
+            # person is never stuck until Steam's next update. An unreadable boot id on either side changes nothing.
+            old_boot = d.get('boot_id')
+            if self.boot_id and old_boot and old_boot != self.boot_id:
+                self.failures, self.detail = 0, ''
+                self._save()
         except (OSError, ValueError, TypeError):
             pass
 
@@ -29,7 +36,7 @@ class RetryLedger:
             tmp = self.path.with_name('.retry.%d.tmp' % os.getpid())
             fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
             with os.fdopen(fd, 'w') as f:
-                json.dump({'fingerprint': self.fingerprint, 'failures': self.failures, 'detail': self.detail}, f)
+                json.dump({'fingerprint': self.fingerprint, 'failures': self.failures, 'detail': self.detail, 'boot_id': self.boot_id}, f)
             os.replace(tmp, self.path)
         except OSError:
             pass
