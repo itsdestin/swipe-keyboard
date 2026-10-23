@@ -3,7 +3,7 @@ status: active
 ---
 # Gaming Mode support (Steam Deck / SteamOS)
 
-Planning document only. No product code exists yet. Facts marked **spike** were measured in the SteamOS Gaming Mode VM on 2026-10-22; facts marked **unverified** need the Milestone 0 probes before anything depends on them. **Milestone 0 has been run (2026-10-22): results are in the last section, "M0 results"; where they contradicted this plan the affected sections below were edited and say "(M0)".**
+**Merged to main 2026-10-22 (M0–M10 built and VM-verified). Still open: M11 real-Deck pass, the hosted update repo, the weekly canary account and the first release; this plan stays active until those land.** Facts marked **spike** were measured in the SteamOS Gaming Mode VM on 2026-10-22; facts marked **unverified** need the Milestone 0 probes before anything depends on them. **Milestone 0 has been run (2026-10-22): results are in the last section, "M0 results"; where they contradicted this plan the affected sections below were edited and say "(M0)".**
 
 ## Plain-language summary (for the owner)
 
