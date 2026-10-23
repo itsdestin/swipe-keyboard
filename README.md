@@ -177,6 +177,7 @@ If restoring the keyboard fails, removal stops. Follow the error or use the [rec
 - **Next-word suggestions:** in English, Spanish, French or German, tap or swipe a word, then press Space. The strongest suggestion is in the middle. Tap a suggestion to insert it. Spanish, French and German suggestions are an early baseline and can be repetitive or less natural.
 - **Learning (off unless you turn it on):** the keyboard can remember your names, slang and favourite word pairs, on this computer only, and never from password, e-mail, web-address or number fields. Turn it on or off with `swipe-keyboard learning on` / `off`, erase it with `swipe-keyboard learning forget`, or press and hold a learned suggestion and choose **Remove from dictionary**. [Details](docs/install-details.md#learning-from-your-typing-off-by-default)
 - **Move the cursor:** slide your finger (or mouse) sideways along the Space bar. The cursor moves in the direction you slide and no space is typed: one character at a time when you slide slowly, and further the faster you slide, like a touchpad. A normal tap still types a space. It works on the letters page, including in password fields, but not on the `?123` symbols page.
+- **Texting words:** common abbreviations and slang (lol, wyd, rn, jaja, mdr, lg ...) can be swiped and completed in English, Spanish, French and German. Swear-word abbreviations are never suggested before you type them.
 - **Backspace:** the first press can remove the whole swiped word. Moving the cursor or changing fields can clear suggestions.
 
 ## Help

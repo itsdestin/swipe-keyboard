@@ -33,5 +33,5 @@ A strength only ever LIFTS a word: if the dictionary already has the word strong
 3. Measure before shipping a change: swipe the real test sets with and without the list (English FUTO sets
    bench-2000 and test-extra-10000, HeliBoard en/es/fr/de test sets; both swipe engines where they apply).
    The loss in first-guess accuracy must stay under 0.2 points on every set; lower or drop any entry that
-   costs ordinary swipes. With the strengths here the measured loss was 0.00 to 0.10 points (see CHANGELOG).
+   costs ordinary swipes. With the strengths here the measured change was at most 0.02 points (see CHANGELOG).
    `bench/texting-dict.py` builds the "after" dictionary the benches read.
