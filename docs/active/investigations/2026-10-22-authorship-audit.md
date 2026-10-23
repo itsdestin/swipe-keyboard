@@ -102,7 +102,7 @@ CLEAN: 158, DATA/ASSET: 12, FUTO-DERIVED: 53, UNSURE: 16
 | cmake/Install.cmake | CLEAN | no FUTO / swipe_decoder / ExecuTorch reference found by grep; ours |
 | docs/active/plans/2026-10-20-multilingual-prediction.md | CLEAN | no FUTO / swipe_decoder / ExecuTorch reference found by grep; ours |
 | docs/active/plans/2026-10-22-open-engine-roadmap.md | CLEAN | our plan |
-| docs/cleanroom/gboard-report.md | UNSURE | Gboard clean-room study (not FUTO); mentions FUTO; licence/provenance of study text - ours; keep out of KDE tree |
+| docs/cleanroom/gboard-report.md | REMOVED 2026-10-23 | Gboard study report withdrawn at the owner's request |
 | docs/compatibility-investigation.md | CLEAN | no FUTO / swipe_decoder / ExecuTorch reference found by grep; ours |
 | docs/images/swipe-typing.png | DATA/ASSET | own screenshot, synthetic text |
 | docs/install-details.md | CLEAN | our prose; mentions FUTO (attribution / licence statements) - must be edited when FUTO removed, not derived |

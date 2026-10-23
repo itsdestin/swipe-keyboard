@@ -3,8 +3,7 @@
 //
 // WHY on top of the word-pair/triple model (ngram.hpp): that model only sees the last two words. Many of the
 // remaining "right word was second or third" misses need the whole sentence ("Bach, who was cantor ..." vs
-// "back"). Gboard re-scores its few best guesses with a neural model for the same reason (clean-room report
-// D3). Running a network is far slower than a table lookup, so it only ever looks at the handful of guesses
+// "back"). Running a network is far slower than a table lookup, so it only ever looks at the handful of guesses
 // the cheap ranking already put on top (see nlmRerank in recognizer.hpp).
 //
 // WHY the model code lives in its own library (libswipekb_nlm.so) that is opened only when needed: if

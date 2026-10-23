@@ -58,6 +58,8 @@ copied. (Not legal advice.)
   using the preceding words, how it uses word frequency and personal history, and its spacing,
   correction and backspace behavior. Output: a plain-language report,
   `docs/cleanroom/gboard-report.md`, with no code, disassembly, weights or data excerpts.
+  **Withdrawn 2026-10-23 (Destin):** the report is removed from the repository and no later work uses it.
+  Gboard comparisons are made only by testing the app from the outside (`bench/gboard/`).
 - **A review pass** checks the report for anything copied before it enters the repo.
 - **Build agents** only see the report, Google's published papers, and open sources. They never read
   the private workspace.
