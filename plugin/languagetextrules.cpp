@@ -43,7 +43,7 @@ QStringList textContextWords(const QString &text,int maxWords)
     for (const auto &word:contextWords(displayForm(text).toStdString(),maxWords)) out.append(QString::fromStdString(word));
     return out;
 }
-bool offeredUnprompted(const QString &word,const QString &language)
+bool offeredUnprompted(const QString &word,const QString &language,const std::function<bool(const QString &)> &typedByPerson)
 {
     // WHY a per-language cache filled once: the lists are small built-in resources and this runs per suggestion.
     static QHash<QString,QSet<QString>> blocked;
@@ -60,7 +60,10 @@ bool offeredUnprompted(const QString &word,const QString &language)
     const auto key=word.normalized(QString::NormalizationForm_C).toLower().replace(QChar(0x2019),QLatin1Char('\''));
     // WHY the part before an apostrophe too: "dick's" or "fuck'n" must not slip past a list of bare words.
     const auto apostrophe=key.indexOf(QLatin1Char('\''));
-    return !it->contains(key) && (apostrophe<=0 || !it->contains(key.left(apostrophe)));
+    const bool blockedWord=it->contains(key) || (apostrophe>0 && it->contains(key.left(apostrophe)));
+    // WHY the person's own word passes: they chose to type it, so seeing it offered is what they asked for.
+    // Only the exact word counts, never a different word that merely resembles it.
+    return !blockedWord || (typedByPerson && typedByPerson(key));
 }
 QStringList rankRegionalCandidates(const QStringList &words,const QString &locale,int limit,const QString &rawShape)
 {

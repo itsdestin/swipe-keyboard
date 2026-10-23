@@ -151,6 +151,14 @@ public:
     bool ready() const;
     // Dictionary-only tap completion/correction; bounded traversal of the loaded profile trie.
     std::vector<Candidate> complete(const std::string &ownedPrefix, int top_k = 3) const;
+    // True when the loaded dictionary has this word (apostrophes and hyphens ignored, the way swipes ignore them).
+    bool hasWord(const std::string &word) const;
+    // Adds words the person taught the keyboard (names, slang) to the dictionary this recognizer searches, so
+    // they can be swiped and completed. `freq` is the dictionary's 0..255 score. Words with anything but letters
+    // of the language are skipped (swipes carry no apostrophes). Words cannot be taken out again: forgetting is
+    // done by the caller filtering results, and a restart rebuilds the dictionary.
+    // Call only between swipes, from the thread that recognizes.
+    void addWords(const std::vector<std::pair<std::string, int>> &words);
     // Whole dictionary words exactly one edit from `word` (replaced, dropped, added or swapped letter), most
     // frequent first, never `word` itself. Used when the person taps an existing word to swap it.
     std::vector<Candidate> similar(const std::string &word, int top_k = 12) const;

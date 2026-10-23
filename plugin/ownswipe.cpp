@@ -24,6 +24,7 @@ struct OwnSwipe::Impl {
     std::u32string letters;               // sorted letters of the layout the lexicon was built for
     std::vector<SwipeKey> keys;           // the geometry currently set on the engine
     std::string wordsTsv;                 // filtered dictionary, kept so a new letter set can rebuild the lexicon
+    std::string extraTsv;                 // words the person taught the keyboard, same "word<TAB>freq" lines
 
     // Reads the verified `.combined` file into "word<TAB>freq" lines. Same acceptance rules as the FUTO path's
     // spelling table: skip f=0, "nonword"/not_a_word, and anything that is not letters with inner ' or -.
@@ -82,6 +83,9 @@ struct OwnSwipe::Impl {
             engine.setLayout(SwipeLayout(ks));
             QTemporaryFile tmp;   // WHY a file: the engine reads its word list from a path
             if (!tmp.open() || tmp.write(wordsTsv.data(), qint64(wordsTsv.size())) != qint64(wordsTsv.size())) return false;
+            // WHY appended to the same file: the lexicon is built once from one list; a taught word that is also
+            // in the dictionary just appears twice, which the lexicon tolerates (it matches by key sequence).
+            if (!extraTsv.empty() && tmp.write(extraTsv.data(), qint64(extraTsv.size())) != qint64(extraTsv.size())) return false;
             tmp.flush();
             if (engine.loadWords(tmp.fileName().toStdString()) == 0 || !engine.ready()) return false;
             prior.reset();
@@ -125,6 +129,19 @@ bool OwnSwipe::init(const OwnSwipeSetup &setup)
     } catch (...) {
         return false;
     }
+}
+
+void OwnSwipe::setExtraWords(const std::vector<std::pair<std::string, int>> &words)
+{
+    std::ostringstream tsv;
+    for (const auto &w : words) {
+        // WHY skipped: the file is tab/newline separated, and the lexicon keys are letters (swipes carry no apostrophes).
+        if (w.first.empty() || w.first.find_first_of("\t\n\r") != std::string::npos) continue;
+        tsv << w.first << '\t' << std::clamp(w.second, 1, 255) << '\n';
+    }
+    if (tsv.str() == d_->extraTsv) return;
+    d_->extraTsv = tsv.str();
+    d_->built = false;   // forces the word list to be rebuilt by the next recognize() (see prepare())
 }
 
 bool OwnSwipe::hasModel() const { return d_->engine.hasModel(); }

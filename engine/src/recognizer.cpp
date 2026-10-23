@@ -203,6 +203,29 @@ bool Recognizer::init(const ModelPaths &p, const RecognizerOptions &options)
     }
 }
 
+bool Recognizer::hasWord(const std::string &word) const
+{
+    if (!impl_->ready || !impl_->dict) return false;
+    QString letters;
+    for (const QChar c : QString::fromStdString(word).normalized(QString::NormalizationForm_C).toLower())
+        if (c != QLatin1Char('\'') && c != QChar(0x2019) && c != QLatin1Char('-')) letters += c;
+    return !letters.isEmpty() && impl_->dict->contains(letters.toStdString());
+}
+
+void Recognizer::addWords(const std::vector<std::pair<std::string, int>> &words)
+{
+    if (!impl_->ready || !impl_->dict) return;
+    for (const auto &entry : words) {
+        const auto text = QString::fromStdString(entry.first).normalized(QString::NormalizationForm_C).toLower();
+        bool ok = !text.isEmpty() && text.size() <= 64;
+        // WHY checked first: Trie::insert would create the path's nodes before noticing a letter it cannot hold.
+        for (const auto cp : text.toUcs4())
+            ok = ok && impl_->dict->lookup_codepoint(int(cp)) >= 0;
+        if (!ok) continue;
+        impl_->dict->insert(text.toStdString(), float(std::clamp(entry.second, 1, 255)), true);
+    }
+}
+
 std::vector<Candidate> Recognizer::complete(const std::string &prefix, int top_k) const
 {
     if(!impl_->ready || !impl_->dict || top_k<=0) return {};

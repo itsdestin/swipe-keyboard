@@ -199,6 +199,11 @@ include("{ROOT}/cmake/Install.cmake")
         with tempfile.TemporaryDirectory() as tmp:
             fixture = pathlib.Path(tmp)
             shutil.copy2(ROOT/'install.sh', fixture/'install.sh')
+            # install.sh sources the learning question and copies the learning control script beside the data.
+            (fixture/'scripts').mkdir(parents=True, exist_ok=True)
+            (fixture/'integration').mkdir(parents=True, exist_ok=True)
+            shutil.copy2(ROOT/'scripts/learning-choice.sh', fixture/'scripts/learning-choice.sh')
+            shutil.copy2(ROOT/'integration/learning.py', fixture/'integration/learning.py')
             for directory in ('scripts/lm', 'assets/models', 'assets/dict', 'assets/language-packs', 'build/qml', 'bin', 'third_party/swipe-library/third_party/executorch/cmake-out-host'):
                 (fixture/directory).mkdir(parents=True, exist_ok=True)
             (fixture/'third_party/swipe-library/third_party/executorch/cmake-out-host/libexecutorch.a').write_text('fixture')
@@ -221,6 +226,10 @@ include("{ROOT}/cmake/Install.cmake")
             commands = (fixture/'commands').read_text().splitlines()
             self.assertIn('ctest', commands)
             self.assertNotIn('forbidden-pidof', commands)
+            # No terminal here, so the learning question is not asked and learning stays off (owner decision).
+            data = fixture/'home/data/swipe-keyboard'
+            self.assertFalse((data/'learn-typing').exists())
+            self.assertTrue((data/'learning.py').is_file())
             return commands
 
     def test_legacy_installer_does_not_build_ngram_by_default(self):

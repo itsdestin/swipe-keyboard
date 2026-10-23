@@ -128,6 +128,7 @@ If restoring the keyboard fails, removal stops. Follow the error or use the [rec
 - **Swipe:** drag across letters and lift to enter a word. Tap an alternative above the keys to change it.
 - **Tap typing:** suggestions finish or correct the word you are typing. The strongest is centered, and your exact spelling remains available. Only tapping a suggestion changes the word; Space does not autocorrect it.
 - **Next-word suggestions:** in English, Spanish, French or German, tap or swipe a word, then press Space. The strongest suggestion is in the middle. Tap a suggestion to insert it. Spanish, French and German suggestions are an early baseline and can be repetitive or less natural.
+- **Learning (off unless you turn it on):** the keyboard can remember your names, slang and favourite word pairs, on this computer only, and never from password, e-mail, web-address or number fields. Turn it on or off with `swipe-keyboard learning on` / `off`, erase it with `swipe-keyboard learning forget`, or press and hold a learned suggestion and choose **Remove from dictionary**. [Details](docs/install-details.md#learning-from-your-typing-off-by-default)
 - **Backspace:** the first press can remove the whole swiped word. Moving the cursor or changing fields can clear suggestions.
 
 ## Help
