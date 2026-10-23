@@ -1,6 +1,9 @@
 #include "languagetextrules.h"
 #include "languageprofile.h"
 #include "swipekb/recognizer.hpp"
+#include <QFile>
+#include <QHash>
+#include <QSet>
 #include <algorithm>
 namespace swipekb {
 QString displayForm(const QString &text) { return text.normalized(QString::NormalizationForm_C); }
@@ -39,6 +42,22 @@ QStringList textContextWords(const QString &text,int maxWords)
     QStringList out;
     for (const auto &word:contextWords(displayForm(text).toStdString(),maxWords)) out.append(QString::fromStdString(word));
     return out;
+}
+bool offeredUnprompted(const QString &word,const QString &language)
+{
+    // WHY a per-language cache filled once: the lists are small built-in resources and this runs per suggestion.
+    static QHash<QString,QSet<QString>> blocked;
+    auto it=blocked.find(language);
+    if (it==blocked.end()) {
+        QSet<QString> words;
+        QFile f(QStringLiteral(":/swipekb/blocked/%1.txt").arg(language));
+        if (f.open(QIODevice::ReadOnly|QIODevice::Text))
+            // WHY ß and ss both: German packs spell some words with ss (scheisse), the source list with ß.
+            for (const auto &line:QString::fromUtf8(f.readAll()).split('\n',Qt::SkipEmptyParts))
+                words << line.trimmed() << line.trimmed().replace(QChar(0xDF),QStringLiteral("ss"));
+        it=blocked.insert(language,words);
+    }
+    return !it->contains(word.normalized(QString::NormalizationForm_C).toLower().replace(QChar(0x2019),QLatin1Char('\'')));
 }
 QStringList rankRegionalCandidates(const QStringList &words,const QString &locale,int limit,const QString &rawShape)
 {

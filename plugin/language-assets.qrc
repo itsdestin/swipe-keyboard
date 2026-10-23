@@ -1,1 +1,1 @@
-<RCC><qresource prefix="/swipekb"><file alias="assets.lock.json">../packaging/assets.lock.json</file></qresource></RCC>
+<RCC><qresource prefix="/swipekb"><file alias="assets.lock.json">../packaging/assets.lock.json</file><file alias="blocked/en.txt">../packaging/blocked-words/en.txt</file><file alias="blocked/es.txt">../packaging/blocked-words/es.txt</file><file alias="blocked/fr.txt">../packaging/blocked-words/fr.txt</file><file alias="blocked/de.txt">../packaging/blocked-words/de.txt</file></qresource></RCC>

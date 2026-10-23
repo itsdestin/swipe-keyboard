@@ -33,6 +33,19 @@ private slots:
         QCOMPARE(rankRegionalCandidates({"first","second","color","raw"},"en-GB",3,"raw"),QStringList({"first","second","raw"}));
         QCOMPARE(rankRegionalCandidates({"color","color","colour","raw"},"en-GB",3,"raw"),QStringList({"colour","color","raw"}));
     }
+    void swearWordsAreNeverOfferedUnprompted() {
+        QVERIFY(!offeredUnprompted("fuck", "en"));
+        QVERIFY(!offeredUnprompted("Fucking", "en"));
+        QVERIFY(!offeredUnprompted("mierda", "es"));
+        QVERIFY(!offeredUnprompted("putain", "fr"));
+        QVERIFY(!offeredUnprompted("Scheiße", "de"));
+        QVERIFY(!offeredUnprompted("scheisse", "de"));
+        // Ordinary words, including ones the source list over-reaches on, stay suggestible.
+        for (const auto &[word, language] : std::initializer_list<std::pair<const char *, const char *>>{
+                 {"hello", "en"}, {"sexual", "en"}, {"infierno", "es"}, {"concha", "es"}, {"folle", "fr"},
+                 {"nackt", "de"}, {"word", "xx"}})
+            QVERIFY2(offeredUnprompted(word, language), word);
+    }
     void failsClosed() {
         QTemporaryDir dir;
         auto p = resolveProfile("es_ES", "qwerty", "Latin", dir.path(), 2);

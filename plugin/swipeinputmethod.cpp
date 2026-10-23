@@ -77,7 +77,12 @@ SwipeInputMethod::SwipeInputMethod(QObject *parent, NextWordWorker::Inference in
             QPointer<SwipeInputMethod> self(this);
             observePredictionEcho();
             if (!self) return;
-            if (m_nextWord.accept(stamp, swipekb::rankRegionalCandidates(words, m_profiles.snapshot().requestedLocale, 12))) refreshGuessBar();
+            // WHY next words only: a swear word is never offered out of the blue, but swiping or completing
+            // one from typed letters still works (Destin, 2026-10-22).
+            QStringList offered;
+            for (const auto &word:words)
+                if (swipekb::offeredUnprompted(word, m_profiles.snapshot().effectiveLanguage)) offered << word;
+            if (m_nextWord.accept(stamp, swipekb::rankRegionalCandidates(offered, m_profiles.snapshot().requestedLocale, 12))) refreshGuessBar();
         });
     connect(&m_predictionWorker, &NextWordWorker::completionReady, this,
         [this](PredictionStamp stamp, const QString &prefix, const QStringList &ranked) {
