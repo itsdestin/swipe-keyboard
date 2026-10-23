@@ -297,7 +297,32 @@ private slots:
                 auto *key = qobject_cast<QQuickItem *>(hit.value<QObject *>());
                 if (key && key->property("key").toInt() == Qt::Key_Space) space = key;
             }
-        QVERIFY2(space, "No Space key found in the real stock layout");
+        // WHY the report: Fedora's Plasma Keyboard 6.7.5 / Qt 6.11 once found no Space here while Arch found it; say
+        // what the hit test and the item tree each saw, so the next failure explains itself.
+        QString report;
+        if (!space) {
+            const QRectF area = touchArea->mapRectToScene(QRectF(0, 0, touchArea->width(), touchArea->height()));
+            report = QStringLiteral("touchArea scene %1,%2 %3x%4;").arg(area.x()).arg(area.y()).arg(area.width()).arg(area.height());
+            std::function<void(QQuickItem *)> walk = [&](QQuickItem *node) {
+                const QVariant code = node->property("key");
+                if (code.isValid() && code.toInt() == Qt::Key_Space) {
+                    const QRectF r = node->mapRectToScene(QRectF(0, 0, node->width(), node->height()));
+                    const QPointF c = touchArea->mapFromScene(r.center());
+                    QVariant hit;
+                    QMetaObject::invokeMethod(touchArea, "keyOnPoint", Q_RETURN_ARG(QVariant, hit),
+                                              Q_ARG(QVariant, c.x()), Q_ARG(QVariant, c.y()));
+                    auto *got = qobject_cast<QQuickItem *>(hit.value<QObject *>());
+                    report += QStringLiteral(" Space item %1 visible=%2 scene %3,%4 %5x%6, hit at centre=%7 key=%8;")
+                                  .arg(QString::fromLatin1(node->metaObject()->className())).arg(node->isVisible())
+                                  .arg(r.x()).arg(r.y()).arg(r.width()).arg(r.height())
+                                  .arg(got ? QString::fromLatin1(got->metaObject()->className()) : QStringLiteral("none"))
+                                  .arg(got ? got->property("key").toInt() : 0);
+                }
+                for (QQuickItem *child : node->childItems()) walk(child);
+            };
+            walk(window.contentItem());
+        }
+        QVERIFY2(space, qPrintable(QStringLiteral("No Space key found in the real stock layout: ") + report));
         const QPoint start = space->mapToScene(QPointF(space->width() / 2, space->height() / 2)).toPoint();
         // 1.25 keys left of the press: past the 0.5-key start, then 0.3-key steps, first one at once: 3 characters.
         const int distance = int(unit * 1.25);
