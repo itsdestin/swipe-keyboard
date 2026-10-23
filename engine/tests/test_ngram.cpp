@@ -1,4 +1,4 @@
-// Tests for the n-gram model file + lookups (swipekb::NgramLM) and the re-ranking (swipekb::rerankCandidates).
+// Tests for the n-gram model file + lookups (swipekb::NgramLM).
 // WHY a hand-made model: every number in it is known, so each back-off step can be checked exactly, and the
 // tests run without the 150 MB real model.
 #include <gtest/gtest.h>
@@ -8,7 +8,6 @@
 #include <string>
 
 #include "swipekb/ngram.hpp"
-#include "swipekb/recognizer.hpp"
 
 using namespace swipekb;
 
@@ -151,74 +150,4 @@ TEST(NgramFile, WriteRejectsInconsistentData)
     d.tri_keys = {NgramLM::key(AN, AN, AN)};   // its pair "an an" is not a stored bigram
     d.tri_lp = {-1.f};
     EXPECT_FALSE(NgramLM::write(tempPath("bad2.ngram"), d));
-}
-
-// ---- re-ranking ----
-
-namespace {
-RawCandidate cand(const char *w, float ctc, float lm, float len = 3, float freq = 100)
-{
-    return {w, ctc, len, freq, lm, 0};
-}
-// Only the path score and the n-gram score count (no length or frequency terms), to keep the arithmetic plain.
-RerankWeights plain(float alpha) { return {1.0f, 0.f, 0.f, alpha}; }
-// shape / len^1 with len 3: the path score is ctc / 3.
-} // namespace
-
-TEST(Rerank, OrdersByPathScoreWithoutTheWordModel)
-{
-    const auto out = rerankCandidates({cand("an", -3, -1), cand("am", -1.5, -4), cand("as", -6, -2)}, plain(0), 3);
-    ASSERT_EQ(out.size(), 3u);
-    EXPECT_EQ(out[0].word, "am");
-    EXPECT_EQ(out[1].word, "an");
-    EXPECT_EQ(out[2].word, "as");
-}
-
-TEST(Rerank, WordModelCanReorder)
-{
-    // "am" fits the path slightly better (-0.5 vs -1.0) but "an" is far likelier in context: with alpha 1 the
-    // totals are am -0.5-4 = -4.5, an -1-1 = -2, as -2-2 = -4.
-    const auto out = rerankCandidates({cand("am", -1.5, -4), cand("an", -3, -1), cand("as", -6, -2)}, plain(1), 3);
-    ASSERT_EQ(out.size(), 3u);
-    EXPECT_EQ(out[0].word, "an");
-    EXPECT_EQ(out[1].word, "as");
-    EXPECT_EQ(out[2].word, "am");
-    EXPECT_NEAR(out[0].score, -2.f, 1e-5);
-}
-
-TEST(Rerank, KeepsTopKAndFutosOrderOnTies)
-{
-    const auto out = rerankCandidates({cand("aa", -3, -1), cand("bb", -3, -1), cand("cc", -3, -1)}, plain(1), 2);
-    ASSERT_EQ(out.size(), 2u);
-    EXPECT_EQ(out[0].word, "aa");
-    EXPECT_EQ(out[1].word, "bb");
-}
-
-TEST(Rerank, BestRawShapeWordAlwaysStaysVisible)
-{
-    // "qi" matches the path best (ctc -0.3) but the word model hates it: it would rank last, yet it must take
-    // the last visible slot so a clearly swiped rare word can still be picked.
-    const auto out = rerankCandidates(
-        {cand("qi", -0.3, -9), cand("so", -3, -1), cand("to", -3.3, -1), cand("go", -3.6, -1)}, plain(1), 3);
-    ASSERT_EQ(out.size(), 3u);
-    EXPECT_EQ(out[0].word, "so");
-    EXPECT_EQ(out[1].word, "to");
-    EXPECT_EQ(out[2].word, "qi");
-}
-
-TEST(Rerank, GuardChangesNothingWhenAlreadyShown)
-{
-    const auto out = rerankCandidates({cand("so", -0.3, -1), cand("to", -3, -1), cand("go", -3.3, -1),
-                                       cand("qi", -3.6, -1)},
-                                      plain(1), 3);
-    ASSERT_EQ(out.size(), 3u);
-    EXPECT_EQ(out[0].word, "so");
-    EXPECT_EQ(out[1].word, "to");
-    EXPECT_EQ(out[2].word, "go");
-}
-
-TEST(Rerank, EmptyPoolOrZeroTopK)
-{
-    EXPECT_TRUE(rerankCandidates({}, plain(1), 3).empty());
-    EXPECT_TRUE(rerankCandidates({cand("so", -1, -1)}, plain(1), 0).empty());
 }

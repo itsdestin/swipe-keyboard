@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "swipekb/recognizer.hpp"
+#include "swipekb/text.hpp"
 
 using swipekb::contextWords;
 using V = std::vector<std::string>;

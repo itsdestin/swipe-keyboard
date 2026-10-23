@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "swipekb/recognizer.hpp"
+#include "swipekb/spellings.hpp"
 
 using swipekb::Spellings;
 using V = std::vector<std::string>;

@@ -9,6 +9,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "swipekb/swipe_beam.hpp"
@@ -41,6 +42,9 @@ public:
     void setLayout(SwipeLayout layout);
     // "word<TAB>freq" lines; returns the number of lines used (0 = unreadable). Builds the lexicon.
     size_t loadWords(const std::string &tsv);
+    // The same from memory (word, 0..255 frequency); returns the number of words offered. WHY: the language engine
+    // builds its word list from the parsed dictionary plus learned words, with no temporary file.
+    size_t setWords(const std::vector<std::pair<std::string, int>> &words);
     // False leaves the engine in geometric-only mode.
     bool loadModel(const std::string &path);
     bool hasModel() const { return d_ && d_->net.ready(); }

@@ -2,7 +2,7 @@
 #include "swipekb/ngram.hpp"
 #include "swipekb/ngram_predictor.hpp"
 #include "swipekb/nwp_predictor.hpp"
-#include "swipekb/recognizer.hpp"
+#include "swipekb/language_engine.hpp"
 #include <atomic>
 #include <future>
 #include <thread>
@@ -152,7 +152,11 @@ private slots:
     void independentScorerDoesNotChangeConcurrentSwipeResults() {
         const auto root = qEnvironmentVariable("SWIPEKB_TEST_ASSETS").toStdString();
         QVERIFY(!root.empty());
-        swipekb::Recognizer recognizer; QVERIFY(recognizer.init(swipekb::ModelPaths::fromDir(root)));
+        swipekb::LanguageEngineSetup setup;
+        setup.dictionary = root + "/dict/en_swipe.combined";
+        setup.ngram = root + "/language-packs/en.ngram";
+        setup.swipeModel = root + "/language-packs/swipe-model.bin";
+        swipekb::LanguageEngine recognizer; QVERIFY(recognizer.init(setup));
         std::vector<swipekb::KeyRect> keys;
         const std::vector<std::string> rows = {"qwertyuiop","asdfghjkl","zxcvbnm"};
         for (int r = 0; r < 3; ++r)
@@ -180,7 +184,7 @@ private slots:
         auto ready = loaded.get_future();
         auto work = std::async(std::launch::async,[&] {
             swipekb::Predictor predictor;
-            const bool ok = predictor.init(root+"/models/hungry_jellyfish/context_lm.pte",root+"/models/hungry_jellyfish/vocab.txt");
+            const bool ok = predictor.init(root+"/language-packs/en.ngram",root+"/language-packs/en.vocab.tsv");
             int predictions = ok && !predictor.predict({"hello","how","are"},3).empty() ? 1 : 0;
             loaded.set_value(ok && predictions > 0);
             while (ok && !stop.load()) { if (!predictor.predict({"hello","how","are"},3).empty()) ++predictions; }
@@ -205,8 +209,8 @@ private slots:
         QVERIFY2(!assets.isEmpty(), "Set SWIPEKB_TEST_ASSETS to an explicit read-only asset directory");
         swipekb::Predictor p;
         QElapsedTimer clock; clock.start();
-        QVERIFY(p.init((assets + "/models/hungry_jellyfish/context_lm.pte").toStdString(),
-                       (assets + "/models/hungry_jellyfish/vocab.txt").toStdString()));
+        QVERIFY(p.init((assets + "/language-packs/en.ngram").toStdString(),
+                       (assets + "/language-packs/en.vocab.tsv").toStdString()));
         const auto cold = clock.elapsed();
         QVERIFY(p.ready());
         clock.restart();
