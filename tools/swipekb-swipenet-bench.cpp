@@ -1,6 +1,8 @@
-// Scores the network + lexicon search on real swipes: first-guess / top-3 accuracy and milliseconds per swipe.
-//   swipekb-swipenet-bench --model model.bin --words words.tsv --layout qwerty.tsv swipes.jsonl [options]
+// Scores the swipe engine on real swipes: first-guess / top-3 accuracy, per board, and milliseconds per swipe.
+//   swipekb-swipenet-bench --model model.bin --words words.tsv --layout keys.tsv swipes.jsonl [options]
+//   (no --model: geometric fallback only)    --layouts-dir DIR: per-swipe "layout" id -> DIR/<id>.tsv
 // Timing is for one thread (--jobs 1, the default); more jobs only speed up parameter sweeps.
+// Denominators printed: "all" = every swipe read; "in-dict" = swipes whose target is in the word list.
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -10,25 +12,26 @@
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
-#include <cstring>
 #include <map>
 #include <memory>
+#include <set>
 #include <thread>
 
-#include "swipekb/swipe_beam.hpp"
 #include "swipekb/ngram.hpp"
-#include "swipekb/swipe_geo.hpp"
-#include "swipekb/swipe_layout.hpp"
+#include "swipekb/swipe_engine.hpp"
 #include "swipekb/swipe_lm.hpp"
-#include "swipekb/swipe_net.hpp"
 
 using namespace swipekb;
 using Clock = std::chrono::steady_clock;
 
 namespace {
-struct Swipe { std::string word; float aspect; std::vector<SwipePoint> pts; };
+struct Swipe { std::string word, board; float aspect; std::vector<SwipePoint> pts; };
 
-std::string lettersOnly(const std::string &s) {   // a-z only, lower case: how the benchmark compares words
+// How a candidate is compared with the target: "ascii" = a-z only (the original English benchmark),
+// "lookup" = lower-cased with accents kept, "exact" = byte for byte.
+std::string norm(const std::string &s, const std::string &mode) {
+    if (mode == "exact") return s;
+    if (mode == "lookup") return lowerUtf8(s);
     std::string o;
     for (unsigned char c : s) if (std::isalpha(c)) o.push_back(char(std::tolower(c)));
     return o;
@@ -36,10 +39,10 @@ std::string lettersOnly(const std::string &s) {   // a-z only, lower case: how t
 }
 
 int main(int argc, char **argv) {
-    std::string model, words, layoutPath, input, ngramPath;
-    float lmWeight = 1.0f, freqWeight2 = 0.0f;
-    BeamParams bp;
-    int jobs = 1, topN = 5; bool geo = false; size_t limit = 0;
+    std::string model, words, layoutPath, layoutsDir, input, ngramPath, match = "ascii";
+    EngineParams ep;
+    float lmWeight = 1.0f;
+    int jobs = 1, topN = 5; size_t limit = 0, perBoard = 0;
     for (int i = 1; i < argc; ++i) {
         const std::string a = argv[i];
         auto val = [&]() -> const char * {
@@ -47,27 +50,20 @@ int main(int argc, char **argv) {
             return argv[++i];
         };
         if (a == "--model") model = val(); else if (a == "--words") words = val(); else if (a == "--layout") layoutPath = val();
-        else if (a == "--beam") bp.beam = std::atoi(val()); else if (a == "--keys-per-step") bp.keysPerStep = std::atoi(val());
-        else if (a == "--lookahead") bp.lookahead = float(std::atof(val())); else if (a == "--freq-weight") bp.freqWeight = float(std::atof(val()));
+        else if (a == "--layouts-dir") layoutsDir = val();
+        else if (a == "--beam") ep.beam.beam = std::atoi(val()); else if (a == "--keys-per-step") ep.beam.keysPerStep = std::atoi(val());
+        else if (a == "--lookahead") ep.beam.lookahead = float(std::atof(val())); else if (a == "--freq-weight") ep.freqWeight = float(std::atof(val()));
+        else if (a == "--geo-weight") ep.geoWeight = float(std::atof(val())); else if (a == "--rerank") ep.rerank = std::atoi(val());
         else if (a == "--jobs") jobs = std::atoi(val()); else if (a == "--limit") limit = size_t(std::atoll(val()));
-        else if (a == "--geo") geo = true; else if (a == "--top") topN = std::atoi(val());
+        else if (a == "--top") topN = std::atoi(val()); else if (a == "--match") match = val();
+        else if (a == "--per-board") perBoard = size_t(std::atoll(val()));
         else if (a == "--ngram") ngramPath = val(); else if (a == "--lm-weight") lmWeight = float(std::atof(val()));
-        else if (a == "--lm-freq-weight") freqWeight2 = float(std::atof(val()));
         else if (a[0] != '-') input = a; else { std::fprintf(stderr, "unknown option %s\n", a.c_str()); return 2; }
     }
-    if ((model.empty() && !geo) || words.empty() || layoutPath.empty() || input.empty()) {
-        std::fprintf(stderr, "usage: %s --model m.bin --words words.tsv --layout keys.tsv [--beam N --keys-per-step N --lookahead x --freq-weight x --jobs N --limit N] swipes.jsonl\n", argv[0]);
+    if (words.empty() || (layoutPath.empty() && layoutsDir.empty()) || input.empty()) {
+        std::fprintf(stderr, "usage: %s [--model m.bin] --words words.tsv (--layout keys.tsv | --layouts-dir DIR) [--freq-weight x --geo-weight x --beam N --keys-per-step N --jobs N --limit N --match ascii|lookup|exact --per-board N] swipes.jsonl\n", argv[0]);
         return 2;
     }
-    SwipeLayout layout; SwipeNet net; SwipeLexicon lex;
-    if (!layout.loadTsv(layoutPath)) { std::fprintf(stderr, "cannot read layout\n"); return 1; }
-    if (!geo && !net.load(model)) { std::fprintf(stderr, "cannot load model\n"); return 1; }
-    auto t0 = Clock::now();
-    if (!lex.loadTsv(words, layout)) { std::fprintf(stderr, "cannot read words\n"); return 1; }
-    lex.finish();
-    std::fprintf(stderr, "lexicon: %zu words, %zu trie nodes, built in %.0f ms; model %zu parameters\n", lex.wordCount(), lex.nodeCount(),
-                 std::chrono::duration<double, std::milli>(Clock::now() - t0).count(), net.parameterCount());
-
     std::vector<Swipe> swipes;
     QFile f(QString::fromStdString(input));
     if (!f.open(QIODevice::ReadOnly)) { std::fprintf(stderr, "cannot read swipes\n"); return 1; }
@@ -75,6 +71,7 @@ int main(int argc, char **argv) {
         const auto o = QJsonDocument::fromJson(f.readLine()).object();
         Swipe s;
         s.word = o["word"].toString().toStdString();
+        s.board = o["layout"].toString().toStdString();
         s.aspect = float(o["canvas_height"].toDouble() / o["canvas_width"].toDouble());
         for (const auto &p : o["data"].toArray()) {
             const auto po = p.toObject();
@@ -82,61 +79,71 @@ int main(int argc, char **argv) {
         }
         if (!s.pts.empty()) swipes.push_back(std::move(s));
     }
-    // Optional n-gram prior. Benchmark swipes are single words, so the model's plain word frequency is used
-    // (no previous words); the sentence-context path is exercised by the unit tests.
-    NgramLM lm; std::unique_ptr<NgramWordPrior> prior;
-    if (!ngramPath.empty()) {
-        if (!lm.load(ngramPath)) { std::fprintf(stderr, "cannot load n-gram file\n"); return 1; }
-        prior = std::make_unique<NgramWordPrior>(lm, lex);
-        prior->unigramOnly = true; prior->lmWeight = lmWeight; prior->freqWeight = freqWeight2;
-    }
-    GeoDecoder geoDecoder(lex, layout);   // used by --geo (the no-model fallback)
-    struct Out { std::vector<std::string> top; double netMs = 0, beamMs = 0; };
+    struct Out { std::vector<std::string> top; bool inDict = false; double ms = 0; };
     std::vector<Out> out(swipes.size());
-    std::atomic<size_t> next{0};
-    auto work = [&]() {
-        SwipeBeamSearch search(lex);
-        SwipeInput in; std::vector<float> lp;
-        for (size_t i; (i = next++) < swipes.size();) {
-            const auto a = Clock::now();
-            if (geo) {
-                const auto res = geoDecoder.decode(swipes[i].pts, swipes[i].aspect, topN);
-                for (const auto &r : res) out[i].top.push_back(lettersOnly(lex.text(r.word)));
-                out[i].beamMs = std::chrono::duration<double, std::milli>(Clock::now() - a).count();
-                continue;
-            }
-            net.buildInput(swipes[i].pts, layout, swipes[i].aspect, in);
-            net.forward(in, lp);
-            const auto b = Clock::now();
-            const auto res = prior ? search.decode(lp.data(), in.steps, in.keyCount, bp, topN, [&](uint32_t w) { return (*prior)(w); })
-                                         : search.decode(lp.data(), in.steps, in.keyCount, bp, topN);
-            const auto c = Clock::now();
-            for (const auto &r : res) out[i].top.push_back(lettersOnly(lex.text(r.word)));
-            out[i].netMs = std::chrono::duration<double, std::milli>(b - a).count();
-            out[i].beamMs = std::chrono::duration<double, std::milli>(c - b).count();
-        }
-    };
+    // Group swipes by board so each board's engine (its own layout, hence its own lexicon indices) is built once.
+    std::map<std::string, std::vector<size_t>> groups;
+    for (size_t i = 0; i < swipes.size(); ++i) groups[layoutsDir.empty() ? std::string() : swipes[i].board].push_back(i);
+    NgramLM lm;
+    if (!ngramPath.empty() && !lm.load(ngramPath)) { std::fprintf(stderr, "cannot load n-gram file\n"); return 1; }
     const auto start = Clock::now();
-    std::vector<std::thread> th;
-    for (int j = 1; j < jobs; ++j) th.emplace_back(work);
-    work();
-    for (auto &t : th) t.join();
-    const double wall = std::chrono::duration<double, std::milli>(Clock::now() - start).count();
-
-    size_t top1 = 0, top3 = 0, inLex = 0, topN_ = 0;
-    double net_ms = 0, beam_ms = 0;
-    std::map<std::string, bool> known;
-    for (size_t i = 0; i < swipes.size(); ++i) {
-        const std::string truth = lettersOnly(swipes[i].word);
-        const auto &t = out[i].top;
-        if (!t.empty() && t[0] == truth) ++top1;
-        for (size_t k = 0; k < t.size() && k < 3; ++k) if (t[k] == truth) { ++top3; break; }
-        for (const auto &w : t) if (w == truth) { ++topN_; break; }
-        net_ms += out[i].netMs; beam_ms += out[i].beamMs;
-        (void)inLex;
+    size_t boardsSkipped = 0;
+    for (const auto &[board, idxs] : groups) {
+        SwipeEngine base;
+        const std::string lp = layoutsDir.empty() ? layoutPath : layoutsDir + "/" + board + ".tsv";
+        if (!base.loadLayout(lp)) { ++boardsSkipped; continue; }
+        base.params = ep;
+        if (!base.loadWords(words)) { std::fprintf(stderr, "cannot read words\n"); return 1; }
+        if (!model.empty() && !base.loadModel(model)) { std::fprintf(stderr, "cannot load model\n"); return 1; }
+        std::set<std::string> dict;
+        for (uint32_t w = 0; w < base.lexicon().wordCount(); ++w) dict.insert(norm(base.lexicon().text(w), match));
+        std::atomic<size_t> next{0};
+        auto work = [&]() {
+            SwipeEngine eng(base);
+            std::unique_ptr<NgramWordPrior> prior;
+            if (!ngramPath.empty()) {   // single-word swipes: plain word frequency from the model, no previous words
+                prior = std::make_unique<NgramWordPrior>(lm, eng.lexicon());
+                prior->unigramOnly = true; prior->lmWeight = lmWeight;
+                eng.setPrior([&](uint32_t w) { return (*prior)(w); });
+            }
+            for (size_t k; (k = next++) < idxs.size();) {
+                const size_t i = idxs[k];
+                const auto a = Clock::now();
+                const auto res = eng.decode(swipes[i].pts, swipes[i].aspect, topN);
+                out[i].ms = std::chrono::duration<double, std::milli>(Clock::now() - a).count();
+                for (const auto &r : res) out[i].top.push_back(norm(eng.lexicon().text(r.word), match));
+                out[i].inDict = dict.count(norm(swipes[i].word, match)) > 0;
+            }
+        };
+        std::vector<std::thread> th;
+        for (int j = 1; j < jobs; ++j) th.emplace_back(work);
+        work();
+        for (auto &t : th) t.join();
     }
-    const double n = double(swipes.size());
-    std::printf("swipes %zu  first-guess %.2f%%  top-3 %.2f%%  top-%d %.2f%%  | ms/swipe: net %.2f + search %.2f = %.2f (jobs %d, wall %.1f s)\n",
-                swipes.size(), 100 * top1 / n, 100 * top3 / n, topN, 100 * topN_ / n, net_ms / n, beam_ms / n, (net_ms + beam_ms) / n, jobs, wall / 1000);
+    const double wall = std::chrono::duration<double, std::milli>(Clock::now() - start).count();
+    struct Tally { size_t n = 0, t1 = 0, t3 = 0, d = 0, d1 = 0, d3 = 0; double ms = 0; };
+    auto add = [&](Tally &t, size_t i) {
+        const std::string truth = norm(swipes[i].word, match);
+        const auto &top = out[i].top;
+        const bool h1 = !top.empty() && top[0] == truth;
+        bool h3 = false;
+        for (size_t k = 0; k < top.size() && k < 3; ++k) h3 |= top[k] == truth;
+        ++t.n; t.t1 += h1; t.t3 += h3; t.ms += out[i].ms;
+        if (out[i].inDict) { ++t.d; t.d1 += h1; t.d3 += h3; }
+    };
+    Tally all; std::map<std::string, Tally> boards;
+    for (size_t i = 0; i < swipes.size(); ++i) { add(all, i); if (!layoutsDir.empty()) add(boards[swipes[i].board], i); }
+    auto pct = [](size_t a, size_t n) { return n ? 100.0 * double(a) / double(n) : 0.0; };
+    std::printf("all %zu: first %.2f%% top-3 %.2f%% | in-dict %zu (%.1f%%): first %.2f%% top-3 %.2f%% | %.2f ms/swipe (jobs %d, wall %.1f s)\n",
+                all.n, pct(all.t1, all.n), pct(all.t3, all.n), all.d, pct(all.d, all.n), pct(all.d1, all.d), pct(all.d3, all.d),
+                all.ms / double(std::max<size_t>(1, all.n)), jobs, wall / 1000);
+    if (perBoard) {
+        std::vector<std::pair<std::string, Tally>> v(boards.begin(), boards.end());
+        std::sort(v.begin(), v.end(), [](auto &a, auto &b) { return a.second.n > b.second.n; });
+        for (size_t i = 0; i < v.size() && i < perBoard; ++i)
+            std::printf("  board %-22s n=%-5zu first %.2f%% top-3 %.2f%% (in-dict %.2f%% / %.2f%%)\n", v[i].first.c_str(), v[i].second.n,
+                        pct(v[i].second.t1, v[i].second.n), pct(v[i].second.t3, v[i].second.n), pct(v[i].second.d1, v[i].second.d), pct(v[i].second.d3, v[i].second.d));
+    }
+    if (boardsSkipped) std::printf("(%zu boards had no readable layout file; their swipes count as misses)\n", boardsSkipped);
     return 0;
 }

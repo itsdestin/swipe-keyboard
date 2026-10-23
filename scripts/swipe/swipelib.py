@@ -27,8 +27,12 @@ class Layout:
         self.labels = [r[0] for r in rows if r]
         self.geom = np.array([[float(v) for v in r[1:5]] for r in rows if r], dtype=np.float64)
         self.index = {c: i for i, c in enumerate(self.labels)}
-        # WHY unit = key width: constants stay meaningful when a layout has 10, 11 or 12 keys per row.
-        self.unit = 1.0 / (2.0 * float(np.median(self.geom[:, 2])))
+        # WHY unit = key pitch (median distance to the nearest other key centre), not the drawn key width: real boards
+        # leave gaps between keys, so the drawn width understates the distance a finger travels (20% on a common
+        # HeliBoard layout). Same rule in C++ (SwipeLayout).
+        c = self.geom[:, :2]
+        d = np.sqrt(((c[:, None, :] - c[None, :, :]) ** 2).sum(-1)) + np.eye(len(c)) * 1e9
+        self.unit = 1.0 / max(1e-3, float(np.median(d.min(1))))
 
     def fold(self, ch):
         """Key index for a character, or -1. Accents fold to their base key unless the layout has the accent."""
@@ -118,7 +122,7 @@ def trace_to_input(xs, ys, ts, aspect, layout, steps=T_STEPS):
 
 
 # ---------------------------------------------------------------- network
-def build_net(cfg=None):
+def build_net(cfg=None, dropout=0.0):
     import torch
     from torch import nn
 
@@ -131,7 +135,10 @@ def build_net(cfg=None):
             chans = [F_IN] + cfg["conv"]
             self.convs = nn.ModuleList(
                 nn.Conv1d(chans[i], chans[i + 1], cfg["kernel"], padding=cfg["kernel"] // 2) for i in range(len(cfg["conv"])))
-            self.gru = nn.GRU(chans[-1], cfg["hidden"], num_layers=cfg["layers"], bidirectional=True, batch_first=True)
+            # Dropout exists only while training (nothing to export): it fights memorising the few real swipes.
+            self.drop = nn.Dropout(dropout)
+            self.gru = nn.GRU(chans[-1], cfg["hidden"], num_layers=cfg["layers"], bidirectional=True, batch_first=True,
+                              dropout=dropout if cfg["layers"] > 1 else 0.0)
             H2 = 2 * cfg["hidden"]
             P = cfg["pointer"]
             self.A = nn.Linear(H2, P)               # step -> pointer space
@@ -146,8 +153,9 @@ def build_net(cfg=None):
             never be output."""
             h = feats.transpose(1, 2)
             for c in self.convs:
-                h = torch.relu(c(h))
+                h = self.drop(torch.relu(c(h)))
             h, _ = self.gru(h.transpose(1, 2))
+            h = self.drop(h)
             a = self.A(h)                                                    # (B,T,P)
             dx = pos[:, :, None, 0] - keys[:, None, :, 0]                    # (B,T,K) key-width units
             dy = pos[:, :, None, 1] - keys[:, None, :, 1]

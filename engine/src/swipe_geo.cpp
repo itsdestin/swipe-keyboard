@@ -144,3 +144,48 @@ std::vector<SwipeCandidate> GeoDecoder::decode(const std::vector<SwipePoint> &tr
 }
 
 }
+
+namespace swipekb {
+
+GeoPrepared GeoDecoder::prepare(const std::vector<SwipePoint> &trace, float aspect, const GeoParams &p) const {
+    GeoPrepared out;
+    const size_t K = layout_.size();
+    if (trace.empty() || K == 0 || p.steps < 2 || p.steps > 128) return out;
+    const float u = layout_.unit();
+    std::vector<Pt> pts;
+    for (const auto &q : trace) {
+        const Pt c{q.x * u, q.y * u * aspect};
+        if (pts.empty() || std::hypot(c.x - pts.back().x, c.y - pts.back().y) > 1e-4f) pts.push_back(c);
+    }
+    std::vector<Pt> U;
+    resample(pts, p.steps, U, out.length);
+    out.path.reserve(U.size());
+    for (const auto &q : U) out.path.push_back({q.x, q.y});
+    out.miss.resize(K);
+    for (size_t k = 0; k < K; ++k) {
+        const Pt c{layout_.keys()[k].cx * u, layout_.keys()[k].cy * u * aspect};
+        float best = 1e30f;
+        for (const auto &q : U) best = std::min(best, std::hypot(q.x - c.x, q.y - c.y));
+        out.miss[k] = std::max(0.f, best - p.coverRadius);
+    }
+    out.valid = true;
+    return out;
+}
+
+float GeoDecoder::cost(const GeoPrepared &swipe, uint32_t word, float aspect, const GeoParams &p) const {
+    if (!swipe.valid || word >= lex_.wordCount()) return 1e9f;
+    const float u = layout_.unit();
+    const auto &k = lex_.keys(word);
+    std::vector<Pt> poly, T, U(swipe.path.size());
+    float cov = 0, tl;
+    for (uint8_t kk : k) {
+        poly.push_back({layout_.keys()[kk].cx * u, layout_.keys()[kk].cy * u * aspect});
+        cov += swipe.miss[kk];
+    }
+    for (size_t i = 0; i < U.size(); ++i) U[i] = {swipe.path[i].x, swipe.path[i].y};
+    resample(poly, p.steps, T, tl);
+    const float d = dtw(U.data(), T.data(), p.steps, p.band, p.radius, 1e30f);
+    return d / float(2 * p.steps) + p.coverWeight * cov;
+}
+
+}

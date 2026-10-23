@@ -26,12 +26,26 @@ struct GeoParams {
     float lenLo = 0.55f, lenHi = 1.8f;   // allowed word-path length relative to the swipe length (with slack)
 };
 
+// A swipe prepared once so many candidate words can be costed against it cheaply.
+struct GeoPoint { float x, y; };
+struct GeoPrepared {
+    std::vector<GeoPoint> path;   // resampled finger path, key-width units
+    std::vector<float> miss;      // per key: how far the path stayed from it, beyond the cover radius
+    float length = 0;
+    bool valid = false;
+};
+
 class GeoDecoder {
 public:
     // Both must outlive the decoder. Builds the (first key, last key) word index once.
     GeoDecoder(const SwipeLexicon &lex, const SwipeLayout &layout);
     // Ranked words, best first; score = -(geometric cost), higher is better. Empty for an empty trace.
     std::vector<SwipeCandidate> decode(const std::vector<SwipePoint> &trace, float aspect, int topN, const GeoParams &p = {}) const;
+
+    // Cost (lower is better) of one lexicon word against a prepared swipe: DTW + coverage, no frequency term. Used to
+    // sanity-check the network's candidates (a blend of both is more robust to swipers unlike the training data).
+    GeoPrepared prepare(const std::vector<SwipePoint> &trace, float aspect, const GeoParams &p = {}) const;
+    float cost(const GeoPrepared &swipe, uint32_t word, float aspect, const GeoParams &p = {}) const;
 
 private:
     const SwipeLexicon &lex_;

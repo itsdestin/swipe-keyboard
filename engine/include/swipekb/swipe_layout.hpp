@@ -25,7 +25,8 @@ public:
 
     const std::vector<SwipeKey> &keys() const { return keys_; }
     size_t size() const { return keys_.size(); }
-    // 1 / key width, in layout units: multiply layout x by this to measure in key widths (10 on a 10-key row).
+    // 1 / key pitch (distance between neighbouring key centres), in layout units: multiply layout x by this to
+    // measure in key widths (10 on a 10-key row, even when the keys are drawn with gaps).
     float unit() const { return unit_; }
     // Key index for a character (accents fold to the base key when this layout has no key for the accent), or -1.
     int keyOf(char32_t c) const;

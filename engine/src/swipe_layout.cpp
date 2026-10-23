@@ -1,6 +1,7 @@
 #include "swipekb/swipe_layout.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdlib>
 #include <fstream>
 #include <sstream>
@@ -63,11 +64,19 @@ std::string lowerUtf8(std::string_view s) {
 }
 
 SwipeLayout::SwipeLayout(std::vector<SwipeKey> keys) : keys_(std::move(keys)) {
-    std::vector<float> hw;
-    for (const auto &k : keys_) hw.push_back(k.hw);
-    if (!hw.empty()) {
-        std::nth_element(hw.begin(), hw.begin() + hw.size() / 2, hw.end());
-        unit_ = 1.f / (2.f * hw[hw.size() / 2]);
+    // WHY the key pitch (distance between neighbouring key centres), not the key's drawn width: real boards leave
+    // gaps between keys, so half the drawn width understates the spacing a finger actually travels (measured: 20%
+    // on a common HeliBoard layout). Median distance to the nearest other key centre is 0.1 on a 10-key row.
+    std::vector<float> nearest;
+    for (size_t i = 0; i < keys_.size(); ++i) {
+        float best = 1e9f;
+        for (size_t j = 0; j < keys_.size(); ++j)
+            if (i != j) best = std::min(best, std::hypot(keys_[i].cx - keys_[j].cx, keys_[i].cy - keys_[j].cy));
+        if (best < 1e8f) nearest.push_back(best);
+    }
+    if (!nearest.empty()) {
+        std::nth_element(nearest.begin(), nearest.begin() + nearest.size() / 2, nearest.end());
+        unit_ = 1.f / std::max(1e-3f, nearest[nearest.size() / 2]);
     }
     byCodepoint_.assign(0x180, -1);
     for (size_t i = 0; i < keys_.size(); ++i)

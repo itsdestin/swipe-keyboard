@@ -43,7 +43,7 @@ def catmull_rom(pts, per_seg=24, tension=0.5):
 
 def make_swipe(rng, keys_xy, seq, doubles, unit, aspect):
     """keys_xy: (K,2) key centres in key-width units; seq: collapsed key indices; doubles: set of positions in seq."""
-    sloppy = rng.lognormal(0.0, 0.35)                       # per-swipe care level
+    sloppy = rng.lognormal(0.0, 0.45)                       # per-swipe care level
     sx, sy = 0.16 * sloppy, 0.22 * sloppy                   # letter position noise (key widths)
     bias = rng.normal(0, 0.12, size=2) + np.array([0.0, 0.1])   # whole-swipe offset (thumbs land low)
     way = keys_xy[seq] + rng.normal(0, 1, size=(len(seq), 2)) * [sx, sy] + bias
@@ -100,10 +100,11 @@ def main():
     ap.add_argument("--out", required=True)
     ap.add_argument("--seed", type=int, default=11)
     ap.add_argument("--min-freq", type=int, default=40)
+    ap.add_argument("--freq-div", type=float, nargs="+", default=[8.0, 16.0], help="word sampling sharpness; one distribution per value, used alternately")
     a = ap.parse_args()
     rng = np.random.default_rng(a.seed)
     layout = S.Layout(a.layout)
-    words, weights = [], []
+    words, freqs = [], []
     for line in open(a.words, encoding="utf-8"):
         w, _, f = line.rstrip("\n").partition("\t")
         if not f.isdigit() or int(f) < a.min_freq:
@@ -111,11 +112,16 @@ def main():
         keys = layout.word_keys(w)
         if not keys or len(keys) > 20:
             continue
-        words.append(w); weights.append(2.0 ** (int(f) / 11.0))   # flatter than true frequency: rare words still appear
-    weights = np.array(weights); weights /= weights.sum()
+        words.append(w); freqs.append(int(f))
+    # WHY two mixed distributions: people mostly swipe common short words (mean ~5 letters in the real recordings) but
+    # the model also needs many rare, longer words; half the swipes follow a sharp frequency curve, half a flat one.
+    freqs = np.array(freqs, float)
+    weights = []
+    for div in a.freq_div:
+        w_ = 2.0 ** (freqs / div); weights.append(w_ / w_.sum())
     with open(a.out, "w", encoding="utf-8") as out:
         for i in range(a.n):
-            w = words[rng.choice(len(words), p=weights)]
+            w = words[rng.choice(len(words), p=weights[i % len(weights)])]
             W = float(rng.integers(340, 440)); H = 170.3125
             aspect = H / W
             keys_xy = layout.key_array(aspect)[:, :2]

@@ -59,7 +59,46 @@ class Data:
             ks.append(v[0]); ms.append(v[1])
         return np.stack(ks), np.stack(ms)
 
-    def batch(self, idx, device, aug=False, rng=None, time_aug=0.0):
+    def warp_board(self, feats, pos, keys, asp, idx, rng, strength):
+        """Re-draw each swipe on a slightly different board, trace and keys together (in place).
+
+        WHY: the real recordings all come from one board geometry, but keyboards differ in row offsets and key
+        height. Moving the finger path and the key rectangles by the same warp keeps the swipe physically correct
+        (the finger is still on the same letters) while the net sees many boards. Per swipe: each row shifted
+        sideways by N(0, 0.25) key widths, and the board's height scaled by exp(N(0, 0.15)).
+        """
+        B = len(idx)
+        u = np.array([self.layouts[s].unit for s in self.src[idx]], np.float32)
+        Hu = (u * asp)[:, None]                                    # board height in key widths
+        rows = rng.normal(0, 0.25 * strength, size=(B, 3)).astype(np.float32)
+        sy = np.exp(np.clip(rng.normal(0, 0.15 * strength, size=(B, 1)), -0.4, 0.4)).astype(np.float32)
+
+        def shift(y):                                              # y: (B, n) key-width units -> sideways shift
+            r = np.clip(y / Hu * 3.0 - 0.5, 0.0, 2.0)
+            lo = np.floor(r).astype(int).clip(0, 1)
+            f = r - lo
+            a = np.take_along_axis(rows, lo, 1)
+            b = np.take_along_axis(rows, lo + 1, 1)
+            return a * (1 - f) + b * f
+
+        pos[:, :, 0] += shift(pos[:, :, 1])
+        pos[:, :, 1] *= sy
+        keys[:, :, 0] += shift(keys[:, :, 1])
+        keys[:, :, 1] *= sy
+        keys[:, :, 3] *= sy
+        Hn = Hu * sy
+        feats[:, :, 0] = pos[:, :, 0] / u[:, None]
+        feats[:, :, 1] = pos[:, :, 1] / Hn
+        d = np.diff(pos, axis=1, prepend=pos[:, :1])
+        feats[:, :, 2:4] = d
+        step = np.hypot(d[:, :, 0], d[:, :, 1])
+        feats[:, :, 6] = step / 2.0
+        cum = np.cumsum(step, axis=1)
+        total = cum[:, -1:]
+        feats[:, :, 5] = np.where(total > 1e-6, cum / np.maximum(total, 1e-6), 0.0)
+        feats[:, :, 7] = np.log1p(total) / 3.0
+
+    def batch(self, idx, device, aug=False, rng=None, time_aug=0.0, geo_aug=0.0):
         feats = self.feats[idx].copy()
         pos = self.pos[idx].copy()
         asp = self.aspect[idx]
@@ -79,6 +118,8 @@ class Data:
             feats[:, :, 4] = np.log1p(dt * scale) / 4.0
         tg = np.concatenate([self.labels[self.offs[i]:self.offs[i + 1]] + 1 for i in idx])
         keys, mask = self.keys(idx)
+        if aug and geo_aug > 0:
+            self.warp_board(feats, pos, keys, asp, idx, rng, geo_aug)
         return (torch.from_numpy(feats).to(device), torch.from_numpy(pos).to(device),
                 torch.from_numpy(keys).to(device), torch.from_numpy(mask).to(device),
                 torch.from_numpy(tg).to(device), torch.from_numpy(self.lens[idx]).to(device))
@@ -130,7 +171,9 @@ def main():
     ap.add_argument("--hidden", type=int, default=96)
     ap.add_argument("--layers", type=int, default=2)
     ap.add_argument("--pointer", type=int, default=32)
+    ap.add_argument("--dropout", type=float, default=0.0)
     ap.add_argument("--no-aug", action="store_true")
+    ap.add_argument("--geo-aug", type=float, default=0.0, help="board-geometry augmentation strength (1 = default scale)")
     ap.add_argument("--time-aug", type=float, default=0.0, help="std of log speed rescaling (0 = off)")
     ap.add_argument("--threads", type=int, default=0)
     ap.add_argument("--seed", type=int, default=1)
@@ -149,7 +192,7 @@ def main():
     tr = Data(specs(a.train), a.limit)
     vals = [Data(specs([v]), a.val_limit) for v in a.val]
     cfg = dict(conv=[int(v) for v in a.conv.split(",")], hidden=a.hidden, layers=a.layers, pointer=a.pointer)
-    net = S.build_net(cfg).to(a.device)
+    net = S.build_net(cfg, a.dropout).to(a.device)
     nparam = sum(p.numel() for p in net.parameters())
     steps_per_epoch = (tr.n + a.batch - 1) // a.batch
     opt = torch.optim.AdamW(net.parameters(), lr=a.lr, weight_decay=1e-2)
@@ -168,7 +211,7 @@ def main():
         run = 0.0
         for s in range(0, tr.n, a.batch):
             idx = perm[s:s + a.batch]
-            feats, pos, keys, mask, tg, tl = tr.batch(idx, a.device, aug=not a.no_aug, rng=rng, time_aug=a.time_aug)
+            feats, pos, keys, mask, tg, tl = tr.batch(idx, a.device, aug=not a.no_aug, rng=rng, time_aug=a.time_aug, geo_aug=a.geo_aug)
             lp = net(feats, pos, keys, mask)
             loss = F.ctc_loss(lp.transpose(0, 1), tg, torch.full((len(idx),), lp.shape[1], dtype=torch.long), tl,
                               blank=0, reduction="mean", zero_infinity=True)
