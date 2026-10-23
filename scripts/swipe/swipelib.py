@@ -35,7 +35,8 @@ class Layout:
         c = ch.lower()
         if c in self.index:
             return self.index[c]
-        base = unicodedata.normalize("NFD", c)[0]
+        # Letters that do not decompose (ae, oe, o-slash, sharp s) fold the same way the C++ runner does.
+        base = {"\u00e6": "a", "\u0153": "o", "\u00f8": "o", "\u00df": "s"}.get(c) or unicodedata.normalize("NFD", c)[0]
         return self.index.get(base, -1)
 
     def word_keys(self, word):
@@ -138,8 +139,11 @@ def build_net(cfg=None):
             self.w = nn.Linear(P, 1)                # pointer -> key logit
             self.blank = nn.Linear(H2, 1)
 
-        def forward(self, feats, pos, keys):
-            """feats (B,T,F_IN), pos (B,T,2), keys (B,K,4) -> log-probs (B,T,1+K) with blank at index 0."""
+        def forward(self, feats, pos, keys, key_mask=None):
+            """feats (B,T,F_IN), pos (B,T,2), keys (B,K,4) -> log-probs (B,T,1+K) with blank at index 0.
+
+            key_mask (B,K) bool: False marks padding keys (batches mixing layouts of different sizes); they can
+            never be output."""
             h = feats.transpose(1, 2)
             for c in self.convs:
                 h = torch.relu(c(h))
@@ -151,6 +155,8 @@ def build_net(cfg=None):
             kh = keys[:, None, :, 3].expand_as(dx)
             f = torch.stack([dx, dy, kw, kh], -1)                            # (B,T,K,4)
             logit = self.w(torch.tanh(a[:, :, None, :] + self.B(f))).squeeze(-1)   # (B,T,K)
+            if key_mask is not None:
+                logit = logit.masked_fill(~key_mask[:, None, :], -1e4)
             blank = self.blank(h)                                            # (B,T,1)
             return torch.log_softmax(torch.cat([blank, logit], -1), -1)
 

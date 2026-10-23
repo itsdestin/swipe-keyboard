@@ -48,7 +48,7 @@ private:
     struct Word { std::string text; std::vector<uint8_t> keys; int freq; };
     std::vector<Word> words_;
     std::vector<Node> nodes_;
-    struct Pending { std::vector<uint8_t> rawKeys, keys; std::string text; int freq; };
+    struct Pending { std::string lower; std::vector<uint8_t> keys; std::string text; int freq; };
     std::vector<Pending> pending_;
 };
 

@@ -43,5 +43,7 @@ private:
 std::u32string decodeUtf8(std::string_view s);
 // Lower-case + strip the accent when the result is a plain Latin letter ("É" -> 'e'); other characters lower-cased.
 char32_t foldChar(char32_t c);
+// Lower-case a UTF-8 string keeping accents (ASCII and Latin-1 letters): the identity used to dedupe a word list.
+std::string lowerUtf8(std::string_view s);
 
 }

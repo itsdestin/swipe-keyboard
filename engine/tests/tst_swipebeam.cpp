@@ -61,13 +61,20 @@ private slots:
     void lexiconDedupesAndSharesNodes() {
         auto lex = makeLexicon({{"cat", 100}, {"car", 120}, {"cart", 90}, {"see", 200}, {"se", 50}, {"The", 250},
                                 {"the", 240}, {"can't", 150}, {"cant", 10}, {"1234", 5}});
-        // "the" folds into "The"; "cant" into "can't" (apostrophes are not keys); "1234" has no letters.
-        QCOMPARE(lex.wordCount(), size_t(7));
+        // "the" folds into "The" (same word, different capitals); "can't" and "cant" stay apart (same key path);
+        // "1234" has no letters.
+        QCOMPARE(lex.wordCount(), size_t(8));
         const int32_t n = lex.find(keysOf("see"));
         QVERIFY(n > 0);
         QCOMPARE(lex.node(n).wordEnd - lex.node(n).wordBegin, 2u);   // see + se share one path, kept apart by spelling
         QCOMPARE(int(lex.node(lex.find(keysOf("ca"))).bestFreq), 150);
         QCOMPARE(lex.find(keysOf("cz")), -1);
+    }
+    void accentTwinsAreKeptApart() {
+        auto lex = makeLexicon({{"que", 250}, {"qu\xC3\xA9", 120}, {"o\xC3\xB9", 80}, {"ou", 200}, {"Que", 100}});
+        QCOMPARE(lex.wordCount(), size_t(4));   // "Que" is "que" with a capital
+        const int32_t n = lex.find(keysOf("que"));
+        QCOMPARE(lex.node(n).wordEnd - lex.node(n).wordBegin, 2u);
     }
     void beamFindsTheSpelledWord() {
         auto lex = makeLexicon({{"cat", 100}, {"car", 100}, {"cart", 100}, {"dog", 100}, {"at", 100}});

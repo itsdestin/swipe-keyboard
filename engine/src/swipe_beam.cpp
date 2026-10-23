@@ -23,8 +23,9 @@ void SwipeLexicon::add(std::string_view word, int freq, const SwipeLayout &layou
     if (k.empty() || k.size() > 40 || layout.size() > 255) return;
     Pending p;
     p.keys.assign(k.begin(), k.end());
-    // Full (uncollapsed) folded key string is the dedupe identity: "see" and "se" are different words.
-    for (char32_t c : decodeUtf8(word)) { const int kk = layout.keyOf(c); if (kk >= 0) p.rawKeys.push_back(uint8_t(kk)); }
+    // WHY the lower-cased spelling (accents kept) is the identity: "que" and "qu\u00e9", "ou" and "o\u00f9", "see" and "se" are
+    // different words that share a key path, and the sentence prior must be able to choose between them.
+    p.lower = lowerUtf8(word);
     p.text = std::string(word); p.freq = std::clamp(freq, 0, 255);
     pending_.push_back(std::move(p));
 }
@@ -44,10 +45,10 @@ size_t SwipeLexicon::loadTsv(const std::string &path, const SwipeLayout &layout)
 }
 
 void SwipeLexicon::finish() {
-    // Dedupe by folded raw key string, keeping the most frequent spelling ("The"/"the", accent variants).
+    // Dedupe by lower-cased spelling, keeping the most frequent capitalisation ("The"/"the").
     std::sort(pending_.begin(), pending_.end(), [](const Pending &a, const Pending &b) {
         if (a.keys != b.keys) return a.keys < b.keys;
-        if (a.rawKeys != b.rawKeys) return a.rawKeys < b.rawKeys;
+        if (a.lower != b.lower) return a.lower < b.lower;
         if (a.freq != b.freq) return a.freq > b.freq;
         return a.text < b.text;
     });
@@ -58,7 +59,7 @@ void SwipeLexicon::finish() {
     std::vector<int32_t> path{0};
     std::vector<int32_t> lastChild{-1};   // last child added under path[i]
     for (const auto &p : pending_) {
-        if (last && last->keys == p.keys && last->rawKeys == p.rawKeys) continue;   // same word, lower frequency
+        if (last && last->keys == p.keys && last->lower == p.lower) continue;   // same word, lower frequency
         last = &p;
         // Longest shared prefix with the previous word's path.
         size_t shared = 0;

@@ -49,6 +49,19 @@ char32_t foldChar(char32_t c) {
     }
 }
 
+std::string lowerUtf8(std::string_view s) {
+    std::string out;
+    for (char32_t c : decodeUtf8(s)) {
+        if (c >= 'A' && c <= 'Z') c += 32;
+        else if (c >= 0xC0 && c <= 0xDE && c != 0xD7) c += 32;
+        if (c < 0x80) out.push_back(char(c));
+        else if (c < 0x800) { out.push_back(char(0xC0 | (c >> 6))); out.push_back(char(0x80 | (c & 0x3f))); }
+        else if (c < 0x10000) { out.push_back(char(0xE0 | (c >> 12))); out.push_back(char(0x80 | ((c >> 6) & 0x3f))); out.push_back(char(0x80 | (c & 0x3f))); }
+        else { out.push_back(char(0xF0 | (c >> 18))); out.push_back(char(0x80 | ((c >> 12) & 0x3f))); out.push_back(char(0x80 | ((c >> 6) & 0x3f))); out.push_back(char(0x80 | (c & 0x3f))); }
+    }
+    return out;
+}
+
 SwipeLayout::SwipeLayout(std::vector<SwipeKey> keys) : keys_(std::move(keys)) {
     std::vector<float> hw;
     for (const auto &k : keys_) hw.push_back(k.hw);
