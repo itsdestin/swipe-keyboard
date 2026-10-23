@@ -105,3 +105,28 @@ Notes: unit = key *pitch*, not drawn key width (boards with gaps between keys ar
 HeliBoard English boards with near-identical geometry differ by 5-7 points for *every* decoder (geometry only too):
 the spread is the swipers, not the layout handling. The geometric decoder alone beats the network on HeliBoard top-3,
 which is why the blend is part of the engine.
+
+### Multilingual model and final scoring (2026-10-23)
+
+One model for en/es/fr/de (keys as positions): M1 = R2 recipe + 100k synthetic swipes each for es (qwerty + n-tilde),
+fr (azerty), de (qwertz) from `synth_swipes.py` on `release-v2/*.combined` words (case-folded labels, accents on base
+keys). English did not drop: clean validation 90.60 / 94.74 (R2: 90.19 / 94.65), clean3000 90.63 / 94.57.
+F1 = the same recipe trained on ALL of dev.jsonl (validation sessions included, last epoch kept), 2.1 MB, sha256
+`287b531c...cce382b05`. Settings fixed before scoring (tuned on the clean validation): freq weight 0.06, geometric
+cross-check weight 40, beam 48. Scored once, single run each:
+
+| set | all swipes first / top-3 | in-dictionary only | ms/swipe |
+|---|---|---|---|
+| bench-2000 | 89.85 / 94.25 | 91.78 / 96.27 (1,958 swipes) | 3.5 (1 thread) |
+| test-extra-10000 | 90.41 / 94.88 | 92.43 / 97.00 (9,781 swipes) | 3.6 |
+
+FUTO reference on bench-2000: 93.32 / 96.56. Target (93.3 / 96.6) not reached; gap 3.5 first guess over all swipes,
+1.5 over in-dictionary swipes, 0.3 on top-3 in-dictionary.
+
+HeliBoard gesture test sets (test only, 5,000 each, case-insensitive, accents kept, per-swipe real board geometry),
+F1 + geometric cross-check, 260k-word lists built from the open corpus counts (`words_from_counts.py`):
+en 81.5 / 91.5 (words.tsv), es 81.1 / 89.7, fr 70.4 / 84.6, de 72.0 / 80.5 (dictionary coverage of targets
+es 97.5%, fr 98.2%, de 91.9%). The 100k `.combined` lists cover only es 90.5%, fr 83.0%, de 80.0% of these targets,
+which caps accuracy; with them F1-class models score es 77.9 / 85.4, fr 60.9 / 73.5, de 65.3 / 72.3. Today's FUTO
+engine (old packs): en 84.5 / 93.4, es 77.7 / 85.1, fr 64.6 / 76.9, de 69.7 / 76.4 -- a different dictionary, so
+compare with care.
