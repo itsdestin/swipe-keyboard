@@ -18,11 +18,11 @@ std::string NwpPredictor::siblingPath(const std::string &model)
     return model.substr(0, model.size() - tail.size()) + ".nwp.bin";
 }
 
-bool NwpPredictor::load(const std::string &ngramModel, const std::string &vocab, const std::string &nwp)
+bool NwpPredictor::load(const std::string &ngramModel, const std::string &vocab, const std::string &nwp, bool siblingFallback)
 {
     useLm_ = false;
     if (!ngram_.load(ngramModel, vocab)) return false;
-    const std::string path = nwp.empty() ? siblingPath(ngramModel) : nwp;
+    const std::string path = !nwp.empty() ? nwp : (siblingFallback ? siblingPath(ngramModel) : std::string());
     // WHY a failed neural load is not an error: the pack still works as before (n-gram only).
     if (path.empty() || !lm_.load(path)) return true;
     const auto &words = ngram_.vocabulary();

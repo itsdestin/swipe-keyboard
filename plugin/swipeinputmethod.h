@@ -128,6 +128,7 @@ private:
     void observePredictionEcho();
     void requestContextCompletion(const EditorSnapshot &editor);
     bool predictionCapable() const;
+    void applyNeuralNextWord(PredictionJob &job) const;
     CaseMode caseMode() const;
     QStringList barCandidates() const;
     // Tap-to-swap (card #187): tapping an existing word shows alternatives; nothing swaps by itself.

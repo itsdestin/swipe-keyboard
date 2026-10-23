@@ -15,6 +15,9 @@ struct ProfileSnapshot {
     quint64 epoch=0;
 };
 QString canonicalLocale(const QString &locale);
+// Path of <modelRoot>/swipe-model.bin when its size and SHA-256 equal the pin in assets.lock.json ("trained_models.swipe"),
+// else an empty string (the own engine then runs geometry-only).
+QString verifiedSwipeModel(const QString &modelRoot);
 ProfileSnapshot resolveProfile(const QString &locale, const QString &layoutId, const QString &inputMode,
                                const QString &modelRoot, quint64 epoch=0);
 // Serialized owner-thread state; async loaders pass their captured epoch to publish().

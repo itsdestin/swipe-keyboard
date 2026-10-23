@@ -63,6 +63,35 @@ class Packaging(unittest.TestCase):
             checker.check_multilingual_context_assets(base,lock)
             self.assertEqual(sha(terms),source_lock['tatoeba_license_notice_sha256'])
 
+    def test_trained_models_ship_exactly_as_pinned(self):
+        import copy
+        import hashlib
+        import importlib.util
+        import json
+        spec=importlib.util.spec_from_file_location('package_check',ROOT/'scripts/package-check.py')
+        checker=importlib.util.module_from_spec(spec);spec.loader.exec_module(checker)
+        sha=lambda data: hashlib.sha256(data).hexdigest()
+        lock=copy.deepcopy(json.loads((ROOT/'packaging/assets.lock.json').read_text()))
+        models=lock['trained_models']
+        with tempfile.TemporaryDirectory() as tmp:
+            root=pathlib.Path(tmp);base=root/'usr/share/swipe-keyboard';(base/'language-packs').mkdir(parents=True);(base/'models').mkdir()
+            licences=root/'usr/share/licenses/swipe-keyboard';licences.mkdir(parents=True)
+            for language,pin in models['nextWord'].items():
+                data=b'nwp-'+language.encode();(base/'language-packs'/pin['path']).write_bytes(data);pin['sha256']=sha(data);pin['bytes']=len(data)
+            data=b'swipe';(base/'models/swipe-model.bin').write_bytes(data);models['swipe'].update(sha256=sha(data),bytes=len(data))
+            for key in ('notice','swipeDataTerms'):
+                data=key.encode();(licences/models[key]['path']).write_bytes(data);models[key]['sha256']=sha(data)
+            checker.check_trained_models(root,lock)
+            # Each kind of damage is caught: a next-word model, the swipe model, a notice, and a missing file.
+            for path,bad in ((base/'language-packs/de.nwp.bin',b'nwp-xx'),(base/'models/swipe-model.bin',b'swipe!'),(licences/'MODELS-NOTICE.md',b'changed')):
+                good=path.read_bytes();path.write_bytes(bad)
+                with self.assertRaises(AssertionError,msg=str(path)):
+                    checker.check_trained_models(root,lock)
+                path.write_bytes(good)
+            (base/'language-packs/en.nwp.bin').unlink()
+            with self.assertRaises(FileNotFoundError):
+                checker.check_trained_models(root,lock)
+
     def test_repository_no_longer_carries_the_large_language_files(self):
         # WHY: the n-gram files are fetched by checksum from the language-files release (see assets.lock.json).
         import json

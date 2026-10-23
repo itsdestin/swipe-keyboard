@@ -24,7 +24,9 @@ public:
     static std::string siblingPath(const std::string &ngramModel);
 
     // The n-gram pack must load. `nwp` (default: siblingPath) is optional: absent or damaged = n-gram only.
-    bool load(const std::string &ngramModel, const std::string &vocab, const std::string &nwp = {});
+    // `siblingFallback=false` means "use exactly `nwp`, and no neural model when it is empty": the keyboard plugin
+    // passes only a file it has verified against the lock, so an unverified sibling must never be picked up.
+    bool load(const std::string &ngramModel, const std::string &vocab, const std::string &nwp = {}, bool siblingFallback = true);
     bool ready() const { return ngram_.ready(); }
     bool hasLm() const { return lm_.loaded(); }
     const NgramPredictor &ngram() const { return ngram_; }

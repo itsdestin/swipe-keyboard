@@ -193,7 +193,9 @@ private slots:
         if (root.isEmpty()) QSKIP("Generated pack fixture not supplied");
         auto p=resolveProfile(language,layout,"Latin",root); // Normal selection needs no opt-in.
         QVERIFY2(p.capabilities.swipe,qPrintable(p.unavailableReason));
-        QVERIFY(p.capabilities.nextWord); QVERIFY(p.capabilities.contextRanking); QCOMPARE(p.assets.size(),4);
+        QVERIFY(p.capabilities.nextWord); QVERIFY(p.capabilities.contextRanking);
+        // encoder, dictionary, n-gram, word list; plus the neural next-word model when the (verified) fixture has one.
+        QCOMPARE(p.assets.size(),QFileInfo::exists(root+"/"+language+".nwp.bin") ? 5 : 4);
         ModelPaths paths; paths.encoder=p.assets["encoder"].path.toStdString(); paths.dictionary=p.assets["dictionary"].path.toStdString();
         paths.ngram=p.assets["contextModel"].path.toStdString();
         RecognizerOptions options; options.language=language.toStdString(); options.ngram=true; options.alphabet=languageAlphabet(language).toStdString();
@@ -235,6 +237,71 @@ private slots:
             QVERIFY2(lowerData.contains(" word="+spelling.toLower()+","),qPrintable(spelling));
         }
         QVERIFY(!engine.bestShapeWord().empty());
+    }
+    // Card #179: the neural next-word model (LANG.nwp.bin) is offered to the engine only when its size and SHA-256 equal the
+    // lock. Any other state (absent, damaged, swapped) removes only that role: the n-gram, the word list and the language stay.
+    void neuralNextWordModelIsOfferedOnlyWhenVerified() {
+        const QString source=qEnvironmentVariable("SWIPEKB_TEST_LANGUAGE_PACKS");
+        if(source.isEmpty() || !QFileInfo::exists(source+"/es.nwp.bin")) QSKIP("Verified pack fixture with es.nwp.bin required");
+        QTemporaryDir copy; QVERIFY(copy.isValid());
+        for(const auto &name:QDir(source).entryList(QDir::Files))
+            QVERIFY2(QFile::copy(QDir(source).filePath(name),copy.filePath(name)),qPrintable(name));
+        auto resolve=[&] { return resolveProfile("es-MX","qwerty","Latin",copy.path()); };
+        auto p=resolve();
+        QVERIFY2(p.capabilities.nextWord,qPrintable(p.unavailableReason));
+        QVERIFY(p.assets.contains("contextNwp"));
+        QVERIFY(p.assets["contextNwp"].path.endsWith("/es.nwp.bin"));
+        QCOMPARE(p.assets["contextNwp"].compatibility,QString("es:context-nwp-v1"));
+        const auto good=languagefixtures::read(copy.filePath("es.nwp.bin")); QVERIFY(!good.isEmpty());
+        auto expectNgramOnly=[&](const char *what) {
+            auto q=resolve();
+            QVERIFY2(q.capabilities.swipe && q.capabilities.nextWord,what);
+            QVERIFY2(q.assets.contains("contextModel") && q.assets.contains("contextVocab"),what);
+            QVERIFY2(!q.assets.contains("contextNwp"),what);
+        };
+        QVERIFY(languagefixtures::write(copy.path(),"es.nwp.bin",good+"x"));   // longer
+        expectNgramOnly("longer file");
+        auto flipped=good; flipped[flipped.size()/2]=char(flipped[flipped.size()/2]^0x01);   // same size, one bit changed
+        QVERIFY(languagefixtures::write(copy.path(),"es.nwp.bin",flipped));
+        expectNgramOnly("one changed bit");
+        QVERIFY(QFile::remove(copy.filePath("es.nwp.bin")));
+        expectNgramOnly("absent file");
+        QVERIFY(languagefixtures::write(copy.path(),"es.nwp.bin",good));
+        QVERIFY(resolve().assets.contains("contextNwp"));
+        // A model that is valid for another language must not pass as this one's (the lock pins one file per language).
+        QVERIFY(QFile::copy(source+"/fr.nwp.bin",copy.filePath("fr.nwp.bin.other")));
+        QVERIFY(QFile::remove(copy.filePath("es.nwp.bin")));
+        QVERIFY(QFile::copy(copy.filePath("fr.nwp.bin.other"),copy.filePath("es.nwp.bin")));
+        expectNgramOnly("French model under the Spanish name");
+    }
+    void englishNeuralNextWordFollowsTheSameRule() {
+        if(qEnvironmentVariable("SWIPEKB_TEST_ENGLISH_ASSETS").isEmpty() || !QFileInfo::exists(qEnvironmentVariable("SWIPEKB_TEST_LANGUAGE_PACKS")+"/en.nwp.bin"))
+            QSKIP("English assets and an installed en.nwp.bin fixture required");
+        QTemporaryDir dir; QString why; QVERIFY2(englishRoot(dir.path(),true,why),qPrintable(why));
+        const auto packs=qEnvironmentVariable("SWIPEKB_TEST_LANGUAGE_PACKS");
+        QVERIFY(QFile::copy(packs+"/en.nwp.bin",dir.filePath("language-packs/en.nwp.bin")));
+        auto p=resolveProfile("en-US","qwerty","Latin",dir.path());
+        QVERIFY2(p.assets.contains("contextNwp"),qPrintable(p.unavailableReason));
+        QCOMPARE(p.assets["contextModel"].compatibility,QString("en:context-ngram-v1"));
+        const auto good=languagefixtures::read(dir.filePath("language-packs/en.nwp.bin"));
+        QVERIFY(languagefixtures::write(dir.path(),"language-packs/en.nwp.bin",good+"x"));
+        p=resolveProfile("en-US","qwerty","Latin",dir.path());
+        QVERIFY(!p.assets.contains("contextNwp")); QCOMPARE(p.assets["contextModel"].compatibility,QString("en:context-ngram-v1"));
+    }
+    // The own engine's swipe model is used only when it is byte-identical to the pinned file (else geometry-only).
+    void swipeModelIsVerifiedAgainstTheLock() {
+        const auto source=qEnvironmentVariable("SWIPEKB_TEST_ENGLISH_ASSETS")+"/models/swipe-model.bin";
+        if(qEnvironmentVariable("SWIPEKB_TEST_ENGLISH_ASSETS").isEmpty() || !QFileInfo::exists(source)) QSKIP("Pinned swipe-model.bin fixture required");
+        QTemporaryDir dir; QVERIFY(dir.isValid());
+        QVERIFY(verifiedSwipeModel(dir.path()).isEmpty());   // absent
+        QVERIFY(QFile::copy(source,dir.filePath("swipe-model.bin")));
+        QVERIFY(verifiedSwipeModel(dir.path()).endsWith("/swipe-model.bin"));
+        auto bytes=languagefixtures::read(dir.filePath("swipe-model.bin"));
+        auto flipped=bytes; flipped[100]=char(flipped[100]^0x01);
+        QVERIFY(languagefixtures::write(dir.path(),"swipe-model.bin",flipped));
+        QVERIFY(verifiedSwipeModel(dir.path()).isEmpty());   // same size, different bytes
+        QVERIFY(languagefixtures::write(dir.path(),"swipe-model.bin",bytes+"x"));
+        QVERIFY(verifiedSwipeModel(dir.path()).isEmpty());   // wrong size
     }
 };
 int main(int argc,char **argv) {

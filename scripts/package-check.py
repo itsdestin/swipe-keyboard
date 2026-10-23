@@ -101,6 +101,30 @@ def check_multilingual_context_assets(base, lock):
     assert models['es'].get('locales') == ['es_ES', 'es_MX'], 'Spanish regional model sharing must be explicit'
 
 
+def check_trained_models(root, lock):
+    """The four neural next-word models and the swipe model must ship exactly as pinned, with their notices.
+
+    WHY mandatory in a package: the keyboard silently runs without any model it cannot verify, so a package that
+    dropped or altered one would only show up as worse suggestions. Licences: the notice (credit + sources) and the
+    MIT text of FUTO's swipe data must sit in the licence folder.
+    """
+    models = lock.get('trained_models')
+    assert isinstance(models, dict), 'Missing pinned trained-model metadata'
+    base = root/'usr/share/swipe-keyboard'
+    for language in ('en', 'es', 'fr', 'de'):
+        pin = models['nextWord'][language]
+        data = (base/'language-packs'/pin['path']).read_bytes()
+        assert len(data) == pin['bytes'], f'{language} {pin["path"]} size mismatch'
+        assert hashlib.sha256(data).hexdigest() == pin['sha256'], f'{language} {pin["path"]} hash mismatch'
+    swipe = models['swipe']
+    data = (base/'models'/pathlib.PurePosixPath(swipe['path']).name).read_bytes()
+    assert len(data) == swipe['bytes'] and hashlib.sha256(data).hexdigest() == swipe['sha256'], 'swipe-model.bin differs from its pin'
+    for key in ('notice', 'swipeDataTerms'):
+        entry = models[key]
+        data = (root/'usr/share/licenses/swipe-keyboard'/entry['path']).read_bytes()
+        assert hashlib.sha256(data).hexdigest() == entry['sha256'], f'Corrupt {entry["path"]}'
+
+
 def check(root):
     root = pathlib.Path(root)
     base = root/'usr/share/swipe-keyboard'
@@ -129,6 +153,7 @@ def check(root):
             assert hashlib.sha256(payload.read_bytes()).hexdigest() == asset['sha256'], f'Corrupt {payload}'
     assert hashlib.sha256((base/'dict/en_swipe.combined').read_bytes()).hexdigest() == lock['dictionary_sha256'], 'Dictionary differs from pinned build output'
     check_multilingual_context_assets(base, lock)
+    check_trained_models(root, lock)
     assert hashlib.sha256((root/'usr/share/licenses/swipe-keyboard/TATOEBA-CC-BY-2.0-FR.txt').read_bytes()).hexdigest() == lock['tatoeba_license_notice_sha256'], 'Installed Tatoeba license notice differs from pack notice pin'
     wrapper = root/'usr/bin/swipe-keyboard'
     assert wrapper.stat().st_mode & 0o111, 'Wrapper must be executable'

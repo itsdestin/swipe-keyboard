@@ -48,6 +48,38 @@ class LanguagePacks(unittest.TestCase):
     def lock(self):
         return json.loads((ROOT/'packaging/assets.lock.json').read_text())
 
+    def test_neural_next_word_model_joins_a_pack_only_when_it_matches_the_lock(self):
+        import copy
+        m = self.module
+        lock = copy.deepcopy(self.lock())
+        sha = lambda data: hashlib.sha256(data).hexdigest()
+        shared = lock['language_files']
+        with tempfile.TemporaryDirectory() as tmp:
+            source = pathlib.Path(tmp)
+            pin = lock['multilingual_context_models']['es']
+            files = {'es.ngram': b'g', 'es.vocab.tsv': b'v', 'es-CONTRIBUTORS.txt': b'c',
+                     shared['odcTerms']['path']: b'odc', shared['notice']['path']: b'n',
+                     lock['language_dictionaries']['es']['path']: b'd'}
+            for name, data in files.items():
+                (source/name).write_bytes(data)
+            pin.update(modelSha256=sha(b'g'), vocabSha256=sha(b'v'), contributorsSha256=sha(b'c'))
+            shared['odcTerms']['sha256'] = sha(b'odc'); shared['notice']['sha256'] = sha(b'n')
+            lock['language_dictionaries']['es']['sha256'] = sha(b'd')
+            models = lock['trained_models']
+            (source/models['notice']['path']).write_bytes(b'models notice')
+            models['notice']['sha256'] = sha(b'models notice')
+            models['nextWord']['es'].update(sha256=sha(b'nwp'), bytes=3)
+            # Without the model file the pack is exactly what it was before.
+            self.assertNotIn('es.nwp.bin', m.context_pack_files('es', lock, source))
+            (source/'es.nwp.bin').write_bytes(b'nwp')
+            result = m.context_pack_files('es', lock, source)
+            self.assertEqual(result['es.nwp.bin'], b'nwp')
+            self.assertEqual(result[models['notice']['path']], b'models notice')
+            # A present file that differs from the pin (even by one byte, same size) aborts the build.
+            (source/'es.nwp.bin').write_bytes(b'nwq')
+            with self.assertRaisesRegex(ValueError, 'pin mismatch: es.nwp.bin'):
+                m.context_pack_files('es', lock, source)
+
     def test_lock_has_no_share_alike_inputs(self):
         lock = self.lock()
         for gone in ('wordfreq_wheel', 'wordfreq_source', 'cc_license_source'):

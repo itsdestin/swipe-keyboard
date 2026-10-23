@@ -97,6 +97,19 @@ def context_pack_files(language, lock, source):
     if sha(tatoeba) != lock['tatoeba_license_notice_sha256']:
         raise ValueError('Tatoeba licence notice pin mismatch')
     files['TATOEBA-CC-BY-2.0-FR.txt'] = tatoeba
+    # WHY optional, but never wrong: the neural next-word model is an add-on to the n-gram. Absent = pack without it;
+    # present with a different hash = error (same rule as every other pinned file).
+    nwp_pin = lock.get('trained_models', {}).get('nextWord', {}).get(language)
+    if nwp_pin and (source/nwp_pin['path']).is_file():
+        data = (source/nwp_pin['path']).read_bytes()
+        if sha(data) != nwp_pin['sha256'] or len(data) != nwp_pin['bytes']:
+            raise ValueError('language file pin mismatch: ' + nwp_pin['path'])
+        files[nwp_pin['path']] = data
+        notice = lock['trained_models']['notice']
+        notice_data = (source/notice['path']).read_bytes()
+        if sha(notice_data) != notice['sha256']:
+            raise ValueError('language file pin mismatch: ' + notice['path'])
+        files[notice['path']] = notice_data
     return files
 
 

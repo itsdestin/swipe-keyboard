@@ -56,7 +56,7 @@ static bool contains(const QJsonValue &v, const QString &value) { return v.toArr
 // WHY one checker for every language: English (no manifest) and es/fr/de (manifest) must accept exactly the same
 // next-word files. Everything is judged against the repository lock, never against what a manifest claims:
 // the n-gram + word list, the credit file and all licence/notice texts that must travel with them.
-struct ContextFiles { QString model, vocab; };
+struct ContextFiles { QString model, vocab, nwp; };
 static bool contextFilesVerified(const QString &language, const QString &dir, const QJsonObject &lock, ContextFiles &out)
 {
     const auto pins=lock["multilingual_context_models"].toObject()[language].toObject();
@@ -80,6 +80,12 @@ static bool contextFilesVerified(const QString &language, const QString &dir, co
     // the files; the other languages' word lists come only from FineWeb/Tatoeba (ODC-By + CC BY 2.0 FR, checked above).
     const auto apache=shared["apacheTerms"].toObject();
     if (language=="en" && !check(apache["path"].toString(),apache["sha256"].toString(),-1)) return false;
+    // WHY optional and judged only by the lock: the neural next-word file (LANG.nwp.bin) sits beside the n-gram and
+    // improves its suggestions. A missing, truncated or swapped file leaves `files.nwp` empty, so only that model is
+    // switched off: the n-gram, the word list and the language itself stay exactly as they were.
+    const auto nwpPin=lock["trained_models"].toObject()["nextWord"].toObject()[language].toObject();
+    if (!nwpPin.isEmpty() && nwpPin["path"].toString()==language+".nwp.bin")
+        check(nwpPin["path"].toString(),nwpPin["sha256"].toString(),nwpPin["bytes"].toInteger(-1),&files.nwp);
     out=files; return true;
 }
 // WHY the manifest is only cross-checked: it may describe the context files, but it cannot widen what the lock allows.
@@ -151,11 +157,25 @@ static ProfileSnapshot english(ProfileSnapshot p, const QString &root)
             const auto pins=lock["multilingual_context_models"].toObject()["en"].toObject();
             p.assets["contextModel"]={ngram.model,pins["modelSha256"].toString(),"en:context-ngram-v1"};
             p.assets["contextVocab"]={ngram.vocab,pins["vocabSha256"].toString(),"en:context-ngram-v1"};
+            if (!ngram.nwp.isEmpty()) p.assets["contextNwp"]={ngram.nwp,lock["trained_models"].toObject()["nextWord"].toObject()["en"].toObject()["sha256"].toString(),"en:context-nwp-v1"};
             p.capabilities={true,true,true};
         }
         break;
     }
     return p;
+}
+QString verifiedSwipeModel(const QString &modelRoot)
+{
+    initLanguageAssets();
+    const auto pin=readObject(":/swipekb/assets.lock.json")["trained_models"].toObject()["swipe"].toObject();
+    const auto sha=pin["sha256"].toString();
+    // WHY relative to the model folder: the lock names it "models/swipe-model.bin" (its place in the asset tree), the
+    // installed copy is <model dir>/swipe-model.bin.
+    const auto file=QFileInfo(pin["path"].toString()).fileName();
+    if (sha.size()!=64 || file.isEmpty()) return {};
+    const auto path=localPath(modelRoot,file);
+    if (path.isEmpty() || QFileInfo(path).size()!=pin["bytes"].toInteger(-1) || digest(path)!=sha) return {};
+    return path;
 }
 ProfileSnapshot resolveProfile(const QString &locale, const QString &layoutId, const QString &inputMode,
                                const QString &modelRoot, quint64 epoch)
@@ -263,6 +283,10 @@ ProfileSnapshot resolveProfile(const QString &locale, const QString &layoutId, c
         }
         p.assets[it.key()]={path,hash,compat};
     }
+    // The neural next-word file was verified against the lock by contextFilesVerified(); the manifest cannot add it.
+    if (hasContext && !contextFiles.nwp.isEmpty())
+        p.assets["contextNwp"]={contextFiles.nwp,lock["trained_models"].toObject()["nextWord"].toObject()[p.effectiveLanguage].toObject()["sha256"].toString(),
+                                p.effectiveLanguage+":context-nwp-v1"};
     p.packId=m["id"].toString(); p.packVersion=m["version"].toString();
     p.capabilities={true,hasContext,hasContext};
     return p;

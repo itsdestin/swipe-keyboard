@@ -131,6 +131,18 @@ private slots:
         QCOMPARE(hybrid.predict(context, 3), expected.predict(context, 3));
         QVERIFY(hybrid.predict(context, 3) != plain.predict(context, 3));   // the neural model really changed the answer
         for (const auto &w : hybrid.predict(context, 5, "t")) QVERIFY(w[0] == 't');
+
+        // Card #179: the keyboard decides which neural file is used. With the neighbour fallback off and no verified
+        // path, an .nwp.bin lying beside the n-gram is ignored (n-gram answers); an explicit path is used even from
+        // another folder.
+        swipekb::Predictor unverified; QVERIFY(unverified.init(model, vocab, {}, false));
+        QCOMPARE(unverified.predict(context, 3), plain.predict(context, 3));
+        QTemporaryDir other; QVERIFY(other.isValid());
+        const QString elsewhere = other.filePath("verified.nwp.bin");
+        QVERIFY(QFile::copy(dir.filePath("xx.nwp.bin"), elsewhere));
+        QVERIFY(QFile::remove(dir.filePath("xx.nwp.bin")));
+        swipekb::Predictor explicitPath; QVERIFY(explicitPath.init(model, vocab, elsewhere.toStdString(), false));
+        QCOMPARE(explicitPath.predict(context, 3), hybrid.predict(context, 3));
     }
     void absentModelIsUnavailable() {
         swipekb::Predictor p;

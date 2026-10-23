@@ -157,5 +157,55 @@
   "word_list_source": {
     "url": "https://github.com/itsdestin/swipe-keyboard/releases/download/language-files-2026-10-22-open-words/SHA256SUMS",
     "sha256": "bd5786013571301098ad46a288e8cbcbdb8991c1b609c4f225e41312c1b6de85"
+  },
+  "trained_models": {
+    "release": "models-2026-10-23",
+    "baseUrl": "https://github.com/itsdestin/swipe-keyboard/releases/download/models-2026-10-23/",
+    "copyright": "SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>",
+    "notice": {
+      "path": "MODELS-NOTICE.md",
+      "remote": "NOTICE.md",
+      "sha256": "9f7e77c6f5f41a47f50923e631f878c5a51059159f5d671efeae1c7cf6a20125",
+      "bytes": 4302
+    },
+    "swipeDataTerms": {
+      "path": "FUTO-SWIPE-DATA-LICENSE.txt",
+      "sha256": "60968505ce2909b45997d104b678eb42474d47174924338cd0fa652abe0fff60",
+      "bytes": 1060
+    },
+    "nextWord": {
+      "en": {
+        "path": "en.nwp.bin",
+        "sha256": "d0fd7da65f8b9f12f2375f329e764d74db7556878097709def424b1dd79f710b",
+        "bytes": 4657632,
+        "license": "ODC-By-1.0 AND CC-BY-2.0-FR"
+      },
+      "es": {
+        "path": "es.nwp.bin",
+        "sha256": "fb051d4cb06e96c351ce232bc0a65cac22d477fcc982838ee37585d1f266c4a8",
+        "bytes": 4709920,
+        "license": "ODC-By-1.0 AND CC-BY-2.0-FR"
+      },
+      "fr": {
+        "path": "fr.nwp.bin",
+        "sha256": "54554b495c2f824f9c1138f99f3de3c94b203d56bec59746381ac8d519aabf23",
+        "bytes": 4698696,
+        "license": "ODC-By-1.0 AND CC-BY-2.0-FR"
+      },
+      "de": {
+        "path": "de.nwp.bin",
+        "sha256": "bb881b20d227c7b1ed7c9a04d67171b08c25494a10b2f11138eb7914194dac84",
+        "bytes": 4718096,
+        "license": "ODC-By-1.0 AND CC-BY-2.0-FR"
+      }
+    },
+    "swipe": {
+      "path": "models/swipe-model.bin",
+      "remote": "swipe-model.bin",
+      "sha256": "941272a7017229a73e07d1c0bd766757e739174db3a42fb622c26256b8c46110",
+      "bytes": 2115260,
+      "license": "MIT"
+    },
+    "credit": "Models trained and released by Destin Moss via youcoded.ai, 2026"
   }
 }

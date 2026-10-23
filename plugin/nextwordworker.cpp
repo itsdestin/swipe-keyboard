@@ -50,9 +50,9 @@ void NextWordWorker::run()
         try {
             if (m_inference) { words = m_inference(job); modelLoaded=true; }
             else {
-                const auto identity = job.modelIdentity + '\n' + job.model + '\n' + job.vocab;
+                const auto identity = job.modelIdentity + '\n' + job.model + '\n' + job.vocab + '\n' + job.nwp;
                 if (loadedIdentity != identity || !predictor.ready()) {
-                    predictor.init(job.model.toStdString(), job.vocab.toStdString());
+                    predictor.init(job.model.toStdString(), job.vocab.toStdString(), job.nwp.toStdString(), false);
                     loadedIdentity = identity;
                 }
                 modelLoaded=predictor.ready();

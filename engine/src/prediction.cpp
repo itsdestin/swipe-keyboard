@@ -16,7 +16,7 @@ struct Predictor::Impl {
 Predictor::Predictor() = default;
 Predictor::~Predictor() = default;
 bool Predictor::ready() const { return m_impl && (m_impl->useNgram ? m_impl->ngram.ready() : m_impl->neural.is_loaded()); }
-bool Predictor::init(const std::string &model, const std::string &vocab)
+bool Predictor::init(const std::string &model, const std::string &vocab, const std::string &nwp, bool siblingFallback)
 {
     m_impl.reset();
     if (model.empty() || vocab.empty() || !std::ifstream(model).good() || !std::ifstream(vocab).good()) return false;
@@ -25,7 +25,7 @@ bool Predictor::init(const std::string &model, const std::string &vocab)
         std::ifstream probe(model, std::ios::binary);
         char magic[8]{}; probe.read(magic, sizeof magic);
         if (probe.gcount() == sizeof magic && std::string(magic, sizeof magic) == std::string("SWKBNG2\0", 8)) {
-            if (!impl->ngram.load(model, vocab)) return false;
+            if (!impl->ngram.load(model, vocab, nwp, siblingFallback)) return false;
             impl->useNgram = true;
         } else {
             // WHY preserve the existing English ExecuTorch path byte-for-byte for its established model.

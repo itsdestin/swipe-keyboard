@@ -19,6 +19,9 @@ struct PredictionJob {
     // Answered by alternativesReady, never by resultReady/completionReady.
     bool alternatives = false;
     int topK = 12;
+    // The neural next-word file (LANG.nwp.bin) that the profile verified against the lock; empty = n-gram only.
+    // WHY explicit: the engine must never pick up an unverified file that merely sits beside the n-gram.
+    QString nwp;
 };
 // Serial, thread-confined inference with one latest pending request. No GUI-side
 // inference lock or synchronous profile drain; a changed identity reloads on run().

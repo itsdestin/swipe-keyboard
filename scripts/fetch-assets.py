@@ -4,6 +4,7 @@ import argparse
 import base64
 import hashlib
 import json
+import os
 import pathlib
 import shutil
 import sys
@@ -73,6 +74,43 @@ def language_file_assets(lock):
     return assets
 
 
+def trained_model_assets(lock):
+    """The trained models (release `trained_models` in the lock), as fetch() assets with their install-tree paths.
+
+    WHY pinned like the FUTO files: they are downloaded once from the public release and every build re-verifies
+    them by SHA-256. Paths are inside <assets>: next-word models and notices under language-files/ (the language
+    packs are generated from there), the swipe model under models/ (where the keyboard looks for it).
+    Test-only: SWIPEKB_TEST_MODELS_MIRROR (a folder or URL holding the same file names) replaces the release URL, so
+    the install path can be exercised before the release exists; the pins still decide whether a file is accepted.
+    """
+    models = lock['trained_models']
+    base = models['baseUrl']
+    mirror = os.environ.get('SWIPEKB_TEST_MODELS_MIRROR', '')
+    if mirror and '://' not in mirror:
+        mirror = pathlib.Path(mirror).resolve().as_uri()
+    def url(remote):
+        return (mirror.rstrip('/') + '/' + remote) if mirror else base + remote
+    assets = []
+    for pin in models['nextWord'].values():
+        assets.append({'path': 'language-files/' + pin['path'], 'url': url(pin['path']), 'sha256': pin['sha256']})
+    swipe = models['swipe']
+    assets.append({'path': swipe['path'], 'url': url(swipe['remote']), 'sha256': swipe['sha256']})
+    for key in ('notice', 'swipeDataTerms'):
+        entry = models[key]
+        assets.append({'path': 'language-files/' + entry['path'], 'url': url(entry.get('remote', entry['path'])), 'sha256': entry['sha256']})
+    return assets
+
+
+def fetch_trained_models(assets, lock):
+    for asset in trained_model_assets(lock):
+        fetch(asset, assets/asset['path'])
+    # WHY in licenses/ too: the MIT notice for FUTO's swipe data and the models' credit/source notice must ship with them.
+    (assets/'licenses').mkdir(parents=True, exist_ok=True)
+    for key in ('notice', 'swipeDataTerms'):
+        name = lock['trained_models'][key]['path']
+        shutil.copy2(assets/'language-files'/name, assets/'licenses'/name)
+
+
 def fetch_language_files(assets):
     """Download into <assets>/language-files; generate_packs() copies them into the installed layout."""
     lock = json.loads((ROOT/'packaging/assets.lock.json').read_text())
@@ -86,6 +124,7 @@ def fetch_language_files(assets):
     english = lock['language_dictionaries']['en']
     (assets/'dict').mkdir(parents=True, exist_ok=True)
     shutil.copy2(assets/'language-files'/english['path'], assets/'dict/en_swipe.combined')
+    fetch_trained_models(assets, lock)
 
 
 def prepare_language_packs(assets):

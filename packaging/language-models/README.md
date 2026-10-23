@@ -37,6 +37,21 @@ checks the same files against the same lock.
 - If a Spanish, French or German file is missing or fails verification, that language still swipes and types with its
   dictionary; only the suggestions are switched off.
 
+## Trained models (release `models-2026-10-23`)
+
+Models trained and released by Destin Moss via youcoded.ai, 2026. `trained_models` in `../assets.lock.json` pins, by SHA-256
+and size, `en/es/fr/de.nwp.bin` (neural next-word models, ODC-By-1.0 AND CC-BY-2.0-FR, trained on the same FineWeb /
+FineWeb-2 and Tatoeba text), `swipe-model.bin` (MIT; trained on FUTO's MIT swipe.futo.org data plus our synthetic swipes), the
+release `NOTICE.md` (installed as `MODELS-NOTICE.md`) and the MIT text of FUTO's swipe data. `scripts/fetch-assets.py`
+puts the next-word files in `assets/language-files/` (`language_pack.py` copies them next to `LANG.ngram` in
+`language-packs/`) and the swipe model in `assets/models/`; both notices go to `assets/licenses/`.
+At run time (`plugin/languageprofile.cpp`) a `LANG.nwp.bin` is used only when its size and SHA-256 equal the lock; the
+engine is handed that exact path and never picks up an unchecked neighbour. A missing or altered file turns off only that
+model: the n-gram keeps working, and the language is never disabled. `swipe-model.bin` is checked the same way before the
+own engine loads it (mismatch: geometry only). The `SWIPEKB_SWIPE_MODEL` environment override (trials and tests) is not checked.
+Test-only: `SWIPEKB_TEST_MODELS_MIRROR=<folder or URL>` makes `fetch-assets.py` read these files from a local folder instead
+of the release (the pins still decide what is accepted).
+
 ## Rebuilding the files
 
 `scripts/lm/build-fineweb2-model.py` builds a language's n-gram from FineWeb text plus Tatoeba (sentences weighted 30x;

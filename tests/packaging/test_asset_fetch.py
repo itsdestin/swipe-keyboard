@@ -102,6 +102,39 @@ class AssetFetch(unittest.TestCase):
             self.assertFalse(target.exists())
             self.assertFalse(target.with_name('es.ngram.part').exists())
 
+    def test_trained_models_are_pinned_and_a_test_mirror_cannot_bypass_the_pins(self):
+        import json
+        import os
+        module = helper()
+        lock = json.loads((ROOT/'packaging/assets.lock.json').read_text())
+        assets = {a['path']: a for a in module.trained_model_assets(lock)}
+        self.assertEqual(set(assets), {'language-files/en.nwp.bin', 'language-files/es.nwp.bin', 'language-files/fr.nwp.bin',
+                                       'language-files/de.nwp.bin', 'models/swipe-model.bin', 'language-files/MODELS-NOTICE.md',
+                                       'language-files/FUTO-SWIPE-DATA-LICENSE.txt'})
+        base = 'https://github.com/itsdestin/swipe-keyboard/releases/download/models-2026-10-23/'
+        for name, asset in assets.items():
+            self.assertRegex(asset['sha256'], r'^[a-f0-9]{64}$')
+            self.assertTrue(asset['url'].startswith(base), name)
+        self.assertEqual(assets['models/swipe-model.bin']['url'], base + 'swipe-model.bin')
+        # Each download is accepted only against the digest the lock pins for it.
+        for language, pin in lock['trained_models']['nextWord'].items():
+            self.assertEqual(assets[f'language-files/{language}.nwp.bin']['sha256'], pin['sha256'])
+        self.assertEqual(assets['models/swipe-model.bin']['sha256'], lock['trained_models']['swipe']['sha256'])
+        self.assertEqual(assets['language-files/MODELS-NOTICE.md']['url'], base + 'NOTICE.md')
+        with tempfile.TemporaryDirectory() as tmp:
+            mirror = Path(tmp)/'mirror'
+            mirror.mkdir()
+            with mock.patch.dict(os.environ, {'SWIPEKB_TEST_MODELS_MIRROR': str(mirror)}):
+                mirrored = {a['path']: a for a in module.trained_model_assets(lock)}
+            self.assertEqual(mirrored['language-files/es.nwp.bin']['url'], (mirror/'es.nwp.bin').as_uri())
+            self.assertEqual(mirrored['language-files/es.nwp.bin']['sha256'], assets['language-files/es.nwp.bin']['sha256'])
+            # A mirror serving other bytes is rejected by the pin, exactly like the real release would be.
+            (mirror/'es.nwp.bin').write_bytes(b'not the pinned model')
+            target = Path(tmp)/'out/language-files/es.nwp.bin'
+            with self.assertRaisesRegex(ValueError, 'SHA256 mismatch'):
+                module.fetch(mirrored['language-files/es.nwp.bin'], target)
+            self.assertFalse(target.exists())
+
     def test_valid_decoded_notice_cannot_mask_a_corrupt_encoded_file(self):
         module = helper()
         notice = b'Pinned notice\n'

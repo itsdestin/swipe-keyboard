@@ -11,8 +11,8 @@
 # on|off|forget|status` (or just create/delete the file ~/.local/share/swipe-keyboard/learn-typing). SWIPEKB_LEARN_TYPING=yes|no skips the question.
 # The n-gram ranking (lm/) is off unless ~/.local/share/swipe-keyboard/use-ngram exists (then restart the keyboard).
 # The project's own swipe engine (card #179) replaces FUTO's recogniser only while ~/.local/share/swipe-keyboard/own-engine
-# exists (restart the keyboard). It looks for swipe-model.bin beside the FUTO models (not shipped or pinned yet: with no
-# file it still swipes, using geometry only). Without the file, FUTO answers exactly as before.
+# exists (restart the keyboard). It looks for swipe-model.bin beside the FUTO models (pinned in assets.lock.json and fetched with
+# the other files; a missing or altered file means geometry only). Without the own-engine file, FUTO answers exactly as before.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 DEST="${XDG_DATA_HOME:-$HOME/.local/share}/swipe-keyboard"

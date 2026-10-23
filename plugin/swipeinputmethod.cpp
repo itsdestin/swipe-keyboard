@@ -175,7 +175,10 @@ void SwipeInputMethod::resolveCurrentProfile()
                     // WHY same folder as the FUTO models; not pinned/verified yet (test-only model), a missing or
                     // damaged file simply leaves the engine geometry-only.
                     // SWIPEKB_SWIPE_MODEL points at a model anywhere (manual trials and tests); never set in normal use.
-                    setup.model=qEnvironmentVariable("SWIPEKB_SWIPE_MODEL",SwipeRecorder::modelDir()+"/swipe-model.bin").toStdString();
+                    // WHY verified: the default file is checked against the sha256 in assets.lock.json; a mismatch means
+                    // geometry-only (the same fallback as a missing file). The env override stays unverified (trials/tests).
+                    const QString overridePath=qEnvironmentVariable("SWIPEKB_SWIPE_MODEL");
+                    setup.model=(overridePath.isEmpty() ? swipekb::verifiedSwipeModel(SwipeRecorder::modelDir()) : overridePath).toStdString();
                     setup.keepCase=snapshot.effectiveLanguage.startsWith(QLatin1String("de"));
                     auto own=std::make_shared<swipekb::OwnSwipe>();
                     if (own->init(setup)) m_own=std::move(own);
@@ -1131,6 +1134,16 @@ void SwipeInputMethod::invalidatePredictions()
     if (self && visible) refreshGuessBar();
 }
 
+void SwipeInputMethod::applyNeuralNextWord(PredictionJob &job) const
+{
+    // WHY from the snapshot: that role exists only when the file passed the lock's size + SHA-256 check. Without it the
+    // worker loads the n-gram alone, even when an (unverified) .nwp.bin lies beside it.
+    const auto nwp=m_profiles.snapshot().assets.value(QStringLiteral("contextNwp"));
+    if (nwp.path.isEmpty()) return;
+    job.nwp=nwp.path;
+    job.modelIdentity+=nwp.sha256;
+}
+
 bool SwipeInputMethod::predictionCapable() const
 {
     return isReady() && m_profiles.snapshot().capabilities.nextWord
@@ -1167,7 +1180,9 @@ void SwipeInputMethod::observePredictionEcho()
         // WHY never use a native validation snapshot as model input, including pasted prefixes.
         if (!words.isEmpty()) {
             m_nextPrev=words.last();   // for the personal re-ranking of this request's answer
-            m_predictionWorker.submit({*request, model.path, vocab.path, words, model.sha256 + vocab.sha256});
+            PredictionJob job{*request, model.path, vocab.path, words, model.sha256 + vocab.sha256};
+            applyNeuralNextWord(job);
+            m_predictionWorker.submit(job);
         }
         else {
             m_nextWord.invalidate(); m_predictionWorker.invalidate();
@@ -1257,6 +1272,7 @@ void SwipeInputMethod::observeWordSwap(const EditorSnapshot &editor)
     PredictionJob job{m_swapStamp, model.path, vocab.path, swipekb::textContextWords(editor.text.left(span->start).right(4096)),
         model.sha256 + vocab.sha256, span->word.left(1).toLower()};
     job.alternatives = true; job.topK = 64;
+    applyNeuralNextWord(job);
     m_predictionWorker.submit(job);
 }
 
@@ -1283,7 +1299,9 @@ void SwipeInputMethod::requestContextCompletion(const EditorSnapshot &editor)
     const auto model=m_profiles.snapshot().assets.value(QStringLiteral("contextModel"));
     const auto vocab=m_profiles.snapshot().assets.value(QStringLiteral("contextVocab"));
     m_completionPrev=words.isEmpty() ? QString() : words.last();
-    m_predictionWorker.submit({m_typedWord.stamp(), model.path, vocab.path, words, model.sha256 + vocab.sha256, token});
+    PredictionJob job{m_typedWord.stamp(), model.path, vocab.path, words, model.sha256 + vocab.sha256, token};
+    applyNeuralNextWord(job);
+    m_predictionWorker.submit(job);
 }
 
 CaseMode SwipeInputMethod::caseMode() const
