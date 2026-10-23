@@ -89,7 +89,9 @@ class SpacebarSlideTest : public QObject {
     // Moves in 2 px strides like a real finger, so a fast slide cannot skip the "past the threshold" moment.
     void dragTo(bool mouse, int from, int to) { const int d = to > from ? 2 : -2; for (int x = from + d; d > 0 ? x <= to : x >= to; x += d) moveTo(mouse, x); settle(); }
 private slots:
-    void init() { method.keys.clear(); }
+    // WHY a frozen clock by default: these tests send moves in microseconds, which would read as a flick; with the
+    // clock stopped the slide never sees a speed and moves exactly one character per step.
+    void init() { method.keys.clear(); layer->setProperty("slideClockMs", 0); }
     void initTestCase() { QVERIFY(build()); QVERIFY(layer->property("measuredLayoutId").toString() != "");}
     void cleanupTestCase() { ic->inputEngine()->setInputMethod(nullptr); }
 
@@ -184,6 +186,47 @@ private slots:
         for (int x = startX + 12; x <= startX + 100; x += 4) fingers.move(0, QPoint(x, spaceY), &window).commit(); settle();
         QCOMPARE(method.count(Qt::Key_Left) + method.count(Qt::Key_Right), 0);
         fingers.release(0, QPoint(startX + 100, spaceY), &window).commit(); settle();
+    }
+
+    // Drags on the slide's own clock: each 2 px stride takes msPerStride, so the speed is chosen by the test.
+    void timedDrag(bool mouse, int from, int to, int pxPerStride, int msPerStride) {
+        const int d = to > from ? pxPerStride : -pxPerStride;
+        double clock = 1000;
+        layer->setProperty("slideClockMs", clock);
+        pressAt(mouse, from); settle();
+        for (int x = from + d; d > 0 ? x <= to : x >= to; x += d) {
+            clock += msPerStride; layer->setProperty("slideClockMs", clock);
+            moveTo(mouse, x);
+            // WHY settle each move: Qt Quick may merge moves within a frame, which would hide the clock between them.
+            QTest::qWait(1);
+        }
+        settle(); liftAt(mouse, to);
+    }
+
+    void aSlowSlideMovesOneCharacterPerStep() {
+        // 2 px every 20 ms = 2.5 keys a second, under the 4 keys/s where speed-up starts: 22 px -> 1, then 1 per
+        // 12 px: 200 px -> 16, exactly as with no speed-up.
+        timedDrag(true, startX, startX + 200, 2, 20);
+        QCOMPARE(method.count(Qt::Key_Right), 16);
+        QCOMPARE(method.count(Qt::Key_Space), 0);
+    }
+
+    void aFastSlideMovesMuchFurtherForTheSameDistance() {
+        // 4 px every 4 ms = 25 keys a second, past the 16 keys/s of full speed-up (5x): the same 200 px moves far
+        // more than the slow slide's 16 characters, but never more than 5x as many.
+        timedDrag(true, startX, startX + 200, 4, 4);
+        const int moved = method.count(Qt::Key_Right);
+        QVERIFY2(moved > 40, qPrintable(QStringLiteral("moved only %1").arg(moved)));
+        QVERIFY2(moved <= 5 * 16 + 1, qPrintable(QStringLiteral("moved %1").arg(moved)));
+        QCOMPARE(method.count(Qt::Key_Left), 0);
+        QCOMPARE(method.count(Qt::Key_Space), 0);
+    }
+
+    void aFastSlideLeftMovesLeftOnly() {
+        // From 480 (inside Space, which ends at 500) back to 280: the same 200 px, by finger, leftwards.
+        timedDrag(false, startX + 180, startX - 20, 4, 4);
+        QVERIFY2(method.count(Qt::Key_Left) > 40, qPrintable(QStringLiteral("moved only %1").arg(method.count(Qt::Key_Left))));
+        QCOMPARE(method.count(Qt::Key_Right), 0);
     }
 
     void losingTheInputMethodEndsTheSlide() {

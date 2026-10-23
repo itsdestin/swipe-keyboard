@@ -282,6 +282,9 @@ private slots:
         QVERIFY(capture);
         auto *touchArea = qobject_cast<QQuickItem *>(capture->property("touchArea").value<QObject *>());
         QVERIFY(touchArea);
+        // WHY a frozen slide clock: the test's moves arrive in microseconds and would read as a fast flick (which
+        // moves further on purpose); stopped, the slide moves exactly one character per step.
+        QVERIFY(capture->setProperty("slideClockMs", 0));
         // Letter key width, the unit the slide measures in (0 until the layout shows its letters).
         auto letterUnit = [&]() -> double {
             QVariant geometry;

@@ -55,13 +55,26 @@ Item {
     // Sideways travel before a press on Space counts as a deliberate slide. WHY: a sloppy tap wobbles a few
     // pixels and must still type a space.
     property real spaceSlideStartKeys: 0.5
-    // Sideways travel for each further character.
+    // Sideways travel for each further character, at a slow, careful pace.
     property real spaceSlideStepKeys: 0.3
+    // WHY speed-up: with one fixed step, crossing a long line needed a slide across the whole screen (owner,
+    // 2026-10-23). Like a touchpad and the phone keyboards, a slow slide still moves exactly one character per
+    // step, and a faster one moves further for the same distance, up to spaceSlideMaxGain times as far.
+    // Speeds are letter-key widths per second.
+    property real spaceSlideSlowSpeed: 4
+    property real spaceSlideFastSpeed: 16
+    property real spaceSlideMaxGain: 5
+    // Test hook: when 0 or more, the clock (ms) the slide reads instead of the real one. WHY: tests send their
+    // moves in microseconds, which would otherwise always look like a flick.
+    property real slideClockMs: -1
     property int spaceId: -1            // the finger/mouse that pressed Space, -1 when none
     property bool spaceSliding: false   // past the threshold: Space will no longer type
     property real spaceStartX: 0
     property real spaceUnit: 0          // letter key width measured when Space was pressed
-    property real spaceAnchorX: 0       // where the last cursor step was taken, in touch-area x
+    property real spaceCarry: 0         // travel (after speed-up) not yet used for a character, in px
+    property real spaceLastX: 0         // where the finger was at the previous move
+    property real spaceSpeed: 0         // recent finger speed, letter keys per second
+    property var spaceSamples: []       // recent {t, x} of the finger, for that speed
 
     property var points: []
     // The same points mapped into the trail's own coordinates (see `trail`), filled as the finger moves.
@@ -482,7 +495,36 @@ Item {
         root.spaceId = tp.pointId
         root.spaceSliding = false
         root.spaceStartX = tp.x
-        root.spaceAnchorX = tp.x
+        root.spaceLastX = tp.x
+        root.spaceCarry = 0
+        root.spaceSpeed = 0
+        root.spaceSamples = [{ t: root.slideNow(), x: tp.x }]
+    }
+
+    function slideNow() {
+        return root.slideClockMs >= 0 ? root.slideClockMs : Date.now()
+    }
+
+    // Finger speed over the last tenth of a second. WHY a window and not the last two moves: moves arrive in
+    // uneven bursts (one per frame, sometimes merged), so a single gap gives wild speeds.
+    function measureSpaceSpeed(x) {
+        var now = root.slideNow()
+        var kept = root.spaceSamples.filter(function (s) { return now - s.t <= 100 })
+        kept.push({ t: now, x: x })
+        root.spaceSamples = kept
+        var span = now - kept[0].t
+        if (kept.length < 2)
+            root.spaceSpeed = 0                       // the finger paused: start again from slow
+        else if (span >= 20)
+            root.spaceSpeed = Math.abs(x - kept[0].x) / root.spaceUnit / (span / 1000)
+        return root.spaceSpeed
+    }
+
+    // How much further than the finger the cursor travels at this speed: 1 when slow, rising evenly to the
+    // maximum when fast.
+    function spaceGain(speed) {
+        var f = (speed - root.spaceSlideSlowSpeed) / (root.spaceSlideFastSpeed - root.spaceSlideSlowSpeed)
+        return 1 + Math.max(0, Math.min(1, f)) * (root.spaceSlideMaxGain - 1)
     }
 
     function updateSpaceSlide(touchPoints) {
@@ -490,6 +532,8 @@ Item {
         if (!tp)
             return
         var unit = root.spaceUnit
+        var step = unit * root.spaceSlideStepKeys
+        var gain = root.spaceGain(root.measureSpaceSpeed(tp.x))
         if (!root.spaceSliding) {
             var travelled = tp.x - root.spaceStartX
             if (Math.abs(travelled) <= unit * root.spaceSlideStartKeys)
@@ -499,18 +543,19 @@ Item {
             // no space and key repeat stops); reset() clears the touch area's own state.
             InputContext.inputEngine.virtualKeyCancel()
             root.touchArea.reset()
-            // Anchor one step short of the crossing point so the first character moves the moment the slide starts.
-            var step = unit * root.spaceSlideStepKeys
-            root.spaceAnchorX = root.spaceStartX + (travelled > 0 ? unit * root.spaceSlideStartKeys - step
-                                                                  : -(unit * root.spaceSlideStartKeys - step))
+            // Start one step's worth past the threshold so the first character moves the moment the slide starts.
+            var past = Math.abs(travelled) - unit * root.spaceSlideStartKeys + step
+            root.spaceCarry = travelled > 0 ? past : -past
+        } else {
+            root.spaceCarry += (tp.x - root.spaceLastX) * gain
         }
-        var stepPx = unit * root.spaceSlideStepKeys
-        var steps = Math.trunc((tp.x - root.spaceAnchorX) / stepPx)
+        root.spaceLastX = tp.x
+        var steps = Math.trunc(root.spaceCarry / step)
         if (steps === 0)
             return
         // WHY a cap: a stalled UI thread can deliver one huge jump; do not flood the app with arrow keys.
         var count = Math.min(Math.abs(steps), 30)
-        root.spaceAnchorX = Math.abs(steps) > 30 ? tp.x : root.spaceAnchorX + steps * stepPx
+        root.spaceCarry = Math.abs(steps) > 30 ? 0 : root.spaceCarry - steps * step
         // WHY Left/Right key presses through the input engine: they travel the same path as Backspace, so they
         // reach every Wayland app the keyboard already types into, and Swipe's own key handler sees them first
         // (it ends the suggestion/undo state for a swiped word because the cursor is leaving it). Always the
