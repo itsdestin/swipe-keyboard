@@ -85,7 +85,9 @@ private slots:
         window.show(); window.requestActivate(); edit.forceActiveFocus();
         auto *ic=qvariant_cast<QVirtualKeyboardInputContext*>(root->property("context")); QVERIFY(ic);
         QSemaphore completed; QStringList captured;
-        SwipeInputMethod method(nullptr,[&](const PredictionJob &job){captured=job.context;completed.release();return QStringList{"world","again","today"};});
+        // WHY only next-word jobs (empty prefix) are recorded: with the open English n-gram installed every typed letter also
+        // sends a completion job, and under load one of those could satisfy `completed` before the real job's context was captured.
+        SwipeInputMethod method(nullptr,[&](const PredictionJob &job){if(job.prefix.isEmpty()){captured=job.context;completed.release();}return QStringList{"world","again","today"};});
         ic->inputEngine()->setInputMethod(&method); method.setInputMode("en_US",QVirtualKeyboardInputEngine::InputMode::Latin);
         method.setPhysicalLayout("qwerty"); QGuiApplication::inputMethod()->update(Qt::ImQueryAll);
         QTRY_VERIFY(ic->inputItem()==&edit);
@@ -153,7 +155,8 @@ private slots:
         QCOMPARE(ic->surroundingText(),QStringLiteral("preexisting sentinel he")); // last echo still missing
         // Only the final echo arrives normally; the earlier two were recovered at each key press.
         QGuiApplication::inputMethod()->update(Qt::ImQueryAll); method.update();
-        QCOMPARE(method.selectionListItemCount(QVirtualKeyboardSelectionListModel::Type::WordCandidateList),3);
+        // WHY wait: the candidates come from a worker thread; under load the check ran before its result arrived.
+        QTRY_COMPARE_WITH_TIMEOUT(method.selectionListItemCount(QVirtualKeyboardSelectionListModel::Type::WordCandidateList),3,15000);
         const auto chosen=method.selectionListData(QVirtualKeyboardSelectionListModel::Type::WordCandidateList,1,
             QVirtualKeyboardSelectionListModel::Role::Display).toString();
         QVERIFY(!chosen.isEmpty() && chosen!=QStringLiteral("hel"));
@@ -192,7 +195,8 @@ private slots:
             method.keyEvent(Qt::Key(typed.front().toUpper().unicode()),typed,modifiers);ic->commit(typed);
             QGuiApplication::inputMethod()->update(Qt::ImQueryAll);method.update();++typedIndex;
         }
-        QCOMPARE(method.selectionListItemCount(QVirtualKeyboardSelectionListModel::Type::WordCandidateList),3);
+        // WHY wait: the candidates come from a worker thread; under load the check ran before its result arrived.
+        QTRY_COMPARE_WITH_TIMEOUT(method.selectionListItemCount(QVirtualKeyboardSelectionListModel::Type::WordCandidateList),3,15000);
         QStringList words;for(int i=0;i<3;++i)words<<method.selectionListData(QVirtualKeyboardSelectionListModel::Type::WordCandidateList,i,QVirtualKeyboardSelectionListModel::Role::Display).toString();
         QVERIFY(words.contains(literalWord));QVERIFY(!method.predictionSelectionToken().isEmpty());
         int index=literal?words.indexOf(literalWord):1;const auto selected=words[index];
