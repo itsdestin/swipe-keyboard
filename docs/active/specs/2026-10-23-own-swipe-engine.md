@@ -2,75 +2,75 @@
 status: draft
 cards: 179
 ---
-# Own swipe engine: geometric shape decoder + small learned re-ranker
+# Own swipe engine: small CTC network + lexicon beam search + n-gram prior
 
-Written without reference to FUTO code, weights or documents. Sources: published literature only (Kristensson & Zhai,
-SHARK2, 2004; dynamic time warping; Gaussian key models) plus a clean-room spike (82.0% first guess / 90.0% top 3 on the
-2,000 real English test swipes, numpy). Training/test data: FUTO's MIT-licensed swipe recordings (data only).
+Written without reference to FUTO code, weights or documents. Sources: published literature only — CTC (Graves et
+al. 2006), gesture-typing with neural encoders + lexicon search (Alsharif et al. 2015 and follow-ups), SHARK2
+(Kristensson & Zhai 2004), DTW — plus our own clean-room geometric spike (82.0% first / 90.0% top 3 on the 2,000 real
+English test swipes; kept as fallback). Training data: FUTO's MIT-licensed real English swipe recordings (data only)
+and our own synthetic swipes. Not used for training: the HeliBoard gesture set (CC BY-SA; test only, later).
 
-## 1. Problem and pipeline
+Decision (owner, 2026-10-22): build the accurate architecture. Why not "geometric candidates + learned re-ranker":
+measured candidate recall caps it near 93% first-guess even with a perfect re-ranker (see the recall note in the
+session log), mostly swipes whose end or length the geometry cannot place.
 
-Input: a trace (x, y, t) in layout coordinates (0..1 of the letter area), canvas pixel size (for aspect), a layout (key
-rectangles) and a word list (spelling, frequency 0..255). Output: ranked words with scores.
+## 1. Pipeline
 
-1. **Normalise.** Scale to key-width units: X = 10x, Y = 10·y·H/W (so a QWERTY key is ~1.0 wide, ~1.3 tall). Drop
-   consecutive points closer than 1e-4. Resample the trace to N=40 points equally spaced along its length.
-2. **Candidates.** Take the 6 keys nearest the first touch and the 6 nearest the last touch; candidates are words whose
-   first letter is in the first set and last letter in the second (bucket table keyed by first/last key). Then drop words
-   whose path length is outside 0.55·L−1 .. 1.8·L+1.5 (L = trace length; skipped for taps).
-3. **Template.** A word's template is the polyline through its key centres (consecutive repeated letters collapsed),
-   resampled to N=40 equal-length points (built on demand per candidate, so memory is just the word list).
-4. **Geometric score (lower is better)** = DTW/80 + 0.01·coverage − 0.0005·frequency:
-   - *DTW (location channel):* banded dynamic time warping (half-band 8 samples) between trace and template. Point cost
-     is max(0, distance − 0.45) key widths: a touch inside a key's core is free. This lets users speed up/slow down and
-     cut corners, which the SHARK2 point-by-point match cannot (spike: 66% → 85%).
-   - *Coverage:* for each letter of the word, the trace's closest approach to that key, minus 0.4, floored at 0; summed.
-     A letter the finger never visited costs its full miss distance (DTW alone dilutes it).
-   - *Prior:* frequency, linear (the list's scale is already log-like).
-   - Exactness-preserving speed-ups: candidates are visited in order of (coverage − prior); DTW rows are abandoned as soon
-     as the best reachable total exceeds the current 24th-best; the loop stops when the cheap terms alone exceed it.
-5. **Re-rank (section 3).** The best 24 are re-scored by a small boosted-tree model on richer features. Without a model
-   file the geometric order is returned unchanged.
+1. **Trace -> input** (`SwipeNet::buildInput`, mirrored in `scripts/swipe/swipelib.py:trace_to_input`; a fixture test
+   keeps them identical). Convert to key-width units, resample to **64 steps by arc length**, carrying elapsed time.
+   Per step 8 features: x, y (0..1 of the letter area), dx, dy (key widths from the previous step), log(1+dt)/4
+   (a pause shows as one step with a large dt), fraction of the path done, step length, log(1+path length)/3.
+2. **Encoder.** Conv1d(8->64,k5) -> Conv1d(64->64,k5) (ReLU) -> 2-layer bidirectional GRU (hidden 96). ~290k
+   parameters, 1.2 MB as float32 (0.6 MB as float16). Config (widths, layers) is stored in the file, so a bigger model
+   needs no code change.
+3. **Layout-independent output ("pointer head").** For step t and key k a small shared network scores
+   `w . tanh(A h_t + B [dx, dy, key width, key height])`, where (dx, dy) is the finger's offset from the key centre in
+   key widths and h_t the encoder state; the blank scores from h_t alone. Softmax over (blank + keys). Keys are inputs,
+   not outputs, so AZERTY / QWERTZ / Spanish n-tilde / any key count use the same weights. (Fine-tuning per language
+   is possible but not required.)
+4. **Training.** CTC loss on the *collapsed* key sequence of the word (a double letter is one pass over a key; "see"
+   and "se" share a label — the dictionary frequency and the sentence prior pick between them). AdamW, one-cycle LR,
+   random whole-trace shifts (~0.2 key). Any target word works (no dictionary needed), so names/typos also train.
+5. **Search** (`SwipeBeamSearch`). Dictionary words form a trie over key sequences. CTC prefix beam search over
+   the trie: only prefixes of real words extend, so the output is always a dictionary word. Beam 48, only the 8 likeliest
+   keys per step may start a letter. Pruning order = prefix probability + 0.03 nats * best word frequency below the
+   prefix (+ a bonus for words the sentence context favours). At the end, each finished word scores
+   `log P_ctc(keys) + prior(word)`.
+6. **Prior** (`NgramWordPrior`, `swipe_lm.hpp`): natural-log probability from the project's own n-gram file given the
+   previous words, falling back to the model's frequency calibration for words it lacks. Without a file the dictionary
+   frequency (0..255 scale * 0.03 nats) is used. The previous-words hook is `setContext()`; `hints()` feeds the search.
+7. **Fallback.** No model file, damaged/unknown-version file, or an empty result: the geometric decoder from the spike
+   (banded DTW on key positions + letter coverage + frequency) answers instead. Swiping never depends on the network.
+   (C++ port of the geometric decoder is not written yet; the spike is Python.)
 
-## 2. Interfaces (engine/include/swipekb/shape_decoder.hpp)
+## 2. Interfaces (engine/include/swipekb/)
 
-- `ShapeLayout`: keys as `{char32 label, cx, cy, halfW, halfH}` in 0..1, plus `alias(from, to)`. `ShapeLayout::foldLatin()`
-  folds accented letters to their base key when the layout has no key of their own (é→e, ñ→n only if no ñ key).
-- `ShapeDecoder::setLayout`, `loadWords(path | vector)`, `setReranker(path)`, `decode(trace, canvasW, canvasH, topK)` →
-  `vector<ShapeCandidate{ word, score, geoScore }>`. Word list input is a plain TSV (`word<TAB>freq`) so the list is
-  pluggable; words with characters that map to no key (digits, apostrophes, hyphens) lose those characters ("can't"
-  is matched as "cant", displayed as "can't"). Duplicates by key string keep the most frequent display form.
-- Context hook (not wired yet): `decode(..., contextScore)` takes an optional per-word callback returning a sentence-context
-  log-score; it becomes one more re-ranker feature (`NgramPredictor`-style score of the word after the previous words).
-  Single-word swipe data cannot train or measure it, so it is simulated later.
+- `swipe_layout.hpp` — `SwipeLayout` (keys as centre + half size in 0..1; `keyOf`, `wordKeys`; accents fold to the base
+  key unless the layout has the accent as its own key; apostrophes, hyphens, digits are not keys).
+- `swipe_net.hpp` — `SwipeNet::load/loadBytes` (strict validation), `buildInput`, `forward` (log-probs, blank = 0).
+- `swipe_beam.hpp` — `SwipeLexicon` (`add`/`loadTsv`/`finish`; `word<TAB>freq`, pluggable list), `SwipeBeamSearch::decode`.
+- `swipe_lm.hpp` — `NgramWordPrior` over `NgramLM`.
+- Model file "SKNN" v1 (little endian): header (version, f32/f16, steps, feature counts, conv/GRU/pointer sizes), then
+  tensors in the order written by `scripts/swipe/swipelib.py:export_model`. ~1.2 MB (f32) or ~0.6 MB (f16).
 
-## 3. Learned re-ranker
+## 3. Tools and data
 
-Why: geometry alone has a ceiling (spike: 82/90; 8% of swipes have the right word at rank 2–3, mostly near-identical
-paths where only frequency/timing separate them; ~8% are sloppy paths).
-- Model: gradient-boosted trees (LightGBM, trained offline, build-time tool only) on the geometric top 24, exported as
-  flat arrays and evaluated in plain C++ (no ML runtime). Objective: lambdarank / softmax over the candidate list.
-- Features per candidate: geometric score parts (DTW, coverage, frequency), rank and gap to best, lengths and length
-  ratio, start/end distance to first/last key, open-end/trimmed DTW (sloppy lift-off), per-letter alignment misses
-  (max/mean/count of letters missed), double-letter flag and dwell at the doubled key, speed at letters and number of
-  slow points/corners versus letters, frequency rank among the 24, how many candidates share the same key string,
-  trace-level context (duration, length, best DTW = how sloppy this swipe is).
-- Training data: dev.jsonl (54k real swipes, other users than the test sessions); selection on devhold-5000 and tune sets;
-  bench-2000 and test-extra-10000 are scored once at the end.
+`scripts/swipe/`: `prep_data.py` (jsonl -> npz), `train.py` (CPU or CUDA), `synth_swipes.py` (our own generator;
+differs from `bench/languages/make-noisy-swipes.py`, which stays the *test* generator), `make_layouts.py` (approximate
+AZERTY/QWERTZ/Spanish layouts until real rectangles are taken from the keyboard), `make_fixture.py`.
+`tools/swipekb-swipenet-bench.cpp` scores jsonl swipes (first guess, top 3, ms/swipe, single thread).
+Splits: dev.jsonl (54k) trains; devhold-5000 selects; tune sets tune search weights; bench-2000 and test-extra-10000
+are scored once at the end.
 
 ## 4. Other layouts and alphabets
 
-Nothing is QWERTY-specific: the layout is the key list. AZERTY (fr), QWERTZ (de) and QWERTY-ñ (es) are different key
-rectangles. Accents map to the base key (é/è/ê→e, ü→u, ç→c, ñ→n or its own key), so French and German words and
-Spanish words are matched on their base letters; accent choice is left to the word list/frequency/sentence context
-(the que/qué, ou/où twins are a context problem, not a shape problem). Alphabets with different key counts only change
-the 26-key assumptions in the bucket table (sized from the layout). Scripts with long-press variants, or space-bar
-and punctuation keys inside words (apostrophes in French l'école), are handled by dropping unmapped characters.
-Constants are in key-width units, so they transfer to other key sizes; they should be re-tuned (and the re-ranker
-retrained) on real swipes per language. Only English has real recordings today; ES/FR/DE will start from synthetic
-traces (generator ≠ test generator).
+Layout = key list. Accents map to base keys unless the layout has them (es n-tilde). Constants are in key-width units
+(`unit = 1 / (2 * median half width)`). English is the only language with real recordings; for ES/FR/DE the plan is
+(a) synthetic swipes on the real layout geometry for training/fine-tuning, (b) scoring on the project's synthetic set
+and on real volunteer swipes when they exist. Accent twins (que/que-acute, ou/ou-grave) are a sentence-prior problem,
+not a shape problem. The synthetic generator exists so the language gap can be closed without waiting for data.
 
-## 5. Constants (starting values from the spike, tuned on tune-2000 only)
+## 5. Targets and budgets
 
-N=40, band=8, r=0.45, coverage radius 0.4, coverage weight 0.01, prior weight 0.0005, nk=6, candidate list K=24,
-length window 0.55/1.8. Targets: ≥ spike accuracy (82/90 geometric) and ≤ 10 ms per swipe single-thread.
+English >= 93.3% first / 96.6% top 3 on bench-2000; <= ~5 ms/swipe single thread (measured 3.5 ms with the 290k
+model in a loaded machine, -O3 without -march=native); model <= ~4 MB; lexicon trie ~533k nodes for 232k words.
