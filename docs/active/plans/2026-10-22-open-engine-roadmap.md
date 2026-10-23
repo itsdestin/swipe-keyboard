@@ -206,6 +206,39 @@ first half, test on the second (measures repeated vocabulary, not real typing; a
 **Checkpoint 2:** ≥ 5 points better on that test after 1 letter, every language; no loss on the generic
 scoreboard; reset verified to erase everything.
 
+Status 2026-10-23 (branch `feature/phase2-learning`; built, not merged): learning is off unless `<data>/learn-typing`
+exists (`install.sh` asks y/N in a terminal; packages and terminal-less installs stay off; `swipe-keyboard learning
+on|off|forget|status`). Per language file `<data>/learning/<lang>.swklearn` (0600, atomic, debounced). New words
+(not in the dictionary) are suggested and swipeable after 2 uses, in both swipe engines; pairs and word habits blend
+into the n-gram order without overriding it (weights in `engine/include/swipekb/learning.hpp`); 45-day half-life,
+caps 4,000 words / 12,000 pairs; a swear word the person used twice passes the unprompted filter; long press on a
+taught word offers "Remove from dictionary" (Qt's own menu); forget-everything is a command, not a settings-key
+entry (Qt's settings-key menu is a fixed list in Qt's `FunctionPopupList.qml`, private to the keyboard).
+Measured with `tools/swipekb-personal-eval` (weights tuned on half the contributors, figures below are the other
+half, contributors with ≥100 test-tenth sentences, first 600 sentences each, learn on the first half, learning
+frozen while testing). Real Tatoeba, points gained (off → on):
+
+| language (people) | next word top 3 | after 1 letter top 2 | after 2 letters top 2 | after 3 letters top 2 |
+|---|---|---|---|---|
+| en (51) | +0.06 | +0.01 | +0.25 | +0.38 |
+| es (25) | -0.04 | +0.03 | +0.07 | +0.09 |
+| fr (34) | +0.04 | +0.21 | +0.23 | +2.21 |
+| de (30) | -0.03 | +0.01 | +0.10 | 0.00 |
+
+**The +5 target is not met, and cannot be on this test.** Tatoeba contributors write unrelated one-off sentences, so
+a person's first half says almost nothing about their second half beyond what the shipped files (which contain 90%
+of Tatoeba, including these contributors' other sentences) already know; only 1-2% of words are outside the
+language files (French 9%), and a re-ranker could gain at most that share after one letter. Every weighting we tried
+that raised ordinary-word habits lost points (-1 to -9). A synthetic variant (`--personal-words 30`: 30 invented
+names/slang per person standing in for ~5% of their words) shows what the mechanism does for a person who really
+uses such words: after 1 letter +0.59 en / +0.66 es / +0.71 fr / +0.31 de, after 2 letters +2.6 / +2.4 / +2.4 / +1.4,
+after 3 letters +4.7 / +4.9 / +6.3 / +3.5; of the taught words, 17 / 15 / 10 / 10 % are in the top 2 after one letter
+and 49 / 37 / 21 / 30 % after two. Open decision for the owner: accept this (real-typing benefit shows after 2-3 letters,
+on names and slang) or find a better personal corpus (real chats/mail) before calling checkpoint 2 passed.
+Scoreboard with learning disabled: 68 accuracy measures identical to the 2026-10-22 run (difference 0.00).
+Untested here: Qt's long-press menu on the real keyboard (the model-level path is tested), the production
+`plugin/CMakeLists.txt` registrations (no FUTO build tree in this worktree), Android/Flatpak packaging.
+
 ## Phase 3: our own swipe engine (≈2–6 weeks, sized by the 0.2 spike)
 
 - 3.1 Search (finding words that fit a path, with previous words used during the search), written from a
