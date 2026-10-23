@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Latin swipe language pack v2",
+  "title": "Latin swipe language pack v3 (swipekb-open-v1)",
   "type": "object",
   "required": [
     "schema",
@@ -12,22 +12,15 @@
     "modes",
     "scripts",
     "compatibility",
-    "futoRevision",
-    "executorchRevision",
-    "modelRevision",
     "source",
     "textRulesVersion",
     "transformationVersion",
     "license",
-    "encoderLicense",
     "assets"
   ],
   "properties": {
     "schema": {
-      "enum": [
-        1,
-        2
-      ]
+      "const": 3
     },
     "id": {
       "type": "string",
@@ -45,16 +38,7 @@
       ]
     },
     "compatibility": {
-      "const": "swipekb-futo-v1"
-    },
-    "futoRevision": {
-      "const": "1b13f2c85d6b347f6ea3fbc4b3aaf01fce42429a"
-    },
-    "executorchRevision": {
-      "const": "0b0e2c5cdd67c8b4396a46ea1d1aa72ffb0128d7"
-    },
-    "modelRevision": {
-      "const": "18328c3042b066952c0936b3771d492fe2ec289a"
+      "const": "swipekb-open-v1"
     },
     "locales": {
       "type": "array",
@@ -145,49 +129,13 @@
         }
       }
     },
-    "encoderLicense": {
-      "type": "object",
-      "required": [
-        "path",
-        "sha256"
-      ],
-      "properties": {
-        "path": {
-          "type": "string"
-        },
-        "sha256": {
-          "$ref": "#/$defs/hash"
-        }
-      }
-    },
     "assets": {
       "type": "object",
       "required": [
-        "encoder",
         "dictionary"
       ],
       "additionalProperties": false,
       "properties": {
-        "encoder": {
-          "allOf": [
-            {
-              "$ref": "#/$defs/asset"
-            },
-            {
-              "required": [
-                "metadataSha256"
-              ],
-              "properties": {
-                "compatibility": {
-                  "const": "layout-agnostic"
-                },
-                "metadataSha256": {
-                  "$ref": "#/$defs/hash"
-                }
-              }
-            }
-          ]
-        },
         "dictionary": {
           "$ref": "#/$defs/asset"
         },
