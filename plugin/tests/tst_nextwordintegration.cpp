@@ -337,25 +337,25 @@ private slots:
         // Qt reports an edit's cursor and text separately, in either order, so both orders are exercised.
         if (qEnvironmentVariable("SWIPEKB_TEST_PROFILE_ASSETS").isEmpty()) QSKIP("English assets required");
         for (bool cursorFirst : {true, false}) {
-            SwapFixture f; QVERIFY(f.init("we can sea ", 11, {}, "en_US")); QTRY_VERIFY(f.ic->inputItem() == f.edit.get());
+            // text after the cursor, so the stale cursor of the cursor-first order still lands inside a word
+            SwapFixture f; QVERIFY(f.init("we can sea go", 11, {}, "en_US")); QTRY_VERIFY(f.ic->inputItem() == f.edit.get());
+            auto swapShowing = [&] { return f.method->predictionSelectionToken().startsWith("swap:"); };
             f.edit->suppressInputMethodUpdate = true;
             f.method->keyEvent(Qt::Key_S, "s", Qt::NoModifier);
             const QString old = f.edit->text;
-            f.ic->commit("s");                            // the app now holds "we can sea s", cursor 12
+            f.ic->commit("s");                            // the app now holds "we can sea sgo", cursor 12
             if (cursorFirst) {
                 f.edit->lagText = true; f.edit->laggedText = old;
                 QGuiApplication::inputMethod()->update(Qt::ImCursorPosition | Qt::ImAnchorPosition); f.method->update();
-                QVERIFY2(f.bar().isEmpty(), "cursor arrived before the text of our own edit");
+                QVERIFY2(!swapShowing(), "cursor arrived before the text of our own edit");
                 f.edit->lagText = false;
                 QGuiApplication::inputMethod()->update(Qt::ImSurroundingText); f.method->update();
             } else {
                 QGuiApplication::inputMethod()->update(Qt::ImSurroundingText); f.method->update();
-                f.method->update();
                 QGuiApplication::inputMethod()->update(Qt::ImCursorPosition | Qt::ImAnchorPosition); f.method->update();
             }
-            QVERIFY(!f.bar().contains("see"));
-            QVERIFY(!f.bar().contains("sea"));
-            QCOMPARE(f.edit->text, QStringLiteral("we can sea s"));
+            QVERIFY(!swapShowing());
+            QCOMPARE(f.edit->text, QStringLiteral("we can sea sgo"));
         }
     }
     void tappingASwipedWordLaterOffersThatSwipesOtherGuesses() {
