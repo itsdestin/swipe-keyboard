@@ -1,0 +1,295 @@
+// SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+// SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
+#include "swipehook.h"
+
+#include "editorport.h"
+#include "swipecontroller.h"
+
+#include <QLoggingCategory>
+#include <QQmlComponent>
+#include <QQuickItem>
+#include <QQuickWindow>
+#include <QTimer>
+
+Q_LOGGING_CATEGORY(lcHook69, "swipekb.plasma69.hook", QtInfoMsg)
+
+namespace
+{
+// WHY properties, not class names: KDE's Keyboard is a QML file (Keyboard.qml) whose type name is not stable API;
+// what we need from it is exactly these properties.
+const char *const kKeyboardProperties[] = {"inputEngine", "keyboardController", "layoutType", "packageId"};
+
+bool isKeyboard(const QObject *o)
+{
+    if (!o || !qobject_cast<const QQuickItem *>(o)) {
+        return false;
+    }
+    for (const char *p : kKeyboardProperties) {
+        if (o->metaObject()->indexOfProperty(p) < 0) {
+            return false;
+        }
+    }
+    return true;
+}
+
+QObject *findUp(QQuickItem *from, const char *property)
+{
+    for (QQuickItem *item = from; item; item = item->parentItem()) {
+        if (auto *o = item->property(property).value<QObject *>()) {
+            return o;
+        }
+    }
+    if (from && from->window()) {
+        return from->window()->property(property).value<QObject *>();
+    }
+    return nullptr;
+}
+
+QStringList ourPackagesFromEnvironment()
+{
+    // Set by the launcher to the package ids it generated (integration/plasma69.py).
+    return qEnvironmentVariable("SWIPEKB_PLASMA69_PACKAGES").split(QLatin1Char(','), Qt::SkipEmptyParts);
+}
+
+constexpr qreal kStripWeight = 60; // KDE rows weigh 100: the row is 60% of a key row (prototype measurement)
+} // namespace
+
+SwipeHook::SwipeHook(QObject *parent)
+    : QObject(parent)
+{
+}
+
+QQuickItem *SwipeHook::keyboardRoot(QObject *anchor)
+{
+    // A main layout (KeyboardLayout) is an item inside the Keyboard; MR !179's KeyboardLayoutDefinition is a plain
+    // QtObject whose QObject parent is the Loader that made it. Walk both chains.
+    for (QObject *o = anchor; o; o = o->parent()) {
+        if (auto *item = qobject_cast<QQuickItem *>(o)) {
+            for (QQuickItem *i = item; i; i = i->parentItem()) {
+                if (isKeyboard(i)) {
+                    return i;
+                }
+            }
+        }
+    }
+    return nullptr;
+}
+
+QQuickItem *SwipeHook::layoutLoader(QQuickItem *keyboard)
+{
+    if (!keyboard) {
+        return nullptr;
+    }
+    // WHY "a Loader one level down inside the Keyboard's column": KDE's Keyboard.qml holds the layout Loader inside its
+    // ColumnLayout (under the candidate strip); MR !179 adds a second Loader for the definition directly under the root.
+    for (QQuickItem *child : keyboard->childItems()) {
+        for (QQuickItem *grandChild : child->childItems()) {
+            if (grandChild->inherits("QQuickLoader")) {
+                return grandChild;
+            }
+        }
+    }
+    return nullptr;
+}
+
+QStringList SwipeHook::missingInternals(QObject *anchor) const
+{
+    QStringList missing;
+    QQuickItem *keyboard = keyboardRoot(anchor);
+    if (!keyboard) {
+        return {QStringLiteral("Keyboard item with inputEngine/keyboardController/layoutType/packageId")};
+    }
+    if (!layoutLoader(keyboard)) {
+        missing << QStringLiteral("layout Loader inside the Keyboard's column");
+    }
+    missing << InputEngineEditor::missingMembers(keyboard->property("inputEngine").value<QObject *>());
+    if (!qmlEngine(keyboard)) {
+        missing << QStringLiteral("QML engine of the Keyboard");
+    }
+    return missing;
+}
+
+void SwipeHook::watch(QObject *layout)
+{
+    QPointer<QObject> guard(layout);
+    // WHY one turn later: the wrapper's Component.onCompleted runs while KDE's Loader is still creating it (with MR
+    // !179 even for a layout that is about to be replaced), before its parent and context are set.
+    QTimer::singleShot(0, this, [this, guard] {
+        if (guard) {
+            attach(guard);
+        }
+    });
+}
+
+void SwipeHook::attach(QObject *layout)
+{
+    QQuickItem *keyboard = keyboardRoot(layout);
+    const QStringList missing = missingInternals(layout);
+    if (!keyboard || !missing.isEmpty()) {
+        // WHY loud but harmless: a KDE change shows up in the log and our tests, while typing keeps working stock.
+        qCWarning(lcHook69) << "Swipe Keyboard stays inactive; Plasma Keyboard internals changed:" << missing;
+        return;
+    }
+    const QString packageId = keyboard->property("packageId").toString();
+    if (auto existing = m_attached.value(keyboard)) {
+        existing->addPackage(packageId);
+        existing->decorate();
+        return;
+    }
+    QStringList packages = ourPackagesFromEnvironment();
+    if (!packageId.isEmpty() && !packages.contains(packageId)) {
+        packages << packageId;
+    }
+    auto *attachment = new KeyboardAttachment(keyboard, layoutLoader(keyboard), packages, keyboard);
+    m_attached.insert(keyboard, attachment);
+    connect(keyboard, &QObject::destroyed, this, [this, keyboard] {
+        m_attached.remove(keyboard);
+    });
+}
+
+void SwipeHook::cancelKeyPress(QQuickItem *key) const
+{
+    if (!key) {
+        return;
+    }
+    // WHY ungrab the key's touch area: KDE's KeyMouseArea (a MultiPointTouchArea) then reports the press as
+    // cancelled, so the key types nothing and its repeat/press-and-hold timers stop; our layer keeps the finger.
+    const auto areas = key->findChildren<QQuickItem *>();
+    for (QQuickItem *area : areas) {
+        if (area->inherits("QQuickMultiPointTouchArea")) {
+            area->ungrabTouchPoints();
+            area->ungrabMouse();
+        }
+    }
+}
+
+QObject *SwipeHook::controllerFor(QObject *anchor) const
+{
+    auto attachment = m_attached.value(keyboardRoot(anchor));
+    return attachment ? attachment->controller() : nullptr;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+
+KeyboardAttachment::KeyboardAttachment(QQuickItem *keyboard, QQuickItem *loader, const QStringList &packages, QObject *parent)
+    : QObject(parent)
+    , m_keyboard(keyboard)
+    , m_loader(loader)
+    , m_packages(packages)
+{
+    // WHY queued: these fire while KDE's Loader swaps layouts; decorating mid-swap would touch a half-made item.
+    connect(m_loader, SIGNAL(itemChanged()), this, SLOT(decorate()), Qt::QueuedConnection);
+    connect(m_keyboard, SIGNAL(packageIdChanged()), this, SLOT(decorate()), Qt::QueuedConnection);
+    connect(m_keyboard, SIGNAL(layoutTypeChanged()), this, SLOT(decorate()), Qt::QueuedConnection);
+    const int engineSignal = m_keyboard->metaObject()->indexOfSignal("inputEngineChanged()");
+    if (engineSignal >= 0) {
+        connect(m_keyboard, SIGNAL(inputEngineChanged()), this, SLOT(rebuild()), Qt::QueuedConnection);
+    }
+    rebuild();
+}
+
+void KeyboardAttachment::rebuild()
+{
+    // WHY a fresh controller per engine: the editor and every session belong to one KDE input engine.
+    undecorate();
+    delete m_controller;
+    delete m_editor;
+    auto *engine = m_keyboard ? m_keyboard->property("inputEngine").value<QObject *>() : nullptr;
+    if (!engine) {
+        return;
+    }
+    auto *editor = new InputEngineEditor(engine, this);
+    m_editor = editor;
+    m_controller = new SwipeController(editor, this);
+    decorate();
+}
+
+KeyboardAttachment::~KeyboardAttachment()
+{
+    undecorate();
+}
+
+QObject *KeyboardAttachment::controller() const
+{
+    return m_controller;
+}
+
+void KeyboardAttachment::addPackage(const QString &packageId)
+{
+    if (!packageId.isEmpty() && !m_packages.contains(packageId)) {
+        m_packages << packageId;
+    }
+}
+
+void KeyboardAttachment::undecorate()
+{
+    delete m_strip;
+    delete m_layer;
+    if (m_item) {
+        m_item->setProperty("panelHeightFactor", m_originalFactor);
+    }
+    m_item = nullptr;
+}
+
+void KeyboardAttachment::decorate()
+{
+    auto *item = m_loader ? qobject_cast<QQuickItem *>(m_loader->property("item").value<QObject *>()) : nullptr;
+    const QString packageId = m_keyboard ? m_keyboard->property("packageId").toString() : QString();
+    const bool ours = item && m_controller && m_packages.contains(packageId);
+    if (item == m_item && m_strip && ours) {
+        return;
+    }
+    undecorate();
+    if (!ours) {
+        return; // WHY: a language we did not generate (Russian, Greek...) stays exactly KDE's
+    }
+    QQmlEngine *engine = qmlEngine(m_keyboard);
+    if (!engine || item->metaObject()->indexOfProperty("panelHeightFactor") < 0) {
+        qCWarning(lcHook69) << "Swipe Keyboard: layout without panelHeightFactor; leaving it stock";
+        return;
+    }
+    QQmlComponent stripComponent(engine);
+    stripComponent.loadFromModule("SwipeKeyboard69", "SuggestionStrip");
+    QQmlComponent layerComponent(engine);
+    layerComponent.loadFromModule("SwipeKeyboard69", "SwipeLayer");
+    const QVariantMap common{{QStringLiteral("controller"), QVariant::fromValue(m_controller.data())}};
+    auto *strip = qobject_cast<QQuickItem *>(stripComponent.createWithInitialProperties(common));
+    QVariantMap layerProps = common;
+    layerProps.insert(QStringLiteral("layoutItem"), QVariant::fromValue(item));
+    layerProps.insert(QStringLiteral("keyboard"), QVariant::fromValue(m_keyboard.data()));
+    layerProps.insert(QStringLiteral("popup"), QVariant::fromValue(findUp(m_keyboard, "alternativeKeysPopupItem")));
+    auto *layer = qobject_cast<QQuickItem *>(layerComponent.createWithInitialProperties(layerProps));
+    if (!strip || !layer) {
+        qCWarning(lcHook69) << "Swipe Keyboard: could not create its row/layer:" << stripComponent.errorString() << layerComponent.errorString();
+        delete strip;
+        delete layer;
+        return;
+    }
+    // Row 0 of the layout's column, with the panel made taller by the same share so the keys keep their height.
+    qreal rows = 0;
+    const auto children = item->childItems();
+    for (QQuickItem *child : children) {
+        const QVariant weight = child->property("heightWeight");
+        if (child->isVisible() && weight.isValid()) {
+            rows += weight.toReal();
+        }
+    }
+    if (rows <= 0) {
+        rows = 400;
+    }
+    m_originalFactor = item->property("panelHeightFactor").toReal();
+    strip->setParent(item);
+    strip->setParentItem(item);
+    if (!children.isEmpty()) {
+        strip->stackBefore(children.first());
+    }
+    item->setProperty("panelHeightFactor", m_originalFactor * (rows + kStripWeight) / rows);
+    // The layer covers the keys (it is the Loader's child, so KDE's layout never treats it as a row).
+    layer->setParent(m_loader);
+    layer->setParentItem(m_loader);
+    layer->setZ(10);
+    m_item = item;
+    m_strip = strip;
+    m_layer = layer;
+}
