@@ -220,8 +220,10 @@ private slots:
         QStringList prefixes,contexts;QSemaphore completions;
         SwipeInputMethod method(nullptr,[&](const PredictionJob&job){
             if(job.prefix.isEmpty())return QStringList{"x","y","z"};
+            // WHY release only for the full "cas" (see englishCompletion): earlier letters ask too.
+            if(job.prefix!=QStringLiteral("cas"))return QStringList{};
             prefixes<<job.prefix;contexts=job.context;completions.release();
-            return job.prefix==QStringLiteral("cas")?QStringList{"casona","casa"}:QStringList{};});
+            return QStringList{"casona","casa"};});
         ic->inputEngine()->setInputMethod(&method);method.setInputMode("es_ES",QVirtualKeyboardInputEngine::InputMode::Latin);method.setPhysicalLayout("qwerty");
         TestPolicyBridge bridge;method.setPredictionPolicySource(&bridge);
         QGuiApplication::inputMethod()->update(Qt::ImQueryAll);QTRY_VERIFY(ic->inputItem()==&edit);
@@ -271,8 +273,11 @@ private:
         QStringList prefixes,contexts;QSemaphore completions;
         SwipeInputMethod method(nullptr,[&](const PredictionJob&job){
             if(job.prefix.isEmpty())return QStringList{"x","y","z"};
+            // WHY release only for the full "hou": earlier letters ("h", "ho") also ask, from the worker thread;
+            // waiting for any one of them raced the check below.
+            if(job.prefix!=QStringLiteral("hou"))return QStringList{};
             prefixes<<job.prefix;contexts=job.context;completions.release();
-            return job.prefix==QStringLiteral("hou")?QStringList{"houses","house"}:QStringList{};});
+            return QStringList{"houses","house"};});
         ic->inputEngine()->setInputMethod(&method);method.setInputMode("en_US",QVirtualKeyboardInputEngine::InputMode::Latin);method.setPhysicalLayout("qwerty");
         QVERIFY2(method.isReady(),qPrintable(method.profileSnapshot().unavailableReason));
         QCOMPARE(method.profileSnapshot().assets["contextModel"].compatibility,
