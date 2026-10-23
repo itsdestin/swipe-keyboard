@@ -21,8 +21,8 @@ namespace swipekb {
 struct EngineParams {
     BeamParams beam;
     GeoParams geo;
-    // How much the geometric cost is subtracted from the network score (nats per cost unit). 0 = network only.
-    float geoWeight = 0.f;
+    // How much the geometric cost is subtracted from the network score (nats per cost unit). 0 = network only. 40 was best on clean validation (flat between 30 and 45).
+    float geoWeight = 40.f;
     // The network's best N words are re-scored with the geometric cost (only matters when geoWeight > 0).
     int rerank = 20;
     // Dictionary frequency prior used by the beam search when no sentence prior is set (nats per point).

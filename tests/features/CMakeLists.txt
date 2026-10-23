@@ -47,7 +47,7 @@ target_include_directories(swipe_engine PUBLIC ${ROOT}/engine/include)
 target_link_libraries(swipe_engine PUBLIC Qt6::Core)
 add_executable(swipekb-swipenet-bench ${ROOT}/tools/swipekb-swipenet-bench.cpp)
 target_link_libraries(swipekb-swipenet-bench PRIVATE swipe_engine)
-foreach(name swipenet swipebeam swipegeo)
+foreach(name swipenet swipebeam swipegeo swipeengine)
     add_executable(tst_${name} ${ROOT}/engine/tests/tst_${name}.cpp)
     target_link_libraries(tst_${name} PRIVATE swipe_engine Qt6::Test)
     target_compile_definitions(tst_${name} PRIVATE SWIPEKB_QWERTY_TSV="${ROOT}/scripts/swipe/layouts/qwerty.tsv"
