@@ -56,7 +56,8 @@ class OwnSwipeIntegrationTest : public QObject {
         // must stay byte-identical, and the default location (<model dir>/swipe-model.bin) is covered by the
         // "missing" case, since the fixture folder has no such file.
         const QString modelFile=root.filePath("swipe-model.bin");
-        if (model) QFile::copy(QStringLiteral(SWIPEKB_TEST_DATA "/swipe_net/model_f32.bin"),modelFile);
+        // SWIPEKB_TEST_SWIPE_MODEL (optional) swaps the tiny fixture for a real trained model, for the manual sanity case.
+        if (model) QFile::copy(qEnvironmentVariable("SWIPEKB_TEST_SWIPE_MODEL",QStringLiteral(SWIPEKB_TEST_DATA "/swipe_net/model_f32.bin")),modelFile);
         if (damagedModel) { QFile f(modelFile); (void)f.open(QIODevice::WriteOnly); f.write("SKNN-not-a-model"); }
         if (flagFile) { QFile f(data.filePath("own-engine")); (void)f.open(QIODevice::WriteOnly); }
         EnvGuard e1("SWIPEKB_MODEL_DATA"), e2("SWIPEKB_LANGUAGE_PACKS"), e3("SWIPEKB_DATA"), e4("SWIPEKB_ENGINE"), e5("SWIPEKB_SWIPE_MODEL");
@@ -147,6 +148,18 @@ private slots:
         QVERIFY(r.token>=0);
         QCOMPARE(r.diagnostics["ownEngineSwipes"].toULongLong(),quint64(0));
         QCOMPARE(r.diagnostics["ownEngineFallbacks"].toULongLong(),quint64(1));
+    }
+    // Manual sanity with a real trained model (skipped unless SWIPEKB_TEST_SWIPE_MODEL names one): clean straight
+    // swipes of ordinary words must come out as those words through the plugin path.
+    void realModelTypesOrdinaryWords() {
+        if (!languagefixtures::runtimeAvailable() || qEnvironmentVariable("SWIPEKB_TEST_SWIPE_MODEL").isEmpty())
+            QSKIP("Needs the pinned English assets and SWIPEKB_TEST_SWIPE_MODEL");
+        for (const QString &word:{"hello","world","keyboard","because","thing"}) {
+            const auto r=swipeThe(true,false,true,Qt::ImhNone,false,word);
+            QCOMPARE(r.diagnostics["swipeEngine"].toString(),QString("own"));
+            QCOMPARE(r.diagnostics["ownEngineSwipes"].toULongLong(),quint64(1));
+            QCOMPARE(r.text.trimmed().toLower(),word);
+        }
     }
     void deniedFieldsStayUntouched() {
         if (!languagefixtures::runtimeAvailable()) QSKIP("Explicit pinned English assets and real language packs required");

@@ -164,3 +164,14 @@ es 81.1 / 89.8, fr 71.7 / 85.9, de 73.3 / 82.3.
 (frequency prior) to 93.10 / 95.92 first/top-3 (in-dictionary 95.28 / 98.17): +0.9 first guess; plain-unigram n-gram
 prior without context is 0.3 worse than the frequency prior. This lever only exists when the keyboard knows the
 previous words.
+
+## 7. In the keyboard plugin (opt-in, 2026-10-23)
+
+`plugin/ownswipe.{h,cpp}` is the glue; FUTO stays the default. On: an empty file `own-engine` in the keyboard data dir
+(or env `SWIPEKB_ENGINE=own`, which wins, for tests); read once per profile resolve. Model: `swipe-model.bin` in the
+model dir (override `SWIPEKB_SWIPE_MODEL`); unpinned, test-only. Inputs come from what the plugin already has: layout
+from the live key rectangles of each swipe (letters sorted so key numbers stay stable; a resize only moves keys), words
+from the profile's verified `.combined` (lower-cased except German), sentence prior from the profile's n-gram pack with
+the same context words FUTO gets. No usable model = geometry-only; any refusal or exception = FUTO answers that swipe.
+Candidates then go through the existing regional ranking, other-spelling and guess-bar code. Diagnostics:
+`swipeEngine` (futo | own | own-geometry), `ownEngineSwipes`, `ownEngineFallbacks` (counts only).

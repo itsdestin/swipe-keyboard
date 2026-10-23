@@ -8,6 +8,9 @@
 #        ./install.sh --uninstall   remove qml/models/dict/lm (personal data like traces/ is kept) + restart
 # The n-gram ranking (lm/) is off unless ~/.local/share/swipe-keyboard/use-ngram exists (then restart the keyboard).
 # The neural re-ranking (nlm/) is off unless ~/.local/share/swipe-keyboard/use-nlm exists (same).
+# The project's own swipe engine (card #179) replaces FUTO's recogniser only while ~/.local/share/swipe-keyboard/own-engine
+# exists (restart the keyboard). It looks for swipe-model.bin beside the FUTO models (not shipped or pinned yet: with no
+# file it still swipes, using geometry only). Without the file, FUTO answers exactly as before.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 DEST="${XDG_DATA_HOME:-$HOME/.local/share}/swipe-keyboard"
