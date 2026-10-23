@@ -1,7 +1,7 @@
 ---
 license: other
-license_name: "ODC-By-1.0 AND CC-BY-2.0-FR"
-license_link: https://github.com/itsdestin/swipe-keyboard/blob/main/packaging/NOTICE
+license_name: odc-by-1.0-and-cc-by-2.0-fr
+license_link: https://huggingface.co/youcoded/next-word-spanish/blob/main/NOTICE.md
 language:
 - es
 library_name: custom
