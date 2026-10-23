@@ -63,3 +63,27 @@ RPMs and the Arch package are the exact released bytes (not re-signed), so relea
 ## Unverified until then
 
 Pages serving the OSTree layout; dnf5 `repo_gpgcheck` on Fedora 44; the helper restart after a Flatpak update.
+
+## Independent review (2026-10-23) and what changed
+
+Fixed: Deck origin remotes now get `--gpg-verify` (importing the key alone left signature checks off on a bundle's
+origin); the site verifier installs the real bundle, runs install.sh's exact command and requires the update to pass
+with our key and fail with another; timers use `OnCalendar=daily` (a since-last-run timer stopped for good after an
+"off" day); 30-minute unit limits and a whole-download deadline; an unreachable site is a quiet "try tomorrow", not a
+failed unit; malformed signed indexes are refused without a crash; root updater ignores environment overrides unless
+`SWIPEKB_UPDATE_TESTING=1`, runs `python3 -I` with PrivateTmp/ProtectHome=read-only; pacman's LocalFileSigLevel
+refusal is explained.
+
+Known limits, accepted for now:
+- **Replay/freeze:** the signed indexes carry no expiry, so someone in the network path could keep serving an older
+  signed index and hold a machine on an older version (never downgrade: versions only go up). Needs a scheduled
+  re-signing job to fix; not built.
+- **Key rotation:** every installed copy trusts one key, and gpgv ignores revocation. Rotating means shipping a release
+  whose keyring holds the old and new key, then signing with the new one. A leaked key cannot be revoked for users
+  who never update.
+- **Gaming Mode restart:** after an update the engine and helper restart once, which can interrupt a word being typed
+  at that moment in Gaming Mode.
+- **First check:** native timers start at the next boot (no install scriptlet); until then nothing is checked.
+- **Secret scope:** `FLATPAK_REPO_GPG_KEY` must be an environment secret of `keyboard-release`, not a repository
+  secret, so only the approved publish job can read it.
+

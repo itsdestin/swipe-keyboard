@@ -5,8 +5,10 @@
 Description=Swipe Keyboard: daily check for a newer keyboard
 
 [Timer]
+# WHY a calendar time, not "1 day after the last run": a run skipped while updates were off never counts as a
+# run, so a since-last-run timer would stop for good after "off then on". Persistent catches up a missed day.
+OnCalendar=daily
 OnBootSec=15min
-OnUnitActiveSec=1d
 # WHY spread out: thousands of machines must not all ask the update site at the same minute.
 RandomizedDelaySec=4h
 Persistent=true

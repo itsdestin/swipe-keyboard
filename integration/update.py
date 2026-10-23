@@ -18,21 +18,38 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
+import urllib.error
 import urllib.request
 
 HERE = Path(__file__).resolve().parent
-# WHY overridable: the tests and the rehearsal point these at a local copy of the site and a throwaway key.
-SITE = os.environ.get('SWIPEKB_UPDATE_SITE', 'https://itsdestin.github.io/swipe-keyboard').rstrip('/')
-KEYRING = Path(os.environ.get('SWIPEKB_UPDATE_KEYRING', HERE / 'update-key.gpg'))
-OFF_FLAG = Path(os.environ.get('SWIPEKB_UPDATE_OFF_FLAG', '/etc/swipe-keyboard/auto-update-off'))
+
+
+def setting(name, default):
+    # WHY only in test mode: this runs as root, and a stray environment variable (sudo -E) must never be able to point
+    # it at another site or key. The tests and the rehearsal set SWIPEKB_UPDATE_TESTING=1 explicitly.
+    if os.environ.get('SWIPEKB_UPDATE_TESTING') == '1':
+        return os.environ.get(name, default)
+    return default
+
+
+SITE = str(setting('SWIPEKB_UPDATE_SITE', 'https://itsdestin.github.io/swipe-keyboard')).rstrip('/')
+KEYRING = Path(setting('SWIPEKB_UPDATE_KEYRING', HERE / 'update-key.gpg'))
+OFF_FLAG = Path(setting('SWIPEKB_UPDATE_OFF_FLAG', '/etc/swipe-keyboard/auto-update-off'))
 PACKAGE = 'swipe-keyboard'
 # WHY a fixed prefix: even a correctly signed index must not be able to send the updater to another site.
-RELEASE_DOWNLOADS = os.environ.get('SWIPEKB_UPDATE_DOWNLOADS', 'https://github.com/itsdestin/swipe-keyboard/releases/download/')
+RELEASE_DOWNLOADS = setting('SWIPEKB_UPDATE_DOWNLOADS', 'https://github.com/itsdestin/swipe-keyboard/releases/download/')
 MAX_PACKAGE_BYTES = 200 * 1024 * 1024
+# WHY a whole-download deadline: a socket timeout alone lets a slow server drip bytes for hours and hold the update.
+FETCH_DEADLINE_SECONDS = 15 * 60
 
 
 class UpdateError(RuntimeError):
     pass
+
+
+class Unreachable(Exception):
+    """The site could not be reached (offline, down): not an error, just try tomorrow."""
 
 
 def run(command, **kwargs):
@@ -40,11 +57,28 @@ def run(command, **kwargs):
 
 
 def fetch(url, limit):
-    with urllib.request.urlopen(url, timeout=60) as response:
-        data = response.read(limit + 1)
-    if len(data) > limit:
-        raise UpdateError(f'{url} is larger than expected')
-    return data
+    deadline = time.monotonic() + FETCH_DEADLINE_SECONDS
+    chunks, size = [], 0
+    try:
+        with urllib.request.urlopen(url, timeout=60) as response:
+            while True:
+                chunk = response.read(1024 * 1024)
+                if not chunk:
+                    break
+                size += len(chunk)
+                if size > limit:
+                    raise UpdateError(f'{url} is larger than expected')
+                if time.monotonic() > deadline:
+                    raise Unreachable(f'{url} is downloading too slowly')
+                chunks.append(chunk)
+    except urllib.error.HTTPError as error:
+        # WHY: a missing file (4xx) means the site is wrong, which is worth an error; a 5xx is the site being down.
+        if error.code >= 500:
+            raise Unreachable(f'{url}: the update site answered {error.code}') from error
+        raise UpdateError(f'{url}: the update site answered {error.code}') from error
+    except (urllib.error.URLError, TimeoutError, ConnectionError) as error:
+        raise Unreachable(f'{url}: {error}') from error
+    return b''.join(chunks)
 
 
 def manager():
@@ -95,7 +129,9 @@ def update_pacman():
         if not entry:
             print(f'No {platform.machine()} package in update {version}; staying on {installed}.')
             return 0
-        url, sha256, size = entry.get('url', ''), entry.get('sha256', ''), entry.get('size', 0)
+        url, sha256, size = str(entry.get('url', '')), str(entry.get('sha256', '')), entry.get('size', 0)
+        if not isinstance(size, int):
+            raise UpdateError('the update index is malformed; nothing was installed')
         name = url.rsplit('/', 1)[-1]
         if (not url.startswith(RELEASE_DOWNLOADS) or not name.startswith(f'{PACKAGE}-{version}-')
                 or not name.endswith('.pkg.tar.zst') or '/' in name or not 0 < size <= MAX_PACKAGE_BYTES):
@@ -108,7 +144,14 @@ def update_pacman():
         # WHY -U of this one file and --needed: install exactly what was checked, never a system-wide sync.
         result = run(['pacman', '-U', '--noconfirm', '--needed', str(package)])
         if result.returncode != 0:
-            raise UpdateError('pacman could not install the update (it will be tried again tomorrow):\n' + result.stderr.strip())
+            hint = ''
+            if 'signature' in result.stderr.lower():
+                # WHY say so: the package file is checked against the signed index, not signed itself, so a pacman.conf
+                # with LocalFileSigLevel = Required refuses it every day.
+                hint = ('\nYour pacman.conf requires signed local packages (LocalFileSigLevel). Update by hand from '
+                        'https://github.com/itsdestin/swipe-keyboard/releases or run "sudo swipe-keyboard updates off".')
+            raise UpdateError('pacman could not install the update (it will be tried again tomorrow):\n'
+                              + result.stderr.strip() + hint)
         print(f'Swipe Keyboard updated from {installed} to {version}. It takes effect at your next login.')
         return 0
 
@@ -161,7 +204,12 @@ def main(argv=None):
         if os.geteuid() != 0:
             raise UpdateError('installing an update needs administrator rights: run it with sudo')
         return check_now()
-    except (UpdateError, OSError, ValueError, subprocess.CalledProcessError) as error:
+    except Unreachable as error:
+        # WHY success: being offline is normal; a failed unit every day would hide the failures that matter.
+        print(f'Swipe Keyboard update: the update site is not reachable right now ({error}); trying again tomorrow.')
+        return 0
+    except (UpdateError, OSError, ValueError, TypeError, AttributeError, KeyError,
+            subprocess.CalledProcessError) as error:
         print('Swipe Keyboard update: ' + str(error), file=sys.stderr)
         return 1
 

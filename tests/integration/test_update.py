@@ -56,6 +56,7 @@ class ArchUpdater(unittest.TestCase):
         self.log = self.tmp / 'pacman.log'
         self.env = {
             'PATH': f'{bin_dir}:{os.environ["PATH"]}', 'FAKE_LOG': str(self.log), 'FAKE_INSTALLED': '0.4.1-1',
+            'SWIPEKB_UPDATE_TESTING': '1',
             'SWIPEKB_UPDATE_SITE': self.site.as_uri(), 'SWIPEKB_UPDATE_KEYRING': str(self.keyring),
             'SWIPEKB_UPDATE_OFF_FLAG': str(self.tmp / 'etc/auto-update-off'),
             'SWIPEKB_UPDATE_DOWNLOADS': self.downloads.as_uri() + '/',
@@ -147,6 +148,30 @@ class ArchUpdater(unittest.TestCase):
         self.assertEqual(self.run_updater('check'), 0)
         self.assertEqual(len(self.installs()), 1)
 
+    def test_an_unreachable_site_is_not_an_error_and_installs_nothing(self):
+        self.env['SWIPEKB_UPDATE_SITE'] = 'http://127.0.0.1:9'   # nothing listens on the discard port
+        self.assertEqual(self.run_updater('check'), 0)
+        self.assertEqual(self.installs(), [])
+
+    def test_a_malformed_but_signed_index_is_refused_without_a_crash(self):
+        self.publish('0.4.2-1')
+        index = self.site / 'arch/latest.json'
+        data = json.loads(index.read_text())
+        data['files']['x86_64']['size'] = 'big'
+        index.write_text(json.dumps(data))
+        self.gpg('--yes', '--detach-sign', '--output', str(index) + '.sig', str(index))
+        self.assertEqual(self.run_updater('check'), 1)
+        self.assertEqual(self.installs(), [])
+
+    def test_outside_test_mode_the_environment_cannot_redirect_the_root_updater(self):
+        with mock.patch.dict(os.environ, {**self.env, 'SWIPEKB_UPDATE_TESTING': ''}):
+            spec = importlib.util.spec_from_file_location('swipekb_update_plain', UPDATE)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+        self.assertEqual(module.SITE, 'https://itsdestin.github.io/swipe-keyboard')
+        self.assertEqual(module.KEYRING, UPDATE.parent / 'update-key.gpg')
+        self.assertEqual(module.RELEASE_DOWNLOADS, 'https://github.com/itsdestin/swipe-keyboard/releases/download/')
+
     def test_a_failed_pacman_run_is_reported(self):
         self.publish('0.4.2-1')
         self.env['FAKE_PACMAN_RC'] = '1'
@@ -156,10 +181,13 @@ class ArchUpdater(unittest.TestCase):
 class Units(unittest.TestCase):
     def test_the_daily_timer_runs_the_installed_updater_unless_turned_off(self):
         service = (ROOT / 'packaging/updates/swipe-keyboard-update.service').read_text()
-        self.assertIn('ExecStart=/usr/bin/python3 /usr/share/swipe-keyboard/integration/update.py check', service)
+        self.assertIn('ExecStart=/usr/bin/python3 -I /usr/share/swipe-keyboard/integration/update.py check', service)
+        self.assertIn('TimeoutStartSec=', service)
         self.assertIn('ConditionPathExists=!/etc/swipe-keyboard/auto-update-off', service)
         timer = (ROOT / 'packaging/updates/swipe-keyboard-update.timer').read_text()
         self.assertIn('Persistent=true', timer)
+        self.assertIn('OnCalendar=daily', timer)
+        self.assertNotIn('OnUnitActiveSec', timer)   # would stop for good after an "off" day
         self.assertIn('RandomizedDelaySec=', timer)
 
     def test_the_fedora_repository_requires_a_signed_index_and_never_blocks_other_updates(self):
@@ -181,7 +209,7 @@ class Units(unittest.TestCase):
 
     def test_the_wrapper_sends_updates_to_the_updater_and_everything_else_to_setup(self):
         wrapper = (ROOT / 'integration/swipe-keyboard').read_text()
-        self.assertIn('exec python3 /usr/share/swipe-keyboard/integration/update.py "$@"', wrapper)
+        self.assertIn('exec python3 -I /usr/share/swipe-keyboard/integration/update.py "$@"', wrapper)
         self.assertIn('exec python3 /usr/share/swipe-keyboard/integration/setup.py "$@"', wrapper)
 
 

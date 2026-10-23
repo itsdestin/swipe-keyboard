@@ -542,8 +542,10 @@ point_at_update_site() { # point_at_update_site ID: let Flatpak update this app 
     origin="$(flatpak info --user --show-origin "$id")"
     # WHY modify the app's own origin: an app installed from a downloaded bundle gets a remote with no address, so
     # Flatpak never looks for updates. Giving that remote our address and key makes "flatpak update" (and Discover's
-    # Updates page) use the site, without downloading the app again. The key makes Flatpak refuse unsigned updates.
-    flatpak remote-modify --user --url="$UPDATE_SITE" --gpg-import="$HERE/update-key.gpg" "$origin" \
+    # Updates page) use the site, without downloading the app again.
+    # WHY --gpg-verify: importing the key alone does NOT switch checking on; a bundle's origin remote starts with
+    # signature checks off (found in review, 2026-10-23). With it, Flatpak refuses any update not signed with our key.
+    flatpak remote-modify --user --url="$UPDATE_SITE" --gpg-verify --gpg-import="$HERE/update-key.gpg" "$origin" \
         || echo "Could not point $id at the update site; it keeps working and can be updated by hand." >&2
 }
 

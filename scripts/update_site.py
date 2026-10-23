@@ -144,7 +144,30 @@ def build(release, tag, key_id, out, base_url=BASE_URL, downloads=DOWNLOADS, tes
     return site
 
 
-def verify(site, keyring, armored):
+def bundle_origin_accepts(site, bundle, keyring):
+    """Install a bundle the way a Deck does, then point its origin at the site exactly as install.sh does.
+
+    Returns True if Flatpak then accepts an update check against the site. WHY this and not a fresh remote-add: a
+    bundle's origin remote starts with signature checks off, so only this path shows whether checks are really on.
+    """
+    with tempfile.TemporaryDirectory() as home:
+        env = {'HOME': home, 'PATH': '/usr/bin:/bin', 'LANG': 'C'}
+        flatpak = lambda *a, **k: subprocess.run(['flatpak', *a], env=env, capture_output=True, text=True, **k)
+        # WHY --no-deps: the test needs the app's origin remote, not its 1 GB runtime.
+        flatpak('install', '--user', '--noninteractive', '-y', '--no-deps', '--bundle', str(bundle), check=True)
+        origin = flatpak('info', '--user', '--show-origin', MAIN_ID, check=True).stdout.strip()
+        # The same command as gaming/setup/install.sh point_at_update_site.
+        flatpak('remote-modify', '--user', f'--url=file://{site}/repo', '--gpg-verify', f'--gpg-import={keyring}', origin,
+                check=True)
+        config = (Path(home) / '.local/share/flatpak/repo/config').read_text()
+        section = config[config.index(f'[remote "{origin}"]'):]
+        section = section[:section.find('\n[', 1)] if '\n[' in section[1:] else section
+        if 'gpg-verify=true' not in section:
+            raise SystemExit('the modified origin remote does not check signatures:\n' + section)
+        return flatpak('update', '--user', '--noninteractive', '-y', '--no-deps', '--no-related', MAIN_ID).returncode == 0
+
+
+def verify(site, keyring, armored, bundle=None):
     """Each platform's own tool must accept the site with the signature checked (a wrong site strands every keyboard)."""
     site = Path(site).resolve()
     version_release = f"{contract()['version']}-{contract()['release']}"
@@ -161,6 +184,17 @@ def verify(site, keyring, armored):
                                 check=True, capture_output=True, text=True, env=env).stdout.split()
     if sorted(listed) != sorted([MAIN_ID, HELPER_ID]):
         raise SystemExit(f'the Flatpak repository lists {listed}')
+    if bundle:
+        if not bundle_origin_accepts(site, bundle, keyring):
+            raise SystemExit('a Deck installed from the bundle cannot update from the site with the right key')
+        with tempfile.TemporaryDirectory() as gnupg:
+            run('gpg', '--batch', '--quiet', '--homedir', gnupg, '--passphrase', '', '--quick-generate-key',
+                'Wrong key (verify only)', 'ed25519', 'sign', '1d')
+            wrong = Path(gnupg) / 'wrong.gpg'
+            wrong.write_bytes(subprocess.run(['gpg', '--batch', '--homedir', gnupg, '--export'], check=True,
+                                             capture_output=True).stdout)
+            if bundle_origin_accepts(site, bundle, wrong):
+                raise SystemExit('a Deck that trusts a different key still accepted the site: signatures are not checked')
     # WHY a real Fedora: dnf itself must accept the signed index (repo_gpgcheck) and see this version.
     repo = (ROOT / 'packaging/updates/swipe-keyboard.repo').read_text()
     repo = '\n'.join('baseurl=file:///site/fedora/$basearch/' if l.startswith('baseurl=') else
@@ -193,9 +227,10 @@ def main():
     v.add_argument('--site', required=True)
     v.add_argument('--keyring', required=True)
     v.add_argument('--armored', required=True)
+    v.add_argument('--bundle', help='the release .flatpak: also prove a bundle install updates only with the right key')
     args = parser.parse_args()
     if args.command == 'verify':
-        verify(args.site, args.keyring, args.armored)
+        verify(args.site, args.keyring, args.armored, args.bundle)
     else:
         print(build(args.release, args.tag, args.key_id, args.out, args.base_url.rstrip('/'),
                     args.downloads.rstrip('/'), args.test_key))

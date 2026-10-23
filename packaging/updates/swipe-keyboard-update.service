@@ -8,7 +8,17 @@ ConditionPathExists=!/etc/swipe-keyboard/auto-update-off
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/python3 /usr/share/swipe-keyboard/integration/update.py check
+# WHY -I: a root process must not pick up Python settings or modules from its environment or working directory.
+ExecStart=/usr/bin/python3 -I /usr/share/swipe-keyboard/integration/update.py check
+# WHY a limit: a hung download or package-manager lock must not hold the unit forever (it would never run again).
+TimeoutStartSec=30min
 # WHY low priority: an update must never make the desktop stutter.
 Nice=19
 IOSchedulingClass=idle
+# WHY these limits: the updater talks to the internet as root. It needs to write the system (to install), but never
+# your home folder or other programs' temporary files.
+PrivateTmp=yes
+ProtectHome=read-only
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes

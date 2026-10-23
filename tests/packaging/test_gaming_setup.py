@@ -913,7 +913,7 @@ class AutoUpdateTests(unittest.TestCase):
         self.assertEqual(f.run('install.sh', '--gaming', '--leave-open', '--yes').returncode, 0)
         calls = f.calls()
         for origin in ('orgitsdestinswipekeyboard-origin', 'orgitsdestinswipekeyboardgaminghelper-origin'):
-            self.assertIn(f'flatpak remote-modify --user --url=https://itsdestin.github.io/swipe-keyboard/repo/ '
+            self.assertIn(f'flatpak remote-modify --user --url=https://itsdestin.github.io/swipe-keyboard/repo/ --gpg-verify '
                           f'--gpg-import={f.bundle}/update-key.gpg {origin}', calls)
         self.assertIn('systemctl --user enable --now swipekb-update.timer', calls)
         service = (f.units / 'swipekb-update.service').read_text()
