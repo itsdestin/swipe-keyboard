@@ -16,6 +16,7 @@ import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from layout import build_overlay
+import learning
 
 REQUIRED_ASSETS = (
     'integration/swipekb-preflight', 'integration/swipekb-config',
@@ -461,17 +462,24 @@ def confirm_activation(controller, assume_yes=False, always_available=False):
 
 def main():
     parser = argparse.ArgumentParser(description='Standalone swipe typing — Powered by FUTO Swipe')
-    parser.add_argument('action', choices=('check', 'enable', 'disable', 'launch'))
+    parser.add_argument('action', choices=('check', 'enable', 'disable', 'launch', 'learning'))
+    parser.add_argument('learning_action', nargs='?', choices=('on', 'off', 'forget', 'status'),
+                        help='with `learning`: turn learning from your typing on or off, erase it, or show its status')
     parser.add_argument('--yes', action='store_true', help='Explicitly accept the displayed activation changes without prompting')
     parser.add_argument('--always-available', action='store_true',
                         help='Explicitly set KDE visibility mode 1; default preserves your tablet/attached-keyboard policy')
     args = parser.parse_args()
     if args.always_available and args.action != 'enable':
         parser.error('--always-available applies only to enable')
+    if (args.action == 'learning') != (args.learning_action is not None):
+        parser.error('use: swipe-keyboard learning on|off|forget|status')
     if os.geteuid() == 0:
         parser.error('Run as your normal desktop user, not root or sudo.')
     controller = Controller(Path(__file__).resolve().parent.parent)
     try:
+        if args.action == 'learning':
+            # WHY the controller's data folder: it is the folder `launch` hands the keyboard as SWIPEKB_DATA.
+            return learning.run(args.learning_action, controller.data)
         if args.action == 'launch':
             try:
                 env = controller.launch_environment()

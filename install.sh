@@ -6,6 +6,9 @@
 #        ./install.sh --no-restart  same, but leave the running keyboard alone (for testing, or installing
 #                                   without disturbing a keyboard you are typing on)
 #        ./install.sh --uninstall   remove qml/models/dict/lm (personal data like traces/ is kept) + restart
+# Learning from your typing (words, names, word pairs; local only) is asked here as a y/n question when a terminal is
+# attached; installs without one leave it off. Switch later with `python3 ~/.local/share/swipe-keyboard/learning.py
+# on|off|forget|status` (or just create/delete the file ~/.local/share/swipe-keyboard/learn-typing). SWIPEKB_LEARN_TYPING=yes|no skips the question.
 # The n-gram ranking (lm/) is off unless ~/.local/share/swipe-keyboard/use-ngram exists (then restart the keyboard).
 # The project's own swipe engine (card #179) replaces FUTO's recogniser only while ~/.local/share/swipe-keyboard/own-engine
 # exists (restart the keyboard). It looks for swipe-model.bin beside the FUTO models (not shipped or pinned yet: with no
@@ -13,6 +16,7 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 DEST="${XDG_DATA_HOME:-$HOME/.local/share}/swipe-keyboard"
+. "$ROOT/scripts/learning-choice.sh"
 
 restart_keyboard() {
     # WHY: KWin owns the keyboard process and starts a fresh one after it exits; the new one loads the new files.
@@ -39,6 +43,8 @@ case "${1:-}" in
                "$DEST/.dict.new" "$DEST/.lm.new" "$DEST/.language-packs.new"
         restart_keyboard
         echo "swipe typing removed (keyboard back to plain tapping)"
+        # WHY said out loud: what the keyboard learned from typing stays private on disk until the person erases it.
+        [ -d "$DEST/learning" ] && echo "what the keyboard learned from your typing is kept in $DEST/learning; erase it with: python3 \"$DEST/learning.py\" forget"
         exit 0 ;;
     --no-restart|"") ;;
     *) echo "usage: ./install.sh [--no-restart|--uninstall]" >&2; exit 2 ;;
@@ -78,4 +84,7 @@ else
 fi
 for d in $dirs; do rm -rf "$DEST/$d" && mv "$DEST/.$d.new" "$DEST/$d"; done
 echo "installed to $DEST"
+# The small control script is copied beside the data so `learning.py on|off|forget|status` works without the checkout.
+cp -f "$ROOT/integration/learning.py" "$DEST/learning.py"
+learning_choice "$DEST"
 [ "${1:-}" = --no-restart ] || restart_keyboard

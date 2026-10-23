@@ -151,55 +151,83 @@ void PersonalModel::undo(const Undo &u)
     dirty_ = true;
 }
 
-double PersonalModel::boost(const std::string &prev, const std::string &key, std::int64_t now) const
-{
-    double total = 0;
-    const auto w = words_.find(key);
-    if (w != words_.end() && suggestible(w->second, now))
-        total += weights_.word * (1.0 - std::exp(-weights_.wordSpeed * decayed(w->second.score, w->second.last, now)));
-    if (!prev.empty()) {
-        const auto p = pairs_.find(pairKey(prev, key));
-        if (p != pairs_.end())
-            total += weights_.pair * (1.0 - std::exp(-weights_.pairSpeed * decayed(p->second.score, p->second.last, now)));
-    }
-    return total;
-}
-
 std::vector<PersonalModel::Ranked> PersonalModel::rerank(const std::vector<std::string> &base, const std::string &prev,
                                                          const std::string &prefix, std::int64_t now, std::size_t topK,
                                                          bool inject, double boostScale) const
 {
+    // Personal evidence, as shares: how the person's uses of each fitting word divide up.
+    const std::string letters = lettersOnly(prefix);
+    auto fits = [&](const std::string &key) {
+        return letters.empty() || lettersOnly(key).compare(0, letters.size(), letters) == 0;
+    };
+    std::unordered_map<std::string, double> pairShare, wordShare, novelShare;
+    double pairTotal = 0, wordTotal = 0, novelTotal = 0;
+    if (!prev.empty()) {
+        const auto f = followers_.find(prev);
+        if (f != followers_.end())
+            for (const auto &key : f->second) {
+                const auto w = words_.find(key);
+                const auto p = pairs_.find(pairKey(prev, key));
+                if (w == words_.end() || p == pairs_.end() || p->second.uses < weights_.pairMinUses || !suggestible(w->second, now)
+                    || isForgotten(key) || !fits(key)) continue;
+                const double e = decayed(p->second.score, p->second.last, now);
+                pairShare[key] = e; pairTotal += e;
+            }
+    }
+    // WHY only when letters are typed (unless nextWordWord says otherwise): with nothing typed, "I write 'the' a lot"
+    // says little about the next word, while among words starting "th" it says a great deal.
+    const double wordWeightScale = letters.empty() ? weights_.nextWordWord : 1.0;
+    if (wordWeightScale > 0)
+        for (const auto &entry : words_) {
+            if (!suggestible(entry.second, now) || isForgotten(entry.first) || !fits(entry.first)) continue;
+            const double e = decayed(entry.second.score, entry.second.last, now);
+            wordShare[entry.first] = e; wordTotal += e;
+            // WHY not when nothing is typed: with no letters a new word says nothing about what comes next.
+            if (!entry.second.known && !letters.empty()) { novelShare[entry.first] = e; novelTotal += e; }
+        }
+    double a = weights_.pairMax * pairTotal / (pairTotal + weights_.pairK) * boostScale;
+    double b = weights_.wordMax * wordWeightScale * wordTotal / (wordTotal + weights_.wordK) * boostScale;
+    // WHY divided by ALL the person's matching uses, not just the new words': what counts is how often, among the words
+    // they write that start like this, the new one is the one they meant. After "s" that is rare; after "sus" it is not.
+    double n = weights_.novelMax * novelTotal / (wordTotal + weights_.novelK) * boostScale;
+    if (pairTotal <= 0) a = 0;
+    if (wordTotal <= 0) b = 0;
+    if (novelTotal <= 0) n = 0;
+    if (a + b + n > weights_.mixCap) { const double f = weights_.mixCap / (a + b + n); a *= f; b *= f; n *= f; }
+
     struct Scored { Ranked ranked; double score; };
     std::vector<Scored> all;
     std::unordered_set<std::string> listed;
-    auto place = [&](double r) { return 1.0 / (1.0 + weights_.rankDecay * r); };
+    double baseTotal = 0;
+    auto place = [&](double r) { return std::pow(weights_.rankRatio, r); };
+    for (std::size_t i = 0; i < base.size(); ++i)
+        if (!isForgotten(base[i])) baseTotal += place(double(i));
+    auto share = [](const std::unordered_map<std::string, double> &m, double total, const std::string &key) {
+        const auto it = m.find(key);
+        return it == m.end() || total <= 0 ? 0.0 : it->second / total;
+    };
     for (std::size_t i = 0; i < base.size(); ++i) {
         // WHY no de-duplication here: German lists "Essen" and "essen" (same key, two words) and both must survive.
         if (isForgotten(base[i])) continue;
         listed.insert(base[i]);
-        all.push_back({{base[i], int(i)}, place(double(i)) + boostScale * boost(prev, base[i], now)});
+        const double pBase = baseTotal > 0 ? place(double(i)) / baseTotal : 0.0;
+        all.push_back({{base[i], int(i)}, (1.0 - a - b - n) * pBase + a * share(pairShare, pairTotal, base[i]) + b * share(wordShare, wordTotal, base[i])
+                              + n * share(novelShare, novelTotal, base[i])});
     }
     if (inject) {
-        const std::string letters = lettersOnly(prefix);
-        auto consider = [&](const std::string &key) {
-            if (listed.count(key) || isForgotten(key)) return;
-            const auto w = words_.find(key);
-            if (w == words_.end() || !suggestible(w->second, now)) return;
-            if (!letters.empty() && lettersOnly(key).compare(0, letters.size(), letters) != 0) return;
+        // Learned words the predictor did not list. WHY only those the evidence above names: they enter on their
+        // own personal share, so a word with a single stray use cannot crowd out the predictor's choices.
+        auto add = [&](const std::string &key) {
+            if (listed.count(key)) return;
             listed.insert(key);
-            all.push_back({{key, -1}, place(weights_.outsidePlace) + boostScale * boost(prev, key, now)});
+            all.push_back({{key, -1}, a * share(pairShare, pairTotal, key) + b * share(wordShare, wordTotal, key)
+                                          + n * share(novelShare, novelTotal, key)});
         };
-        if (letters.empty()) {
-            // Next word: only words that have followed this one before. WHY not the person's favourite words in
-            // general: with nothing typed, a general favourite says nothing about what comes next.
-            const auto f = followers_.find(prev);
-            if (f != followers_.end()) for (const auto &key : f->second) consider(key);
-        } else {
-            for (const auto &entry : words_) consider(entry.first);
-        }
+        for (const auto &entry : pairShare) add(entry.first);
+        for (const auto &entry : wordShare) add(entry.first);
     }
     // WHY stable and base-first on ties: with no personal data the order is exactly the predictor's.
-    std::stable_sort(all.begin(), all.end(), [](const Scored &a, const Scored &b) { return a.score > b.score; });
+    std::stable_sort(all.begin(), all.end(), [](const Scored &x, const Scored &y) { return x.score > y.score; });
     std::vector<Ranked> out;
     for (const auto &s : all) {
         if (out.size() >= topK) break;
@@ -222,9 +250,10 @@ bool PersonalModel::learnedNewWord(const std::string &word, std::int64_t now) co
 
 bool PersonalModel::removable(const std::string &word) const
 {
+    // WHY only words the language did not know: those are what the person taught the keyboard. A long press on an
+    // ordinary word ("the") must never offer to remove it; erasing habits is what "forget everything" is for.
     const auto w = words_.find(word);
-    // WHY known words only after a few uses: otherwise a long press on "the" would offer to remove it.
-    return w != words_.end() && (!w->second.known || w->second.uses >= 3);
+    return w != words_.end() && !w->second.known && !isForgotten(word);
 }
 
 bool PersonalModel::wantsCapital(const std::string &word) const
@@ -249,7 +278,9 @@ std::vector<std::pair<std::string, int>> PersonalModel::swipeWords(std::int64_t 
 
 void PersonalModel::forget(const std::string &word)
 {
-    const bool swipeBefore = words_.count(word) && !words_.at(word).known;
+    const auto entry = words_.find(word);
+    const bool wasNew = entry != words_.end() && !entry->second.known;
+    const bool swipeBefore = wasNew;
     words_.erase(word);
     for (auto it = pairs_.begin(); it != pairs_.end();) {
         const auto sep = it->first.find('\x1f');
@@ -257,9 +288,10 @@ void PersonalModel::forget(const std::string &word)
         else ++it;
     }
     rebuildFollowers();
-    // WHY remember it: a word the keyboard still knows from elsewhere (the dictionary, the next-word file) must
-    // not come back as a suggestion; only the person typing it again lifts this (see learn()).
-    if (plain(word) && forgotten_.size() < limits_.maxForgotten) forgotten_.insert(word);
+    // WHY remember it: the swipe dictionary keeps a taught word until the keyboard restarts, so it must be kept out
+    // of suggestions by name; only the person typing it again lifts this (see learn()).
+    // (An ordinary dictionary word is never put on the list: it only loses what was learned about it.)
+    if (wasNew && plain(word) && forgotten_.size() < limits_.maxForgotten) forgotten_.insert(word);
     if (swipeBefore) ++swipeVersion_;
     dirty_ = true;
 }

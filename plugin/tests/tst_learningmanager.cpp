@@ -1,6 +1,7 @@
 // The on-disk side of learning: the on/off flag, where and how the store is written, resetting, damaged files.
 #include <QtTest>
 #include <QTemporaryDir>
+#include <sys/stat.h>
 #include "learningmanager.h"
 
 namespace {
@@ -59,6 +60,34 @@ private slots:
         again.setNoCache(true);
         QCOMPARE(again.model("en")->pairCount(), size_t(1));
         QVERIFY(again.model("es")->empty());   // one file per language
+    }
+    void everySaveReplacesTheFileWholeSoACrashCannotLeaveHalfAFile()
+    {
+        QTemporaryDir dir;
+        switchOn(dir.path());
+        LearningManager m([&] { return dir.path(); });
+        m.setNoCache(true);
+        m.model("en")->learn("a", "b", true, false, 1);
+        m.changed(); m.flush();
+        struct stat first {};
+        QCOMPARE(::stat(qPrintable(m.filePathFor("en")), &first), 0);
+        m.model("en")->learn("c", "d", true, false, 2);
+        m.changed(); m.flush();
+        struct stat second {};
+        QCOMPARE(::stat(qPrintable(m.filePathFor("en")), &second), 0);
+        // A temp file renamed over the old one is a different file (new inode); rewriting in place would keep it.
+        QVERIFY2(first.st_ino != second.st_ino, "the store must be written to a temp file and renamed into place");
+        QCOMPARE(QDir(dir.path() + "/learning").entryList(QDir::NoDotAndDotDot | QDir::AllEntries), QStringList{"en.swklearn"});
+    }
+    void writesWaitForTheDelayInsteadOfHappeningOnEveryWord()
+    {
+        QTemporaryDir dir;
+        switchOn(dir.path());
+        LearningManager m([&] { return dir.path(); });
+        m.setSaveDelayMs(400);
+        for (int i = 0; i < 5; ++i) { m.model("en")->learn("a", "w" + std::to_string(i), true, false, i); m.changed(); QTest::qWait(30); }
+        QVERIFY(!QFileInfo::exists(m.filePathFor("en")));   // still inside the delay: nothing written yet
+        QTRY_VERIFY_WITH_TIMEOUT(QFileInfo::exists(m.filePathFor("en")), 3000);
     }
     void aDelayedWriteHappensOnItsOwnAndOnShutdown()
     {

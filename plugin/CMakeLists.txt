@@ -120,6 +120,22 @@ add_test(NAME plugin_nextwordintegration COMMAND tst_nextwordintegration)
 set_tests_properties(plugin_nextwordintegration PROPERTIES ENVIRONMENT
     "QT_QPA_PLATFORM=offscreen;QT_IM_MODULE=qtvirtualkeyboard;SWIPEKB_TEST_ASSETS=${SWIPEKB_ASSETS};SWIPEKB_TEST_PROFILE_ASSETS=${SWIPEKB_ASSETS};SWIPEKB_TEST_LANGUAGE_PACKS=${SWIPEKB_TEST_LANGUAGE_PACKS}")
 
+# Phase 2 learning from the person's own typing: the model, its on-disk store, and the whole thing inside the real input
+# method. The first two need only the engine library (the model lives there); the third is like tst_nextwordintegration.
+qt_add_executable(tst_personalmodel tests/tst_personalmodel.cpp)
+target_link_libraries(tst_personalmodel PRIVATE swipekb_engine Qt6::Test)
+add_test(NAME plugin_personalmodel COMMAND tst_personalmodel)
+qt_add_executable(tst_learningmanager tests/tst_learningmanager.cpp learningmanager.cpp learningmanager.h)
+target_include_directories(tst_learningmanager PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(tst_learningmanager PRIVATE swipekb_engine Qt6::Test)
+add_test(NAME plugin_learningmanager COMMAND tst_learningmanager)
+qt_add_executable(tst_learningintegration tests/tst_learningintegration.cpp)
+target_include_directories(tst_learningintegration PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(tst_learningintegration PRIVATE swipekeyboard Qt6::Quick Qt6::Qml Qt6::VirtualKeyboard Qt6::Test)
+add_test(NAME plugin_learningintegration COMMAND tst_learningintegration)
+set_tests_properties(plugin_learningintegration PROPERTIES SKIP_RETURN_CODE 77 ENVIRONMENT
+    "QT_QPA_PLATFORM=offscreen;QT_IM_MODULE=qtvirtualkeyboard;SWIPEKB_TEST_PROFILE_ASSETS=${SWIPEKB_ASSETS}")
+
 # WHY register in the ordinary build too: the lightweight feature project is not the normal CTest gate.
 # Fixtures are explicit opt-ins. Tests QSKIP when absent, but supplied invalid fixtures fail rather than pass.
 set(_language_fixture_env)

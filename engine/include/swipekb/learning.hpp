@@ -35,16 +35,27 @@ struct LearningLimits {
     unsigned newWordUses = 2;
 };
 
-// How a personal boost is mixed with the n-gram's own order. The n-gram order gives each word a score that
-// falls with its place in the list; the personal part adds on top, capped, so it can lift a word a few places
-// but never throws the n-gram's choices away. Tuned on the Tatoeba personal test (see the eval tool).
+// How the person's own habits are mixed with the predictor's order. Each candidate gets a score that is a blend
+// of three probabilities that add up to one:
+//   (1 - a - b - n) * what the predictor's order says
+//     + a * how often THIS person put it after the previous word
+//     + b * how often THIS person writes it among words that start so
+//     + n * the same, among only the words the language files do not know (names, slang).
+// WHY the last one is separate: a word the language files lack cannot be in the predictor's list at all, so the
+// person's own use is the only evidence there is and deserves more trust than a nudge to an ordinary word.
+// The blend weights grow with the amount of personal evidence (a few uses count for little, many for more) and
+// are capped, so the predictor's choices are never thrown away. Tuned on the Tatoeba personal test.
 struct LearningWeights {
-    double rankDecay = 0.35;   // base score of place r is 1 / (1 + rankDecay * r)
-    double outsidePlace = 12;  // a learned word the predictor did not list scores as if it stood in this place
-    double pair = 0.55;        // largest boost for "this word usually follows the previous word"
-    double word = 0.35;        // largest boost for "this person uses this word a lot"
-    double pairSpeed = 0.7;    // how fast repeated pair uses approach the largest boost
-    double wordSpeed = 0.25;   // the same for single words
+    double rankRatio = 0.4;    // the predictor's n-th choice is worth rankRatio^n before normalising (each place is this much as likely)
+    double pairK = 8.0;        // pair evidence of N uses gets blend weight pairMax * N / (N + pairK)
+    double pairMax = 0.3;
+    unsigned pairMinUses = 2;  // a pair seen only once is a coincidence, not a habit, and counts for nothing
+    double wordK = 30.0;       // the same for "words I write that start with these letters"
+    double wordMax = 0.15;
+    double nextWordWord = 0.0; // 0..1: how much of wordMax applies when no letter is typed yet (a favourite word says little about the next one)
+    double novelK = 1.0;       // new-word evidence gets blend weight novelMax * (uses of new words) / (uses of all words with these letters + novelK); only once a letter is typed
+    double novelMax = 1.2;
+    double mixCap = 0.85;      // the personal weights together never exceed this
 };
 
 class PersonalModel {
@@ -88,7 +99,7 @@ public:
     bool usedByPerson(const std::string &word, unsigned minUses = 2) const;
     // True for words the language did not know and that now have enough uses to be suggested and swiped.
     bool learnedNewWord(const std::string &word, std::int64_t now) const;
-    // True when the word has personal data worth offering "remove" for.
+    // True for a word the person taught the keyboard (the language files did not know it): only those can be removed one by one.
     bool removable(const std::string &word) const;
     // Name-like words (capital in the middle of sentences) are shown with a capital.
     bool wantsCapital(const std::string &word) const;
@@ -97,7 +108,7 @@ public:
     std::uint64_t swipeWordsVersion() const { return swipeVersion_; }
 
     // --- forgetting -----------------------------------------------------------------------------------------
-    void forget(const std::string &word);   // erases the word and every pair with it; never suggested again until typed again
+    void forget(const std::string &word);   // erases the word and every pair with it; a taught word is not suggested again until typed again
     void clear();                           // forgets everything, including the forgotten list
 
     std::size_t wordCount() const { return words_.size(); }
@@ -129,7 +140,6 @@ private:
     };
     double decayed(double score, std::int64_t last, std::int64_t now) const;
     bool suggestible(const Word &w, std::int64_t now) const;
-    double boost(const std::string &prev, const std::string &key, std::int64_t now) const;
     void prune(std::int64_t now);
     void rebuildFollowers();
     static std::string pairKey(const std::string &prev, const std::string &word) { return prev + '\x1f' + word; }

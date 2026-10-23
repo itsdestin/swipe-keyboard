@@ -1428,7 +1428,9 @@ swipekb::PersonalModel::Undo SwipeInputMethod::learnWord(const QString &rawWord,
     if (!safe || !NextWordSession::allowed(predictionEditor(), predictionPolicy())) return {};
     auto *model=personal();
     if (!model) return {};
-    const bool known=m_recognizer && m_recognizer->hasWord(word.toStdString());
+    // WHY not words we added ourselves: FUTO's dictionary keeps a taught word until restart, so after "forget" it
+    // would look like a built-in word and skip the two-use rule.
+    const bool known=m_recognizer && m_recognizer->hasWord(word.toStdString()) && !m_injected.contains(personalKey(word));
     if (!known) {
         // WHY these skips: a lone letter, SHOUTING and "heyyyyy" are slips, not words worth remembering.
         static const QRegularExpression run(QStringLiteral("(.)\\1{3,}"));

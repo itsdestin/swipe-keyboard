@@ -40,52 +40,69 @@ private slots:
         QCOMPARE(m.swipeWords(2000).size(), size_t(1));
         QVERIFY(m.wantsCapital("destin"));   // typed with a capital in the middle of a sentence
     }
-    void aKnownWordIsBoostedAfterOneUse()
+    void anOrdinaryWordIsLiftedOnlyALittleAndOnlyOnceLettersAreTyped()
     {
         PersonalModel m;
         const auto base = keys({"hello", "help", "held", "hell"});
         QCOMPARE(order(m.rerank(base, "", "hel", 0, 4, true)), base);
-        m.learn("", "hell", true, false, 100);
-        m.learn("", "hell", true, false, 200);
-        // Two uses lift "hell" from last place, but the predictor's own order still leads.
+        for (int i = 0; i < 40; ++i) m.learn("", "hell", true, false, 100 + i);
+        // Heavy use lifts "hell" a place, but the predictor's own first choices still lead...
         const auto got = order(m.rerank(base, "", "hel", 300, 4, true));
-        QVERIFY(std::find(got.begin(), got.end(), std::string("hell")) - got.begin() < 3);
         QCOMPARE(got.front(), std::string("hello"));
-        // WHY: with nothing learned the order is exactly the predictor's.
+        QCOMPARE(got.at(1), std::string("help"));
+        QVERIFY(std::find(got.begin(), got.end(), std::string("hell")) - got.begin() == 2);
+        // ...and with no letters typed a favourite word says nothing about the next word.
+        QCOMPARE(order(m.rerank(base, "", "", 300, 4, true)), base);
+        // With nothing learned the order is exactly the predictor's.
         PersonalModel empty;
         QCOMPARE(order(empty.rerank(base, "x", "hel", 0, 4, true)), base);
     }
-    void aPairLiftsTheWordThatUsuallyFollows()
+    void aHabitualPairLiftsTheWordThatUsuallyFollows()
     {
         PersonalModel m;
-        for (int i = 0; i < 3; ++i) m.learn("good", "morning", true, false, 100 + i);
         const auto base = keys({"night", "luck", "idea", "morning"});
-        QCOMPARE(order(m.rerank(base, "good", "", 200, 4, true)).front(), std::string("morning"));
+        // One use is a coincidence, not a habit: nothing moves.
+        m.learn("good", "morning", true, false, 100);
+        QCOMPARE(order(m.rerank(base, "good", "", 200, 4, true)), base);
+        for (int i = 0; i < 30; ++i) m.learn("good", "morning", true, false, 103 + i);
+        const auto got = order(m.rerank(base, "good", "", 300, 4, true));
+        QCOMPARE(got.front(), std::string("night"));   // never overriding: the predictor's first choice stays
+        QVERIFY(std::find(got.begin(), got.end(), std::string("morning")) - got.begin() <= 1);
         // Another previous word gets no help from the pair.
-        QVERIFY(order(m.rerank(base, "bad", "", 200, 4, true)).front() != std::string("morning"));
+        QCOMPARE(order(m.rerank(base, "bad", "", 300, 4, true)), base);
     }
     void learnedFollowersJoinTheListEvenIfThePredictorMissedThem()
     {
         PersonalModel m;
-        for (int i = 0; i < 3; ++i) m.learn("dear", "zeynep", false, true, 100 + i);
+        for (int i = 0; i < 30; ++i) m.learn("dear", "zeynep", false, true, 100 + i);
         const auto got = order(m.rerank(keys({"sir", "madam", "friend"}), "dear", "", 200, 3, true));
-        QVERIFY(contains(got, "zeynep"));
+        QVERIFY(std::find(got.begin(), got.end(), std::string("zeynep")) != got.end());
+        QCOMPARE(got.front(), std::string("sir"));
     }
-    void oneUseNeverDisplacesTheTopChoice()
+    void aNewWordIsOfferedAfterOneLetterWhenItIsTheOnlyThingTheyWriteThere()
     {
-        // Never fully overriding: the n-gram's first choice survives a single personal use of a lower word.
+        PersonalModel m;
+        for (int i = 0; i < 4; ++i) m.learn("my", "zorp", false, false, 100 + i);
+        const auto got = order(m.rerank(keys({"zoo", "zone", "zero"}), "my", "z", 200, 3, true));
+        QCOMPARE(got.front(), std::string("zorp"));
+    }
+    void aRarelyUsedNewWordStaysBehindTheWordsTheyUseAllTheTime()
+    {
+        PersonalModel m;
+        for (int i = 0; i < 30; ++i) m.learn("", "zoo", true, false, 100 + i);
+        m.learn("", "zorp", false, false, 200);
+        m.learn("", "zorp", false, false, 201);
+        const auto got = order(m.rerank(keys({"zoo", "zone", "zero"}), "", "zo", 300, 3, true));
+        QCOMPARE(got.front(), std::string("zoo"));
+        QVERIFY(std::find(got.begin(), got.end(), std::string("zorp")) == got.end());
+    }
+    void oneUseOfAPairOrAWordNeverChangesAnything()
+    {
         PersonalModel m;
         m.learn("the", "second", true, false, 100);
-        const auto got = order(m.rerank(keys({"first", "x", "second"}), "the", "", 150, 3, true));
-        QCOMPARE(got.front(), std::string("first"));
-    }
-    void anExtraLearnedWordCannotJumpTheWholeListOnWeakEvidence()
-    {
-        PersonalModel m;
-        m.learn("", "zorp", false, false, 100);
-        m.learn("", "zorp", false, false, 110);
-        const auto got = order(m.rerank(keys({"zoo", "zone", "zero"}), "", "zo", 150, 3, true));
-        QCOMPARE(got.front(), std::string("zoo"));
+        const auto base = keys({"first", "x", "second"});
+        QCOMPARE(order(m.rerank(base, "the", "", 150, 3, true)), base);
+        QCOMPARE(order(m.rerank(base, "the", "s", 150, 3, true)), base);
     }
     void forgetErasesWordAndPairsAndKeepsItGone()
     {
@@ -106,6 +123,17 @@ private slots:
         m.learn("my", "xyzzy", false, false, 301);
         QVERIFY(m.learnedNewWord("xyzzy", 301));
     }
+    void anOrdinaryWordCannotBeRemovedOneByOneOnlyTaughtWordsCan()
+    {
+        PersonalModel m;
+        for (int i = 0; i < 5; ++i) m.learn("a", "the", true, false, 100 + i);
+        for (int i = 0; i < 2; ++i) m.learn("a", "tazzle", false, false, 100 + i);
+        QVERIFY(!m.removable("the"));
+        QVERIFY(m.removable("tazzle"));
+        m.forget("the");   // even if asked: it loses its habits, but is not blocked
+        QVERIFY(!m.isForgotten("the"));
+        QVERIFY(!m.usedByPerson("the", 1));
+    }
     void clearForgetsEverythingIncludingTheForgottenList()
     {
         PersonalModel m;
@@ -118,29 +146,24 @@ private slots:
     }
     void usesFadeWithAHalfLifeAndEventuallyVanish()
     {
-        PersonalModel m;
-        m.learn("", "bloop", true, false, 0);
-        const auto base = keys({"a", "b", "c", "d", "e", "bloop"});
+        // A habit fades: after about a year (eight half-lives) the pair has lost almost all its pull.
+        PersonalModel p;
+        for (int i = 0; i < 40; ++i) p.learn("a", "b", true, false, 0);
+        const auto base = keys({"x", "y", "b"});
         auto place = [&](long long now) {
-            const auto got = order(m.rerank(base, "", "", now, 6, true));
-            return std::find(got.begin(), got.end(), std::string("bloop")) - got.begin();
+            const auto got = order(p.rerank(base, "a", "", now, 3, false));
+            return std::find(got.begin(), got.end(), std::string("b")) - got.begin();
         };
-        const auto fresh = place(0);
-        QVERIFY(fresh < 5);                 // lifted
-        QCOMPARE(place(900 * kDay), 5);     // 20 half-lives later: back to its own place
+        QVERIFY(place(0) <= 1);
+        QVERIFY(place(45 * kDay) <= 1);      // one half-life: still clearly there
+        QCOMPARE(place(365 * kDay), 2);      // back to where the predictor put it
         // A word the language does not know disappears altogether once it has faded.
         PersonalModel n;
         n.learn("", "zibble", false, false, 0);
         n.learn("", "zibble", false, false, 10);
         QVERIFY(n.learnedNewWord("zibble", 20));
         QVERIFY(!n.learnedNewWord("zibble", 500 * kDay));
-        // Half-life: after one half-life the pair boost is clearly smaller.
-        PersonalModel p;
-        for (int i = 0; i < 4; ++i) p.learn("a", "b", true, false, 0);
-        const auto near = p.rerank(keys({"x", "y", "b"}), "a", "", 0, 3, false);
-        const auto far = p.rerank(keys({"x", "y", "b"}), "a", "", 365 * kDay, 3, false);
-        QCOMPARE(order(near).front(), std::string("b"));
-        QCOMPARE(order(far).front(), std::string("x"));
+        QVERIFY(n.swipeWords(500 * kDay).empty());
     }
     void sizeStaysBounded()
     {
@@ -192,6 +215,8 @@ private slots:
         PersonalModel m;
         for (int i = 0; i < 3; ++i) m.learn("dear", "zeynep", false, true, 100 + i);
         m.learn("the", "cat", true, false, 500);
+        m.learn("", "gone", false, false, 501);
+        m.learn("", "gone", false, false, 502);
         m.forget("gone");
         const auto text = m.serialize();
         PersonalModel back;

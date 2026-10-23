@@ -95,6 +95,28 @@ Preserve `~/.local/share/swipe-keyboard/setup-state.json` (or its XDG equivalent
 - Alternatives and whole-word deletion require reliable field/cursor/selection information. Changed or unavailable context intentionally clears replacement authority or falls back to ordinary deletion.
 - An application edit that is never reported to the input method cannot be detected reliably. Firefox physical Ctrl+A/Delete can leave stale field information and cause an extra leading space on the next swipe.
 
+## Learning from your typing (off by default)
+
+When switched on, the keyboard remembers, on this computer only: words you use that the language files do not know (names, slang) once you have used them twice; how often you use ordinary words; and which word you usually write after another. Suggestions and swipes then favour them, a little at first and more as the evidence grows; the language files' own order always stays the base. A swear word you typed or swiped yourself may be offered like any other word; one you never used is never offered out of the blue. Use fades with a half-life of about 45 days, and each language keeps a bounded list (4,000 words, 12,000 pairs).
+
+What it never does:
+
+- It does not learn in password, hidden, web-address, e-mail, number, date or phone fields, or wherever the application tells the keyboard not to predict. It uses the same checks as next-word prediction.
+- On stock Plasma (where the keyboard cannot see what else is in the field) it learns only words this keyboard itself entered.
+- It never sends anything over a network, and writes nothing outside the folder below. Diagnostics show counts only, never words.
+
+Where it lives: `learn-typing` (an empty file; present = on) and `learning/<language>.swklearn` (one small private file per language, mode 0600 in a 0700 folder, written atomically a few seconds after a change) inside the keyboard data folder (`~/.local/share/swipe-keyboard/` natively). A damaged file is ignored and the keyboard starts empty. A typo you type twice looks like a new word to the keyboard and can be offered; press and hold it to remove it.
+
+Choosing:
+
+- `./install.sh` asks **Learn from your typing? [y/N]** when it runs in a terminal. Packages (Arch, Fedora, Flatpak) and installs without a terminal never ask and leave it **off**. `SWIPEKB_LEARN_TYPING=yes|no` answers the question ahead of time.
+- Native packages: `swipe-keyboard learning on`, `off`, `forget` or `status`. Installs from `install.sh`: `python3 ~/.local/share/swipe-keyboard/learning.py on|off|forget|status` (the same commands). Or just create or delete the `learn-typing` file; the running keyboard notices within a second.
+- **Off** stops learning and also stops using what was learned; the stored files stay until you run `forget`.
+- **Forget everything** (`forget`) deletes the learned files at once; a keyboard that is running notices within about a second, drops what it holds in memory and writes nothing back. It is a command rather than an entry in the keyboard's settings-key menu because Qt's menu is a fixed list the keyboard cannot add to.
+- **Forget one word**: press and hold a word you taught the keyboard (a name or slang word it did not know) in the suggestion bar and choose **Remove from dictionary**. Everything learned about that word and its pairs is erased, and it is not suggested again until you type it again (it then needs its two uses once more). Ordinary dictionary words show no such menu; to clear your habits with those, use `forget`.
+
+Limits: swipes can only add words made of the language's letters (no apostrophes) to the FUTO dictionary, and that dictionary cannot drop a word until the keyboard restarts, so a forgotten word is filtered from the suggestions instead; the project's own swipe engine rebuilds its word list at the next swipe. The swipe bar that is already showing a word you just removed keeps showing it until your next swipe or key.
+
 ## Privacy and stored files
 
 Recognition runs locally. Recording is **off by default**. Sensitive-field cancellation uses the live field hints as well as cached privacy vetoes; actual effectiveness still depends on the application/backend supplying correct input information. Do not interpret one tested configuration as a universal privacy guarantee.
@@ -106,7 +128,7 @@ Native paths:
 
 The Flatpak uses app-scoped storage instead of the native paths. Developer recording requires an explicitly created `record` switch file; recordings can contain typed words and context and are not needed for ordinary use or support requests. They are not automatically deleted when removing the package.
 
-Never send passwords, personal typing, learned words, recordings or unreviewed logs. Use made-up text. Include the OS, application/version, package version and reproduction; native users can also include `swipe-keyboard check`.
+Never send passwords, personal typing, learned words (the `learning` folder), recordings or unreviewed logs. Use made-up text. Include the OS, application/version, package version and reproduction; native users can also include `swipe-keyboard check`.
 
 ## Source and licenses
 

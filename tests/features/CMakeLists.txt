@@ -139,6 +139,12 @@ if(SWIPEKB_READONLY_UPSTREAM)
         set_tests_properties(prediction_${name} PROPERTIES ENVIRONMENT
             "QT_QPA_PLATFORM=offscreen;QT_IM_MODULE=qtvirtualkeyboard;SWIPEKB_TEST_ASSETS=${SWIPEKB_READONLY_UPSTREAM}/assets;SWIPEKB_TEST_PROFILE_ASSETS=${TEST_PROFILE_ASSETS}")
     endforeach()
+    # Learning inside the real input method (Phase 2): needs the English profile fixture like the next-word integration test.
+    add_executable(tst_learningintegration ${ROOT}/plugin/tests/tst_learningintegration.cpp)
+    target_link_libraries(tst_learningintegration PRIVATE feature_inputmethod Qt6::Test)
+    add_test(NAME learning_integration COMMAND tst_learningintegration)
+    set_tests_properties(learning_integration PROPERTIES ENVIRONMENT
+        "QT_QPA_PLATFORM=offscreen;QT_IM_MODULE=qtvirtualkeyboard;SWIPEKB_TEST_PROFILE_ASSETS=${TEST_PROFILE_ASSETS}" SKIP_RETURN_CODE 77)
     add_executable(tst_backendpredictionpolicy ${ROOT}/plugin/tests/tst_backendpredictionpolicy.cpp)
     target_include_directories(tst_backendpredictionpolicy PRIVATE ${ROOT}/scripts/patches)
     target_link_libraries(tst_backendpredictionpolicy PRIVATE Qt6::Core Qt6::Test)
