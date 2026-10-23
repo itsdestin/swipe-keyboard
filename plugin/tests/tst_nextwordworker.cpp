@@ -60,15 +60,14 @@ private slots:
         QTemporaryDir data;
         const QString assets = qEnvironmentVariable("SWIPEKB_TEST_ASSETS");
         QVERIFY(!assets.isEmpty());
-        const QString model = data.path() + "/model.pte", vocab = data.path() + "/vocab.txt";
+        const QString model = data.path() + "/model.ngram", vocab = data.path() + "/vocab.tsv";
         NextWordWorker worker;
         QSignalSpy modelState(&worker, &NextWordWorker::modelStateChanged);
         QSignalSpy spy(&worker, &NextWordWorker::resultReady);
         worker.submit({{1,1,1},model,vocab,{"hello"},"same-identity"});
         QTRY_COMPARE_WITH_TIMEOUT(spy.size(),1,15000); QVERIFY(spy.at(0).at(1).toStringList().isEmpty());
-        QVERIFY(QFile::link(assets + "/models/hungry_jellyfish/context_lm.pte",model));
-        QVERIFY(QFile::link(assets + "/models/hungry_jellyfish/vocab.txt",vocab));
-        QVERIFY(QFile::link(assets + "/models/hungry_jellyfish/metadata.json",data.path() + "/metadata.json"));
+        QVERIFY(QFile::link(assets + "/language-packs/en.ngram",model));
+        QVERIFY(QFile::link(assets + "/language-packs/en.vocab.tsv",vocab));
         worker.submit({{2,2,2},model,vocab,{"hello"},"same-identity"});
         QTRY_COMPARE_WITH_TIMEOUT(spy.size(),2,15000); QVERIFY(!spy.at(1).at(1).toStringList().isEmpty());
         worker.submit({{3,3,3},"/missing","/missing",{"hello"},"different-profile"});

@@ -38,7 +38,7 @@
 #include "swipekb/learning.hpp"
 #include "swipekb/ngram_predictor.hpp"
 #include "swipekb/prediction.hpp"
-#include "swipekb/recognizer.hpp"
+#include "swipekb/text.hpp"
 
 namespace {
 struct Sentence {

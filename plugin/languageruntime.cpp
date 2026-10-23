@@ -19,26 +19,20 @@ std::unordered_map<char32_t, char32_t> popupAliasesFor(const QString &language)
     return aliases;
 }
 
-bool configureRecognizer(const ProfileSnapshot &snapshot, ModelPaths &paths, RecognizerOptions &options)
+bool configureLanguageEngine(const ProfileSnapshot &snapshot, LanguageEngineSetup &setup)
 {
     if (!snapshot.capabilities.swipe) return false;
     auto path = [&](const QString &role) { return snapshot.assets.value(role).path.toStdString(); };
-    paths.encoder = path("encoder"); paths.dictionary = path("dictionary"); paths.decoder = path("decoder");
-    // WHY the file kind decides, not the language: English uses the open n-gram when its pack is installed and
-    // verified (compatibility "en:context-ngram-v1"); otherwise it keeps FUTO's neural model as before. (This branch
-    // had this rule in the plugin; the shared function must carry it so the Gaming Mode daemon agrees with the plugin.)
-    const bool ngramContext = snapshot.assets.value("contextModel").compatibility.endsWith(QStringLiteral(":context-ngram-v1"));
-    if (!ngramContext) {
-        paths.lm_model = path("contextModel"); paths.lm_vocab = path("contextVocab");
-    } else {
-        paths.ngram = path("contextModel");
-    }
-    options.language = snapshot.effectiveLanguage.toStdString();
-    // WHY foreign swipe ranking and completion share only that locale's pinned contextual n-gram; English joins them
-    // when it has one (above), else the flag stays off and FUTO's model ranks.
-    options.ngram = ngramContext;
-    options.alphabet = languageAlphabet(snapshot.effectiveLanguage).toStdString();
-    options.popupAliases = popupAliasesFor(snapshot.effectiveLanguage);
-    return true;
+    setup = {};
+    setup.language = snapshot.effectiveLanguage.toStdString();
+    setup.dictionary = path("dictionary");
+    // WHY only the verified n-gram pack: it is the sentence prior for swipes; without it word frequency ranks.
+    if (snapshot.assets.value("contextModel").compatibility.endsWith(QStringLiteral(":context-ngram-v1")))
+        setup.ngram = path("contextModel");
+    // WHY an override only for trials/tests: the normal model is the lock-verified one; a missing or altered file
+    // simply leaves the engine on geometry.
+    const QString overridePath = qEnvironmentVariable("SWIPEKB_SWIPE_MODEL");
+    setup.swipeModel = overridePath.isEmpty() ? path("swipeModel") : overridePath.toStdString();
+    return !setup.dictionary.empty();
 }
 } // namespace swipekb

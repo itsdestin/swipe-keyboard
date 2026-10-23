@@ -337,15 +337,8 @@ private slots:
         r.swipe("the");
         QCOMPARE(r.learnedWords(), 0);
     }
-    void aTaughtWordCanBeSwipedWithBothEngines_data()
+    void aTaughtWordCanBeSwiped()
     {
-        QTest::addColumn<bool>("ownEngine"); QTest::newRow("futo") << false; QTest::newRow("own-geometry") << true;
-    }
-    void aTaughtWordCanBeSwipedWithBothEngines()
-    {
-        QFETCH(bool, ownEngine);
-        if (ownEngine) qputenv("SWIPEKB_ENGINE", "own"); else qunsetenv("SWIPEKB_ENGINE");
-        struct Reset { ~Reset() { qunsetenv("SWIPEKB_ENGINE"); } } reset;
         Rig r; QVERIFY(r.start(true, false));
         // Before: the word is not in any swipe dictionary, so a swipe of its keys cannot produce it.
         QVERIFY(r.swipe("tazzle"));
@@ -357,7 +350,7 @@ private slots:
         QGuiApplication::inputMethod()->update(Qt::ImQueryAll); r.method->update();
         QVERIFY(r.swipe("tazzle"));
         QVERIFY2(r.field->text.contains("tazzle", Qt::CaseInsensitive), qPrintable(r.field->text));
-        if (ownEngine) QCOMPARE(r.method->diagnostics().value("swipeEngine").toString().left(3), QString("own"));
+        QCOMPARE(r.method->diagnostics().value("swipeEngine").toString().left(3), QString("own"));
     }
     void aTaughtWordThatWasForgottenIsNoLongerSwiped()
     {
@@ -369,7 +362,7 @@ private slots:
         r.field->text = "note "; r.field->cursor = r.field->text.size();
         QGuiApplication::inputMethod()->update(Qt::ImQueryAll); r.method->update();
         QVERIFY(r.swipe("tazzle"));
-        QVERIFY2(!r.field->text.contains("tazzle"), qPrintable(r.field->text));   // FUTO still holds it until restart, but it is filtered
+        QVERIFY2(!r.field->text.contains("tazzle"), qPrintable(r.field->text));   // gone from the engine's word list and filtered
     }
     void aSwearWordThePersonTypedThemselvesIsOfferedUnprompted()
     {
@@ -398,33 +391,28 @@ private slots:
         QGuiApplication::inputMethod()->update(Qt::ImQueryAll); r.method->update();
     }
     // The swipe's result: typed into the field as the top guess, or at least one tap away on the guess bar.
-    // WHY not top guess only: a perfectly straight test finger is not a person's swipe, and FUTO's context model
-    // may prefer a common word for it ("smh" -> "any"); that is the swiper's choice to correct with one tap.
+    // WHY not top guess only: a perfectly straight test finger is not a person's swipe, and the sentence prior
+    // may prefer a common word for it; that is the swiper's choice to correct with one tap.
     bool offered(Rig &r, const QString &w)
     {
         QTest::qWait(150);
         return r.field->text.contains(w, Qt::CaseInsensitive) || r.bar().contains(w, Qt::CaseInsensitive);
     }
-    void abbreviationsCanBeSwipedWithBothEngines_data()
+    void abbreviationsCanBeSwiped_data()
     {
-        QTest::addColumn<bool>("ownEngine");
         QTest::addColumn<QString>("word");
         for (const char *w : {"wyd", "smh", "brb", "ikr"})   // missing from the shipped English dictionary
-            QTest::addRow("own-%s", w) << true << QString(w);
-        // WHY only "wyd" for FUTO: its decoder ranks a perfectly straight test finger toward common words ("smh" ->
-        // "any", "brb" -> "been"); on noisy swipes FUTO reaches about 64% in its top 3 (measured, see CHANGELOG).
-        QTest::addRow("futo-wyd") << false << QString("wyd");
+            QTest::addRow("%s", w) << QString(w);
     }
-    void abbreviationsCanBeSwipedWithBothEngines()
+    void abbreviationsCanBeSwiped()
     {
-        QFETCH(bool, ownEngine); QFETCH(QString, word);
-        if (ownEngine) qputenv("SWIPEKB_ENGINE", "own"); else qunsetenv("SWIPEKB_ENGINE");
-        struct Reset { ~Reset() { qunsetenv("SWIPEKB_ENGINE"); qunsetenv("SWIPEKB_TEXTING_WORDS"); } } reset;
+        QFETCH(QString, word);
+        struct Reset { ~Reset() { qunsetenv("SWIPEKB_TEXTING_WORDS"); } } reset;
         Rig r; QVERIFY(r.start(false, false));
         QVERIFY(!r.method->learningEnabled());
         QVERIFY(r.swipe(word));
         QVERIFY2(offered(r, word), qPrintable(r.field->text + " | " + r.bar().join(',')));
-        if (ownEngine) QCOMPARE(r.method->diagnostics().value("swipeEngine").toString().left(3), QString("own"));
+        QCOMPARE(r.method->diagnostics().value("swipeEngine").toString().left(3), QString("own"));
     }
     void anAbbreviationIsCompletedFromTypedLetters()
     {

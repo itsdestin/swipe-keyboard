@@ -34,7 +34,7 @@ add_test(NAME gaming_languages COMMAND test_gamingd_languages)
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 add_test(NAME gaming_daemon COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_SOURCE_DIR}/tests/gaming/test_daemon.py)
 set_tests_properties(gaming_daemon PROPERTIES TIMEOUT 600 ENVIRONMENT
-    "SWIPEKB_GAMINGD=$<TARGET_FILE:swipekb-gamingd>;SWIPEKB_REPLAY_EXE=$<TARGET_FILE:swipekb-replay>;SWIPEKB_ASSETS=${SWIPEKB_ASSETS};SWIPEKB_FUTO_LAYOUT=${CMAKE_SOURCE_DIR}/third_party/swipe-library/models/layouts/en_qwerty.json;SWIPEKB_LANG_DATASET=${CMAKE_SOURCE_DIR}/bench/languages/synthetic-centered-v1.json;SWIPEKB_ORACLE_JSON=${CMAKE_BINARY_DIR}/plugin-language-oracle.json")
+    "SWIPEKB_GAMINGD=$<TARGET_FILE:swipekb-gamingd>;SWIPEKB_REPLAY_EXE=$<TARGET_FILE:swipekb-replay>;SWIPEKB_ASSETS=${SWIPEKB_ASSETS};SWIPEKB_LAYOUT_TSV=${CMAKE_SOURCE_DIR}/scripts/swipe/layouts/qwerty.tsv;SWIPEKB_LANG_DATASET=${CMAKE_SOURCE_DIR}/bench/languages/synthetic-centered-v1.json;SWIPEKB_ORACLE_JSON=${CMAKE_BINARY_DIR}/plugin-language-oracle.json")
 # WHY a fixture: the daemon test compares against what the real plugin shows, so the plugin test must run first.
 set_tests_properties(gaming_daemon PROPERTIES FIXTURES_REQUIRED plugin_oracle)
 add_dependencies(swipekb-gamingd swipekb-replay)
@@ -48,7 +48,7 @@ find_program(SWIPEKB_NODE node)
 if(SWIPEKB_NODE)
     add_test(NAME gaming_commit_e2e COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_SOURCE_DIR}/tests/gaming/test_commit_e2e.py)
     set_tests_properties(gaming_commit_e2e PROPERTIES TIMEOUT 600 ENVIRONMENT
-        "SWIPEKB_GAMINGD=$<TARGET_FILE:swipekb-gamingd>;SWIPEKB_REPLAY_EXE=$<TARGET_FILE:swipekb-replay>;SWIPEKB_ASSETS=${SWIPEKB_ASSETS};SWIPEKB_FUTO_LAYOUT=${CMAKE_SOURCE_DIR}/third_party/swipe-library/models/layouts/en_qwerty.json")
+        "SWIPEKB_GAMINGD=$<TARGET_FILE:swipekb-gamingd>;SWIPEKB_REPLAY_EXE=$<TARGET_FILE:swipekb-replay>;SWIPEKB_ASSETS=${SWIPEKB_ASSETS};SWIPEKB_LAYOUT_TSV=${CMAKE_SOURCE_DIR}/scripts/swipe/layouts/qwerty.tsv")
 else()
     message(STATUS "gaming_commit_e2e NOT registered: Node.js was not found (the fake Steam page needs it)")
 endif()

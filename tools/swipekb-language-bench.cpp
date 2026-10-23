@@ -2,7 +2,8 @@
 #include "languageevaluation.h"
 #include "languageprofile.h"
 #include "languagetextrules.h"
-#include "swipekb/recognizer.hpp"
+#include "languageruntime.h"
+#include "swipekb/language_engine.hpp"
 #include <QCoreApplication>
 #include <QCryptographicHash>
 #include <QCommandLineParser>
@@ -80,7 +81,7 @@ QSet<QString> dictionaryFor(const QString &path) {
     }
     require(!words.isEmpty()); return words;
 }
-struct Runtime { swipekb::ProfileSnapshot profile; std::unique_ptr<swipekb::Recognizer> engine; QSet<QString> dictionary; };
+struct Runtime { swipekb::ProfileSnapshot profile; std::unique_ptr<swipekb::LanguageEngine> engine; QSet<QString> dictionary; };
 }
 int main(int argc,char **argv)
 {
@@ -116,28 +117,19 @@ int main(int argc,char **argv)
                 {"provenance",text(c,"provenance")},{"nativeReviewed",c["nativeReviewed"].toBool()}};
             const auto keys=keysFor(c); const auto trace=traceFor(c,keys);
             const auto language=swipekb::canonicalLocale(locale).section('-',0,0);
-            swipekb::RecognizerOptions options; options.language=language.toStdString(); options.alphabet=swipekb::languageAlphabet(language).toStdString();
-            for(char32_t letter:swipekb::languageAlphabet(language).toUcs4()) {
-                auto base=swipekb::popupBase(letter,language); if(base!=letter) options.popupAliases[letter]=base;
-            }
-            require(swipekb::normalize(trace,keys,options.alphabet,options.popupAliases).has_value());
+            require(swipekb::normalize(trace,keys,swipekb::languageAlphabet(language).toStdString(),swipekb::popupAliasesFor(language)).has_value());
             result["geometryCovered"]=true;
             if(!runtimes.contains(group)) {
                 auto runtime=std::make_shared<Runtime>();
                 runtime->profile=swipekb::resolveProfile(locale,layout,"Latin",parser.value(language=="en" ? "model-root" : "packs-root"));
                 if(runtime->profile.capabilities.swipe) {
                     const auto &p=runtime->profile;
-                    swipekb::ModelPaths paths; auto path=[&](const QString &role) { return p.assets.value(role).path.toStdString(); };
-                    paths.encoder=path("encoder"); paths.dictionary=path("dictionary"); paths.decoder=path("decoder");
-                    // WHY mirror plugin/swipeinputmethod.cpp: Recognizer::init refuses foreign profiles that carry
-                    // English-style context files or lack their own n-gram, so without this every non-English case
-                    // came back "unavailable" ("Engine initialization failed").
-                    // WHY by file kind: English with the open n-gram installed behaves like the other languages.
-                    if(p.assets.value("contextModel").compatibility.endsWith(":context-ngram-v1")) { paths.ngram=path("contextModel"); options.ngram=true; }
-                    else { paths.lm_model=path("contextModel"); paths.lm_vocab=path("contextVocab"); }
+                    // WHY the plugin's own setup function and texting words: the bench measures what the keyboard does.
+                    swipekb::LanguageEngineSetup setup;
                     runtime->dictionary=dictionaryFor(p.assets.value("dictionary").path);
-                    runtime->engine=std::make_unique<swipekb::Recognizer>();
-                    if(!runtime->engine->init(paths,options)) runtime->engine.reset();
+                    runtime->engine=std::make_unique<swipekb::LanguageEngine>();
+                    if(!swipekb::configureLanguageEngine(p,setup) || !runtime->engine->init(setup)) runtime->engine.reset();
+                    else runtime->engine->liftWords(swipekb::textingWordPairs(language));
                 }
                 runtimes[group]=runtime;
             }

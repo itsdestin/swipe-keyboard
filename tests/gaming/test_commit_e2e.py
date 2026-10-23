@@ -2,7 +2,7 @@
 """M5 end-to-end on the host: the REAL engine daemon, the REAL helper, a fake Steam (fake_cdp.py). Page messages are canned (recorded bench
 swipes); everything between the binding and Steam's text call is the shipped code.
 
-Environment (set by CTest, see gaming/daemon/CMakeLists.txt): SWIPEKB_GAMINGD, SWIPEKB_ASSETS, SWIPEKB_FUTO_LAYOUT (same as test_daemon.py).
+Environment (set by CTest, see gaming/daemon/CMakeLists.txt): SWIPEKB_GAMINGD, SWIPEKB_ASSETS, SWIPEKB_LAYOUT_TSV (same as test_daemon.py).
 Missing pieces are a hard failure, not a skip: a skipped privacy test would read as green.
 """
 import json
@@ -29,7 +29,7 @@ from test_helper import Rig  # noqa: E402
 
 def page_keys():
     """The bench keyboard as the layer reports it: centre points."""
-    return [{'k': k['c'], 'x': k['x'] + k['w'] / 2, 'y': k['y'] + k['h'] / 2, 'w': k['w'], 'h': k['h']} for k in td.keys_from_futo(td.LAYOUT)]
+    return [{'k': k['c'], 'x': k['x'] + k['w'] / 2, 'y': k['y'] + k['h'] / 2, 'w': k['w'], 'h': k['h']} for k in td.keys_from_layout(td.LAYOUT)]
 
 
 class EndToEnd(td.DaemonCase):
@@ -71,7 +71,7 @@ class EndToEnd(td.DaemonCase):
     def direct_top(self, trace, ctx=(), mode='unknown'):
         """What the engine itself says for the same input, asked over a separate connection."""
         c = self.connect(mode=mode)
-        c.call('layout', keys=td.keys_from_futo(td.LAYOUT))
+        c.call('layout', keys=td.keys_from_layout(td.LAYOUT))
         r = c.call('swipe', points=trace, context=list(ctx), top_k=3)
         c.close()              # (the daemon allows only a few connections at once)
         return [x['word'] for x in r['candidates']]

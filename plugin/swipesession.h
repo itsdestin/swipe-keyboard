@@ -33,9 +33,9 @@ struct SpaceContext {
 class SwipeSession {
 public:
     // Last `max` words of the current sentence, oldest first, punctuation trimmed (context for the guesses).
-    // WHY 20, not 3: FUTO's context model reads the whole sentence so far (its own test passes every earlier
-    // word, and the engine itself keeps only as many as the model can take). Cutting to 3 words lowered
-    // first-guess accuracy on the scoreboard from 93.32% to 93.01%; 20 covers any normal sentence.
+    // WHY 20, not 3: the sentence models take as many earlier words as they can use (the n-gram keeps the last two,
+    // the neural next-word model more), and cutting to 3 words once measured lower first-guess accuracy; 20 covers
+    // any normal sentence.
     static QStringList contextWords(const QString &textBeforeCursor, int max = 20);
     // True when the swiped word must be preceded by a space (Gboard-style auto-space).
     static bool needsSpaceBefore(const QString &textBeforeCursor, SpaceContext ctx = {});

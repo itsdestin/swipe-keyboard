@@ -28,7 +28,7 @@ add_executable(tst_languageevaluation ${ROOT}/tools/tests/tst_languageevaluation
 target_include_directories(tst_languageevaluation PRIVATE ${ROOT}/tools)
 target_link_libraries(tst_languageevaluation PRIVATE language_rules Qt6::Test)
 add_test(NAME language_evaluation COMMAND tst_languageevaluation)
-# WHY FUTO-free sources, not feature_engine: the next-word scorer must build without FUTO's library (card #179).
+# WHY only the predictor sources, not feature_engine: the next-word scorer stays a small, quick build.
 add_executable(swipekb-nextword-eval ${ROOT}/tools/swipekb-nextword-eval.cpp ${ROOT}/engine/src/ngram_predictor.cpp
     ${ROOT}/engine/src/nwp_model.cpp ${ROOT}/engine/src/nwp_predictor.cpp ${ROOT}/engine/src/ngram.cpp ${ROOT}/engine/src/context.cpp)
 target_include_directories(swipekb-nextword-eval PRIVATE ${ROOT}/engine/include)
@@ -41,7 +41,7 @@ add_dependencies(tst_nextwordeval swipekb-nextword-eval)
 add_test(NAME tools_nextwordeval COMMAND tst_nextwordeval)
 add_executable(swipekb-profilecheck ${ROOT}/integration/profilecheck.cpp)
 target_link_libraries(swipekb-profilecheck PRIVATE language_rules)
-# The personal-learning layer (Phase 2) and its offline test: FUTO-free, like the next-word scorer above.
+# The personal-learning layer (Phase 2) and its offline test: its own few sources, like the next-word scorer above.
 add_library(personal_model STATIC ${ROOT}/engine/src/learning.cpp)
 target_include_directories(personal_model PUBLIC ${ROOT}/engine/include)
 add_executable(swipekb-personal-eval ${ROOT}/tools/swipekb-personal-eval.cpp ${ROOT}/engine/src/ngram_predictor.cpp
@@ -55,8 +55,7 @@ target_include_directories(tst_learningmanager PRIVATE ${ROOT}/plugin)
 target_link_libraries(tst_learningmanager PRIVATE personal_model Qt6::Core Qt6::Test)
 add_test(NAME learning_manager COMMAND tst_learningmanager)
 
-# Our own swipe engine (card #179): FUTO-free sources only, so these build without SWIPEKB_READONLY_UPSTREAM.
-# WHY a static library: the network runner, the lexicon search and the n-gram prior are shared by tests and tools.
+# The swipe engine (network runner, dictionary search, geometry, n-gram prior): shared by tests and tools.
 add_library(swipe_engine STATIC ${ROOT}/engine/src/swipe_layout.cpp ${ROOT}/engine/src/swipe_net.cpp
     ${ROOT}/engine/src/swipe_beam.cpp ${ROOT}/engine/src/swipe_geo.cpp ${ROOT}/engine/src/swipe_engine.cpp ${ROOT}/engine/src/swipe_lm.cpp ${ROOT}/engine/src/ngram.cpp)
 target_include_directories(swipe_engine PUBLIC ${ROOT}/engine/include)
@@ -71,7 +70,7 @@ foreach(name swipenet swipebeam swipegeo swipeengine)
     add_test(NAME swipe_${name} COMMAND tst_${name})
 endforeach()
 
-# The next-word neural model: runner vs PyTorch, damaged files, hybrid predictor (card #170). FUTO-free sources.
+# The next-word neural model: runner vs PyTorch, damaged files, hybrid predictor (card #170).
 add_executable(tst_nwp ${ROOT}/engine/tests/tst_nwp.cpp ${ROOT}/engine/src/nwp_model.cpp ${ROOT}/engine/src/nwp_predictor.cpp
     ${ROOT}/engine/src/ngram_predictor.cpp ${ROOT}/engine/src/ngram.cpp ${ROOT}/engine/src/context.cpp)
 target_include_directories(tst_nwp PRIVATE ${ROOT}/engine/include)
@@ -79,96 +78,95 @@ target_compile_definitions(tst_nwp PRIVATE SWIPEKB_TEST_DATA="${ROOT}/tests/data
 target_link_libraries(tst_nwp PRIVATE Qt6::Core Qt6::Test)
 add_test(NAME nwp_model COMMAND tst_nwp)
 
-# Optional reuse of existing read-only FUTO symbols: no upstream configure/build or dependency downloads.
-set(SWIPEKB_READONLY_UPSTREAM "" CACHE PATH "Existing source/build to link FUTO symbols from, read-only")
-set(TEST_PROFILE_ASSETS "${SWIPEKB_READONLY_UPSTREAM}/assets" CACHE PATH "Explicit checksum-verified English profile fixture")
-if(SWIPEKB_READONLY_UPSTREAM)
-    find_package(GTest REQUIRED)
-    set(UPSTREAM_ENGINE "${SWIPEKB_READONLY_UPSTREAM}/build/qml/SwipeKeyboard/libswipekb_engine.so")
-    add_library(feature_engine STATIC ${ROOT}/engine/src/recognizer.cpp ${ROOT}/engine/src/normalize.cpp
-        ${ROOT}/engine/src/spelling.cpp ${ROOT}/engine/src/context.cpp ${ROOT}/engine/src/ngram.cpp)
-    set_target_properties(feature_engine PROPERTIES POSITION_INDEPENDENT_CODE ON)
-    target_include_directories(feature_engine PUBLIC ${ROOT}/engine/include PRIVATE ${SWIPEKB_READONLY_UPSTREAM}/third_party/swipe-library/include)
-    target_link_libraries(feature_engine PUBLIC Qt6::Core "${UPSTREAM_ENGINE}" ${CMAKE_DL_LIBS})
-    # WHY a separate line: the personal-learning layer sits beside the predictors, not inside them.
-    target_sources(feature_engine PRIVATE ${ROOT}/engine/src/learning.cpp)
-    foreach(name normalize spelling recognizer context ngram)
-        add_executable(test_${name} ${ROOT}/engine/tests/test_${name}.cpp)
-        target_link_libraries(test_${name} PRIVATE feature_engine GTest::gtest_main)
-        add_test(NAME engine_${name} COMMAND test_${name})
-        set_tests_properties(engine_${name} PROPERTIES ENVIRONMENT "SWIPEKB_ASSETS=${SWIPEKB_READONLY_UPSTREAM}/assets")
-    endforeach()
-    add_executable(swipekb-language-bench ${ROOT}/tools/swipekb-language-bench.cpp ${ROOT}/tools/languageevaluation.cpp)
-    target_link_libraries(swipekb-language-bench PRIVATE feature_engine language_rules)
-    find_package(Python3 REQUIRED COMPONENTS Interpreter)
-    add_test(NAME language_offline_cli COMMAND ${Python3_EXECUTABLE} ${ROOT}/tools/tests/test_language_cli.py)
-    set_tests_properties(language_offline_cli PROPERTIES ENVIRONMENT
-        "SWIPEKB_PROFILECHECK_EXE=$<TARGET_FILE:swipekb-profilecheck>;SWIPEKB_LANGUAGE_BENCH_EXE=$<TARGET_FILE:swipekb-language-bench>")
-    add_executable(tst_languagepacks ${ROOT}/plugin/tests/tst_languagepacks.cpp)
-    target_link_libraries(tst_languagepacks PRIVATE feature_engine language_rules Qt6::Test)
-    add_test(NAME language_real_packs COMMAND tst_languagepacks)
-    set_tests_properties(language_real_packs PROPERTIES SKIP_RETURN_CODE 77)
-    find_package(Qt6 REQUIRED COMPONENTS Qml Quick VirtualKeyboard)
-    add_executable(tst_languagecapture ${ROOT}/plugin/tests/tst_languagecapture.cpp)
-    target_link_libraries(tst_languagecapture PRIVATE Qt6::Qml Qt6::Quick Qt6::Test)
-    target_compile_definitions(tst_languagecapture PRIVATE SWIPEKB_CAPTURE_QML="${ROOT}/plugin/SwipeCapture.qml")
-    add_test(NAME language_capture COMMAND tst_languagecapture)
-    set_tests_properties(language_capture PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_IM_MODULE=")
-    add_library(feature_inputmethod STATIC ${ROOT}/plugin/swipeinputmethod.cpp ${ROOT}/plugin/swipeinputmethod.h
-        ${ROOT}/plugin/swipesession.cpp ${ROOT}/plugin/swipeoutcome.cpp ${ROOT}/plugin/swiperecorder.cpp ${ROOT}/plugin/ownswipe.cpp
-        ${ROOT}/plugin/learningmanager.cpp ${ROOT}/plugin/learningmanager.h)
-    target_include_directories(feature_inputmethod PUBLIC ${ROOT}/plugin)
-    target_link_libraries(feature_inputmethod PUBLIC feature_engine swipe_engine language_rules Qt6::Qml Qt6::Quick Qt6::VirtualKeyboard)
-    add_executable(tst_languageintegration ${ROOT}/plugin/tests/tst_languageintegration.cpp)
-    target_link_libraries(tst_languageintegration PRIVATE feature_inputmethod Qt6::Test)
-    add_test(NAME language_integration COMMAND tst_languageintegration)
-    set_tests_properties(language_integration PROPERTIES ENVIRONMENT
-        "QT_QPA_PLATFORM=offscreen;QT_IM_MODULE=qtvirtualkeyboard;QT_VIRTUALKEYBOARD_DESKTOP_DISABLE=1"
-        SKIP_RETURN_CODE 77)
-    # Own swipe engine inside the plugin (opt-in): integration + glue tests, tiny fixture model from tests/data.
-    add_executable(tst_ownswipeintegration ${ROOT}/plugin/tests/tst_ownswipeintegration.cpp)
-    target_link_libraries(tst_ownswipeintegration PRIVATE feature_inputmethod Qt6::Test)
-    target_compile_definitions(tst_ownswipeintegration PRIVATE SWIPEKB_TEST_DATA="${ROOT}/tests/data")
-    add_test(NAME ownswipe_integration COMMAND tst_ownswipeintegration)
-    set_tests_properties(ownswipe_integration PROPERTIES ENVIRONMENT
-        "QT_QPA_PLATFORM=offscreen;QT_IM_MODULE=qtvirtualkeyboard;QT_VIRTUALKEYBOARD_DESKTOP_DISABLE=1")
-    foreach(name swipesession swipeoutcome swiperecorder)
-        add_executable(tst_${name} ${ROOT}/plugin/tests/tst_${name}.cpp)
-        target_link_libraries(tst_${name} PRIVATE feature_inputmethod Qt6::Test)
-        add_test(NAME plugin_${name} COMMAND tst_${name})
-    endforeach()
-    # WHY one adapter engine: compile both feature deltas against the same language-owned
-    # runtime; this lightweight route remains distinct from final SDK/package acceptance.
-    target_sources(feature_engine PRIVATE ${ROOT}/engine/src/ngram_predictor.cpp ${ROOT}/engine/src/nwp_model.cpp
-        ${ROOT}/engine/src/nwp_predictor.cpp ${ROOT}/engine/src/prediction.cpp)
-    target_sources(feature_inputmethod PRIVATE ${ROOT}/plugin/nextwordsession.cpp
-        ${ROOT}/plugin/nextwordworker.cpp ${ROOT}/plugin/nextwordworker.h
-        ${ROOT}/plugin/predictionpolicy.cpp ${ROOT}/plugin/predictiondiagnostics.cpp ${ROOT}/plugin/wordswap.cpp)
-    foreach(name nextwordsession nextwordworker predictionpolicy predictiondiagnostics nextwordintegration ownedhistory typedwordsession wordswap)
-        add_executable(tst_${name} ${ROOT}/plugin/tests/tst_${name}.cpp)
-        target_link_libraries(tst_${name} PRIVATE feature_inputmethod Qt6::Test)
-        add_test(NAME prediction_${name} COMMAND tst_${name})
-        set_tests_properties(prediction_${name} PROPERTIES ENVIRONMENT
-            "QT_QPA_PLATFORM=offscreen;QT_IM_MODULE=qtvirtualkeyboard;SWIPEKB_TEST_ASSETS=${SWIPEKB_READONLY_UPSTREAM}/assets;SWIPEKB_TEST_PROFILE_ASSETS=${TEST_PROFILE_ASSETS}")
-    endforeach()
-    # Learning inside the real input method (Phase 2): needs the English profile fixture like the next-word integration test.
-    add_executable(tst_learningintegration ${ROOT}/plugin/tests/tst_learningintegration.cpp)
-    target_link_libraries(tst_learningintegration PRIVATE feature_inputmethod Qt6::Test)
-    add_test(NAME learning_integration COMMAND tst_learningintegration)
-    set_tests_properties(learning_integration PROPERTIES ENVIRONMENT
-        "QT_QPA_PLATFORM=offscreen;QT_IM_MODULE=qtvirtualkeyboard;SWIPEKB_TEST_PROFILE_ASSETS=${TEST_PROFILE_ASSETS}" SKIP_RETURN_CODE 77)
-    add_executable(tst_backendpredictionpolicy ${ROOT}/plugin/tests/tst_backendpredictionpolicy.cpp)
-    target_include_directories(tst_backendpredictionpolicy PRIVATE ${ROOT}/scripts/patches)
-    target_link_libraries(tst_backendpredictionpolicy PRIVATE Qt6::Core Qt6::Test)
-    add_test(NAME prediction_backend_policy COMMAND tst_backendpredictionpolicy)
-    add_executable(tst_predictioncapture ${ROOT}/plugin/tests/tst_predictioncapture.cpp)
-    target_compile_definitions(tst_predictioncapture PRIVATE SWIPEKB_CAPTURE_SOURCE="${ROOT}/plugin/SwipeCapture.qml")
-    target_link_libraries(tst_predictioncapture PRIVATE Qt6::Quick Qt6::Qml Qt6::VirtualKeyboard Qt6::Test)
-    add_test(NAME prediction_capture COMMAND tst_predictioncapture)
-    set_tests_properties(prediction_capture PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_IM_MODULE=qtvirtualkeyboard")
-    add_executable(test_prediction ${ROOT}/engine/tests/test_prediction.cpp)
-    target_link_libraries(test_prediction PRIVATE feature_engine Qt6::Test)
-    target_compile_definitions(test_prediction PRIVATE SWIPEKB_TEST_DATA="${ROOT}/tests/data")
-    add_test(NAME prediction_model COMMAND test_prediction)
-    set_tests_properties(prediction_model PROPERTIES ENVIRONMENT "SWIPEKB_TEST_ASSETS=${SWIPEKB_READONLY_UPSTREAM}/assets")
+# The whole engine (LanguageEngine facade, predictors, spellings) as one static library, from the same sources as
+# the shipped libswipekb_engine.so. WHY no upstream checkout or download: every source is the project's own.
+# TEST_PROFILE_ASSETS: an asset tree from scripts/fetch-assets.py (dict/en_swipe.combined + language-packs/).
+set(TEST_PROFILE_ASSETS "" CACHE PATH "Explicit checksum-verified asset tree for the profile/integration tests")
+set(_packs "${TEST_PROFILE_ASSETS}/language-packs")
+find_package(GTest REQUIRED)
+add_library(feature_engine STATIC ${ROOT}/engine/src/normalize.cpp ${ROOT}/engine/src/spelling.cpp ${ROOT}/engine/src/context.cpp
+    ${ROOT}/engine/src/language_engine.cpp ${ROOT}/engine/src/learning.cpp ${ROOT}/engine/src/ngram_predictor.cpp
+    ${ROOT}/engine/src/nwp_model.cpp ${ROOT}/engine/src/nwp_predictor.cpp ${ROOT}/engine/src/prediction.cpp)
+set_target_properties(feature_engine PROPERTIES POSITION_INDEPENDENT_CODE ON)
+set_target_properties(swipe_engine PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_include_directories(feature_engine PUBLIC ${ROOT}/engine/include)
+target_link_libraries(feature_engine PUBLIC swipe_engine Qt6::Core)
+foreach(name normalize spelling language_engine context ngram)
+    add_executable(test_${name} ${ROOT}/engine/tests/test_${name}.cpp)
+    target_link_libraries(test_${name} PRIVATE feature_engine GTest::gtest_main)
+    add_test(NAME engine_${name} COMMAND test_${name})
+    set_tests_properties(engine_${name} PROPERTIES ENVIRONMENT "SWIPEKB_ASSETS=${TEST_PROFILE_ASSETS}")
+endforeach()
+add_executable(swipekb-bench ${ROOT}/tools/swipekb-bench.cpp)
+target_link_libraries(swipekb-bench PRIVATE feature_engine)
+add_executable(swipekb-language-bench ${ROOT}/tools/swipekb-language-bench.cpp ${ROOT}/tools/languageevaluation.cpp)
+target_link_libraries(swipekb-language-bench PRIVATE feature_engine language_rules)
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+add_test(NAME language_offline_cli COMMAND ${Python3_EXECUTABLE} ${ROOT}/tools/tests/test_language_cli.py)
+set_tests_properties(language_offline_cli PROPERTIES ENVIRONMENT
+    "SWIPEKB_PROFILECHECK_EXE=$<TARGET_FILE:swipekb-profilecheck>;SWIPEKB_LANGUAGE_BENCH_EXE=$<TARGET_FILE:swipekb-language-bench>")
+set(_fixture_env)
+if(TEST_PROFILE_ASSETS)
+    set(_fixture_env "SWIPEKB_TEST_ENGLISH_ASSETS=${TEST_PROFILE_ASSETS};SWIPEKB_TEST_LANGUAGE_PACKS=${_packs}")
 endif()
+set_tests_properties(language_profile PROPERTIES ENVIRONMENT "${_fixture_env}")
+add_executable(tst_languagepacks ${ROOT}/plugin/tests/tst_languagepacks.cpp)
+target_link_libraries(tst_languagepacks PRIVATE feature_engine language_rules Qt6::Test)
+add_test(NAME language_real_packs COMMAND tst_languagepacks)
+set_tests_properties(language_real_packs PROPERTIES SKIP_RETURN_CODE 77 ENVIRONMENT "${_fixture_env}")
+find_package(Qt6 REQUIRED COMPONENTS Qml Quick VirtualKeyboard)
+add_executable(tst_languagecapture ${ROOT}/plugin/tests/tst_languagecapture.cpp)
+target_link_libraries(tst_languagecapture PRIVATE Qt6::Qml Qt6::Quick Qt6::Test)
+target_compile_definitions(tst_languagecapture PRIVATE SWIPEKB_CAPTURE_QML="${ROOT}/plugin/SwipeCapture.qml")
+add_test(NAME language_capture COMMAND tst_languagecapture)
+set_tests_properties(language_capture PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_IM_MODULE=")
+add_library(feature_inputmethod STATIC ${ROOT}/plugin/swipeinputmethod.cpp ${ROOT}/plugin/swipeinputmethod.h
+    ${ROOT}/plugin/swipesession.cpp ${ROOT}/plugin/swipeoutcome.cpp ${ROOT}/plugin/swiperecorder.cpp
+    ${ROOT}/plugin/learningmanager.cpp ${ROOT}/plugin/learningmanager.h
+    ${ROOT}/plugin/nextwordsession.cpp ${ROOT}/plugin/nextwordworker.cpp ${ROOT}/plugin/nextwordworker.h
+    ${ROOT}/plugin/predictionpolicy.cpp ${ROOT}/plugin/predictiondiagnostics.cpp ${ROOT}/plugin/wordswap.cpp)
+target_include_directories(feature_inputmethod PUBLIC ${ROOT}/plugin)
+target_link_libraries(feature_inputmethod PUBLIC feature_engine language_rules Qt6::Qml Qt6::Quick Qt6::VirtualKeyboard)
+set(_im_env "QT_QPA_PLATFORM=offscreen;QT_IM_MODULE=qtvirtualkeyboard;QT_VIRTUALKEYBOARD_DESKTOP_DISABLE=1")
+add_executable(tst_languageintegration ${ROOT}/plugin/tests/tst_languageintegration.cpp)
+target_link_libraries(tst_languageintegration PRIVATE feature_inputmethod Qt6::Test)
+add_test(NAME language_integration COMMAND tst_languageintegration)
+set_tests_properties(language_integration PROPERTIES ENVIRONMENT "${_im_env};${_fixture_env}" SKIP_RETURN_CODE 77)
+# The swipe engine inside the keyboard: integration + model-file handling, tiny fixture model from tests/data.
+add_executable(tst_engineintegration ${ROOT}/plugin/tests/tst_engineintegration.cpp)
+target_link_libraries(tst_engineintegration PRIVATE feature_inputmethod Qt6::Test)
+target_compile_definitions(tst_engineintegration PRIVATE SWIPEKB_TEST_DATA="${ROOT}/tests/data")
+add_test(NAME engine_integration COMMAND tst_engineintegration)
+set_tests_properties(engine_integration PROPERTIES ENVIRONMENT "${_im_env};${_fixture_env}" SKIP_RETURN_CODE 77)
+foreach(name swipesession swipeoutcome swiperecorder)
+    add_executable(tst_${name} ${ROOT}/plugin/tests/tst_${name}.cpp)
+    target_link_libraries(tst_${name} PRIVATE feature_inputmethod Qt6::Test)
+    add_test(NAME plugin_${name} COMMAND tst_${name})
+endforeach()
+foreach(name nextwordsession nextwordworker predictionpolicy predictiondiagnostics nextwordintegration ownedhistory typedwordsession wordswap)
+    add_executable(tst_${name} ${ROOT}/plugin/tests/tst_${name}.cpp)
+    target_link_libraries(tst_${name} PRIVATE feature_inputmethod Qt6::Test)
+    add_test(NAME prediction_${name} COMMAND tst_${name})
+    set_tests_properties(prediction_${name} PROPERTIES ENVIRONMENT
+        "QT_QPA_PLATFORM=offscreen;QT_IM_MODULE=qtvirtualkeyboard;SWIPEKB_TEST_ASSETS=${TEST_PROFILE_ASSETS};SWIPEKB_TEST_PROFILE_ASSETS=${TEST_PROFILE_ASSETS};SWIPEKB_TEST_LANGUAGE_PACKS=${_packs}")
+endforeach()
+# Learning inside the real input method (Phase 2): needs the English profile fixture like the next-word integration test.
+add_executable(tst_learningintegration ${ROOT}/plugin/tests/tst_learningintegration.cpp)
+target_link_libraries(tst_learningintegration PRIVATE feature_inputmethod Qt6::Test)
+add_test(NAME learning_integration COMMAND tst_learningintegration)
+set_tests_properties(learning_integration PROPERTIES ENVIRONMENT
+    "QT_QPA_PLATFORM=offscreen;QT_IM_MODULE=qtvirtualkeyboard;SWIPEKB_TEST_PROFILE_ASSETS=${TEST_PROFILE_ASSETS}" SKIP_RETURN_CODE 77)
+add_executable(tst_backendpredictionpolicy ${ROOT}/plugin/tests/tst_backendpredictionpolicy.cpp)
+target_include_directories(tst_backendpredictionpolicy PRIVATE ${ROOT}/scripts/patches)
+target_link_libraries(tst_backendpredictionpolicy PRIVATE Qt6::Core Qt6::Test)
+add_test(NAME prediction_backend_policy COMMAND tst_backendpredictionpolicy)
+add_executable(tst_predictioncapture ${ROOT}/plugin/tests/tst_predictioncapture.cpp)
+target_compile_definitions(tst_predictioncapture PRIVATE SWIPEKB_CAPTURE_SOURCE="${ROOT}/plugin/SwipeCapture.qml")
+target_link_libraries(tst_predictioncapture PRIVATE Qt6::Quick Qt6::Qml Qt6::VirtualKeyboard Qt6::Test)
+add_test(NAME prediction_capture COMMAND tst_predictioncapture)
+set_tests_properties(prediction_capture PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_IM_MODULE=qtvirtualkeyboard")
+add_executable(test_prediction ${ROOT}/engine/tests/test_prediction.cpp)
+target_link_libraries(test_prediction PRIVATE feature_engine Qt6::Test)
+target_compile_definitions(test_prediction PRIVATE SWIPEKB_TEST_DATA="${ROOT}/tests/data")
+add_test(NAME prediction_model COMMAND test_prediction)
+set_tests_properties(prediction_model PROPERTIES ENVIRONMENT "SWIPEKB_TEST_ASSETS=${TEST_PROFILE_ASSETS}")
