@@ -181,9 +181,15 @@ Phase 3 progress (2026-10-22, feature/179-own-swipe): architecture switched to t
 (Destin approved): small CTC encoder + lexicon-trie beam search + n-gram, own plain-C++ runner, geometric
 decoder kept as the no-model fallback. Why: the geometric decoder's candidate recall capped a re-ranker near
 93% (top-20 recall 93.0% devhold). Training on the desktop RTX 4070 Super (`~/swipe-train`, systemd user
-units; 6 s/epoch). First GPU model (529k params, 2.1 MB): devhold-5000 93.02 / 96.07 vs FUTO 93.23 / 95.89
-on the same set; 8.7 ms/swipe vs FUTO ~6.2 (budget 5). Next: size/speed sweep, one final bench-2000 score,
-C++ fallback port.
+units; 6 s/epoch). **Correction (found by the swipe helper, verified 2026-10-22):** devhold-5000, tune-2000 and
+tune-10000 are entirely contained in dev.jsonl (the training set), so every devhold figure, including the
+"ties FUTO" 93.02 / 96.07 for the first GPU model, was measured on training swipes and is invalid. Clean sets:
+bench-2000, test-extra-10000, test.jsonl (zero id/session overlap with dev). Honest first read on 3,000 fresh
+test.jsonl swipes (excluding bench-2000/test-extra): FUTO 92.5 / 96.3 (its tool skips 3% it cannot score) vs
+ours 88.6 / 93.9 (all swipes counted, ~2.5% of targets not in the word list) — a gap of roughly 2–4 points,
+not zero. Fix: hold out whole sessions from dev as the validation set; select only on that; bench-2000 and
+test-extra-10000 stay final-only. The geometric spike (82.0 / 90.0) never trained on dev and stands.
+Next: clean sweep, one final bench-2000 score, C++ fallback port (done, f752806).
 
 ## Phase 2: learn from the user (≈1–2 weeks; can start any time, independent of swipe)
 
