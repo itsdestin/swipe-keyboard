@@ -150,6 +150,7 @@ def bundle_origin_accepts(site, bundle, keyring):
     Returns True if Flatpak then accepts an update check against the site. WHY this and not a fresh remote-add: a
     bundle's origin remote starts with signature checks off, so only this path shows whether checks are really on.
     """
+    keyring = Path(keyring).resolve()
     with tempfile.TemporaryDirectory() as home:
         env = {'HOME': home, 'PATH': '/usr/bin:/bin', 'LANG': 'C'}
         flatpak = lambda *a, **k: subprocess.run(['flatpak', *a], env=env, capture_output=True, text=True, **k)
@@ -170,6 +171,8 @@ def bundle_origin_accepts(site, bundle, keyring):
 def verify(site, keyring, armored, bundle=None):
     """Each platform's own tool must accept the site with the signature checked (a wrong site strands every keyboard)."""
     site = Path(site).resolve()
+    # WHY absolute: gpgv reads a bare keyring name from inside ~/.gnupg, not the current folder (seen in CI).
+    keyring = Path(keyring).resolve()
     version_release = f"{contract()['version']}-{contract()['release']}"
     run('gpgv', '--keyring', str(keyring), str(site / 'arch/latest.json.sig'), str(site / 'arch/latest.json'))
     if json.loads((site / 'arch/latest.json').read_text())['version'] != version_release:
