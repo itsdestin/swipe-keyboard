@@ -18,7 +18,7 @@ EVAL="${SWIPEKB_NEXTWORD_EVAL:-$ROOT/build/tools/swipekb-nextword-eval}"
 TESTSETS="${SWIPEKB_TESTSETS:-$HOME/.cache/swipe-keyboard-train}"
 PACKS="${SWIPEKB_PACKS:-/usr/share/swipe-keyboard/language-packs}"
 OUT="${SCOREBOARD:-$ROOT/bench/scoreboard.tsv}"
-label=manual check=0 langs="es fr de" n=300
+label=manual check=0 langs="en es fr de" n=300
 while [ $# -gt 0 ]; do
     case "$1" in
         --label) label="$2"; shift 2 ;;
