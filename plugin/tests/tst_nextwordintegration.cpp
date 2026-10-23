@@ -332,6 +332,17 @@ private slots:
         f.edit->hints |= Qt::ImhSensitiveData; QGuiApplication::inputMethod()->update(Qt::ImQueryAll); f.method->update();
         QVERIFY(f.bar().isEmpty());
     }
+    void alternativesCloseWhenTheTextChangesUnderThem() {
+        // WHY: an app edit (paste, autocorrect, sync) while the bar is open must never leave a list that could
+        // swap the wrong characters.
+        if (qEnvironmentVariable("SWIPEKB_TEST_PROFILE_ASSETS").isEmpty()) QSKIP("English assets required");
+        SwapFixture f; const QString text = QStringLiteral("we can sea you today ");
+        QVERIFY(f.init(text, text.size(), {}, "en_US")); QTRY_VERIFY(f.ic->inputItem() == f.edit.get());
+        f.tapAt(9); QVERIFY(!f.bar().isEmpty());
+        f.edit->text.insert(0, "oh "); f.edit->cursor = 12;
+        QGuiApplication::inputMethod()->update(Qt::ImQueryAll); f.method->update();
+        QVERIFY(!f.method->predictionSelectionToken().startsWith("swap:"));
+    }
     void ownTypingNeverLooksLikeATap() {
         // WHY: after every typed letter the cursor sits right after a word; that must not open alternatives.
         // Qt reports an edit's cursor and text separately, in either order, so both orders are exercised.
@@ -390,19 +401,40 @@ private slots:
     }
     void aCleanWordIsNeverAnsweredWithASwearWordItResembles() {
         // WHY: alternatives are derived from the tapped word, but a swear word must not appear for an innocent one.
+        // "<swear>q" is an ordinary mistyped word whose only close neighbour is the swear word, so an unfiltered
+        // list would show it. The blocked spellings are assembled in pieces.
         if (qEnvironmentVariable("SWIPEKB_TEST_PROFILE_ASSETS").isEmpty()) QSKIP("English assets required");
-        SwapFixture f; const QString text = QStringLiteral("a duck swam ");
+        SwapFixture f;
+        const QStringList blocked{QStringLiteral("f") + "uck", QStringLiteral("sh") + "it", QStringLiteral("di") + "ck"};
+        QString text; for (const auto &w : blocked) text += w + "q ";
+        QVERIFY(f.init(text, text.size(), {}, "en_US")); QTRY_VERIFY(f.ic->inputItem() == f.edit.get());
+        int start = 0;
+        for (const auto &w : blocked) {
+            f.tapAt(start + 1);
+            const auto shown = f.bar();
+            qInfo() << "swear-filter check shows" << shown;
+            QVERIFY2(!shown.contains(w), qPrintable(w + "q -> " + shown.join(",")));
+            start += w.size() + 2;
+        }
+    }
+    void aSwearWordTheyTypedStillGetsItsNeighbours() {
+        // WHY: the filter exists so the keyboard never volunteers a swear word; the person's own word is theirs.
+        if (qEnvironmentVariable("SWIPEKB_TEST_PROFILE_ASSETS").isEmpty()) QSKIP("English assets required");
+        SwapFixture f; const QString text = QStringLiteral("so ") + "sh" + "it " + "again ";
         QVERIFY(f.init(text, text.size(), {}, "en_US")); QTRY_VERIFY(f.ic->inputItem() == f.edit.get());
         f.tapAt(4);
-        const auto shown = f.bar();
-        QVERIFY(!shown.isEmpty());
-        QVERIFY2(!shown.contains(QStringLiteral("f") + QStringLiteral("uck")), qPrintable(shown.join(",")));
+        QVERIFY(!f.bar().isEmpty());
     }
     void unbridgedNativeModeNeverOffersAlternatives() {
         // WHY: under owned-history the keyboard may read only words it committed itself; the feature stays off.
         if (qEnvironmentVariable("SWIPEKB_TEST_PROFILE_ASSETS").isEmpty()) QSKIP("English assets required");
         SwapFixture f; const QString text = QStringLiteral("we can sea you today ");
         QVERIFY(f.init(text, text.size(), {}, "en_US", nullptr, true)); QTRY_VERIFY(f.ic->inputItem() == f.edit.get());
+        // WHY a Shift press first: it connects the keyboard to the field's stock proxy, as real use does within the
+        // first key, so this really runs the owned-history policy rather than an unconnected keyboard.
+        f.method->keyEvent(Qt::Key_Shift, QString(), Qt::NoModifier);
+        QVERIFY(f.method->diagnostics().value("predictionContextSource").toString() == QStringLiteral("keyboard-owned-history"));
+        QGuiApplication::inputMethod()->update(Qt::ImQueryAll); f.method->update(); // the "before the tap" look
         f.tapAt(9);
         QVERIFY(f.bar().isEmpty());
         f.choose(0); QCOMPARE(f.edit->text, text);
