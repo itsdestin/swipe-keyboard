@@ -165,7 +165,17 @@ def bundle_origin_accepts(site, bundle, keyring):
         section = section[:section.find('\n[', 1)] if '\n[' in section[1:] else section
         if 'gpg-verify=true' not in section:
             raise SystemExit('the modified origin remote does not check signatures:\n' + section)
-        return flatpak('update', '--user', '--noninteractive', '-y', '--no-deps', '--no-related', MAIN_ID).returncode == 0
+        # WHY not the update's exit code: Flatpak treats a refused remote as "non-fatal, nothing to update" and exits 0
+        # (seen 2026-10-23). Listing the origin fails outright when the summary signature does not match.
+        if flatpak('remote-ls', '--user', '--columns=application', origin).returncode != 0:
+            return False
+        before = flatpak('info', '--user', '--show-commit', MAIN_ID, check=True).stdout.strip()
+        flatpak('update', '--user', '--noninteractive', '-y', '--no-deps', '--no-related', MAIN_ID)
+        after = flatpak('info', '--user', '--show-commit', MAIN_ID, check=True).stdout.strip()
+        wanted = subprocess.run(['ostree', f'--repo={site}/repo', 'rev-parse', f'app/{MAIN_ID}/x86_64/master'],
+                                check=True, capture_output=True, text=True).stdout.strip()
+        # When the site holds a newer build, the update must really have moved the app onto it.
+        return after == wanted or (before == wanted and after == before)
 
 
 def verify(site, keyring, armored, bundle=None):
