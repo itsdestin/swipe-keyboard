@@ -1,0 +1,54 @@
+name: Steam canary watchdog
+# Guards against a silently dead canary: if steam-canary.yml has not recorded a run for 3 days
+# (its ledger heartbeat), open or update a tracking issue. Runs at a different hour than the canary.
+on:
+  schedule:
+    - cron: '43 9 * * *'
+  workflow_dispatch:
+    inputs:
+      now:
+        description: 'Simulate a date (ISO 8601, e.g. 2026-11-30T00:00:00Z). Empty = real time.'
+        required: false
+        default: ''
+permissions:
+  contents: read
+defaults:
+  run:
+    shell: bash
+jobs:
+  watchdog:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    env:
+      NOW: ${{ inputs.now }}
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - name: Fetch the ledger branch (absent = never run)
+        run: |
+          auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          mkdir "$RUNNER_TEMP/ledger"
+          cd "$RUNNER_TEMP/ledger"
+          git init -q -b canary-ledger
+          git remote add origin "https://github.com/${REPO}.git"
+          git -c http.extraheader="$auth" fetch -q --depth 1 origin canary-ledger && git checkout -q -f FETCH_HEAD || true
+      - name: Is the canary alive?
+        run: |
+          set +e
+          python3 -I tools/steam-canary/canary.py dead-check --ledger "$RUNNER_TEMP/ledger/ledger.json" ${NOW:+--now "$NOW"} | tee "$RUNNER_TEMP/dead.md"
+          code=${PIPESTATUS[0]}
+          if [ "$code" -eq 1 ]; then
+            printf '\nThe daily workflow is "Steam UI canary" (.github/workflows/steam-canary.yml). Check that scheduled workflows are enabled for this repository (GitHub pauses them after 60 days without repository activity).\n\nDo not assume users are broken: devices fail safe to stock. Fix and ship a normal update.\n' >> "$RUNNER_TEMP/dead.md"
+            python3 -I tools/steam-canary/canary.py issue --kind dead --body-file "$RUNNER_TEMP/dead.md"
+          fi
+          exit "$code"

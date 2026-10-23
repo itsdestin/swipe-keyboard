@@ -1,10 +1,17 @@
 name: Keyboard packages
 on:
   pull_request:
+    # ready_for_review matters: a draft runs the fast path; marking it ready starts the full matrix.
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [main]
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      full:
+        description: 'Run all four platforms (branch dispatch is fast-path only by default)'
+        type: boolean
+        default: false
 permissions:
   contents: read
 defaults:
@@ -19,6 +26,8 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
       package_version: ${{ steps.version.outputs.package_version }}
+      swipe_library: ${{ steps.version.outputs.swipe_library }}
+      mode: ${{ steps.mode.outputs.mode }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -37,6 +46,8 @@ jobs:
           python3 scripts/release.py check-versions
           echo "version=$(python3 -c 'import json; print(json.load(open("packaging/release-targets.json"))["version"])')" >> "$GITHUB_OUTPUT"
           echo "package_version=$(python3 scripts/release.py version)" >> "$GITHUB_OUTPUT"
+          # WHY: this pinned commit fixes the ExecuTorch revision; it names which compiler-cache store to start from.
+          echo "swipe_library=$(git rev-parse HEAD:third_party/swipe-library)" >> "$GITHUB_OUTPUT"
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then
             test "$GITHUB_REF_NAME" = "v$(python3 scripts/release.py version)"
             # Only root history is needed for ancestry; never fetch complete dependency histories.
@@ -44,6 +55,15 @@ jobs:
             # Build tags only from a source commit already on main. No cross-run artifact promotion.
             git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main
           fi
+      - name: Choose fast path or full matrix
+        id: mode
+        env:
+          PR_DRAFT: ${{ github.event.pull_request.draft }}
+          FULL_INPUT: ${{ inputs.full }}
+        run: |
+          # WHY: fast = Arch only, for drafts and plain branch dispatch. Tags, main, ready pull requests
+          # and `full: true` run everything; unknown situations also run everything.
+          echo "mode=$(python3 scripts/release.py mode)" >> "$GITHUB_OUTPUT"
       - name: Prepare pinned complete source once
         run: |
           python3 scripts/ci-source.py prepared
@@ -60,6 +80,7 @@ jobs:
           python3 -m unittest discover -s tests/packaging -p test_release.py -v
           python3 -m unittest discover -s tests/packaging -p test_publish.py -v
           python3 -m unittest discover -s tests/packaging -p test_release_workflow.py -v
+          python3 -m unittest discover -s tests/packaging -p test_release_steamos.py -v
       - uses: actions/upload-artifact@v4
         with:
           name: prepared
@@ -111,7 +132,9 @@ jobs:
             return 1
           }
           retry_pacman -Syyuu --noconfirm
-          retry_pacman -S --noconfirm --needed base-devel git cmake ninja python python-pip qt6-declarative qt6-virtualkeyboard qt6-tools kwindowsystem kconfig kirigami gtest curl plasma-keyboard
+          # WHY nodejs: the engine-daemon end-to-end test (CTest gaming_commit_e2e) drives a fake Steam page in Node; the
+          # package recipe itself stays free of it, so the tool is installed here, in the build image only.
+          retry_pacman -S --noconfirm --needed base-devel git cmake ninja python python-pip qt6-declarative qt6-virtualkeyboard qt6-tools kwindowsystem kconfig kirigami gtest curl plasma-keyboard nodejs
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
@@ -121,12 +144,58 @@ jobs:
           path: prepared
       - name: Verify prepared input identity and hashes before executing source
         run: python3 scripts/release.py verify-inputs --directory prepared --sha "$GITHUB_SHA"
+      - name: Decide dependency-cache policy (release tags and forks never use caches)
+        id: cachepolicy
+        env:
+          PR_FROM_FORK: ${{ github.event.pull_request.head.repo.fork }}
+        run: python3 scripts/ci-cache.py policy >> "$GITHUB_OUTPUT"
+      - name: Prepare ExecuTorch compiler cache (dependency objects only)
+        id: cachekey
+        if: ${{ steps.cachepolicy.outputs.restore == 'true' }}
+        env:
+          SWIPE_LIBRARY: ${{ needs.prepare.outputs.swipe_library }}
+        run: |
+          for attempt in 1 2 3; do pacman -S --noconfirm --needed ccache && break; if [ "$attempt" = 3 ]; then exit 1; fi; sleep 15; done
+          mkdir -p /var/tmp/ccache-et
+          toolchain=$(pacman -Q gcc glibc binutils cmake ninja | tr '\n' ' ')
+          digest=$(python3 scripts/ci-cache.py key native-ccache "arch|$(uname -m)|$SWIPE_LIBRARY|$toolchain" arch)
+          # WHY a per-commit key: GitHub keys are immutable, so each trusted run saves its own updated
+          # store and later runs start from the newest one (restore-keys), exact build-input match first.
+          echo "key=$digest-$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+          echo "digest=$digest-" >> "$GITHUB_OUTPUT"
+          echo "prefix=$(python3 scripts/ci-cache.py key --prefix native-ccache arch)" >> "$GITHUB_OUTPUT"
+      # WHY a compiler-result cache only: ccache hashes the compiler's contents, flags, defines and the
+      # preprocessed source (headers included), so a stale or foreign entry is a miss (recompile), never
+      # different bytes. It covers ExecuTorch, the FUTO engine and our own objects on non-release runs;
+      # the language-asset QRC target opts out in CMake, and QRC generation, install output and
+      # packages are never cached. Release tags never reach these steps (policy output is false).
+      - name: Restore ExecuTorch compiler cache
+        id: ccacherestore
+        if: ${{ steps.cachepolicy.outputs.restore == 'true' }}
+        uses: actions/cache/restore@v4
+        with:
+          path: /var/tmp/ccache-et
+          key: ${{ steps.cachekey.outputs.key }}
+          restore-keys: |
+            ${{ steps.cachekey.outputs.digest }}
+            ${{ steps.cachekey.outputs.prefix }}
+      - name: Let the unprivileged builder use the compiler cache
+        if: ${{ steps.cachepolicy.outputs.restore == 'true' }}
+        run: |
+          mkdir -p /var/tmp/ccache-et
+          chmod -R a+rwX /var/tmp/ccache-et
+          # The product build must never be routed through ccache by PATH masquerading.
+          case ":$PATH:" in *ccache*) echo 'ccache wrappers are on PATH' >&2; exit 1;; esac
       - name: Record actual baseline libraries (not hardware acceptance)
         run: |
           pacman -Q glibc gcc-libs qt6-base qt6-declarative qt6-virtualkeyboard kwindowsystem plasma-keyboard python | tee packaging/BASELINE-VERSIONS.txt
           pacman -Si plasma-keyboard | tee packaging/AVAILABLE-KEYBOARD.txt
       - name: Build source and native package as unprivileged builder
+        env:
+          CCACHE_ON: ${{ steps.cachepolicy.outputs.restore }}
         run: |
+          cache_env=''
+          if [ "$CCACHE_ON" = true ]; then cache_env='CCACHE_DIR=/var/tmp/ccache-et CCACHE_COMPILERCHECK=content CCACHE_MAXSIZE=1500M CMAKE_C_COMPILER_LAUNCHER=ccache CMAKE_CXX_COMPILER_LAUNCHER=ccache'; fi
           useradd -m builder
           mkdir dist
           cp "prepared/swipe-keyboard-$VERSION.tar.gz" dist/
@@ -137,7 +206,16 @@ jobs:
           sed -i "s/sha256sums=('SKIP')/sha256sums=('$digest')/" PKGBUILD
           chown -R builder:builder "$GITHUB_WORKSPACE"
           # Resolve the real runtime requirements too; do not bypass compatibility to get a green build.
-          su builder -c "cd '$GITHUB_WORKSPACE/dist' && makepkg --noconfirm"
+          su builder -c "cd '$GITHUB_WORKSPACE/dist' && $cache_env makepkg --noconfirm"
+      - name: Report ExecuTorch compiler-cache use
+        if: ${{ !cancelled() && steps.cachepolicy.outputs.restore == 'true' }}
+        run: CCACHE_DIR=/var/tmp/ccache-et ccache -s
+      - name: Save ExecuTorch compiler cache (trusted pushes and dispatch only)
+        if: ${{ !cancelled() && steps.cachepolicy.outputs.save == 'true' && steps.ccacherestore.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: /var/tmp/ccache-et
+          key: ${{ steps.cachekey.outputs.key }}
       - name: Inspect actual package payload
         run: |
           mkdir dist/stage
@@ -190,6 +268,8 @@ jobs:
           compression-level: 0
   fedora:
     needs: prepare
+    # WHY: optional in the fast path; the Keyboard CI gate requires these to be skipped there and successful otherwise.
+    if: ${{ needs.prepare.outputs.mode == 'full' }}
     runs-on: ubuntu-24.04
     container: fedora:44
     env:
@@ -197,7 +277,8 @@ jobs:
       PACKAGE_VERSION: ${{ needs.prepare.outputs.package_version }}
     steps:
       - name: Install RPM tooling
-        run: dnf -y install git rpm-build rpmdevtools dnf-plugins-core cpio findutils
+        # WHY nodejs: see the Arch job; it is installed in the build image only, not required by the package.
+        run: dnf -y install git rpm-build rpmdevtools dnf-plugins-core cpio findutils nodejs
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
@@ -207,6 +288,49 @@ jobs:
           path: prepared
       - name: Verify prepared input identity and hashes before executing source
         run: python3 scripts/release.py verify-inputs --directory prepared --sha "$GITHUB_SHA"
+      - name: Decide dependency-cache policy (release tags and forks never use caches)
+        id: cachepolicy
+        env:
+          PR_FROM_FORK: ${{ github.event.pull_request.head.repo.fork }}
+        run: python3 scripts/ci-cache.py policy >> "$GITHUB_OUTPUT"
+      - name: Prepare ExecuTorch compiler cache (dependency objects only)
+        id: cachekey
+        if: ${{ steps.cachepolicy.outputs.restore == 'true' }}
+        env:
+          SWIPE_LIBRARY: ${{ needs.prepare.outputs.swipe_library }}
+        run: |
+          dnf -y install ccache tar zstd
+          mkdir -p /var/tmp/ccache-et
+          # WHY || true: compilers are installed later (builddep); ccache itself hashes compiler contents.
+          toolchain=$(. /etc/os-release; echo "$VERSION_ID "; rpm -q gcc-c++ glibc-devel cmake ninja-build || true)
+          digest=$(python3 scripts/ci-cache.py key native-ccache "fedora|$(uname -m)|$SWIPE_LIBRARY|$toolchain" fedora)
+          # WHY a per-commit key: GitHub keys are immutable, so each trusted run saves its own updated
+          # store and later runs start from the newest one (restore-keys), exact build-input match first.
+          echo "key=$digest-$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+          echo "digest=$digest-" >> "$GITHUB_OUTPUT"
+          echo "prefix=$(python3 scripts/ci-cache.py key --prefix native-ccache fedora)" >> "$GITHUB_OUTPUT"
+      # WHY a compiler-result cache only: ccache hashes the compiler's contents, flags, defines and the
+      # preprocessed source (headers included), so a stale or foreign entry is a miss (recompile), never
+      # different bytes. It covers ExecuTorch, the FUTO engine and our own objects on non-release runs;
+      # the language-asset QRC target opts out in CMake, and QRC generation, install output and
+      # packages are never cached. Release tags never reach these steps (policy output is false).
+      - name: Restore ExecuTorch compiler cache
+        id: ccacherestore
+        if: ${{ steps.cachepolicy.outputs.restore == 'true' }}
+        uses: actions/cache/restore@v4
+        with:
+          path: /var/tmp/ccache-et
+          key: ${{ steps.cachekey.outputs.key }}
+          restore-keys: |
+            ${{ steps.cachekey.outputs.digest }}
+            ${{ steps.cachekey.outputs.prefix }}
+      - name: Let the unprivileged builder use the compiler cache
+        if: ${{ steps.cachepolicy.outputs.restore == 'true' }}
+        run: |
+          mkdir -p /var/tmp/ccache-et
+          chmod -R a+rwX /var/tmp/ccache-et
+          # The product build must never be routed through ccache by PATH masquerading.
+          case ":$PATH:" in *ccache*) echo 'ccache wrappers are on PATH' >&2; exit 1;; esac
       - name: Resolve current Fedora 44 build dependencies
         run: |
           # The minimal image's tmpfiles-only package conflicts with systemd BuildRequires.
@@ -216,7 +340,11 @@ jobs:
           dnf -y builddep packaging/fedora/swipe-keyboard.spec
           dnf repoquery --latest-limit 1 plasma-keyboard | tee packaging/AVAILABLE-KEYBOARD.txt
       - name: Build source and RPM as unprivileged builder
+        env:
+          CCACHE_ON: ${{ steps.cachepolicy.outputs.restore }}
         run: |
+          cache_env=''
+          if [ "$CCACHE_ON" = true ]; then cache_env='CCACHE_DIR=/var/tmp/ccache-et CCACHE_COMPILERCHECK=content CCACHE_MAXSIZE=1500M CMAKE_C_COMPILER_LAUNCHER=ccache CMAKE_CXX_COMPILER_LAUNCHER=ccache'; fi
           useradd -m builder
           mkdir dist
           cp "prepared/swipe-keyboard-$VERSION.tar.gz" dist/
@@ -225,9 +353,18 @@ jobs:
           cp packaging/fedora/swipe-keyboard.spec /home/builder/rpmbuild/SPECS/
           chown -R builder:builder /home/builder/rpmbuild
           # Keep the test executable until the extracted-package probe below (RPM 6 cleans BUILD by default).
-          su builder -c 'rpmbuild -ba --noclean /home/builder/rpmbuild/SPECS/swipe-keyboard.spec'
+          su builder -c "$cache_env rpmbuild -ba --noclean /home/builder/rpmbuild/SPECS/swipe-keyboard.spec"
           cp /home/builder/rpmbuild/RPMS/x86_64/*.rpm dist/
           cp /home/builder/rpmbuild/SRPMS/*.rpm dist/
+      - name: Report ExecuTorch compiler-cache use
+        if: ${{ !cancelled() && steps.cachepolicy.outputs.restore == 'true' }}
+        run: CCACHE_DIR=/var/tmp/ccache-et ccache -s
+      - name: Save ExecuTorch compiler cache (trusted pushes and dispatch only)
+        if: ${{ !cancelled() && steps.cachepolicy.outputs.save == 'true' && steps.ccacherestore.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: /var/tmp/ccache-et
+          key: ${{ steps.cachekey.outputs.key }}
       - name: Inspect actual RPM payload (no installation or desktop changes)
         run: |
           mkdir dist/stage
@@ -269,6 +406,8 @@ jobs:
           compression-level: 0
   fedora-arm64:
     needs: prepare
+    # WHY: optional in the fast path; the Keyboard CI gate requires these to be skipped there and successful otherwise.
+    if: ${{ needs.prepare.outputs.mode == 'full' }}
     # Native hosted ARM, not cross-compilation or hours of local TCG compilation.
     runs-on: ubuntu-24.04-arm
     container: fedora:44
@@ -283,7 +422,8 @@ jobs:
           # Fail early with actual runner capacity; never lower the asset safety floor.
           test "$(df -Pk . | tail -1 | tr -s ' ' | cut -d' ' -f4)" -ge 22020096
       - name: Install RPM tooling
-        run: dnf -y install git rpm-build rpmdevtools dnf-plugins-core cpio findutils
+        # WHY nodejs: see the Arch job; it is installed in the build image only, not required by the package.
+        run: dnf -y install git rpm-build rpmdevtools dnf-plugins-core cpio findutils nodejs
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
@@ -293,6 +433,49 @@ jobs:
           path: prepared
       - name: Verify prepared input identity and hashes before executing source
         run: python3 scripts/release.py verify-inputs --directory prepared --sha "$GITHUB_SHA"
+      - name: Decide dependency-cache policy (release tags and forks never use caches)
+        id: cachepolicy
+        env:
+          PR_FROM_FORK: ${{ github.event.pull_request.head.repo.fork }}
+        run: python3 scripts/ci-cache.py policy >> "$GITHUB_OUTPUT"
+      - name: Prepare ExecuTorch compiler cache (dependency objects only)
+        id: cachekey
+        if: ${{ steps.cachepolicy.outputs.restore == 'true' }}
+        env:
+          SWIPE_LIBRARY: ${{ needs.prepare.outputs.swipe_library }}
+        run: |
+          dnf -y install ccache tar zstd
+          mkdir -p /var/tmp/ccache-et
+          # WHY || true: compilers are installed later (builddep); ccache itself hashes compiler contents.
+          toolchain=$(. /etc/os-release; echo "$VERSION_ID "; rpm -q gcc-c++ glibc-devel cmake ninja-build || true)
+          digest=$(python3 scripts/ci-cache.py key native-ccache "fedora-arm64|$(uname -m)|$SWIPE_LIBRARY|$toolchain" fedora-arm64)
+          # WHY a per-commit key: GitHub keys are immutable, so each trusted run saves its own updated
+          # store and later runs start from the newest one (restore-keys), exact build-input match first.
+          echo "key=$digest-$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+          echo "digest=$digest-" >> "$GITHUB_OUTPUT"
+          echo "prefix=$(python3 scripts/ci-cache.py key --prefix native-ccache fedora-arm64)" >> "$GITHUB_OUTPUT"
+      # WHY a compiler-result cache only: ccache hashes the compiler's contents, flags, defines and the
+      # preprocessed source (headers included), so a stale or foreign entry is a miss (recompile), never
+      # different bytes. It covers ExecuTorch, the FUTO engine and our own objects on non-release runs;
+      # the language-asset QRC target opts out in CMake, and QRC generation, install output and
+      # packages are never cached. Release tags never reach these steps (policy output is false).
+      - name: Restore ExecuTorch compiler cache
+        id: ccacherestore
+        if: ${{ steps.cachepolicy.outputs.restore == 'true' }}
+        uses: actions/cache/restore@v4
+        with:
+          path: /var/tmp/ccache-et
+          key: ${{ steps.cachekey.outputs.key }}
+          restore-keys: |
+            ${{ steps.cachekey.outputs.digest }}
+            ${{ steps.cachekey.outputs.prefix }}
+      - name: Let the unprivileged builder use the compiler cache
+        if: ${{ steps.cachepolicy.outputs.restore == 'true' }}
+        run: |
+          mkdir -p /var/tmp/ccache-et
+          chmod -R a+rwX /var/tmp/ccache-et
+          # The product build must never be routed through ccache by PATH masquerading.
+          case ":$PATH:" in *ccache*) echo 'ccache wrappers are on PATH' >&2; exit 1;; esac
       - name: Resolve current Fedora 44 ARM build dependencies
         run: |
           if rpm -q systemd-standalone-tmpfiles >/dev/null 2>&1; then
@@ -301,7 +484,11 @@ jobs:
           dnf -y builddep packaging/fedora/swipe-keyboard.spec
           rpm -q glibc libstdc++ qt6-qtbase qt6-qtdeclarative qt6-qtvirtualkeyboard plasma-keyboard python3 | tee packaging/BASELINE-VERSIONS.txt
       - name: Build fresh ARM product, ExecuTorch and RPM as unprivileged builder
+        env:
+          CCACHE_ON: ${{ steps.cachepolicy.outputs.restore }}
         run: |
+          cache_env=''
+          if [ "$CCACHE_ON" = true ]; then cache_env='CCACHE_DIR=/var/tmp/ccache-et CCACHE_COMPILERCHECK=content CCACHE_MAXSIZE=1500M CMAKE_C_COMPILER_LAUNCHER=ccache CMAKE_CXX_COMPILER_LAUNCHER=ccache'; fi
           useradd -m builder
           mkdir dist
           mkdir -p /home/builder/rpmbuild/{SOURCES,SPECS,BUILD,BUILDROOT,RPMS,SRPMS}
@@ -310,8 +497,17 @@ jobs:
           chown -R builder:builder /home/builder/rpmbuild
           # Same complete source/SRPM contract as x86; no second same-named SRPM upload.
           # %check runs full native CTest plus packaging/integration suites on ARM.
-          su builder -c 'rpmbuild -bb --noclean /home/builder/rpmbuild/SPECS/swipe-keyboard.spec'
+          su builder -c "$cache_env rpmbuild -bb --noclean /home/builder/rpmbuild/SPECS/swipe-keyboard.spec"
           cp /home/builder/rpmbuild/RPMS/aarch64/*.rpm dist/
+      - name: Report ExecuTorch compiler-cache use
+        if: ${{ !cancelled() && steps.cachepolicy.outputs.restore == 'true' }}
+        run: CCACHE_DIR=/var/tmp/ccache-et ccache -s
+      - name: Save ExecuTorch compiler cache (trusted pushes and dispatch only)
+        if: ${{ !cancelled() && steps.cachepolicy.outputs.save == 'true' && steps.ccacherestore.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: /var/tmp/ccache-et
+          key: ${{ steps.cachekey.outputs.key }}
       - name: Inspect actual ARM RPM ELF, language profiles, QRC and loader
         run: |
           mkdir dist/stage
@@ -351,6 +547,8 @@ jobs:
           compression-level: 0
   flatpak:
     needs: prepare
+    # WHY: optional in the fast path; the Keyboard CI gate requires these to be skipped there and successful otherwise.
+    if: ${{ needs.prepare.outputs.mode == 'full' }}
     runs-on: ubuntu-26.04
     env:
       PACKAGE_VERSION: ${{ needs.prepare.outputs.package_version }}
@@ -373,6 +571,7 @@ jobs:
           path: prepared
       - name: Verify prepared input identity and hashes before executing source
         run: python3 scripts/release.py verify-inputs --directory prepared --sha "$GITHUB_SHA"
+      # WHY before the cache block: the dependencies-only build needs the pinned runtimes installed.
       - name: Install signed exact SDK and platform commits
         run: |
           flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
@@ -383,13 +582,91 @@ jobs:
           for name in ('org.kde.Sdk', 'org.kde.Platform'):
               subprocess.run(['flatpak', 'update', '--user', '--noninteractive', '-y', '--commit=' + pins[name], name + '//6.10'], check=True)
           PY
-      - name: Build and test SDK-native objects and installed loader
+      - name: Decide dependency-cache policy (release tags and forks never use caches)
+        id: cachepolicy
+        env:
+          PR_FROM_FORK: ${{ github.event.pull_request.head.repo.fork }}
+        run: python3 scripts/ci-cache.py policy >> "$GITHUB_OUTPUT"
+      - name: Name the dependency cache keys
+        id: cachekeys
+        if: ${{ steps.cachepolicy.outputs.restore == 'true' }}
+        env:
+          SWIPE_LIBRARY: ${{ needs.prepare.outputs.swipe_library }}
+        run: |
+          # ostree checks the restored stage store object by object before it is trusted.
+          sudo apt-get install -y ostree zstd
+          builder=$(flatpak-builder --version)
+          # WHY: stage keys cover manifest, SDK/runtime commits, patches, jobs/flags, tool versions and
+          # runner image; flatpak-builder additionally chains a checksum of every module's sources.
+          echo "stages=$(python3 scripts/ci-cache.py key flatpak-stages "$builder|x86_64|$ImageVersion" flatpak)" >> "$GITHUB_OUTPUT"
+          ccache_digest=$(python3 scripts/ci-cache.py key flatpak-ccache "x86_64|$SWIPE_LIBRARY" flatpak)
+          # WHY a per-commit key: immutable keys; each trusted run saves its updated store.
+          echo "ccache=$ccache_digest-$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+          echo "ccache_digest=$ccache_digest-" >> "$GITHUB_OUTPUT"
+          echo "ccache_prefix=$(python3 scripts/ci-cache.py key --prefix flatpak-ccache flatpak)" >> "$GITHUB_OUTPUT"
+      - name: Restore pinned Qt/Plasma dependency stages (exact key only)
+        id: stagecache
+        if: ${{ steps.cachepolicy.outputs.restore == 'true' }}
+        uses: actions/cache/restore@v4
+        with:
+          path: flatpak-stage-cache.tar.zst
+          key: ${{ steps.cachekeys.outputs.stages }}
+      # WHY compiler results only: ccache hashes compiler, flags and preprocessed source, so a stale
+      # entry is a miss. Only ExecuTorch is compiled through it (build-swipe.sh).
+      - name: Restore ExecuTorch compiler cache
+        id: ccacherestore
+        if: ${{ steps.cachepolicy.outputs.restore == 'true' }}
+        uses: actions/cache/restore@v4
+        with:
+          path: .flatpak-builder/ccache
+          key: ${{ steps.cachekeys.outputs.ccache }}
+          restore-keys: |
+            ${{ steps.cachekeys.outputs.ccache_digest }}
+            ${{ steps.cachekeys.outputs.ccache_prefix }}
+      - name: Validate restored dependency stages (any doubt rebuilds them from source)
+        id: stagecheck
+        if: ${{ steps.stagecache.outputs.cache-hit == 'true' }}
+        run: python3 scripts/ci-cache.py unpack-flatpak-state flatpak-stage-cache.tar.zst .flatpak-builder "${{ steps.cachekeys.outputs.stages }}"
+      - name: Build only the Qt/Plasma dependency stages to cache them
+        if: ${{ steps.cachepolicy.outputs.save == 'true' && steps.stagecheck.outputs.usable != 'true' }}
         run: |
           tar -xzf "prepared/swipe-keyboard-$PACKAGE_VERSION-flatpak-build-inputs.tar.gz" -C prepared
-          python3 packaging/flatpak/build.py flatpak-build --repo flatpak-repo --ci-manifest prepared/flatpak-inputs/manifest.json
+          python3 packaging/flatpak/build.py flatpak-build --repo flatpak-repo --ci-manifest prepared/flatpak-inputs/manifest.json --dependencies-only
+          # Packed before the keyboard module runs, so no product output can enter the cache.
+          python3 scripts/ci-cache.py pack-flatpak-state .flatpak-builder flatpak-stage-cache.tar.zst "${{ steps.cachekeys.outputs.stages }}"
+      - name: Save dependency stages (trusted pushes and dispatch only)
+        if: ${{ steps.cachepolicy.outputs.save == 'true' && steps.stagecheck.outputs.usable != 'true' && hashFiles('flatpak-stage-cache.tar.zst') != '' }}
+        uses: actions/cache/save@v4
+        with:
+          path: flatpak-stage-cache.tar.zst
+          key: ${{ steps.cachekeys.outputs.stages }}
+      - name: Start memory sampling for the build
+        run: |
+          nohup python3 scripts/ci-memwatch.py sample "$RUNNER_TEMP/memory.log" 5 > /dev/null 2>&1 &
+          echo $! > "$RUNNER_TEMP/memory.pid"
+      - name: Build and test SDK-native objects and installed loader
+        id: flatpakbuild
+        run: |
+          tar -xzf "prepared/swipe-keyboard-$PACKAGE_VERSION-flatpak-build-inputs.tar.gz" -C prepared
+          python3 packaging/flatpak/build.py flatpak-build --repo flatpak-repo --ci-manifest prepared/flatpak-inputs/manifest.json ${{ steps.cachepolicy.outputs.restore == 'true' && '--ccache' || '' }}
           mkdir release evidence
           flatpak build-bundle --arch=x86_64 flatpak-repo "release/swipe-keyboard-$PACKAGE_VERSION-x86_64.flatpak" org.itsdestin.SwipeKeyboard master
           cp "prepared/swipe-keyboard-$PACKAGE_VERSION-flatpak-build-inputs.tar.gz" release/
+      - name: Report peak memory and compiler-cache use
+        if: ${{ always() }}
+        run: |
+          kill "$(cat "$RUNNER_TEMP/memory.pid")" 2>/dev/null || true
+          if [ -f "$RUNNER_TEMP/memory.log" ]; then
+            echo "Flatpak build peak memory (KiB): $(python3 scripts/ci-memwatch.py summary "$RUNNER_TEMP/memory.log")" | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+          ls -la .flatpak-builder/ 2>/dev/null || true
+          du -sh .flatpak-builder/ccache flatpak-stage-cache.tar.zst 2>/dev/null || true
+      - name: Save ExecuTorch compiler cache (trusted pushes and dispatch only)
+        if: ${{ !cancelled() && steps.flatpakbuild.outcome == 'success' && steps.cachepolicy.outputs.save == 'true' && steps.ccacherestore.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: .flatpak-builder/ccache
+          key: ${{ steps.cachekeys.outputs.ccache }}
       - name: Install exact bundle and bind embedded metadata
         run: |
           flatpak install --user --noninteractive -y "release/swipe-keyboard-$PACKAGE_VERSION-x86_64.flatpak"
@@ -410,17 +687,161 @@ jobs:
           if-no-files-found: error
           retention-days: 7
           compression-level: 0
+  steamos-helper:
+    # WHY a separate job: the helper Flatpak does not depend on the main Flatpak, so it builds in parallel
+    # with it; only the final assembly waits for both. Optional in the fast path like the other platforms.
+    needs: prepare
+    if: ${{ needs.prepare.outputs.mode == 'full' }}
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Free hosted-runner space and install isolated build tools
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder
+          flatpak_version=$(flatpak --version)
+          dpkg --compare-versions "${flatpak_version#Flatpak }" ge 1.16
+      - name: Install signed exact SDK and platform commits
+        run: |
+          flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user --noninteractive -y flathub org.kde.Sdk//6.10 org.kde.Platform//6.10
+          python3 - <<'PY'
+          import json, subprocess
+          pins = json.load(open('packaging/flatpak/runtime-lock.json'))
+          for name in ('org.kde.Sdk', 'org.kde.Platform'):
+              subprocess.run(['flatpak', 'update', '--user', '--noninteractive', '-y', '--commit=' + pins[name], name + '//6.10'], check=True)
+          PY
+      - name: Build the GamingHelper Flatpak
+        run: |
+          # WHY a plain message first: the helper source is written separately; a missing folder must say so, not fail obscurely.
+          test -f gaming/helper/swipekb_helper/__main__.py || { echo 'gaming/helper/swipekb_helper/__main__.py is missing: the Gaming Mode helper is not in this commit.' >&2; exit 1; }
+          python3 packaging/flatpak/build.py helper-build --repo helper-repo --ci-manifest packaging/flatpak/org.itsdestin.SwipeKeyboard.GamingHelper.json
+          mkdir helper-bundle
+          flatpak build-bundle --arch=x86_64 helper-repo helper-bundle/helper.flatpak org.itsdestin.SwipeKeyboard.GamingHelper master
+      - name: Install the helper bundle and check its permissions
+        run: |
+          flatpak install --user --noninteractive -y helper-bundle/helper.flatpak
+          test "$(flatpak info --user --show-ref org.itsdestin.SwipeKeyboard.GamingHelper)" = app/org.itsdestin.SwipeKeyboard.GamingHelper/x86_64/master
+          # WHY: network is the helper's one extra permission (plan Section 9); fail if it gained anything else.
+          permissions=$(flatpak info --user --show-permissions org.itsdestin.SwipeKeyboard.GamingHelper)
+          echo "$permissions"
+          grep -qx 'shared=network;' <<<"$permissions"
+          ! grep -E '^(sockets|devices|features)=' <<<"$permissions"
+      # WHY an artifact name outside the *-files / *-evidence patterns: the helper bundle is an input to
+      # the SteamOS download, never a separately published or gated file.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: steamos-helper-bundle
+          path: helper-bundle/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+  steamos:
+    # WHY its own producer: the single SteamOS download (both Flatpaks + install.sh + checksums, plan Section 15
+    # question 2) is a required release file like every other target, so it is built, checked and gated here.
+    needs: [prepare, flatpak, steamos-helper]
+    if: ${{ needs.prepare.outputs.mode == 'full' }}
+    runs-on: ubuntu-26.04
+    env:
+      PACKAGE_VERSION: ${{ needs.prepare.outputs.package_version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      # WHY the flatpak job's bundle and not a rebuild: the download must carry the very bytes released on their
+      # own. scripts/release.py gate compares the hash recorded here with the standalone Flatpak's.
+      - uses: actions/download-artifact@v4
+        with:
+          name: flatpak-files
+          path: flatpak-files
+      - uses: actions/download-artifact@v4
+        with:
+          name: steamos-helper-bundle
+          path: helper-bundle
+      - name: Assemble and check the single SteamOS download
+        run: |
+          mkdir release evidence
+          python3 scripts/steamos_bundle.py assemble --main-bundle "flatpak-files/swipe-keyboard-$PACKAGE_VERSION-x86_64.flatpak" --helper-bundle helper-bundle/helper.flatpak --version "$PACKAGE_VERSION" --out release
+          python3 scripts/release.py record --target steamos --sha "$GITHUB_SHA"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: steamos-files
+          path: release/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: steamos-evidence
+          path: evidence/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+  gaming-tests:
+    # WHY its own job: the Gaming Mode tests (helper, gesture layer, canary, installer, Flatpak and release wiring) used
+    # to run only inside the daily Steam canary, which is no check on a pull request. They are plain Python plus Node,
+    # need no Flatpak or Qt and finish in about a minute. WHY two files are left out by name: test_daemon.py and
+    # test_commit_e2e.py need the compiled daemon and the model files, which only the package builds have, so they run
+    # under CTest (tests gaming_daemon and gaming_commit_e2e) in the arch, fedora and flatpak jobs instead.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      # WHY Node is installed explicitly: tests/gaming/test_layer.js and fake_page.js run under Node, and a missing Node
+      # is a hard failure in those tests, not a skip.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Helper, gesture layer, canary, fetch and ledger tests
+        # WHY a loop and not one discover: every other test file is picked up automatically, only the two named files are
+        # skipped, and each file's result is reported (a failure in one does not hide the rest).
+        run: |
+          status=0
+          for file in tests/gaming/test_*.py; do
+            name=$(basename "$file")
+            case "$name" in test_daemon.py|test_commit_e2e.py) echo "skipped here (needs the built daemon, runs under CTest): $name"; continue;; esac
+            python3 -I -m unittest discover -s tests/gaming -p "$name" -v || status=1
+          done
+          exit $status
+      - name: Installer, Flatpak and SteamOS release contract tests
+        run: |
+          python3 -I -m unittest discover -s tests/packaging -p test_gaming_setup.py -v
+          python3 -I -m unittest discover -s tests/packaging -p test_flatpak_gaming.py -v
+          python3 -I -m unittest discover -s tests/packaging -p test_release_steamos.py -v
+          python3 -I -m unittest discover -s tests/packaging -p test_switch_watch.py -v
   keyboard-ci:
-    name: Keyboard CI
+    # WHY the name changes with the mode: branch protection requires the exact check "Keyboard CI".
+    # A fast-path run reports under a different name, so it can never satisfy that requirement; only
+    # a run that built and verified every platform can. Tags are always the full set.
+    name: ${{ needs.prepare.outputs.mode == 'fast' && 'Keyboard CI (fast path, not mergeable)' || 'Keyboard CI' }}
     if: ${{ always() }}
-    needs: [prepare, arch, fedora, fedora-arm64, flatpak]
+    # WHY gaming-tests is waited on here but kept out of the producer set: it builds no release file, yet a green
+    # "Keyboard CI" must mean the Gaming Mode tests passed too, in every mode (it runs on drafts as well).
+    needs: [prepare, arch, fedora, fedora-arm64, flatpak, steamos, gaming-tests]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - name: Gaming Mode tests must pass
+        if: ${{ always() }}
+        env:
+          GAMING_RESULT: ${{ needs.gaming-tests.result }}
+        run: |
+          if [[ "$GAMING_RESULT" != success ]]; then echo "gaming-tests finished as: $GAMING_RESULT"; exit 1; fi
       # No run-id/repository override: downloads belong only to this workflow run.
+      # WHY tags only: files are re-downloaded to hash the exact bytes that get published. Non-release
+      # runs publish nothing, and every producer already recorded its own file hashes at creation.
       - uses: actions/download-artifact@v4
+        if: ${{ startsWith(github.ref, 'refs/tags/') }}
         with:
           pattern: '*-files'
           merge-multiple: true
@@ -434,17 +855,27 @@ jobs:
         if: ${{ always() }}
         env:
           PRODUCER_STATUSES: ${{ toJSON(needs) }}
-        run: python3 scripts/release.py gate --sha "$GITHUB_SHA" --statuses "$PRODUCER_STATUSES"
+          PR_DRAFT: ${{ github.event.pull_request.draft }}
+          FULL_INPUT: ${{ inputs.full }}
+        run: |
+          # WHY removed: the producer check wants exactly the producer jobs; gaming-tests has its own step above.
+          statuses=$(jq -c 'del(."gaming-tests")' <<< "$PRODUCER_STATUSES")
+          flag=''
+          # Tags always verify the real bytes (the script also refuses this flag on tags).
+          if [[ "$GITHUB_REF" != refs/tags/* ]]; then flag='--evidence-only'; fi
+          python3 scripts/release.py gate --sha "$GITHUB_SHA" --statuses "$statuses" $flag
       - uses: actions/upload-artifact@v4
+        if: ${{ startsWith(github.ref, 'refs/tags/') }}
         with:
           name: verified-release
           path: release/
           if-no-files-found: error
           retention-days: 7
           compression-level: 0
+
   publish:
     if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && github.repository == 'itsdestin/swipe-keyboard' }}
-    needs: [keyboard-ci]
+    needs: [keyboard-ci, gaming-tests]
     runs-on: ubuntu-24.04
     # Final package hashes are available before owner-approved compositor acceptance/publication.
     environment: keyboard-release
@@ -463,3 +894,91 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: python3 scripts/ci-publish.py
+  flatpak-repo:
+    # WHY: the hosted, signed Flatpak update repository (plan "Hosted Flatpak update repository" section) so a Deck's
+    # normal Updates button can fetch a fixed keyboard. It NEVER runs on pull requests, branches or manual runs: only for
+    # a release tag, only after the release is published, and only once the owner has switched it on by creating the
+    # repository variable FLATPAK_REPO_PUBLISH=true (and the secret/key steps in the plan are done). Until then this job
+    # is skipped and nothing is created anywhere.
+    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && github.repository == 'itsdestin/swipe-keyboard' && vars.FLATPAK_REPO_PUBLISH == 'true' }}
+    needs: [publish]
+    runs-on: ubuntu-26.04
+    # WHY the same approval gate as the release itself: publishing to users' update channel is a release decision.
+    environment: keyboard-release
+    permissions:
+      contents: write   # push the flatpak-repo branch only (GitHub Pages serves that branch once the owner enables it)
+    concurrency:
+      group: flatpak-repo
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      # WHY via env, never spliced into script text: secrets must not be echoed or interpolated into commands.
+      GPG_PRIVATE_KEY: ${{ secrets.FLATPAK_REPO_GPG_KEY }}
+      GPG_KEY_ID: ${{ vars.FLATPAK_REPO_GPG_KEY_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install Flatpak tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder ostree gnupg
+      - uses: actions/download-artifact@v4
+        with:
+          name: verified-release
+          path: release
+      - name: Import the signing key (private key never leaves this step)
+        run: |
+          test -n "$GPG_PRIVATE_KEY" && test -n "$GPG_KEY_ID" || { echo 'FLATPAK_REPO_GPG_KEY secret and FLATPAK_REPO_GPG_KEY_ID variable must both be set.' >&2; exit 1; }
+          printf '%s' "$GPG_PRIVATE_KEY" | gpg --batch --import
+          gpg --batch --export "$GPG_KEY_ID" > repo-public.gpg
+          test -s repo-public.gpg
+      - name: Load the existing repository branch (empty on first publish)
+        run: |
+          auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          echo "::add-mask::${auth#AUTHORIZATION: basic }"
+          mkdir "$RUNNER_TEMP/site"
+          cd "$RUNNER_TEMP/site"
+          git init -q -b flatpak-repo
+          git remote add origin "https://github.com/${REPO}.git"
+          if git -c http.extraheader="$auth" fetch -q --depth 1 origin flatpak-repo; then
+            git checkout -q -f FETCH_HEAD -B flatpak-repo
+          fi
+          test -d repo || ostree init --mode=archive-z2 --repo=repo
+      - name: Import both bundles, sign, and rebuild the repository index
+        run: |
+          version=$(python3 scripts/release.py version)
+          mkdir unpacked
+          tar -xzf "release/swipe-keyboard-$version-steamos-x86_64.tar.gz" -C unpacked
+          site="$RUNNER_TEMP/site"
+          for bundle in "release/swipe-keyboard-$version-x86_64.flatpak" unpacked/*/swipe-keyboard-gaming-helper-"$version"-x86_64.flatpak; do
+            flatpak build-import-bundle --gpg-sign="$GPG_KEY_ID" "$site/repo" "$bundle"
+          done
+          # WHY prune-depth 5: keeps the last five releases for rollback while the branch stays small.
+          flatpak build-update-repo --gpg-sign="$GPG_KEY_ID" --generate-static-deltas --prune --prune-depth=5 \
+            --title='Swipe Keyboard' "$site/repo"
+          key=$(base64 -w0 repo-public.gpg)
+          for app in "org.itsdestin.SwipeKeyboard:Swipe Keyboard" "org.itsdestin.SwipeKeyboard.GamingHelper:Swipe Keyboard Gaming Mode helper"; do
+            id=${app%%:*}; title=${app#*:}
+            printf '[Flatpak Ref]\nTitle=%s\nName=%s\nBranch=master\nIsRuntime=false\nUrl=https://itsdestin.github.io/swipe-keyboard/repo/\nSuggestRemoteName=swipe-keyboard\nGPGKey=%s\n' "$title" "$id" "$key" > "$site/$id.flatpakref"
+          done
+          printf '[Flatpak Repo]\nTitle=Swipe Keyboard\nUrl=https://itsdestin.github.io/swipe-keyboard/repo/\nGPGKey=%s\n' "$key" > "$site/swipe-keyboard.flatpakrepo"
+          touch "$site/.nojekyll"
+      - name: Prove a clean user can install from it with the signature checked
+        run: |
+          # WHY file:// and --gpg-import: the same signature check a Deck performs, with no network and no trust shortcuts.
+          flatpak remote-add --user --gpg-import=repo-public.gpg verify-repo "file://$RUNNER_TEMP/site/repo"
+          flatpak remote-ls --user verify-repo | tee remote-ls.txt
+          grep -q org.itsdestin.SwipeKeyboard.GamingHelper remote-ls.txt
+          grep -q 'org.itsdestin.SwipeKeyboard\b' remote-ls.txt
+      - name: Publish the repository branch
+        run: |
+          auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          echo "::add-mask::${auth#AUTHORIZATION: basic }"
+          cd "$RUNNER_TEMP/site"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -q -m "flatpak-repo: $GITHUB_REF_NAME"
+          git -c http.extraheader="$auth" push origin flatpak-repo
