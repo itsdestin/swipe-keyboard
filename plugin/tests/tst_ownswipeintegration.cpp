@@ -48,7 +48,7 @@ class OwnSwipeIntegrationTest : public QObject {
     Q_OBJECT
     // Runs one English swipe of "the" in a fresh keyboard whose data folder holds (or lacks) the own-engine files.
     struct Run { QString text; QVariantMap diagnostics; int token = -1; QStringList alternatives; };
-    Run swipeThe(bool engineEnv, bool flagFile, bool model, Qt::InputMethodHints hints = Qt::ImhNone, bool damagedModel = false) {
+    Run swipeThe(bool engineEnv, bool flagFile, bool model, Qt::InputMethodHints hints = Qt::ImhNone, bool damagedModel = false, const QString &word = QStringLiteral("the"), bool nanPoint = false) {
         Run run;
         const auto assets=qEnvironmentVariable("SWIPEKB_TEST_ENGLISH_ASSETS"), packs=qEnvironmentVariable("SWIPEKB_TEST_LANGUAGE_PACKS");
         QTemporaryDir root, data;
@@ -91,7 +91,9 @@ class OwnSwipeIntegrationTest : public QObject {
         if (!im.isReady()) { QTest::qFail(qPrintable(im.profileSnapshot().unavailableReason),__FILE__,__LINE__); return run; }
         const auto keys=qwertyKeys();
         run.token=im.beginSwipe();
-        if (run.token>=0) im.finishSwipe(traceFor("the",keys),keys,run.token);
+        auto pts=traceFor(word,keys);
+        if (nanPoint) { auto m=pts[3].toMap(); m["x"]=std::nan(""); pts[3]=m; }
+        if (run.token>=0) im.finishSwipe(pts,keys,run.token);
         QTest::qWait(50);
         run.text=item->property("text").toString();
         run.diagnostics=im.diagnostics();
@@ -136,6 +138,15 @@ private slots:
         const auto r=swipeThe(true,false,false,Qt::ImhNone,true);
         QCOMPARE(r.diagnostics["swipeEngine"].toString(),QString("own-geometry"));
         QCOMPARE(r.text.trimmed().toLower(),QString("the")); // sentence start capitalises
+    }
+    // WHY a trace with a broken point: the own engine says "no" for it. The keyboard must then hand the swipe to FUTO
+    // (never crash or type the own engine's guess) and count the fall-back.
+    void unanswerableSwipeFallsBackToFuto() {
+        if (!languagefixtures::runtimeAvailable()) QSKIP("Explicit pinned English assets and real language packs required");
+        const auto r=swipeThe(true,false,true,Qt::ImhNone,false,"the",true);
+        QVERIFY(r.token>=0);
+        QCOMPARE(r.diagnostics["ownEngineSwipes"].toULongLong(),quint64(0));
+        QCOMPARE(r.diagnostics["ownEngineFallbacks"].toULongLong(),quint64(1));
     }
     void deniedFieldsStayUntouched() {
         if (!languagefixtures::runtimeAvailable()) QSKIP("Explicit pinned English assets and real language packs required");
