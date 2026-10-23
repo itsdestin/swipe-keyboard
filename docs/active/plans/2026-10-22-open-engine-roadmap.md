@@ -177,6 +177,14 @@ regression; within the Phase 0 size/speed budget.
 started 2026-10-22 on branch feature/179-own-swipe (clean-room writer = the 0.2 spike author). Tap-a-word
 alternatives (card #187) is in progress on feature/187-tap-to-swap.
 
+Phase 3 progress (2026-10-22, feature/179-own-swipe): architecture switched to the standard published one
+(Destin approved): small CTC encoder + lexicon-trie beam search + n-gram, own plain-C++ runner, geometric
+decoder kept as the no-model fallback. Why: the geometric decoder's candidate recall capped a re-ranker near
+93% (top-20 recall 93.0% devhold). Training on the desktop RTX 4070 Super (`~/swipe-train`, systemd user
+units; 6 s/epoch). First GPU model (529k params, 2.1 MB): devhold-5000 93.02 / 96.07 vs FUTO 93.23 / 95.89
+on the same set; 8.7 ms/swipe vs FUTO ~6.2 (budget 5). Next: size/speed sweep, one final bench-2000 score,
+C++ fallback port.
+
 ## Phase 2: learn from the user (≈1–2 weeks; can start any time, independent of swipe)
 
 Local only: often-typed words, new words (names, slang) after a few uses, favourite word pairs; decays over
