@@ -40,9 +40,11 @@ private slots:
         QVERIFY(!offeredUnprompted("putain", "fr"));
         QVERIFY(!offeredUnprompted("Scheiße", "de"));
         QVERIFY(!offeredUnprompted("scheisse", "de"));
+        QVERIFY(!offeredUnprompted("dick's", "en"));
+        QVERIFY(!offeredUnprompted("fuck’n", "en"));
         // Ordinary words, including ones the source list over-reaches on, stay suggestible.
         for (const auto &[word, language] : std::initializer_list<std::pair<const char *, const char *>>{
-                 {"hello", "en"}, {"sexual", "en"}, {"infierno", "es"}, {"concha", "es"}, {"folle", "fr"},
+                 {"hello", "en"}, {"sexual", "en"}, {"don't", "en"}, {"l'homme", "fr"}, {"infierno", "es"}, {"concha", "es"}, {"folle", "fr"},
                  {"nackt", "de"}, {"word", "xx"}})
             QVERIFY2(offeredUnprompted(word, language), word);
     }
