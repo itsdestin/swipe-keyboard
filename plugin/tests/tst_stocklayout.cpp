@@ -242,6 +242,51 @@ private slots:
         QVERIFY(record.remove());
         if(recording.exists()) QVERIFY(recording.remove()); // this row's private synthetic trace only
     }
+    // Going to "?123" and back on the REAL stock layout keeps the loaded swipe engine. WHY: the returning letters
+    // page is briefly unsized; reading it then made the engine reload its model, a hitch on every return.
+    void symbolsRoundTripDoesNotReloadTheEngine()
+    {
+        QQmlEngine engine;
+        QQmlComponent component(&engine);
+        component.setData(R"(
+            import QtQuick
+            import QtQuick.VirtualKeyboard
+            import QtQuick.VirtualKeyboard.Settings
+            Item {
+                width: 1000; height: 500
+                property QtObject method: InputContext.inputEngine.inputMethod
+                property QtObject kb: panel.keyboard
+                Component.onCompleted: { VirtualKeyboardSettings.locale = "en_US"; editor.forceActiveFocus() }
+                TextInput { id: editor; width: parent.width; height: 40; focus: true }
+                InputPanel { id: panel; width: parent.width; anchors.bottom: parent.bottom; active: true }
+            }
+        )", QUrl());
+        std::unique_ptr<QObject> root(component.create());
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *item = qobject_cast<QQuickItem *>(root.get());
+        QQuickWindow window; window.resize(1000, 500);
+        item->setParentItem(window.contentItem()); window.show();
+        QTRY_VERIFY_WITH_TIMEOUT(swipeLayout(item), 10000);
+        QTRY_VERIFY_WITH_TIMEOUT(root->property("method").value<QObject *>(), 10000);
+        QPointer<QObject> method(root->property("method").value<QObject *>());
+        bool ready = false;
+        QTRY_VERIFY_WITH_TIMEOUT((QMetaObject::invokeMethod(method, "isReady", Q_RETURN_ARG(bool, ready)), ready), 15000);
+        QTest::qWait(500); // the first page's own late sizing is not what this test is about
+        auto *kb = root->property("kb").value<QObject *>();
+        QVERIFY(kb);
+        QSignalSpy reloads(method.data(), SIGNAL(profileChanged()));
+        for (int round = 0; round < 2; ++round) {
+            QVERIFY(kb->setProperty("symbolMode", true));
+            QTRY_VERIFY_WITH_TIMEOUT(!swipeLayout(item), 5000);
+            QVERIFY(kb->setProperty("symbolMode", false));
+            QTRY_VERIFY_WITH_TIMEOUT(swipeLayout(item), 5000);
+            QTest::qWait(500);
+        }
+        QCOMPARE(root->property("method").value<QObject *>(), method.data()); // the same engine, kept
+        QVERIFY2(reloads.isEmpty(), qPrintable(QStringLiteral("engine reloaded %1 times").arg(reloads.count())));
+        QVERIFY(QMetaObject::invokeMethod(method, "isReady", Q_RETURN_ARG(bool, ready)));
+        QVERIFY(ready);
+    }
     // The Space key of the REAL stock English layout slides the cursor in a real text field, for a mouse and a
     // finger, also in a password field, and a plain tap on it still types a space.
     void stockSpacebarSlideMovesCursor()
