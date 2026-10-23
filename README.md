@@ -168,6 +168,7 @@ If restoring the keyboard fails, removal stops. Follow the error or use the [rec
 - **Swipe:** drag across letters and lift to enter a word. Tap an alternative above the keys to change it.
 - **Tap typing:** suggestions finish or correct the word you are typing. The strongest is centered, and your exact spelling remains available. Only tapping a suggestion changes the word; Space does not autocorrect it.
 - **Next-word suggestions:** in English, Spanish, French or German, tap or swipe a word, then press Space. The strongest suggestion is in the middle. Tap a suggestion to insert it. Spanish, French and German suggestions are an early baseline and can be repetitive or less natural.
+- **Move the cursor:** slide your finger (or mouse) sideways along the Space bar. The cursor moves in the direction you slide and no space is typed: one character at a time when you slide slowly, and further the faster you slide, like a touchpad. A normal tap still types a space. It works on the letters page, including in password fields, but not on the `?123` symbols page.
 - **Backspace:** the first press can remove the whole swiped word. Moving the cursor or changing fields can clear suggestions.
 
 ## Help

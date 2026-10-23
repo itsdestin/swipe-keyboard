@@ -141,6 +141,8 @@ private slots:
         QTest::newRow("space") << QStringLiteral(" ") << true << false << false;
         QTest::newRow("enter") << QStringLiteral("\n") << true << false << false;
         QTest::newRow("backspace / shift (no text)") << QString() << true << false << false;
+        // WHY: the spacebar slide sends Left/Right (empty text) right after a swiped word; they must never type a space.
+        QTest::newRow("left/right arrow from the spacebar slide (no text)") << QString() << true << false << false;
     }
     void spaceBeforeTappedKey()
     {

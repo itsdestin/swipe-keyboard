@@ -48,6 +48,34 @@ Item {
     // Drag distance (fraction of a key width) before a touch counts as a swipe. Tuned in M1.
     property real thresholdKeys: 0.5
 
+    // --- Spacebar slide: dragging sideways on Space moves the text cursor (design item 5) ---
+    // WHY here: this layer already listens to the keyboard's touch area for every key, so the slide works on every
+    // stock layout without editing any of them. Sizes are fractions of a letter key's width so the feel is the
+    // same on a Deck, a tablet or a small window.
+    // Sideways travel before a press on Space counts as a deliberate slide. WHY: a sloppy tap wobbles a few
+    // pixels and must still type a space.
+    property real spaceSlideStartKeys: 0.5
+    // Sideways travel for each further character, at a slow, careful pace.
+    property real spaceSlideStepKeys: 0.3
+    // WHY speed-up: with one fixed step, crossing a long line needed a slide across the whole screen (owner,
+    // 2026-10-23). Like a touchpad and the phone keyboards, a slow slide still moves exactly one character per
+    // step, and a faster one moves further for the same distance, up to spaceSlideMaxGain times as far.
+    // Speeds are letter-key widths per second.
+    property real spaceSlideSlowSpeed: 4
+    property real spaceSlideFastSpeed: 16
+    property real spaceSlideMaxGain: 5
+    // Test hook: when 0 or more, the clock (ms) the slide reads instead of the real one. WHY: tests send their
+    // moves in microseconds, which would otherwise always look like a flick.
+    property real slideClockMs: -1
+    property int spaceId: -1            // the finger/mouse that pressed Space, -1 when none
+    property bool spaceSliding: false   // past the threshold: Space will no longer type
+    property real spaceStartX: 0
+    property real spaceUnit: 0          // letter key width measured when Space was pressed
+    property real spaceCarry: 0         // travel (after speed-up) not yet used for a character, in px
+    property real spaceLastX: 0         // where the finger was at the previous move
+    property real spaceSpeed: 0         // recent finger speed, letter keys per second
+    property var spaceSamples: []       // recent {t, x} of the finger, for that speed
+
     property var points: []
     // The same points mapped into the trail's own coordinates (see `trail`), filled as the finger moves.
     // WHY a second list: `points` must stay in the touch area's coordinates for the engine, and mapping
@@ -84,9 +112,12 @@ Item {
     readonly property int maxDuration: 10000
 
     function cancelGesture() {
-        if (root.trackedId === -1)
+        if (root.trackedId === -1 && root.spaceId === -1)
             return
         // WHY clear first: cancellation may synchronously deliver another reset/cancel signal.
+        // WHY the Space slide ends here too: focus, field type, keyboard or geometry changed mid-slide, so the
+        // rest of the drag must not move the cursor in whatever is there now.
+        root.stopSpaceSlide()
         root.stop()
         InputContext.inputEngine.virtualKeyCancel()
         if (typeof root.touchArea.reset === "function")
@@ -434,10 +465,124 @@ Item {
         trail.requestPaint()
     }
 
+    function isSpaceKey(item) {
+        return !!item && item.key === Qt.Key_Space
+    }
+
+    function pointById(touchPoints, id) {
+        for (var i = 0; i < touchPoints.length; ++i)
+            if (touchPoints[i].pointId === id)
+                return touchPoints[i]
+        return null
+    }
+
+    function stopSpaceSlide() {
+        spaceId = -1
+        spaceSliding = false
+    }
+
+    // Width of a typical letter key: the unit the slide's distances are measured in. WHY not the Space key's own
+    // width: Space is about five keys wide and differs per layout, which would make the slide feel different
+    // from language to language. Falls back to a seventh of Space if a layout shows no letter keys.
+    function slideUnit(spaceKey) {
+        var keys = root.letterKeys()
+        return keys.length > 0 ? keys[0].w : Math.max(1, spaceKey.width / 7)
+    }
+
+    // Starts tracking a press on Space. Nothing is cancelled yet: until the finger really slides, Qt treats it
+    // as an ordinary Space press, so a tap, and holding for key repeat, behave exactly as before.
+    function beginSpaceSlide(tp, key) {
+        root.spaceId = tp.pointId
+        root.spaceSliding = false
+        root.spaceStartX = tp.x
+        root.spaceLastX = tp.x
+        root.spaceCarry = 0
+        root.spaceSpeed = 0
+        root.spaceSamples = [{ t: root.slideNow(), x: tp.x }]
+    }
+
+    function slideNow() {
+        return root.slideClockMs >= 0 ? root.slideClockMs : Date.now()
+    }
+
+    // Finger speed over the last tenth of a second. WHY a window and not the last two moves: moves arrive in
+    // uneven bursts (one per frame, sometimes merged), so a single gap gives wild speeds.
+    function measureSpaceSpeed(x) {
+        var now = root.slideNow()
+        var kept = root.spaceSamples.filter(function (s) { return now - s.t <= 100 })
+        kept.push({ t: now, x: x })
+        root.spaceSamples = kept
+        var span = now - kept[0].t
+        if (kept.length < 2)
+            root.spaceSpeed = 0                       // the finger paused: start again from slow
+        else if (span >= 20)
+            root.spaceSpeed = Math.abs(x - kept[0].x) / root.spaceUnit / (span / 1000)
+        return root.spaceSpeed
+    }
+
+    // How much further than the finger the cursor travels at this speed: 1 when slow, rising evenly to the
+    // maximum when fast.
+    function spaceGain(speed) {
+        var f = (speed - root.spaceSlideSlowSpeed) / (root.spaceSlideFastSpeed - root.spaceSlideSlowSpeed)
+        return 1 + Math.max(0, Math.min(1, f)) * (root.spaceSlideMaxGain - 1)
+    }
+
+    function updateSpaceSlide(touchPoints) {
+        var tp = root.pointById(touchPoints, root.spaceId)
+        if (!tp)
+            return
+        var unit = root.spaceUnit
+        var step = unit * root.spaceSlideStepKeys
+        var gain = root.spaceGain(root.measureSpaceSpeed(tp.x))
+        if (!root.spaceSliding) {
+            var travelled = tp.x - root.spaceStartX
+            if (Math.abs(travelled) <= unit * root.spaceSlideStartKeys)
+                return
+            root.spaceSliding = true
+            // WHY the same pair the swipe uses: virtualKeyCancel makes Qt forget "Space is down" (so lifting types
+            // no space and key repeat stops); reset() clears the touch area's own state.
+            InputContext.inputEngine.virtualKeyCancel()
+            root.touchArea.reset()
+            // Start one step's worth past the threshold so the first character moves the moment the slide starts.
+            var past = Math.abs(travelled) - unit * root.spaceSlideStartKeys + step
+            root.spaceCarry = travelled > 0 ? past : -past
+        } else {
+            root.spaceCarry += (tp.x - root.spaceLastX) * gain
+        }
+        root.spaceLastX = tp.x
+        var steps = Math.trunc(root.spaceCarry / step)
+        if (steps === 0)
+            return
+        // WHY a cap: a stalled UI thread can deliver one huge jump; do not flood the app with arrow keys.
+        var count = Math.min(Math.abs(steps), 30)
+        root.spaceCarry = Math.abs(steps) > 30 ? 0 : root.spaceCarry - steps * step
+        // WHY Left/Right key presses through the input engine: they travel the same path as Backspace, so they
+        // reach every Wayland app the keyboard already types into, and Swipe's own key handler sees them first
+        // (it ends the suggestion/undo state for a swiped word because the cursor is leaving it). Always the
+        // visual direction: dragging right moves the cursor right on screen, also in right-to-left text.
+        for (var i = 0; i < count; ++i)
+            InputContext.inputEngine.virtualKeyClick(steps > 0 ? Qt.Key_Right : Qt.Key_Left, "", 0)
+    }
+
     Connections {
         target: root.touchArea
 
         function onPressed(touchPoints) {
+            if (root.spaceId !== -1) {       // a second finger during a Space press: not a slide
+                // WHY only forget, never virtualKeyCancel: Qt has already typed the first Space and pressed the
+                // second finger's key, which a cancel would now throw away. While sliding, the new finger is ignored.
+                if (!root.spaceSliding)
+                    root.stopSpaceSlide()
+                return
+            }
+            if (root.trackedId === -1 && touchPoints.length > 0) {
+                var spaceKey = root.touchArea.keyOnPoint(touchPoints[0].x, touchPoints[0].y)
+                if (root.isSpaceKey(spaceKey)) {
+                    root.spaceUnit = root.slideUnit(spaceKey)
+                    root.beginSpaceSlide(touchPoints[0], spaceKey)
+                    return
+                }
+            }
             if (root.trackedId !== -1) {     // a second finger: not a swipe
                 if (!root.swiping)
                     root.stop()
@@ -473,6 +618,10 @@ Item {
         }
 
         function onUpdated(touchPoints) {
+            if (root.spaceId !== -1) {
+                root.updateSpaceSlide(touchPoints)
+                return
+            }
             var tp = root.trackedPoint(touchPoints)
             if (!tp)
                 return
@@ -501,6 +650,13 @@ Item {
         }
 
         function onReleased(touchPoints) {
+            if (root.spaceId !== -1) {
+                // Lifting ends the slide. A slide already cancelled Space, so nothing is typed; a plain tap was
+                // never touched here and Qt types its space as usual.
+                if (root.pointById(touchPoints, root.spaceId))
+                    root.stopSpaceSlide()
+                return
+            }
             var tp = root.trackedPoint(touchPoints)
             if (!tp)
                 return
@@ -517,7 +673,7 @@ Item {
         }
 
         function onCanceled(touchPoints) {
-            if (root.trackedPoint(touchPoints))
+            if (root.trackedPoint(touchPoints) || root.pointById(touchPoints, root.spaceId))
                 root.cancelGesture()
         }
     }

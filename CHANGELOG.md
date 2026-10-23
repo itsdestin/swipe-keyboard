@@ -1,5 +1,9 @@
 # Changes
 
+## Unreleased
+
+- Slide along the Space bar to move the text cursor in the direction your finger moves: one character at a time when sliding slowly, up to five times further when sliding fast, like a touchpad (also in right-to-left text, where it follows the screen, not the reading order). A small wobble or a normal tap still types a space; once the slide starts, no space is typed. Works with touch and mouse, in every language layout, and in password fields (only the cursor moves). Moving the cursor also clears the current word's suggestions so a later suggestion tap cannot replace the wrong text. Not available on the `?123` symbols page, and there is no setting to turn it off yet.
+
 ## v0.1.0-r3 — package revision 0.1.0-3, safety and compatibility test release
 
 - Build the public Arch package against the older July 2026 repository baseline, then test the same bytes on newer Qt/KDE libraries.

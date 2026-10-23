@@ -65,6 +65,12 @@ target_compile_definitions(tst_predictioncapture PRIVATE SWIPEKB_CAPTURE_SOURCE=
 target_link_libraries(tst_predictioncapture PRIVATE Qt6::Quick Qt6::Qml Qt6::VirtualKeyboard Qt6::Test)
 add_test(NAME plugin_predictioncapture COMMAND tst_predictioncapture)
 set_tests_properties(plugin_predictioncapture PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_IM_MODULE=qtvirtualkeyboard")
+# WHY real input events: the spacebar slide is decided by SwipeCapture.qml reacting to the touch area, for touch and mouse alike.
+qt_add_executable(tst_spacebarslide tests/tst_spacebarslide.cpp)
+target_compile_definitions(tst_spacebarslide PRIVATE SWIPEKB_CAPTURE_SOURCE="${CMAKE_CURRENT_SOURCE_DIR}/SwipeCapture.qml")
+target_link_libraries(tst_spacebarslide PRIVATE Qt6::Quick Qt6::Qml Qt6::VirtualKeyboard Qt6::Test)
+add_test(NAME plugin_spacebarslide COMMAND tst_spacebarslide)
+set_tests_properties(plugin_spacebarslide PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_IM_MODULE=qtvirtualkeyboard")
 qt_add_executable(test_prediction ../engine/tests/test_prediction.cpp)
 target_link_libraries(test_prediction PRIVATE swipekb_engine Qt6::Test)
 add_test(NAME engine_prediction COMMAND test_prediction)
@@ -234,4 +240,5 @@ add_test(NAME plugin_stock_layout
         $<TARGET_FILE:tst_stocklayout>
         --qml-dir ${SWIPEKB_QML_DIR} --model-data ${SWIPEKB_ASSETS}
         --stock-layouts ${SWIPEKB_STOCK_LAYOUTS} ${_swipekb_backend_import_args})
-set_tests_properties(plugin_stock_layout PROPERTIES TIMEOUT 75)
+# WHY 150: the real-layout suite (incl. the spacebar-slide check) takes about 45 s alone, more on a busy machine.
+set_tests_properties(plugin_stock_layout PROPERTIES TIMEOUT 150)

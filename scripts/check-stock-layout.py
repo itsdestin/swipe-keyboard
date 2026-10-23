@@ -67,7 +67,7 @@ def main():
                 "SWIPEKB_DATA": str(private / "private"),
             })
             print(f"Stock layout: {args.stock_layouts}; QML: {qml}; models: {models}", flush=True)
-            return subprocess.run([str(args.test_executable.resolve())], env=env, timeout=60, check=False).returncode
+            return subprocess.run([str(args.test_executable.resolve())], env=env, timeout=120, check=False).returncode
     except (OSError, ValueError, subprocess.TimeoutExpired) as error:
         print(f"Stock InputPanel regression check failed: {error}", file=sys.stderr)
         return 1
