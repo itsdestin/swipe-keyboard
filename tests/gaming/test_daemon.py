@@ -927,7 +927,10 @@ class TestMultilingual(DaemonCase):
         self.assertEqual(len({tuple(v) for v in out.values()}), 3, out)
 
     def test_at_most_two_languages_stay_loaded_and_all_unload_when_idle(self):
-        self.start(["--idle-unload-ms", "700"])
+        # WHY 8 s, not 0.7 s: each language unloads that long after ITS last use, and loading the next one can
+        # take seconds on a busy runner, so a short window let the second language expire before the count
+        # was read (Fedora CI, 2026-10-23). The engine was right; the window was too tight.
+        self.start(["--idle-unload-ms", "8000"])
         c = self.connect("plain")
         for cid in ("en-US-1", "es-ES-1", "fr-FR-1"):
             case = next(x for x in dataset_cases() if x["id"] == cid)
