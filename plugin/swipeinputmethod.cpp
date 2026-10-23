@@ -111,8 +111,16 @@ QList<QVirtualKeyboardInputEngine::InputMode> SwipeInputMethod::inputModes(const
 
 bool SwipeInputMethod::setInputMode(const QString &locale, QVirtualKeyboardInputEngine::InputMode mode)
 {
+    const QString inputMode=mode==QVirtualKeyboardInputEngine::InputMode::Latin ? "Latin" : "Unsupported";
+    // WHY skip an unchanged mode: Qt repeats this call on every "?123"/letters switch (the symbols page
+    // names its own mode). Rebuilding the profile reloaded the swipe model each time, a visible hitch
+    // (owner, 2026-10-23). The current word is still cleared, exactly as the rebuild did.
+    if (!m_locale.isEmpty() && locale==m_locale && inputMode==m_inputMode) {
+        reset();
+        return true;
+    }
     m_locale=locale;
-    m_inputMode=mode==QVirtualKeyboardInputEngine::InputMode::Latin ? "Latin" : "Unsupported";
+    m_inputMode=inputMode;
     resolveCurrentProfile();
     return true; // WHY unsupported swiping must not interfere with stock tapping.
 }

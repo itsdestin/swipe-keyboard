@@ -1,10 +1,10 @@
 # Setup and recovery details
 
-For download links and short installation steps, see the [main page](../README.md#install). This page describes **v0.3.1-1**: the Deck Flatpak, Arch/CachyOS package, and Fedora x86_64 and ARM64 packages. [The r3 release notes](releases/v0.1.0-r3.md) describe the older, English-only native downloads.
+For download links and short installation steps, see the [main page](../README.md#install). This page describes **v0.4.0-1**: the Deck Flatpak, Arch/CachyOS package, and Fedora x86_64 and ARM64 packages. [The r3 release notes](releases/v0.1.0-r3.md) describe the older, English-only native downloads.
 
 ## Verify a download
 
-Download [SHA256SUMS](https://github.com/itsdestin/swipe-keyboard/releases/download/v0.3.1-1/SHA256SUMS) into the same folder as the package. Open a terminal there and run:
+Download [SHA256SUMS](https://github.com/itsdestin/swipe-keyboard/releases/download/v0.4.0-1/SHA256SUMS) into the same folder as the package. Open a terminal there and run:
 
 ```sh
 sha256sum --check --ignore-missing SHA256SUMS
@@ -36,14 +36,14 @@ The bundle requests ordinary Wayland and inherited Wayland-socket access. It doe
 
 ### Updates and removal
 
-- **Keyboard update:** download the newer bundle and repeat `flatpak install --user ./swipe-keyboard-0.3.1-1-x86_64.flatpak`. Keep the existing selection unless release instructions say otherwise. The local bundle is not an automatic keyboard-update feed; `flatpak update` can update its runtime but is not a substitute for downloading a new keyboard release.
-- **SteamOS update:** use the ordinary supported SteamOS update mechanism. Do not unlock the root filesystem, install this project's native Arch package on SteamOS, or replace system libraries. The [release notes](releases/v0.3.1-1.md) distinguish tested reboot behavior from OS-update survival; do not assume the latter from the former.
+- **Keyboard update:** download the newer bundle and repeat `flatpak install --user ./swipe-keyboard-0.4.0-1-x86_64.flatpak`. Keep the existing selection unless release instructions say otherwise. The local bundle is not an automatic keyboard-update feed; `flatpak update` can update its runtime but is not a substitute for downloading a new keyboard release.
+- **SteamOS update:** use the ordinary supported SteamOS update mechanism. Do not unlock the root filesystem, install this project's native Arch package on SteamOS, or replace system libraries. The [release notes](releases/v0.4.0-1.md) distinguish tested reboot behavior from OS-update survival; do not assume the latter from the former.
 - **Removal:** restore the previous entry—or None, if that was the original setting—in **System Settings → Virtual Keyboard**, then run `flatpak uninstall --user org.itsdestin.SwipeKeyboard` without sudo. There is **no automatic selection restoration** for this bundle.
 - **Already uninstalled:** select the previous/stock input method manually in Settings. Reinstall the bundle if you want Swipe Keyboard again. Do not delete all KDE keyboard settings to recover one selection.
 
 Private app data is under `~/.var/app/org.itsdestin.SwipeKeyboard/`; the keyboard uses its app-scoped data directory. Uninstalling without `--delete-data` retains that data. You do not need to remove shared Flatpak runtimes.
 
-## Gaming Mode on Steam Deck (preview; not in any published release)
+## Gaming Mode on Steam Deck (preview, first released in v0.4.0-1)
 
 The Desktop Mode bundle above does not change Steam's Gaming Mode keyboard. Gaming Mode support is a separate, opt-in add-on that is built and tested only in a SteamOS virtual machine so far; it has not run on a physical Deck, and physical-Deck performance is not established.
 
@@ -133,6 +133,6 @@ Never send passwords, personal typing, learned words, recordings or unreviewed l
 
 ## Source and licenses
 
-Use the complete corresponding-source archive attached to the [v0.3.1-1 release](https://github.com/itsdestin/swipe-keyboard/releases/tag/v0.3.1-1) for rebuilding. GitHub's automatic “Source code” ZIP/tar downloads omit submodules. The Fedora `.src.rpm`, when supplied, is for rebuilding, not installation. See [CONTRIBUTING.md](../CONTRIBUTING.md).
+Use the complete corresponding-source archive attached to the [v0.4.0-1 release](https://github.com/itsdestin/swipe-keyboard/releases/tag/v0.4.0-1) for rebuilding. GitHub's automatic “Source code” ZIP/tar downloads omit submodules. The Fedora `.src.rpm`, when supplied, is for rebuilding, not installation. See [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 FUTO's swipe-library is GPL-3.0; model weights use the separate FUTO Model Weights License 1.0. Dictionaries incorporate AOSP word lists (Apache-2.0) and wordfreq data (CC-BY-SA-4.0). Generated dictionary data retains CC-BY-SA attribution/terms, including language-pack transformation notices. Preserve all supplied terms, attribution and source obligations. See [NOTICE](../packaging/NOTICE) and each pack's notices. Qt/KDE components retain their licenses. Optional development models have separate terms and are not part of the base release.

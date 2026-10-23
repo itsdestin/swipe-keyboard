@@ -32,7 +32,7 @@ class SpacebarSlideTest : public QObject {
     KeyLog method;
     QPointer<QObject> area;
     QPointingDevice *touch = nullptr;
-    // Letter keys are 40 px wide, so: slide starts past 20 px (0.5 key), then one character per 12 px (0.3 key).
+    // Letter keys are 40 px wide, so: slide starts past 20 px (0.5 key), then one character per 4 px (0.1 key).
     static constexpr int spaceY = 175, startX = 300;
 
     bool build() {
@@ -110,10 +110,10 @@ private slots:
 
     void slideMovesOneCharacterPerStepAndTypesNoSpace_data() { QTest::addColumn<bool>("mouse"); QTest::addColumn<int>("distance");
         QTest::addColumn<int>("right"); QTest::addColumn<int>("left");
-        // 20 px to start, the first character at once, then one per 12 px: 20 -> 1, 32 -> 2, 44 -> 3, 80 -> 6.
-        QTest::newRow("touch right 80px") << false << 80 << 6 << 0; QTest::newRow("mouse right 80px") << true << 80 << 6 << 0;
-        QTest::newRow("touch left 80px") << false << -80 << 0 << 6; QTest::newRow("mouse left 80px") << true << -80 << 0 << 6;
-        QTest::newRow("just past the threshold") << false << 22 << 1 << 0; QTest::newRow("touch left 44px") << false << -44 << 0 << 3; }
+        // 20 px to start, the first character at once, then one per 4 px: 22 -> 1, 24 -> 2, 44 -> 7, 80 -> 16.
+        QTest::newRow("touch right 80px") << false << 80 << 16 << 0; QTest::newRow("mouse right 80px") << true << 80 << 16 << 0;
+        QTest::newRow("touch left 80px") << false << -80 << 0 << 16; QTest::newRow("mouse left 80px") << true << -80 << 0 << 16;
+        QTest::newRow("just past the threshold") << false << 22 << 1 << 0; QTest::newRow("touch left 44px") << false << -44 << 0 << 7; }
     void slideMovesOneCharacterPerStepAndTypesNoSpace() {
         QFETCH(bool, mouse); QFETCH(int, distance); QFETCH(int, right); QFETCH(int, left);
         const int before = resets();
@@ -130,12 +130,12 @@ private slots:
     }
 
     void reversingDirectionFollowsTheFinger() {
-        pressAt(true, startX); dragTo(true, startX, startX + 80);   // 6 right
-        dragTo(true, startX + 80, startX + 80 - 36);                 // 3 steps back
-        dragTo(true, startX + 44, startX + 44 - 24);                 // 2 more back
+        pressAt(true, startX); dragTo(true, startX, startX + 80);   // 16 right
+        dragTo(true, startX + 80, startX + 80 - 36);                 // 9 steps back
+        dragTo(true, startX + 44, startX + 44 - 24);                 // 6 more back
         liftAt(true, startX + 20);
-        QCOMPARE(method.count(Qt::Key_Right), 6);
-        QCOMPARE(method.count(Qt::Key_Left), 5);
+        QCOMPARE(method.count(Qt::Key_Right), 16);
+        QCOMPARE(method.count(Qt::Key_Left), 15);
         QCOMPARE(method.count(Qt::Key_Space), 0);
     }
 
@@ -205,19 +205,19 @@ private slots:
 
     void aSlowSlideMovesOneCharacterPerStep() {
         // 2 px every 20 ms = 2.5 keys a second, under the 4 keys/s where speed-up starts: 22 px -> 1, then 1 per
-        // 12 px: 200 px -> 16, exactly as with no speed-up.
+        // 4 px: 200 px -> 46, exactly as with no speed-up.
         timedDrag(true, startX, startX + 200, 2, 20);
-        QCOMPARE(method.count(Qt::Key_Right), 16);
+        QCOMPARE(method.count(Qt::Key_Right), 46);
         QCOMPARE(method.count(Qt::Key_Space), 0);
     }
 
     void aFastSlideMovesMuchFurtherForTheSameDistance() {
-        // 4 px every 4 ms = 25 keys a second, past the 16 keys/s of full speed-up (5x): the same 200 px moves far
-        // more than the slow slide's 16 characters, but never more than 5x as many.
+        // 4 px every 4 ms = 25 keys a second, past the 16 keys/s of full speed-up (3x): the same 200 px moves far
+        // more than the slow slide's 46 characters, but never more than 3x as many.
         timedDrag(true, startX, startX + 200, 4, 4);
         const int moved = method.count(Qt::Key_Right);
-        QVERIFY2(moved > 40, qPrintable(QStringLiteral("moved only %1").arg(moved)));
-        QVERIFY2(moved <= 5 * 16 + 1, qPrintable(QStringLiteral("moved %1").arg(moved)));
+        QVERIFY2(moved > 90, qPrintable(QStringLiteral("moved only %1").arg(moved)));
+        QVERIFY2(moved <= 3 * 46 + 1, qPrintable(QStringLiteral("moved %1").arg(moved)));
         QCOMPARE(method.count(Qt::Key_Left), 0);
         QCOMPARE(method.count(Qt::Key_Space), 0);
     }
@@ -225,7 +225,7 @@ private slots:
     void aFastSlideLeftMovesLeftOnly() {
         // From 480 (inside Space, which ends at 500) back to 280: the same 200 px, by finger, leftwards.
         timedDrag(false, startX + 180, startX - 20, 4, 4);
-        QVERIFY2(method.count(Qt::Key_Left) > 40, qPrintable(QStringLiteral("moved only %1").arg(method.count(Qt::Key_Left))));
+        QVERIFY2(method.count(Qt::Key_Left) > 90, qPrintable(QStringLiteral("moved only %1").arg(method.count(Qt::Key_Left))));
         QCOMPARE(method.count(Qt::Key_Right), 0);
     }
 

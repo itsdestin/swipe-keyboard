@@ -24,7 +24,7 @@ def load(name, path):
 
 release = load('release', 'scripts/release.py')
 bundle = load('steamos_bundle', 'scripts/steamos_bundle.py')
-VERSION = '0.3.1-1'
+VERSION = '0.4.0-1'
 
 
 class SteamosBundleTests(unittest.TestCase):

@@ -55,15 +55,17 @@ Item {
     // Sideways travel before a press on Space counts as a deliberate slide. WHY: a sloppy tap wobbles a few
     // pixels and must still type a space.
     property real spaceSlideStartKeys: 0.5
-    // Sideways travel for each further character, at a slow, careful pace.
-    property real spaceSlideStepKeys: 0.3
+    // Sideways travel for each further character, at a slow, careful pace. WHY 0.1: at 0.3 even the slowest
+    // slide felt sluggish (owner, 2026-10-23); a tenth of a key still lets a careful slide land on one letter.
+    property real spaceSlideStepKeys: 0.1
     // WHY speed-up: with one fixed step, crossing a long line needed a slide across the whole screen (owner,
     // 2026-10-23). Like a touchpad and the phone keyboards, a slow slide still moves exactly one character per
     // step, and a faster one moves further for the same distance, up to spaceSlideMaxGain times as far.
     // Speeds are letter-key widths per second.
     property real spaceSlideSlowSpeed: 4
     property real spaceSlideFastSpeed: 16
-    property real spaceSlideMaxGain: 5
+    // WHY 3, not 5: with the smaller step above, 3x already crosses a long line in one flick; 5x overshot.
+    property real spaceSlideMaxGain: 3
     // Test hook: when 0 or more, the clock (ms) the slide reads instead of the real one. WHY: tests send their
     // moves in microseconds, which would otherwise always look like a flick.
     property real slideClockMs: -1
