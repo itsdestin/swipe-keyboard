@@ -20,29 +20,29 @@ model-index:
   results:
   - task:
       type: other
-      name: Swipe decoding, English, first guess right (all swipes)
+      name: Swipe decoding, English, first guess right (in the keyboard, previous words known)
     dataset:
-      name: bench-2000 (2,000 real English swipes, FUTO MIT test split)
+      name: bench-2000, the 1,946 swipes FUTO's scorer counts (real English swipes, FUTO MIT test split)
       type: custom
     metrics:
     - type: accuracy
-      value: 90.40
-      name: first guess right, all swipes
+      value: 91.47
+      name: first guess right
   - task:
       type: other
-      name: Swipe decoding, English, right word in top 3 (all swipes)
+      name: Swipe decoding, English, right word in top 3 (in the keyboard, previous words known)
     dataset:
-      name: bench-2000 (2,000 real English swipes, FUTO MIT test split)
+      name: bench-2000, the 1,946 swipes FUTO's scorer counts (real English swipes, FUTO MIT test split)
       type: custom
     metrics:
     - type: accuracy
-      value: 94.95
-      name: right word in top 3, all swipes
+      value: 95.02
+      name: right word in top 3
 ---
 
 # youcoded/swipe-typing ("T1"): swipe-typing decoder for English, Spanish, French and German
 
-> **Headline:** on 2,000 real English swipes (bench-2000, all swipes) the first guess is right 90.40 % of the time against 93.32 % for FUTO's engine, 2.9 points behind; no Gboard swipe comparison was made (Gboard swipe typing was not measured).
+> **Headline:** in the keyboard, on 1,946 real English swipes typed inside sentences, the first guess is right 91.47 % of the time against 93.32 % for FUTO's engine measured the same way: 1.85 points behind (top 3: 95.02 % against 96.56 %). No Gboard swipe comparison was made (Gboard swipe typing was not measured).
 
 A small neural network that turns the path of a finger across an on-screen keyboard into a ranked list of words, for the Swipe Keyboard: an open-source swipe-typing and word-prediction add-on for KDE Plasma's on-screen keyboard. One model serves all four languages and any layout, because the keys are given to it as positions.
 
@@ -57,8 +57,8 @@ Code, scripts and tests: https://github.com/itsdestin/swipe-keyboard. How every 
 - **What it is:** a small neural network (2.1 MB, about 529,000 numbers) that turns a finger path over a keyboard into ranked words, for English, Spanish, French and German. One file serves all four languages and any key layout.
 - **How to use it:** `swipe-model.bin`, read by `engine/src/swipe_net.cpp` (plain C++, no machine-learning library). Most integrators should call `swipekb::LanguageEngine` (`engine/include/swipekb/language_engine.hpp`), which adds the word list, sentence prior and geometric fallback. You supply the finger path, the key rectangles and a word list.
 - **Licence:** MIT. Trained on real swipes from FUTO's swipe.futo.org dataset (MIT; its licence text must travel with the model) plus our synthetic swipes. No FUTO code or model weights.
-- **How good it is:** English, 2,000 real swipes: first guess right 90.40 % (previous FUTO engine 93.32 %); right word in the top 3 94.95 % (96.56 %). Spanish, French and German are measured on 5,000 real HeliBoard swipes each (72 to 81 % first guess); see "Other languages" for the caveats. No Gboard swipe comparison exists.
-- **Limits:** English is 1 to 3 points behind the engine it replaced; French and German are lower than English; a word missing from the word list can never be returned; non-English training data is partly synthetic.
+- **How good it is:** English, in the keyboard with the earlier words of the sentence known, 1,946 real swipes: first guess right 91.47 % (previous FUTO engine 93.32 %), right word in the top 3 95.02 % (96.56 %). Real HeliBoard swipes with no sentence, with the shipped word lists: Spanish 75.9 %, French 68.2 %, German 64.7 % first guess (the FUTO keyboard of version 0.4.1: 77.7 %, 64.6 %, 69.7 %). No Gboard swipe comparison exists. Every figure: `bench/swipe-scoreboard.tsv`.
+- **Limits:** English is about 2 points behind the engine it replaced, Spanish 2 and German 5 (French is 3.6 ahead); a word missing from the word list can never be returned; non-English training data is partly synthetic.
 
 ## What it is, and what it is not
 
@@ -115,9 +115,24 @@ What exactly went into T1: about 317,000 swipes from a session-level 35 % subset
 
 ## Evaluation
 
+Every figure on this page is a row of `bench/swipe-scoreboard.tsv` (date, build, test set, number of swipes, whether the previous words were given, whether a sentence pack ranked the guesses, first guess and top 3).
+
 All figures are percentages. "First guess" = the top suggestion is the target word; "top 3" = it is among the first three. **Denominators matter:** "all swipes" counts every swipe, including those whose target word is not in the word list (those can never be right); "in-dictionary" counts only swipes whose target is in the word list.
 
-### English, real swipes (FUTO's MIT test split), scored once for the final model
+### In the keyboard: English real swipes with the files that ship (final 0.5.0 test build, 2026-10-24)
+
+Through `swipekb::LanguageEngine` with the shipped dictionary, sentence pack (`en.ngram`) and this model. "Previous words" = the earlier words of the sentence are given, as when typing inside a sentence; "none" = no earlier words (with the sentence pack, every word is scored as the first word of a sentence); "no sentence pack" = word frequency only. "FUTO-scorable" = the swipes FUTO's scorer counts (targets of 2 or more letters, more than 2 trace points), so the FUTO figure compares only with those rows.
+
+| Test set | Swipes | Previous words: first / top 3 | None: first / top 3 | No sentence pack: first / top 3 |
+|---|---|---|---|---|
+| bench-2000, all | 2,000 | 90.10 / 93.55 | 88.15 / 93.15 | 89.20 / 93.65 |
+| bench-2000, FUTO-scorable | 1,946 | 91.47 / 95.02 | 89.47 / 94.60 | 90.54 / 95.12 |
+| test-extra-10000, all | 10,000 | 90.45 / 93.82 | 88.10 / 93.22 | 89.25 / 93.47 |
+| test-extra-10000, FUTO-scorable | 9,719 | 92.03 / 95.47 | 89.61 / 94.87 | 90.80 / 95.12 |
+
+### The model alone (its own benchmark tool and word list, 2026-10-23; not the shipped setup)
+
+`tools/swipekb-swipenet-bench`, frequency prior, no previous words.
 
 | Test set | Swipes | All swipes: first / top 3 | In-dictionary: first / top 3 |
 |---|---|---|---|
@@ -127,26 +142,25 @@ All figures are percentages. "First guess" = the top suggestion is the target wo
 
 ### Against FUTO's engine (English)
 
-| Set | FUTO engine, first / top 3 | This model, first / top 3 | Denominator |
+| Set | FUTO engine, first / top 3 | This model, first / top 3 | Same setting? |
 |---|---|---|---|
-| bench-2000 | 93.32 / 96.56 | 90.40 / 94.95 | all 2,000 swipes (FUTO figure: all 2,000 through our recogniser harness) |
-| bench-2000 | 93.32 / 96.56 | 92.34 / 96.99 | ours: in-dictionary swipes only; the FUTO figure is not restricted this way, so this row is not like-for-like |
-| clean3000 | 92.5 / 96.3 (2,909 swipes FUTO's tool can score) | 93.13 / 97.37 | ours: in-dictionary only (97.5 % of the 3,000) |
+| bench-2000, the 1,946 FUTO-scorable swipes, previous words given | 93.32 / 96.56 | 91.47 / 95.02 (in the keyboard, shipped files) | yes: same swipes, previous words given to both |
+| clean3000 | 92.5 / 96.3 (2,909 swipes FUTO's tool can score) | 93.13 / 97.37 (model alone, in-dictionary only, 97.5 % of the 3,000) | no |
 
-Plainly: on all swipes of bench-2000 the model is **2.9 points behind FUTO on first guess and 1.6 behind on top 3** (90.40 vs 93.32; 94.95 vs 96.56). On the swipes whose word is in the dictionary the gap on bench-2000 is about 1 point on first guess and 0 on top 3 (92.34 vs 93.32; 96.99 vs 96.56), but FUTO's number does not exclude out-of-dictionary swipes, so do not read that row as a win. The stated target (match FUTO's 93.3 / 96.6 on all swipes of bench-2000) was **not reached**.
+Plainly: like-for-like, the keyboard is **1.85 points behind FUTO on first guess and 1.54 behind on top 3** (91.47 vs 93.32; 95.02 vs 96.56). FUTO's 93.32 / 96.56 was measured with the previous words given and counts only 1,946 of the 2,000 swipes (its scorer skips one-letter targets), so it is not comparable with the "all 2,000" or "no previous words" rows. The stated target (match FUTO's 93.3 / 96.6) was **not reached**.
 
 ### Other languages: real swipes from HeliBoard (test only)
 
-HeliBoard gesture test sets: 5,000 real swipes per language, case-insensitive, accents kept, per-swipe real board geometry, 260,000-word lists. First guess / top 3, all 5,000 swipes. "FUTO's engine" used the older, smaller word packs, so the two columns do **not** use the same dictionary and are not like-for-like.
+HeliBoard gesture test sets: about 5,000 real swipes per language (no sentences), case-insensitive, accents kept, per-swipe real board geometry. First guess / top 3 over the swipes each tool could evaluate. "In the keyboard" uses the shipped word lists (100,000 words for es/fr/de) and the keyboard's own profile (`tools/swipekb-language-bench`); the FUTO keyboard 0.4.1 column ran on the same swipes with its own, older word packs.
 
-| Language | This model (T1) | FUTO's engine (old packs; no longer used) |
-|---|---|---|
-| English | 82.1 / 91.5 | 84.5 / 93.4 |
-| Spanish | 81.1 / 89.8 | 77.7 / 85.1 |
-| French | 71.7 / 85.9 | 64.6 / 76.9 |
-| German | 73.3 / 82.3 | 69.7 / 76.4 |
+| Language | In the keyboard, shipped files (2026-10-24) | FUTO keyboard 0.4.1 (old packs) | Model alone, 260,000-word lists (2026-10-23) |
+|---|---|---|---|
+| English | 80.5 / 91.4 (4,576 qwerty swipes, words in the dictionary) | 84.5 / 93.4 | 82.1 / 91.5 (all 5,000) |
+| Spanish | 75.9 / 84.7 (4,790) | 77.7 / 85.1 | 81.1 / 89.8 |
+| French | 68.2 / 82.0 (4,999) | 64.6 / 76.9 | 71.7 / 85.9 |
+| German | 64.7 / 73.1 (4,980) | 69.7 / 76.4 | 73.3 / 82.3 |
 
-Dictionary coverage of the HeliBoard targets with the 260,000-word lists: Spanish 97.5 %, French 98.2 %, German 91.9 % (English: not stated for this list). With the older 100,000-word lists the coverage was Spanish 90.5 %, French 83.0 %, German 80.0 %, which caps accuracy.
+The shipped word lists contain 90.3 % (Spanish), 92.2 % (French) and 80.0 % (German) of these test words, which caps accuracy; the 260,000-word lists cover Spanish 97.5 %, French 98.2 %, German 91.9 %, which is why the last column is higher. Larger shipped lists are the measured lever for Spanish and German.
 
 Two common HeliBoard English boards with near-identical geometry differ by 5 to 7 points for every decoder tested, so the spread between rows is partly the swipers, not the layout handling.
 
@@ -165,7 +179,7 @@ The synthetic noisy sets (`bench/languages/synthetic-noisy-v1-*.json`, 400 words
 
 ### Sentence-context prior (experiment)
 
-When the keyboard knows the previous words, the English n-gram prior lifts T1 on a 7,198-swipe set (trv8k) from 92.19 / 95.79 to 93.10 / 95.92 (first / top 3, all swipes; in-dictionary 95.28 / 98.17). That is +0.9 first guess. The set is a held-back 5 % slice of FUTO's `train.jsonl` that still has sentence text. Single-word swipes (bench-2000) carry no sentence, so the headline numbers above do not include this gain.
+When the keyboard knows the previous words, the English n-gram prior lifts T1 on a 7,198-swipe set (trv8k) from 92.19 / 95.79 to 93.10 / 95.92 (first / top 3, all swipes; in-dictionary 95.28 / 98.17). That is +0.9 first guess. The set is a held-back 5 % slice of FUTO's `train.jsonl` that still has sentence text. bench-2000 also records each swipe's sentence; in the keyboard the previous words add 1.95 points there (88.15 to 90.10, all 2,000; table above).
 
 ### Gboard
 
@@ -173,8 +187,8 @@ Gboard's swipe typing was **not measured** (any version, learning on or off).
 
 ## Known limitations
 
-- **English is about 1 to 3 points behind FUTO's engine** on single in-dictionary words and about 3 on all swipes; the target was not met. More real English data barely helped: six times more real English swipes moved the clean English numbers by +0.4 on one set and 0 on another, so we stopped (agreed stopping rule).
-- **French and German are lower than English** on HeliBoard (71.7 and 73.3 first guess vs 82.1). The sources do not isolate the cause. One measured factor is dictionary coverage of the targets (German 91.9 % even with the 260,000-word list; compounds are the likely reason, not verified). The spread between swipers on the same layout is also large (5 to 7 points).
+- **English is about 2 points behind FUTO's engine** like-for-like (91.47 against 93.32 first guess on the same 1,946 swipes with previous words); the target was not met. More real English data barely helped: six times more real English swipes moved the clean English numbers by +0.4 on one set and 0 on another, so we stopped (agreed stopping rule).
+- **French and German are lower than English** on HeliBoard (in the keyboard 68.2 and 64.7 first guess vs 80.5), and Spanish and German are below the FUTO keyboard of 0.4.1. The sources do not isolate the cause. One measured factor is dictionary coverage of the targets (German 80.0 % with the shipped list, 91.9 % even with the 260,000-word list; compounds are the likely reason, not verified). The spread between swipers on the same layout is also large (5 to 7 points).
 - **Accent twins** (Spanish que / qué, como / cómo; French ou / où) share one swipe path. The shape cannot decide between them; the sentence prior has to, and without previous words the choice is frequency only.
 - **Short words (3 letters or fewer)** were the other common miss when the earlier keyboard (FUTO's engine) was scored on synthetic Spanish, French and German swipes; we have not repeated that breakdown for T1.
 - **Out-of-dictionary words are always misses.** About 2.5 % of English targets are not in the word list (bench-2000: 42 of 2,000).

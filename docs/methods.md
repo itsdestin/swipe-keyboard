@@ -80,8 +80,10 @@ We compare with Gboard only by using the app, as a user would. Full procedure: `
 
 FUTO's swipe engine was the keyboard's engine before our own replaced it, and it is our reference for swipe accuracy. The keyboard no longer contains it; we measured it earlier, through two paths:
 
-1. FUTO's own `infer_jsonl` program on the bench-2000 slice (beam width 100, top 3). With the stock dictionary this gave 92.50 first guess / 95.43 top 3 on 2,000 swipes.
+1. FUTO's own `infer_jsonl` program on the bench-2000 slice (beam width 100, top 3). With the stock dictionary this gave 92.50 first guess / 95.43 top 3.
 2. Through our own recogniser harness with FUTO's models and our current dictionary: 93.32 first guess / 96.56 top 3 on bench-2000. This is the "FUTO 93.32 / 96.56" figure used in the model card.
+
+Both counted **1,946 of the 2,000 swipes** (FUTO's scorer skips targets under 2 letters and traces of 2 points or fewer) and gave FUTO's engine **the previous words of each swipe's sentence** (its context model). Our like-for-like figure therefore uses the same 1,946 swipes with previous words: 91.47 / 95.02 in the keyboard (final 0.5.0 test build). Figures over all 2,000 swipes, or without previous words, are not comparable with FUTO's.
 
 The two differ because of the dictionary and ranking used, not the same code path; when we compare, we name which one. On clean3000, FUTO's tool scores the 2,909 swipes it can read: 92.5 / 96.3.
 
@@ -146,24 +148,41 @@ All typing figures: percent, 300 sentences per set, `bench/scoreboard.tsv` commi
 
 The neural models add (against the n-gram files alone, commit a2041d8): between +0.36 (English, Tatoeba, after 1 letter) and +9.32 (Spanish, web, after 3 letters) points depending on set and measure, largest on web text and after 3 letters; 3 of the 36 measures moved by less than 1 point, i.e. within noise. See each [model card](models/README.md) for the per-measure tables. Before the 2026-10-22 open files, the keyboard trailed or tied Gboard on several French and German web measures (French web: -5.11 points after 1 letter, -13.22 after 3 letters), and on the recorded 0- and 1-letter measures its lead over Gboard was never larger than 2.33 points (Spanish, French and German, everyday text).
 
-### Swipe (model T1; English real swipes, FUTO's test split)
+Every swipe figure below is a row of `bench/swipe-scoreboard.tsv`.
 
-| Set | Denominator | Ours first / top 3 | FUTO first / top 3 |
-|---|---|---|---|
-| bench-2000 | all 2,000 swipes | 90.40 / 94.95 | 93.32 / 96.56 |
-| bench-2000 | in-dictionary (1,958) | 92.34 / 96.99 | not restricted this way |
-| test-extra-10000 | all 10,000 | 90.77 / 94.97 | not measured |
-| test-extra-10000 | in-dictionary (9,781) | 92.80 / 97.10 | not measured |
-| clean3000 | in-dictionary | 93.13 / 97.37 | 92.5 / 96.3 (2,909 swipes it can score) |
+### Swipe in the keyboard (final 0.5.0 test build, shipped files; English real swipes, FUTO's test split)
 
-### Swipe, other languages (HeliBoard real swipes, test only, 5,000 each, first / top 3)
+`tools/swipekb-bench` through `swipekb::LanguageEngine` with the shipped dictionary, `en.ngram` and swipe model; letters-only matching (as FUTO's scorer). "Previous words" = the sentence's earlier words given; "none" = not given (the sentence pack then scores every word as a sentence start).
 
-| Language | Ours (T1, 260k word lists) | FUTO's engine (older, smaller packs; no longer used; not like-for-like) |
+| Set | Swipes | Previous words: first / top 3 | None: first / top 3 | No sentence pack | FUTO first / top 3 |
+|---|---|---|---|---|---|
+| bench-2000, all | 2,000 | 90.10 / 93.55 | 88.15 / 93.15 | 89.20 / 93.65 | not measured this way |
+| bench-2000, FUTO-scorable | 1,946 | 91.47 / 95.02 | 89.47 / 94.60 | 90.54 / 95.12 | 93.32 / 96.56 (previous words) |
+| test-extra-10000, all | 10,000 | 90.45 / 93.82 | 88.10 / 93.22 | 89.25 / 93.47 | not measured |
+| test-extra-10000, FUTO-scorable | 9,719 | 92.03 / 95.47 | 89.61 / 94.87 | 90.80 / 95.12 | not measured |
+
+### Swipe model alone (T1, `tools/swipekb-swipenet-bench`, frequency prior, its own word list, 2026-10-23)
+
+| Set | Denominator | First / top 3 |
 |---|---|---|
-| English | 82.1 / 91.5 | 84.5 / 93.4 |
-| Spanish | 81.1 / 89.8 | 77.7 / 85.1 |
-| French | 71.7 / 85.9 | 64.6 / 76.9 |
-| German | 73.3 / 82.3 | 69.7 / 76.4 |
+| bench-2000 | all 2,000 swipes | 90.40 / 94.95 |
+| bench-2000 | in-dictionary (1,958) | 92.34 / 96.99 |
+| test-extra-10000 | all 10,000 | 90.77 / 94.97 |
+| test-extra-10000 | in-dictionary (9,781) | 92.80 / 97.10 |
+| clean3000 | in-dictionary | 93.13 / 97.37 (FUTO's tool: 92.5 / 96.3 on the 2,909 swipes it can score) |
+
+This is the source of the "90.4 %" quoted before 2026-10-24; it is not what the keyboard does, which adds the sentence pack and the shipped dictionary.
+
+### Swipe, other languages (HeliBoard real swipes, test only, no sentences, first / top 3)
+
+| Language | In the keyboard, shipped files (2026-10-24) | FUTO keyboard 0.4.1 (older packs) | Model alone, 260k word lists (2026-10-23) |
+|---|---|---|---|
+| English | 80.5 / 91.4 (4,576) | 84.5 / 93.4 (4,576) | 82.1 / 91.5 (5,000) |
+| Spanish | 75.9 / 84.7 (4,790) | 77.7 / 85.1 | 81.1 / 89.8 |
+| French | 68.2 / 82.0 (4,999) | 64.6 / 76.9 | 71.7 / 85.9 |
+| German | 64.7 / 73.1 (4,980) | 69.7 / 76.4 | 73.3 / 82.3 |
+
+The first two columns ran the same swipes; the third used larger word lists than ship, which is why it is higher.
 
 ### What is not measured
 
