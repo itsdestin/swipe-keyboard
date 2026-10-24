@@ -1,314 +1,220 @@
-// swipekb-bench — the scoreboard engine. Replays FUTO's real-swipe test file through OUR swipekb::Recognizer
-// (not FUTO's infer_jsonl program), so every accuracy number is measured on exactly the code that ships:
-// our key-rect normalisation, our context-word rules, our model/dictionary loading.
+// SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+//
+// SPDX-License-Identifier: MIT
+
+// swipekb-bench — scores the keyboard's swipe engine on recorded swipes, through swipekb::LanguageEngine (the class
+// the keyboard and the Gaming Mode daemon use), so every number measures the code that ships: the dictionary
+// reading, the key-rectangle handling, the sentence prior and the swipe engine itself.
 //
 // Usage:
-//   swipekb-bench --data DIR --jsonl FILE [--top-k 3] [--beam N] [--no-decoder] [--no-lm] [--dict PATH]
-//                 [--limit N] [--recall-k 50] [--skip-oov] [--layout PATH]
-//                 [--use-ngram] [--no-ngram] [--ngram PATH] [--alpha X] [--gamma X] [--beta X] [--lambda X] [--dump FILE]
-// Ranking follows the keyboard's default (RecognizerOptions::ngram); --use-ngram forces our n-gram model on,
-// --no-ngram forces FUTO's context model (the old way); --ngram FILE uses another model file (and turns it on);
-// --alpha/--gamma/--beta/--lambda override the re-ranking weights (RerankWeights); --dump writes every
-// candidate's raw scores per swipe (JSON lines) for bench/tune-rerank.py.
-//
-// Output copies infer_jsonl's format (good/ok/bad lines, "Results:" block with "top-1:" and "top-4:" lines,
-// "Timings" block) so bench/score.sh parses it unchanged, then adds an "Extras:" block.
-
-#include <QByteArray>
+//   swipekb-bench --dict LANG.combined (--layout keys.tsv | --layouts-dir DIR) [--model swipe-model.bin]
+//                 [--ngram LANG.ngram] [--context] [--language en] [--limit N] [--match ascii|lookup|exact] [--list]
+//                 [--alt-pool N --alt-weight W --alt-min-freq F --alt-name-freq F --alt-margin M --alt-stretch 0|1 | --alt-off] swipes.jsonl
+// Also prints how often a shown alternative is junk and how often the alternatives hold the word when the first guess missed.
+// Swipes: one JSON object per line with "word", "data" [{x,y,t}] in 0..1 of the letter area, "canvas_width",
+// "canvas_height" and (with --layouts-dir) "layout"; "sentence" + "word_idx" give the previous words (--context).
+// Layouts: "letter<TAB>cx<TAB>cy<TAB>half_w<TAB>half_h" (scripts/swipe/layouts/qwerty.tsv).
+// Output: "  top-1: a / n = x%" and "  top-3: ..." lines (bench/score.sh reads them), then one summary line.
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
-#include <QRegularExpression>
 #include <QString>
 #include <QStringList>
 
 #include <algorithm>
 #include <chrono>
-#include <climits>
-#include <iomanip>
 #include <cstdio>
 #include <cstdlib>
-#include <iostream>
+#include <fstream>
+#include <map>
+#include <memory>
+#include <sstream>
 #include <string>
-#include <unordered_set>
 #include <vector>
 
-#include "benchlayout.h"
-#include "swipekb/recognizer.hpp"
+#include "swipekb/language_engine.hpp"
+
+using namespace swipekb;
+using Clock = std::chrono::steady_clock;
 
 namespace {
 
-struct Args {
-    std::string data, jsonl, dict, layout, ngram, dump;
-    int topK = 3, beam = 0, limit = 0, recallK = 50;
-    bool noDecoder = false, noLm = false, skipOov = false, noNgram = false, useNgram = false;
-    swipekb::RerankWeights weights;
-    // The neural re-ranking (step 1b): on/off like the n-gram flags, plus its weights.
-    std::string nlm;
-    bool useNlm = false, noNlm = false;
-    int nlmThreads = 4;
-    swipekb::NlmWeights nlmWeights;
+struct Swipe {
+    std::string word, board;
+    float w = 1, h = 1;
+    std::vector<TracePoint> trace;
+    std::vector<std::string> context;
 };
 
-void usage()
+// Key rectangles in canvas pixels from a layout file (0..1 of the letter area), or empty when unreadable.
+std::vector<KeyRect> readLayout(const std::string &path, float w, float h)
 {
-    std::fprintf(stderr,
-                 "usage: swipekb-bench --data DIR --jsonl FILE [--top-k 3] [--beam N] [--no-decoder] [--no-lm]\n"
-                 "                     [--dict PATH] [--limit N] [--recall-k 50] [--skip-oov] [--layout PATH]\n"
-                 "                     [--use-ngram] [--no-ngram] [--ngram PATH] [--alpha X] [--gamma X] [--beta X] [--lambda X]\n"
-                 "                     [--dump FILE] [--use-nlm] [--no-nlm] [--nlm FILE.gguf] [--nlm-threads N]\n"
-                 "                     [--nlm-n N] [--nlm-beta X] [--nlm-beta-short X] [--nlm-margin X]\n"
-                 "                     [--nlm-per-token] [--nlm-no-per-token] [--nlm-no-word-end]\n");
-}
-
-bool parseArgs(int argc, char **argv, Args &a)
-{
-    for (int i = 1; i < argc; ++i) {
-        const std::string s = argv[i];
-        auto str = [&](std::string &out) { if (i + 1 >= argc) return false; out = argv[++i]; return true; };
-        auto num = [&](int &out) {
-            std::string v;
-            if (!str(v)) return false;
-            out = std::atoi(v.c_str());
-            return out > 0;
-        };
-        auto real = [&](float &out) {
-            std::string v;
-            if (!str(v)) return false;
-            out = std::strtof(v.c_str(), nullptr);
-            return true;
-        };
-        bool ok = true;
-        if (s == "--data") ok = str(a.data);
-        else if (s == "--ngram") { ok = str(a.ngram); a.useNgram = true; }
-        else if (s == "--use-ngram") a.useNgram = true;
-        else if (s == "--dump") ok = str(a.dump);
-        else if (s == "--no-ngram") a.noNgram = true;
-        else if (s == "--alpha") ok = real(a.weights.alpha);
-        else if (s == "--gamma") ok = real(a.weights.gamma);
-        else if (s == "--beta") ok = real(a.weights.beta);
-        else if (s == "--lambda") ok = real(a.weights.lambda);
-        else if (s == "--jsonl") ok = str(a.jsonl);
-        else if (s == "--dict") ok = str(a.dict);
-        else if (s == "--layout") ok = str(a.layout);
-        else if (s == "--top-k") ok = num(a.topK);
-        else if (s == "--beam") ok = num(a.beam);
-        else if (s == "--limit") ok = num(a.limit);
-        else if (s == "--recall-k") ok = num(a.recallK);
-        else if (s == "--no-decoder") a.noDecoder = true;
-        else if (s == "--no-lm") a.noLm = true;
-        else if (s == "--skip-oov") a.skipOov = true;
-        else if (s == "--use-nlm") a.useNlm = true;
-        else if (s == "--no-nlm") a.noNlm = true;
-        else if (s == "--nlm") { ok = str(a.nlm); a.useNlm = true; }
-        else if (s == "--nlm-threads") ok = num(a.nlmThreads);
-        else if (s == "--nlm-n") ok = num(a.nlmWeights.n);
-        else if (s == "--nlm-beta") ok = real(a.nlmWeights.beta);
-        else if (s == "--nlm-beta-short") ok = real(a.nlmWeights.beta_short);
-        else if (s == "--nlm-margin") ok = real(a.nlmWeights.margin);
-        else if (s == "--nlm-per-token") a.nlmWeights.per_token = true;
-        else if (s == "--nlm-no-per-token") a.nlmWeights.per_token = false;
-        else if (s == "--nlm-no-word-end") a.nlmWeights.word_end = false;
-        else ok = false;
-        if (!ok) return false;
+    std::ifstream in(path);
+    std::vector<KeyRect> keys;
+    std::string line;
+    if (!in || !std::getline(in, line)) return {};
+    while (std::getline(in, line)) {
+        std::istringstream f(line);
+        std::string letter;
+        float cx, cy, hw, hh;
+        if (!(f >> letter >> cx >> cy >> hw >> hh)) continue;
+        const auto u = QString::fromStdString(letter).toUcs4();
+        if (u.size() != 1) continue;
+        keys.push_back({char32_t(u[0]), (cx - hw) * w, (cy - hh) * h, 2 * hw * w, 2 * hh * h});
     }
-    return !a.data.empty() && !a.jsonl.empty();
+    return keys;
 }
 
-// Same as infer_jsonl's normalize_word: lower-case, keep a-z and non-ASCII letters, drop everything else
-// (apostrophes, hyphens, digits). Applied to both the target and the guesses so "don't" == "dont".
-std::string normalizeWord(const QString &w)
+// How a guess is compared with the target: "ascii" = a-z only (the original English benchmark),
+// "lookup" = lower-cased with accents kept (apostrophes/hyphens dropped), "exact" = byte for byte.
+std::string norm(const std::string &s, const std::string &mode)
 {
-    QString out;
-    for (QChar c : w.toLower())
-        if ((c >= u'a' && c <= u'z') || (c.unicode() > 0x7F && c.unicode() < 0xFFFD))
-            out += c;
-    return out.toStdString();
-}
-
-// Words of the dictionary file (" word=the,f=222,..." lines), only used by --skip-oov.
-std::unordered_set<std::string> readDictWords(const std::string &path)
-{
-    std::unordered_set<std::string> words;
-    QFile f(QString::fromStdString(path));
-    if (!f.open(QIODevice::ReadOnly))
-        return words;
-    while (!f.atEnd()) {
-        const QByteArray line = f.readLine();
-        const int p = line.indexOf("word=");
-        if (p < 0) continue;
-        const int e = line.indexOf(',', p);
-        words.insert(normalizeWord(QString::fromUtf8(line.mid(p + 5, e < 0 ? -1 : e - p - 5))));
-    }
-    return words;
+    if (mode == "exact") return s;
+    if (mode == "lookup") return QString::fromStdString(s).toLower().remove(QLatin1Char('\'')).remove(QChar(0x2019)).remove(QLatin1Char('-')).toStdString();
+    std::string o;
+    for (unsigned char c : s) if (std::isalpha(c)) o.push_back(char(std::tolower(c)));
+    return o;
 }
 
 } // namespace
 
 int main(int argc, char **argv)
 {
-    Args a;
-    if (!parseArgs(argc, argv, a)) {
-        usage();
+    LanguageEngineSetup setup;
+    std::string layout, layoutsDir, input, match = "ascii";
+    bool useContext = false, list = false;
+    AlternativeParams alt;
+    bool altSet = false;
+    size_t limit = 0;
+    for (int i = 1; i < argc; ++i) {
+        const std::string a = argv[i];
+        auto val = [&]() -> std::string {
+            if (i + 1 >= argc) { std::fprintf(stderr, "missing value for %s\n", a.c_str()); std::exit(2); }
+            return argv[++i];
+        };
+        if (a == "--dict") setup.dictionary = val();
+        else if (a == "--model") setup.swipeModel = val();
+        else if (a == "--ngram") setup.ngram = val();
+        else if (a == "--language") setup.language = val();
+        else if (a == "--layout") layout = val();
+        else if (a == "--layouts-dir") layoutsDir = val();
+        else if (a == "--context") useContext = true;
+        else if (a == "--list") list = true;
+        else if (a == "--limit") limit = size_t(std::atoll(val().c_str()));
+        else if (a == "--match") match = val();
+        // WHY these: tuning and checking the rules for the guesses after the first (AlternativeParams).
+        else if (a == "--alt-pool") { alt.pool = std::atoi(val().c_str()); altSet = true; }
+        else if (a == "--alt-weight") { alt.sentenceWeight = float(std::atof(val().c_str())); altSet = true; }
+        else if (a == "--alt-min-freq") { alt.minFrequency = std::atoi(val().c_str()); altSet = true; }
+        else if (a == "--alt-name-freq") { alt.nameMinFrequency = std::atoi(val().c_str()); altSet = true; }
+        else if (a == "--alt-margin") { alt.margin = float(std::atof(val().c_str())); altSet = true; }
+        else if (a == "--alt-stretch") { alt.dropStretched = val() == "1"; altSet = true; }
+        else if (a == "--alt-off") { alt = AlternativeParams{16, 0.f, 0, 0, 1e9f, false}; altSet = true; }
+        else if (a[0] != '-') input = a;
+        else { std::fprintf(stderr, "unknown option %s\n", a.c_str()); return 2; }
+    }
+    if (setup.dictionary.empty() || (layout.empty() && layoutsDir.empty()) || input.empty()) {
+        std::fprintf(stderr, "usage: swipekb-bench --dict LANG.combined (--layout keys.tsv | --layouts-dir DIR) [--model m.bin]"
+                             " [--ngram LANG.ngram] [--context] [--language en] [--limit N] [--match ascii|lookup|exact] swipes.jsonl\n");
         return 2;
     }
-    swipekb::ModelPaths paths = swipekb::ModelPaths::fromDir(a.data);
-    if (a.noDecoder) paths.decoder.clear();
-    if (a.noLm) { paths.lm_model.clear(); paths.lm_vocab.clear(); }
-    if (!a.dict.empty()) paths.dictionary = a.dict;
-    if (!a.ngram.empty()) paths.ngram = a.ngram;
-    if (!a.nlm.empty()) paths.nlm = a.nlm;
-
-    // Layout file: same FUTO file infer_jsonl is given. Default is the copy inside the repo's submodule.
-    const std::string layoutPath = !a.layout.empty() ? a.layout
-        : std::string(SWIPEKB_DEFAULT_LAYOUT);
-    std::vector<benchlayout::LayoutKey> layout;
-    if (!benchlayout::loadLayout(QString::fromStdString(layoutPath), layout)) {
-        std::fprintf(stderr, "cannot read a 26-key layout from %s\n", layoutPath.c_str());
-        return 1;
-    }
-    constexpr float kScale = 1000.f;
-    const std::vector<swipekb::KeyRect> keys = benchlayout::toRects(layout, kScale);
-
-    swipekb::Recognizer r;
-    // WHY the keyboard's default unless a flag says otherwise: by default the tool measures what ships.
-    const bool ngram = !a.noNgram && (a.useNgram || swipekb::RecognizerOptions{}.ngram);
-    const bool nlm = !a.noNlm && (a.useNlm || swipekb::RecognizerOptions{}.nlm);
-    if (!r.init(paths, {.beam_width = a.beam, .ngram = ngram, .weights = a.weights, .nlm = nlm,
-                        .nlm_weights = a.nlmWeights, .nlm_threads = a.nlmThreads})) {
-        std::fprintf(stderr, "engine failed to load from %s\n", a.data.c_str());
-        return 1;
-    }
-    // WHY printed: a missing model file silently falls back to the old ranking; the run must say which it used.
-    std::cerr << "ranking: " << (r.usingNgram() ? "n-gram model " + paths.ngram : std::string("FUTO context model"))
-              << (r.usingNlm() ? " + neural model " + paths.nlm : std::string()) << "\n";
-    QFile dump(QString::fromStdString(a.dump));
-    if (!a.dump.empty() && !dump.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-        std::fprintf(stderr, "cannot write %s\n", a.dump.c_str());
-        return 1;
-    }
-    std::unordered_set<std::string> dictWords;
-    if (a.skipOov) dictWords = readDictWords(paths.dictionary);
-
-    QFile f(QString::fromStdString(a.jsonl));
-    if (!f.open(QIODevice::ReadOnly)) {
-        std::fprintf(stderr, "cannot read %s\n", a.jsonl.c_str());
-        return 1;
-    }
-    // WHY two calls: the scored list must be exactly what the keyboard shows (a top-k call). A longer list is
-    // NOT the same at its start: the "best raw shape" guard puts that word in the LAST slot, which is slot 3 in
-    // a top-3 call but slot 50 in a top-50 call. The second, untimed call only measures beam recall.
-    const int askK = std::max(a.topK, a.recallK);
-
-    int good = 0, ok = 0, bad = 0, recallHit = 0, firstN = 0, firstGood = 0, lineNo = 0, skipped = 0;
-    double totalUs = 0;
-    std::vector<double> swipeUs;   // WHY each swipe's time: the live budget is about the slow swipes (p95), not the mean
-    while (!f.atEnd()) {
-        if (a.limit && good + ok + bad >= a.limit) break;
-        const QByteArray line = f.readLine().trimmed();
-        ++lineNo;
-        if (line.isEmpty()) continue;
-        const QJsonObject o = QJsonDocument::fromJson(line).object();
-        const QJsonValue data = o.value("data");
-        // WHY these skips match infer_jsonl: target shorter than 2 letters, and traces of 2 points or fewer.
-        // DIFFERENCE: infer_jsonl also accepts the newer {"L":[..],"R":[..]} two-hand format (y scaled by 1.4017);
-        // our Recognizer takes one trace, so those lines are skipped (counted). The shipped test slice has none.
-        const std::string tgt = normalizeWord(o.value("word").toString());
-        if (tgt.size() <= 1) continue;
-        if (!data.isArray()) { ++skipped; continue; }
-        if (a.skipOov && !dictWords.count(tgt)) { std::cout << "oov " << tgt << "\n"; continue; }
-        const QJsonArray pts = data.toArray();
-        if (pts.size() <= 2) continue;
-
-        std::vector<swipekb::TracePoint> trace;
-        const double t0 = pts.at(0).toObject().value("t").toDouble();
-        for (const QJsonValue &v : pts) {
-            const QJsonObject p = v.toObject();
-            trace.push_back({float(p.value("x").toDouble() * kScale), float(p.value("y").toDouble() * kScale),
-                             float(p.value("t").toDouble() - t0)});
+    std::vector<Swipe> swipes;
+    QFile f(QString::fromStdString(input));
+    if (!f.open(QIODevice::ReadOnly)) { std::fprintf(stderr, "cannot read %s\n", input.c_str()); return 1; }
+    while (!f.atEnd() && (!limit || swipes.size() < limit)) {
+        const auto o = QJsonDocument::fromJson(f.readLine()).object();
+        if (o.isEmpty()) continue;
+        Swipe s;
+        s.word = o["word"].toString().toStdString();
+        s.board = o["layout"].toString().toStdString();
+        s.w = float(o["canvas_width"].toDouble(1));
+        s.h = float(o["canvas_height"].toDouble(1));
+        if (useContext && o.contains("sentence") && o.contains("word_idx")) {
+            const auto toks = o["sentence"].toString().split(' ', Qt::SkipEmptyParts);
+            for (int k = 0; k < std::min<int>(o["word_idx"].toInt(), int(toks.size())); ++k) s.context.push_back(toks[k].toStdString());
         }
-
-        // Context exactly as the live keyboard delivers it: the raw text before the cursor goes through
-        // swipekb::contextWords (sentence reset, punctuation trimmed). DIFFERENCE from infer_jsonl: it hands the
-        // model the raw whitespace-split words (punctuation attached, no sentence reset).
-        std::vector<std::string> context;
-        if (o.contains("sentence") && o.contains("word_idx")) {
-            const QStringList words = o.value("sentence").toString().split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
-            const QStringList before = words.mid(0, o.value("word_idx").toInt());
-            context = swipekb::contextWords(before.join(' ').toStdString());
+        double t0 = -1;
+        for (const auto &p : o["data"].toArray()) {
+            const auto po = p.toObject();
+            const double t = po["t"].toDouble();
+            if (t0 < 0) t0 = t;
+            s.trace.push_back({float(po["x"].toDouble()) * s.w, float(po["y"].toDouble()) * s.h, float(t - t0)});
         }
-
-        const auto t1 = std::chrono::steady_clock::now();
-        const auto results = r.recognize(trace, keys, context, a.topK);
-        swipeUs.push_back(std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - t1).count());
-        totalUs += swipeUs.back();
-        const auto longList = r.recognize(trace, keys, context, askK);
-
-        auto rankOf = [&](const std::vector<swipekb::Candidate> &list) {
-            for (size_t i = 0; i < list.size(); ++i)
-                if (normalizeWord(QString::fromStdString(list[i].word)) == tgt) return int(i);
-            return INT_MAX;
-        };
-        const int idx = rankOf(results);
-        if (rankOf(longList) < askK) ++recallHit;
-        if (dump.isOpen()) {
-            // One line per swipe: target, whether it starts a sentence, and every candidate's raw scores.
-            QJsonArray cands;
-            for (const auto &c : r.recognizeDetailed(trace, keys, context))
-                cands.append(QJsonArray{QString::fromStdString(c.word), c.ctc, c.length, c.freq, c.lm, c.futo_lm});
-            QJsonObject rec{{"id", o.value("id")}, {"target", QString::fromStdString(tgt)},
-                            {"first", context.empty()}, {"c", cands}};
-            dump.write(QJsonDocument(rec).toJson(QJsonDocument::Compact) + "\n");
-        }
-        if (idx == 0) { std::cout << "good"; ++good; }
-        else if (idx <= 3) { std::cout << "ok"; ++ok; }
-        else { std::cout << "bad"; ++bad; }
-        if (context.empty()) { ++firstN; if (idx == 0) ++firstGood; }
-        std::cout << " " << o.value("id").toInt() << " " << tgt << ":";
-        if (!results.empty()) std::cout << normalizeWord(QString::fromStdString(results[0].word));
-        std::cout << ":";
-        if (idx == 0) {
-            std::cout << "[]";
-        } else {
-            std::cout << "[";
-            for (size_t i = 1; i < results.size() && int(i) < a.topK; ++i) {
-                std::cout << "'" << normalizeWord(QString::fromStdString(results[i].word)) << "'";
-                if (int(i) + 1 < std::min<int>(a.topK, results.size())) std::cout << ", ";
-            }
-            std::cout << "]";
-        }
-        std::cout << "\n";
+        if (!s.trace.empty()) swipes.push_back(std::move(s));
     }
-
-    const int total = good + ok + bad;
-    if (total == 0) {
-        std::fprintf(stderr, "no scorable swipes in %s\n", a.jsonl.c_str());
-        return 1;
-    }
-    // Same arithmetic and number formatting as infer_jsonl (float, default precision) so rows stay comparable.
-    std::cout << "\nResults: " << total << " samples\n";
-    std::cout << "  top-1:  " << good << " / " << total << " = " << (good * 100.0f) / total << "%\n";
-    std::cout << "  top-4:  " << (good + ok) << " / " << total << " = " << ((good + ok) * 100.0f) / total << "%\n";
-    std::cout << "  miss:   " << bad << " / " << total << " = " << (bad * 100.0f) / total << "%\n";
-    std::cout << "\nExtras:\n";
-    std::cout << "  recall@" << askK << ":  " << recallHit << " / " << total << " = " << (recallHit * 100.0f) / total << "%\n";
-    std::cout << "  first-word top-1:  " << firstGood << " / " << firstN << " = " << (firstN ? (firstGood * 100.0f) / firstN : 0.0f) << "%\n";
-    if (skipped) std::cout << "  skipped (two-hand format):  " << skipped << "\n";
-    std::sort(swipeUs.begin(), swipeUs.end());
-    std::cout << "  ms per swipe p50 / p95:  " << swipeUs[swipeUs.size() / 2] / 1000 << " / "
-              << swipeUs[swipeUs.size() * 95 / 100] / 1000 << "\n";
-    // WHY: memory is part of the cost of a ranking change (the n-gram model is a 150 MB file mapped in); the
-    // kernel's own counters say how much of it really ended up in RAM. Linux only; silently absent elsewhere.
+    LanguageEngine engine;
+    if (!engine.init(setup)) { std::fprintf(stderr, "cannot load the dictionary %s\n", setup.dictionary.c_str()); return 1; }
+    if (altSet) engine.setAlternativeParams(alt);
+    // WHY the dictionary read again here: the "junk alternative" measure needs the dictionary's own capitals, which
+    // the engine shows in lower case (English, Spanish, French).
+    std::map<std::string, bool> capitalised;
     {
-        QFile st(QStringLiteral("/proc/self/status"));
-        if (st.open(QIODevice::ReadOnly))
-            for (const QByteArray &l : st.readAll().split('\n'))
-                if (l.startsWith("VmHWM:") || l.startsWith("VmRSS:"))
-                    std::cout << "  " << (l.startsWith("VmHWM") ? "peak memory" : "memory now") << ":  "
-                              << l.mid(6).simplified().toStdString() << "\n";
+        std::ifstream d(setup.dictionary);
+        std::map<std::string, int> best;
+        for (std::string line; std::getline(d, line);) {
+            if (line.rfind(" word=", 0) != 0) continue;
+            const auto c = line.find(',', 6), fp = line.find(",f=");
+            if (c == std::string::npos || fp == std::string::npos) continue;
+            const QString w = QString::fromStdString(line.substr(6, c - 6));
+            const int fr = std::atoi(line.c_str() + fp + 3);
+            const std::string low = w.toLower().toStdString();
+            if (!best.count(low) || fr > best[low]) { best[low] = fr; capitalised[low] = !w.isEmpty() && w.front().isUpper(); }
+        }
     }
-    std::cout << "\nTimings (avg µs per sample):\n" << std::fixed << std::setprecision(1);
-    std::cout << "  total:    " << totalUs / total << "\n";
+    auto stretchedWord = [](const std::string &w) {
+        const auto u = QString::fromStdString(w).toLower().toUcs4();
+        int run = 1;
+        for (qsizetype i = 1; i < u.size(); ++i) { run = u[i] == u[i - 1] ? run + 1 : 1; if (run >= 3) return true; }
+        return false;
+    };
+    // A shown alternative is "junk" when the person would hardly ever mean it: stretched, rare (dictionary
+    // frequency under 80 of 255) or a rarely used name (written with a capital, under 120). Fixed before tuning.
+    auto junk = [&](const std::string &w) {
+        const int f = engine.frequency(w);
+        const std::string low = QString::fromStdString(w).toLower().toStdString();
+        const bool name = setup.language.rfind("de", 0) != 0 && capitalised.count(low) && capitalised[low];
+        return stretchedWord(w) || f < 80 || (name && f < 120);
+    };
+    size_t shownAlts = 0, junkAlts = 0, firstWrong = 0, rescued = 0;
+    size_t n = 0, top1 = 0, top3 = 0, inDict = 0, dict1 = 0, dict3 = 0, noLayout = 0;
+    double ms = 0;
+    // WHY a warm-up swipe: the first recognize() builds the word list for the layout (seconds), which is not a swipe.
+    for (const auto &s : swipes) {
+        const auto keys = readLayout(layoutsDir.empty() ? layout : layoutsDir + "/" + s.board + ".tsv", s.w, s.h);
+        if (!keys.empty()) { engine.recognize(s.trace, keys, s.context, 3); break; }
+    }
+    for (const auto &s : swipes) {
+        ++n;
+        const auto keys = readLayout(layoutsDir.empty() ? layout : layoutsDir + "/" + s.board + ".tsv", s.w, s.h);
+        if (keys.empty()) { ++noLayout; continue; }
+        const auto a = Clock::now();
+        const auto c = engine.recognize(s.trace, keys, s.context, 3);
+        ms += std::chrono::duration<double, std::milli>(Clock::now() - a).count();
+        const std::string truth = norm(s.word, match);
+        const bool h1 = !c.empty() && norm(c[0].word, match) == truth;
+        bool h3 = false;
+        for (const auto &x : c) h3 |= norm(x.word, match) == truth;
+        const bool known = engine.hasWord(s.word);
+        top1 += h1; top3 += h3;
+        for (size_t k = 1; k < c.size(); ++k) { ++shownAlts; junkAlts += junk(c[k].word); }
+        if (!h1) { ++firstWrong; rescued += h3; }
+        if (known) { ++inDict; dict1 += h1; dict3 += h3; }
+        // WHY a per-swipe list: comparing two runs swipe by swipe shows which words a change won or lost.
+        // WHY every guess, not only the first: comparing runs of the alternatives needs to see which word was lost.
+        if (list) {
+            std::printf("swipe\t%zu\t%s", n, s.word.c_str());
+            for (const auto &x : c) std::printf("\t%s", x.word.c_str());
+            std::printf("\n");
+        }
+    }
+    auto pct = [](size_t a, size_t b) { return b ? 100.0 * double(a) / double(b) : 0.0; };
+    std::printf("Results: %zu samples\n  top-1: %zu / %zu = %.2f%%\n  top-3: %zu / %zu = %.2f%%\n", n, top1, n, pct(top1, n), top3, n, pct(top3, n));
+    std::printf("all %zu: first %.2f%% top-3 %.2f%% | in-dict %zu (%.1f%%): first %.2f%% top-3 %.2f%% | %.2f ms/swipe | %s%s\n",
+                n, pct(top1, n), pct(top3, n), inDict, pct(inDict, n), pct(dict1, inDict), pct(dict3, inDict),
+                ms / double(std::max<size_t>(1, n - noLayout)), engine.mode(), engine.usingNgram() ? " + n-gram" : "");
+    std::printf("alternatives: %zu shown, junk %.2f%% | first guess wrong %zu, right word among the alternatives %.2f%%\n",
+                shownAlts, pct(junkAlts, shownAlts), firstWrong, pct(rescued, firstWrong));
+    if (noLayout) std::printf("(%zu swipes had no readable layout file; counted as misses)\n", noLayout);
     return 0;
 }

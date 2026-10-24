@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+
 """Activation consent at the CLI boundary; never change live desktop settings."""
 import contextlib
 import importlib.util

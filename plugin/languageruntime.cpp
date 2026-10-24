@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+//
+// SPDX-License-Identifier: MIT
+
 #include "languageruntime.h"
 #include "languagetextrules.h"
 
@@ -19,21 +23,20 @@ std::unordered_map<char32_t, char32_t> popupAliasesFor(const QString &language)
     return aliases;
 }
 
-bool configureRecognizer(const ProfileSnapshot &snapshot, ModelPaths &paths, RecognizerOptions &options)
+bool configureLanguageEngine(const ProfileSnapshot &snapshot, LanguageEngineSetup &setup)
 {
     if (!snapshot.capabilities.swipe) return false;
     auto path = [&](const QString &role) { return snapshot.assets.value(role).path.toStdString(); };
-    paths.encoder = path("encoder"); paths.dictionary = path("dictionary"); paths.decoder = path("decoder");
-    if (snapshot.effectiveLanguage == QStringLiteral("en")) {
-        paths.lm_model = path("contextModel"); paths.lm_vocab = path("contextVocab");
-    } else {
-        paths.ngram = path("contextModel");
-    }
-    options.language = snapshot.effectiveLanguage.toStdString();
-    // WHY foreign swipe ranking and completion share only that locale's pinned contextual n-gram.
-    options.ngram = snapshot.effectiveLanguage != QStringLiteral("en");
-    options.alphabet = languageAlphabet(snapshot.effectiveLanguage).toStdString();
-    options.popupAliases = popupAliasesFor(snapshot.effectiveLanguage);
-    return true;
+    setup = {};
+    setup.language = snapshot.effectiveLanguage.toStdString();
+    setup.dictionary = path("dictionary");
+    // WHY only the verified n-gram pack: it is the sentence prior for swipes; without it word frequency ranks.
+    if (snapshot.assets.value("contextModel").compatibility.endsWith(QStringLiteral(":context-ngram-v1")))
+        setup.ngram = path("contextModel");
+    // WHY an override only for trials/tests: the normal model is the lock-verified one; a missing or altered file
+    // simply leaves the engine on geometry.
+    const QString overridePath = qEnvironmentVariable("SWIPEKB_SWIPE_MODEL");
+    setup.swipeModel = overridePath.isEmpty() ? path("swipeModel") : overridePath.toStdString();
+    return !setup.dictionary.empty();
 }
 } // namespace swipekb

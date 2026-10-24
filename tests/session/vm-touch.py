@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+
 """VM-only touchscreen acceptance input, adapted from touch-profile/tests/vtouch.py.
 
 Never use host input injection. This tool refuses a non-QEMU machine and requires

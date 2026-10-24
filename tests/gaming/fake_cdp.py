@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+
 """A fake Steam debug port for the helper tests (stdlib + Node).
 
 It speaks just the parts of Chrome DevTools the helper uses, as measured in the SteamOS guest (plan M0):

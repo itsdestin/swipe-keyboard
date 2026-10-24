@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+
 """Small wiring guards, supplementing behavioral validator tests and actionlint."""
 from pathlib import Path
 import re
@@ -65,7 +69,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('fedora-arm64-evidence', arm)
         recipe = (ROOT/'packaging/fedora/swipe-keyboard.spec').read_text()
         self.assertIn('ExclusiveArch: x86_64 aarch64', recipe)
-        self.assertIn('-DUSE_MARCH_NATIVE=OFF', recipe)
+        self.assertNotIn('march=native', recipe)
         self.assertIn('QT_QPA_PLATFORM=offscreen %ctest', recipe)
         for suite in ('packaging', 'integration'):
             self.assertIn('discover -s tests/' + suite + ' -v', recipe)
@@ -199,7 +203,7 @@ class WorkflowTests(unittest.TestCase):
         # WHY: run 39827309452 saved an empty store after a failed step; keys are immutable.
         flatpak = self.jobs['flatpak']
         self.assertIn('id: flatpakbuild', flatpak)
-        save = flatpak[flatpak.index('Save ExecuTorch compiler cache'):]
+        save = flatpak[flatpak.index('Save compiler cache'):]
         self.assertIn("steps.flatpakbuild.outcome == 'success'", save.split('uses:')[0])
 
     def test_fast_path_is_arch_only_and_everything_else_needs_full(self):

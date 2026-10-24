@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+
 """Exercise real stock InputPanel in an isolated offscreen process (never the desktop).
 
 For installed-package checks, pass --runtime-root /usr/share/swipe-keyboard,
@@ -25,7 +30,10 @@ def main():
     args = parser.parse_args()
     root = args.runtime_root.resolve()
     qml = (args.qml_dir or root / "qml").resolve()
-    models = (args.model_data or (root if (root / "models").is_dir() else root / "assets")).resolve()
+    # WHY: 0.5.0 installs its dictionaries and language packs directly under the runtime root; only the
+    # FUTO-era layout (0.4.x and older) had an assets/ folder. Pointing at a missing assets/ left the
+    # keyboard with no words, so every swipe in this check produced no candidates.
+    models = (args.model_data or (root / "assets" if (root / "assets").is_dir() else root)).resolve()
     try:
         spec = importlib.util.spec_from_file_location("stock_layout_integration", root / "integration/layout.py")
         module = importlib.util.module_from_spec(spec)

@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+//
+// SPDX-License-Identifier: MIT
+
 // Read-only ownership probe: no GUI, D-Bus, configuration writes or environment overrides.
 #include <KConfig>
 #include <KConfigGroup>

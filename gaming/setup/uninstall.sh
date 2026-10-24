@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+
 # Swipe Keyboard, Steam Deck Gaming Mode: uninstaller. Removes only what install.sh recorded as created.
 #
 #   bash uninstall.sh              show what will be removed, ask, then do it

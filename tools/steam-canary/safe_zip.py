@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+
 """Extract a zip that came from the network without trusting anything inside it.
 
 WHY: the Steam UI and client packages are downloaded from a third party. A hostile or corrupted

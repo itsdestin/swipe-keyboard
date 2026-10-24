@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+
 """Tests for the typing half of the helper (plan M5): the __swipekb binding, the checks on every page message, the engine
 conversation, the commit through Steam's text call, and what is (not) written to disk.
 

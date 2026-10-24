@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+//
+// SPDX-License-Identifier: MIT
+
 // Stand-in for Steam's on-screen keyboard page, for the gesture-layer tests (plan M4).
 // WHY this exists: the layer is only worth testing against something that behaves like Steam's keyboard, so this
 // file has two halves. (1) A tiny DOM with REAL capture/bubble event propagation (the layer's whole job is to

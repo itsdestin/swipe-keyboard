@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+
 """Packaging contracts for Gaming Mode (plan docs/active/plans/2026-10-22-gaming-mode.md, Sections 4, 5, 9).
 
 These read committed files only: no Flatpak, systemd or network is needed, so they run in every package job.

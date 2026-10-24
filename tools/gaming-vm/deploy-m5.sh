@@ -1,4 +1,9 @@
 #!/bin/bash
+
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+
 # Copy the helper, the page layer, the shared contract and the M5 rig into the guest at ~/m5 (same relative layout as the repo).
 # usage: tools/gaming-vm/deploy-m5.sh   (run on the host; needs the lab's guests/steamos-gaming/ssh wrapper)
 # The engine daemon is NOT copied: it runs on the host and is forwarded in (tools/gaming-vm/m5_host.py up).

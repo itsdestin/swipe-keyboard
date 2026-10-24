@@ -1,29 +1,89 @@
-# Multilingual contextual n-gram packs
+# Language files (word lists, next-word and swipe-ranking data)
 
-These are compact baseline, word-level modified Kneser–Ney trigram models built from Tatoeba sentence exports. They provide actual sentence-context-conditioned next-word probabilities; they are not unigram popularity lists or hand-authored phrase tables. Spanish `es_ES` and `es_MX` intentionally share the same `es` model.
+For English, Spanish, French and German the keyboard needs: a word-level trigram file (`<lang>.ngram`), a word list
+(`<lang>.vocab.tsv`) and a Tatoeba credit file (`<lang>-CONTRIBUTORS.txt`). They are **not stored in this repository**.
+They are published once as the GitHub release `language-files-2026-10-23-apostrophes`, and every build downloads them
+by SHA-256 (`language_files` and `multilingual_context_models` in `../assets.lock.json`). `scripts/fetch-assets.py`
+puts them in `assets/language-files/`, `scripts/dict/language_pack.py` copies them into `assets/language-packs/`, and the
+installer and packages ship that folder. A file that does not match its pin is refused at build time and again at run time.
 
-## Data, license, and provenance
+What stays in this folder: `TATOEBA-CC-BY-2.0-FR.txt` (the Tatoeba terms, pinned by hash) and
+`LANGUAGE-FILES-2026-10-22-open-words-NOTICE.md` (the same text as the release's `NOTICE.md`, installed as
+`language-packs/LANGUAGE-FILES-NOTICE.md`).
 
-The source is the official per-language full sentence export and its matching detailed author export, fetched from `https://downloads.tatoeba.org/exports/per_language/{spa,fra,deu}/`. Snapshot byte sizes and SHA-256 pins for both exports, and the resulting model, vocabulary and complete contributor-credit file, are recorded under `multilingual_context_models` in `../assets.lock.json`. The lock was checked against the downloaded bytes on 2026-10-20; the official listings showed the snapshot dated 2026-10-17. The `*_sentences.tsv.bz2` schema is sentence ID, language ISO code, text. The `*_sentences_detailed.tsv.bz2` schema adds the author username; the training recipe joins on sentence ID and records every author of an included training sentence in the matching `*-CONTRIBUTORS.txt` file.
+## Sources and licences
 
-Tatoeba's official Terms of Use state that its text is CC BY 2.0 France and that the author's name must be cited. The terms URL and sentence-level contributor notices ship with each generated pack (`TATOEBA-CC-BY-2.0-FR.txt` and `<language>-CONTRIBUTORS.txt`). The model is an adaptation of those sentences; keep the notices with redistributed models. The separate wordfreq-derived swipe dictionary keeps its existing CC-BY-SA-4.0 notice. No sentence text is copied into source notices or logs.
+- Web text: FineWeb (English) and FineWeb-2 (Spanish, French, German) by Hugging Face, Open Data Commons Attribution
+  License 1.0 (`ODC-By-1.0.txt`); derived from Common Crawl, whose terms of use also apply. Only word counts are kept.
+- Short everyday sentences: Tatoeba, CC BY 2.0 France. Every contributing author is listed in `<lang>-CONTRIBUTORS.txt`
+  and the terms are in `TATOEBA-CC-BY-2.0-FR.txt`. Both must travel with the models.
+- Word lists (`<lang>.vocab.tsv`) and the `<lang>.combined` swipe dictionaries (also `en_swipe.combined`): counted from the
+  same two sources, so they carry the same attribution terms (no share-alike). The English dictionary additionally keeps
+  every word, frequency and flag of the Android LatinIME US English list, Apache-2.0 (`Apache-2.0.txt`).
+- No third-party model weights are in these files.
 
-No foreign FUTO neural weights are used: FUTO's published ContextLM is English-only. At runtime the model and vocabulary roles are format-versioned, language-tagged, and checked against the repository lock; missing, corrupt, mismatched, or unsupported assets do not enable contextual suggestions and never select English as fallback.
+Each pack manifest (`es.json`, `fr.json`, `de.json`) records `contextLicense` with id `ODC-By-1.0 AND CC-BY-2.0-FR` and the
+hashes of the credit, Tatoeba, ODC-By and notice texts; the loader compares all of it with the repository lock, so a
+manifest cannot vouch for itself (schema 3, compatibility `swipekb-open-v1`; older packs are refused). English has no
+manifest of its own (its dictionary installs as `dict/en_swipe.combined`); the loader checks the same files against the same lock.
 
-## Reproducible bounded build
+## How the keyboard uses them
 
-1. Generate the pinned `assets/language-packs/{es,fr,de}.combined` dictionaries with the repository's existing `scripts/fetch-assets.sh` flow. Download each full and detailed Tatoeba export from the official index to a private scratch directory; the builder rejects any byte hash that differs from its hard-coded snapshot pins (which must match the lock).
-2. Build the existing n-gram counter against the engine's exact scorer implementation (Qt Core supplies Unicode casefolding):
+- Spanish, French, German: swipe ranking, next-word suggestions and completions use the language's n-gram.
+- English: when `language-packs/en.ngram` + `en.vocab.tsv` and their credit/licence texts are present and verified,
+  English uses them for next-word suggestions, completions and swipe ranking.
+  If any of them is missing or fails verification, English swipes and completes from its dictionary, without suggestions.
+- If a Spanish, French or German file is missing or fails verification, that language still swipes and types with its
+  dictionary; only the suggestions are switched off.
 
-   ```sh
-   g++ -O2 -std=c++20 -fPIC $(pkg-config --cflags Qt6Core) -Iengine/include \
-     scripts/lm/ngram-build.cpp engine/src/ngram.cpp $(pkg-config --libs Qt6Core) -o ngram-build
-   ```
+## Trained models (release `models-2026-10-23`)
 
-3. For each language, run `python3 scripts/lm/build-tatoeba-model.py es spa_sentences.tsv.bz2 spa_sentences_detailed.tsv.bz2 assets/language-packs/es.combined OUT/es ngram-build` (substitute `fr fra` or `de deu`). The builder streams the compressed exports, NFC-normalizes and lowercases Unicode letter tokens, bounds its vocabulary to the existing roughly 100k word-frequency dictionary, and uses sentence ID modulo ten for a deterministic held-out split. It emits the binary n-gram, vocabulary with canonical lookup token / dictionary frequency / preserved display spelling, and author credits. The count tool writes a compact threshold-2 trigram model; there is no neural training or multi-gigabyte corpus. Final generated hashes must equal the checked-in lock before publication.
+Models trained and released by Destin Moss via youcoded.ai, 2026. `trained_models` in `../assets.lock.json` pins, by SHA-256
+and size, `en/es/fr/de.nwp.bin` (neural next-word models, ODC-By-1.0 AND CC-BY-2.0-FR, trained on the same FineWeb /
+FineWeb-2 and Tatoeba text), `swipe-model.bin` (MIT; trained on FUTO's MIT swipe.futo.org data plus our synthetic swipes), the
+release `NOTICE.md` (installed as `MODELS-NOTICE.md`) and the MIT text of FUTO's swipe data. `scripts/fetch-assets.py`
+puts the next-word files in `assets/language-files/` (`language_pack.py` copies them next to `LANG.ngram` in
+`language-packs/`) and the swipe model in `assets/language-files/` (`language_pack.py generate_shared` installs it as
+`language-packs/swipe-model.bin`, shared by every language); both notices go to `assets/licenses/`.
+At run time (`plugin/languageprofile.cpp`) a `LANG.nwp.bin` is used only when its size and SHA-256 equal the lock; the
+engine is handed that exact path and never picks up an unchecked neighbour. A missing or altered file turns off only that
+model: the n-gram keeps working, and the language is never disabled. `swipe-model.bin` is checked the same way before the
+swipe engine loads it (mismatch: geometry only). The `SWIPEKB_SWIPE_MODEL` environment override (trials and tests) is not checked.
+Test-only: `SWIPEKB_TEST_MODELS_MIRROR=<folder or URL>` makes `fetch-assets.py` read these files from a local folder instead
+of the release (the pins still decide what is accepted).
 
-## Measured quality and limits
+## Rebuilding the files
 
-Sentence IDs select a deterministic held-out tenth that is excluded from training. The held-out partitions contain 44.2k Spanish, 72.6k French, and 78.4k German sentences. Current artifacts contain 99,959 / 99,908 / 99,849 vocabulary entries and 6,091,688 / 7,719,176 / 9,144,360 model bytes for es / fr / de. Each attribution file lists 1,884 / 1,955 / 1,688 distinct training contributors. Known held-out target-token top-1 accuracy from the most frequent training unigram versus previous-word-conditioned bigram counts was: Spanish 12,000/318,673 (3.8%) vs 43,096/318,673 (13.5%); French 17,764/522,983 (3.4%) vs 78,082/522,983 (14.9%); German 19,226/591,308 (3.3%) vs 68,508/591,308 (11.6%). This is a reproducible context-vs-unigram sanity comparison, not an end-user acceptance benchmark. The real runtime ranks using the full trigram model.
+`scripts/lm/build-fineweb2-model.py` builds a language's n-gram from FineWeb text plus Tatoeba (sentences weighted 30x;
+word pairs kept when seen 20+ times, triples 40+), `scripts/lm/tatoeba-credits.py` writes the credit files, and
+`scripts/lm/make-vocab.py` the word lists. With `--keep-apostrophes` a pack keeps "were"/"we're", "its"/"it's" and
+"lune"/"l'une" as different words, so the sentence chooses between them; the keyboard recognises such a pack by the
+apostrophes in its word list (`NgramLM::apostrophes()`), and letters-only packs keep working unchanged. Measured on
+held-out sentences (`tools/swipekb-sentence-check`), 2026-10-23: English swipes of those words right first time
+78.0 -> 87.7 %, French 86.3 -> 91.1 %; every other score within noise. The published 2026-10-22 packs are letters-only.
+After publishing a new release, update `language_files.baseUrl` and the hashes
+in `../assets.lock.json` (every hash and byte size is checked by `tests/packaging`). The earlier small Tatoeba-only packs
+(`scripts/lm/build-tatoeba-model.py`) were replaced by these files and are no longer shipped.
 
-Tatoeba is a small, topic-skewed learner/community corpus; these baseline metrics do not establish broad conversational coverage, locale-specific Spanish quality, or parity with Gboard. German display spellings are selected from observed training surface forms; scores stay on the shared lowercase lookup word. Evaluate on independent natural-device typing before making stronger quality claims.
+## Word lists: how they are made and rebuilt
+
+1. `scripts/lm/count-words.py LANG OUT.tsv --parquet ... --exclude <3 test sets> --tatoeba ...` writes
+   `LANG.wordcounts.tsv`: per word the occurrences, distinct pages and usual spelling (capitals kept for names and German
+   nouns; sentence-initial capitals ignored). Same text slice and token rules as `build-fineweb2-model.py`; test text never
+   feeds the counts. The four count files are published in the release (not fetched by the installer).
+2. `scripts/dict/build-corpus-dictionaries.sh COUNTS_DIR AOSP_DIR OUT_DIR` builds `{es,fr,de}.combined` (top 100k words) and
+   `en_swipe.combined` (AOSP kept exactly, plus up to 250k words AOSP lacks). **It replaces the old
+   `build-en-swipe.sh` / `wordfreq_combined.py`**: the AOSP inputs stay pinned in `assets.lock.json` (`dict-src/*.b64`,
+   fetched by `scripts/fetch-assets.py`; decode with `base64 -d X.gz.b64 | gunzip > X`) and are the `AOSP_DIR` input, so the
+   English dictionary is rebuildable. Filters: 3+ pages, the language's letters, likely misspellings, words far more typical of
+   another of the four languages, rare all-capital abbreviations, old German ß spellings, web debris
+   (`scripts/dict/corpus_dictionary.py`; tests in `tests/test_corpus_dictionary.py`). The installer does not rebuild them: it
+   downloads the pinned files.
+3. `build-fineweb2-model.py` + `ngram-build` rebuild the four n-gram packs against those dictionaries (the vocabulary ids
+   are the dictionary's words, so a new dictionary always means a new `.ngram` + `.vocab.tsv`).
+
+What the keyboard checks at run time (`plugin/languageprofile.cpp`): the manifest's licence set must be `ODC-By-1.0 AND
+CC-BY-2.0-FR` with the notice, ODC-By text and Tatoeba text matching the lock (a damaged licence text makes the language
+unavailable; a damaged n-gram or credit list only removes suggestions); English's n-gram additionally needs `Apache-2.0.txt`.
+
+Measured when the open word lists replaced the wordfreq ones (2026-10-22; 2,000 test sentences per set, published files against these): no measure fell by more than 0.1 point. Next word right in the top 3, and completion after 1 and 3 letters right in the top 2, changed by -0.09 to +2.0 points on every set and language (French gained most). English real swipes (2,000, with the English n-gram): first guess 93.11 to 93.01 %, top 3 96.40 to 96.30 %. Spanish, French and German synthetic swipes (400 words each): first guess 88.25/83.00/87.50 to 89.00/83.25/87.75 %, top 3 98.50/93.75/96.75 to 98.25/93.00/97.00 %. Those swipe figures were taken with the earlier keyboard engine. Words of the test sentences found in the word list: English 99.7/97.9/98.8 to 99.7/98.0/99.8 %, French 95.0/95.1/96.8 to 96.7/97.1/98.7 %, German 95.6/92.8/96.9 to 95.9/93.2/97.5 %, Spanish 97.9/97.8/98.7 to 97.4/97.3/98.5 % (slightly lower: single letters and slang). The German synthetic targets are now spelled as the dictionary shows them (`bench/languages/display-targets.py`).

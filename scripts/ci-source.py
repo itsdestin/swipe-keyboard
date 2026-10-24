@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+
 """Prepare shared, complete source and a portable external Flatpak recipe (CI only)."""
 import importlib.util
 import json
@@ -62,15 +67,7 @@ def prepare(output):
         archive.extractall(work, filter='data')
     source = work/('swipe-keyboard-' + contract['version'])
     (source/'packaging/source-identity.json').write_text(json.dumps({'source_sha': sha, 'version': release.version(contract)}) + '\n')
-    wheels = module('wheels', ROOT/'scripts/provision-build-deps.py')
-    # WHY all profiles: the same authenticated source archive feeds both native
-    # architectures and the independent x86 SDK build, without online pip resolution.
-    for profile in ('', 'native-aarch64', 'kde-6.10'):
-        lock = json.loads((ROOT/'requirements'/profile/'wheels.lock.json').read_text())
-        for item in [*lock['wheels'].values(), lock['torchgen']]:
-            wheels.fetch(item, source/'wheelcache')
     # WHY the existing wrapper: fetch-assets.py alone does not build the pinned English dictionary.
-    # Run copied source helpers so their ROOT resolves the prepared authenticated wheelcache.
     environment = {**os.environ, 'SWIPEKB_ASSETS': str(source/'assets'), 'SWIPEKB_FETCH_DEVELOPER_EXTRAS': '0'}
     subprocess.run(['bash', str(source/'scripts/fetch-assets.sh')], check=True, env=environment)
     if release.digest(source/'assets/dict/en_swipe.combined') != json.loads((source/'packaging/assets.lock.json').read_text())['dictionary_sha256']:
@@ -85,11 +82,8 @@ def prepare(output):
     inputs = work/'flatpak-inputs'
     inputs.mkdir()
     manifest = json.loads((ROOT/'packaging/flatpak/org.itsdestin.SwipeKeyboard.json').read_text())
-    # All SDK wheels are already authenticated inside the required complete source archive.
-    # Avoid uploading the same torch code-generator wheel again as a second Flatpak source.
-    manifest['modules'][-1]['sources'] = [s for s in manifest['modules'][-1]['sources'] if s.get('dest') != 'wheelcache']
     manifest = external_manifest(manifest, output/source_name, inputs, fetcher)
-    # The source includes the full SDK lock cache; preserve manifest's checked upstream inputs too.
+    # Preserve the manifest's checked upstream inputs.
     (inputs/'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
     shutil.copy2(ROOT/'packaging/flatpak/runtime-lock.json', inputs/'runtime-lock.json')
     name = release.filename(contract['targets']['flatpak']['files'][1], contract)

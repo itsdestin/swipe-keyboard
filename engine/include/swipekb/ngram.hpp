@@ -1,12 +1,14 @@
+// SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+//
+// SPDX-License-Identifier: MIT
+
 // swipekb n-gram language model — "how likely is this word after the previous one or two words".
 //
-// WHY our own small model instead of FUTO's context model: FUTO's model squeezes the whole sentence into 16
-// numbers and guesses the next word from that; it is weak at exactly the cases that decide a swipe ("of the"
-// vs "of thee", "I am" vs "I an"). Word-pair and word-triple statistics from a large text collection
-// (a 3-gram model, scripts/lm/) know those. The model is one read-only file, mapped into memory, so loading it
+// WHY word-pair and word-triple statistics from a large text collection (a 3-gram model, scripts/lm/): they are
+// strong at exactly the cases that decide a swipe ("of the" vs "of thee", "I am" vs "I an"). The model is one read-only file, mapped into memory, so loading it
 // is instant and several keyboard processes share one copy.
 //
-// No FUTO types here: the scoreboard tools and tests use this directly.
+// Plain C++ (no Qt types in the interface): the scoreboard tools and tests use this directly.
 #pragma once
 
 #include <cstddef>
@@ -42,9 +44,16 @@ public:
     static uint64_t key(uint32_t v, uint32_t w) { return (uint64_t(v) << kIdBits) | w; }
     static uint64_t key(uint32_t u, uint32_t v, uint32_t w) { return (uint64_t(u) << (2 * kIdBits)) | key(v, w); }
 
-    // Lower case, letters only: the form FUTO's dictionary stores words in, and the form the model is built in.
+    // Lower case, letters only: the form a swipe spells (no apostrophes), and the form older models are built in.
     // ASCII is lower-cased; other letters are kept as they are (English dictionary).
     static std::string alphaForm(std::string_view word);
+    // Lower case, letters plus inner apostrophes (curly written straight): "We’re" -> "we're", "'tis" -> "tis".
+    static std::string apostropheForm(std::string_view word);
+    // The form THIS model's words are in: apostropheForm() for a model whose word list has apostrophes (built with
+    // scripts/lm/build-fineweb2-model.py --keep-apostrophes, so "were" and "we're" are different words), alphaForm()
+    // otherwise. WHY detected from the word list, not a new file version: older packs keep loading unchanged.
+    std::string form(std::string_view word) const { return apostrophes_ ? apostropheForm(word) : alphaForm(word); }
+    bool apostrophes() const { return apostrophes_; }
 
     NgramLM() = default;
     ~NgramLM();
@@ -57,8 +66,9 @@ public:
     int order() const { return n_tri_ ? 3 : 2; }
     size_t fileBytes() const { return size_; }
 
-    // Word number of a letters-only word; kUnk when the model doesn't list it.
-    uint32_t id(std::string_view alpha) const;
+    // Word number of a word in form(); kUnk when the model doesn't list it. In a model with apostrophes, a spelling
+    // without them that the model lacks ("dont") finds the model's most likely word with those letters ("don't").
+    uint32_t id(std::string_view word) const;
 
     // The previous words, prepared once per swipe so scoring each guess is a couple of small lookups.
     struct Context {
@@ -71,10 +81,15 @@ public:
     // `words` = swipekb::contextWords() output (oldest first, current sentence only); empty = sentence start.
     Context context(const std::vector<std::string> &words) const;
 
-    // log10 P(word | context). `alpha` must be letters-only (alphaForm). `dictFreq` = the dictionary's f score,
+    // log10 P(word | context). `alpha` must be in form(). `dictFreq` = the dictionary's f score,
     // only used if the model doesn't know the word.
     float logProb(const Context &c, std::string_view alpha, float dictFreq) const;
     float logProb(const Context &c, uint32_t w) const;
+    // Words the model has seen right after this context (trigram, then bigram continuations; may repeat).
+    // Every other known word scores max(floor, bo3 + bo2 + unigram), i.e. in unigram order.
+    void continuations(const Context &c, std::vector<uint32_t> &out) const;
+    float unigramLogProb(uint32_t w) const { return loaded() && w < vocab_ ? uni_lp_[w] : floor_; }
+    float floorLogProb() const { return floor_; }
 
     // Writes `d` as a model file (atomically: temp file + rename). False on any I/O error.
     static bool write(const std::string &path, const NgramModelData &d);
@@ -90,6 +105,8 @@ private:
     const uint32_t *bi_off_ = nullptr, *bi_w_ = nullptr, *bi_tri_ = nullptr, *tri_w_ = nullptr;
     const int16_t *bi_lp_ = nullptr, *bi_bo_ = nullptr, *tri_lp_ = nullptr;
     std::unordered_map<std::string_view, uint32_t> ids_;
+    bool apostrophes_ = false;
+    std::unordered_map<std::string, uint32_t> alias_;   // letters only -> most likely word with those letters
 };
 
 } // namespace swipekb

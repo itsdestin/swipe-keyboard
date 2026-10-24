@@ -1,8 +1,13 @@
+// SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+//
+// SPDX-License-Identifier: MIT
+
 // Offline authored/supplied fixtures only. Never opens a recorder, editor or runtime keyboard.
 #include "languageevaluation.h"
 #include "languageprofile.h"
 #include "languagetextrules.h"
-#include "swipekb/recognizer.hpp"
+#include "languageruntime.h"
+#include "swipekb/language_engine.hpp"
 #include <QCoreApplication>
 #include <QCryptographicHash>
 #include <QCommandLineParser>
@@ -45,7 +50,11 @@ std::vector<swipekb::KeyRect> keysFor(const QJsonObject &c) {
 std::vector<swipekb::TracePoint> traceFor(const QJsonObject &c,const std::vector<swipekb::KeyRect> &keys) {
     std::vector<swipekb::TracePoint> trace;
     const auto provenance=text(c,"provenance");
-    if(provenance=="supplied-human") {
+    // WHY synthetic-noisy-v1 shares the explicit-points path: its traces come from a noise model
+    // (bench/languages/make-noisy-swipes.py) but are replayed exactly like supplied points.
+    // It is never human, so the nativeReviewed check below rejects any claim of review.
+    if(provenance=="supplied-human" || provenance=="synthetic-noisy-v1") {
+        require(provenance!="synthetic-noisy-v1" || (c["nativeReviewed"].isBool() && !c["nativeReviewed"].toBool()));
         require(c["points"].isArray() && !c.contains("traceKeys"));
         double last=-1;
         for(const auto &v:c["points"].toArray()) {
@@ -76,7 +85,7 @@ QSet<QString> dictionaryFor(const QString &path) {
     }
     require(!words.isEmpty()); return words;
 }
-struct Runtime { swipekb::ProfileSnapshot profile; std::unique_ptr<swipekb::Recognizer> engine; QSet<QString> dictionary; };
+struct Runtime { swipekb::ProfileSnapshot profile; std::unique_ptr<swipekb::LanguageEngine> engine; QSet<QString> dictionary; };
 }
 int main(int argc,char **argv)
 {
@@ -84,6 +93,9 @@ int main(int argc,char **argv)
     for(const auto &name:{"dataset","model-root","packs-root"}) parser.addOption(QCommandLineOption(name,name,"value"));
     // WHY inspect the existing beam without changing the default fixture or lexical matching policy.
     parser.addOption(QCommandLineOption("candidates","Bounded beam inspection (default evaluation unchanged)","count","10"));
+    // WHY: measures the guesses after the first with the rules from before they were re-chosen (AlternativeParams).
+    parser.addOption(QCommandLineOption("plain-alternatives","Guesses after the first in plain search order"));
+    parser.addOption(QCommandLineOption("alternatives","Rules for the guesses after the first: weight,minFreq,nameFreq,stretched(0|1)","rules"));
     parser.process(app);
     bool validCount=false;
     const int candidateCount=parser.value("candidates").toInt(&validCount);
@@ -112,23 +124,27 @@ int main(int argc,char **argv)
                 {"provenance",text(c,"provenance")},{"nativeReviewed",c["nativeReviewed"].toBool()}};
             const auto keys=keysFor(c); const auto trace=traceFor(c,keys);
             const auto language=swipekb::canonicalLocale(locale).section('-',0,0);
-            swipekb::RecognizerOptions options; options.language=language.toStdString(); options.alphabet=swipekb::languageAlphabet(language).toStdString();
-            for(char32_t letter:swipekb::languageAlphabet(language).toUcs4()) {
-                auto base=swipekb::popupBase(letter,language); if(base!=letter) options.popupAliases[letter]=base;
-            }
-            require(swipekb::normalize(trace,keys,options.alphabet,options.popupAliases).has_value());
+            require(swipekb::normalize(trace,keys,swipekb::languageAlphabet(language).toStdString(),swipekb::popupAliasesFor(language)).has_value());
             result["geometryCovered"]=true;
             if(!runtimes.contains(group)) {
                 auto runtime=std::make_shared<Runtime>();
                 runtime->profile=swipekb::resolveProfile(locale,layout,"Latin",parser.value(language=="en" ? "model-root" : "packs-root"));
                 if(runtime->profile.capabilities.swipe) {
                     const auto &p=runtime->profile;
-                    swipekb::ModelPaths paths; auto path=[&](const QString &role) { return p.assets.value(role).path.toStdString(); };
-                    paths.encoder=path("encoder"); paths.dictionary=path("dictionary"); paths.decoder=path("decoder");
-                    paths.lm_model=path("contextModel"); paths.lm_vocab=path("contextVocab");
+                    // WHY the plugin's own setup function and texting words: the bench measures what the keyboard does.
+                    swipekb::LanguageEngineSetup setup;
                     runtime->dictionary=dictionaryFor(p.assets.value("dictionary").path);
-                    runtime->engine=std::make_unique<swipekb::Recognizer>();
-                    if(!runtime->engine->init(paths,options)) runtime->engine.reset();
+                    runtime->engine=std::make_unique<swipekb::LanguageEngine>();
+                    if(!swipekb::configureLanguageEngine(p,setup) || !runtime->engine->init(setup)) runtime->engine.reset();
+                    else {
+                        runtime->engine->liftWords(swipekb::textingWordPairs(language));
+                        runtime->engine->setCapitals(swipekb::capitalsFor(language));
+                        if(parser.isSet("plain-alternatives")) runtime->engine->setAlternativeParams({16,0.f,0,0,1e9f,false});
+                        if(parser.isSet("alternatives")) {
+                            const auto r=parser.value("alternatives").split(',');
+                            if(r.size()==4) runtime->engine->setAlternativeParams({16,r[0].toFloat(),r[1].toInt(),r[2].toInt(),1e9f,r[3]=="1"});
+                        }
+                    }
                 }
                 runtimes[group]=runtime;
             }

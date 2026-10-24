@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+
 """Download Valve's public client manifests and packages, and verify them.
 
 WHY so strict: the manifest and zips come from a third-party server. Nothing in them is allowed to

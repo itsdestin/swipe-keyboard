@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+
 """make-slice.py SRC N DEST — write N lines spread evenly across SRC (every k-th line) to DEST.
 WHY evenly spread: test.jsonl is grouped by contributor session, so the first N lines would grade
 only a handful of people. Deterministic, so every scoreboard run sees the same swipes."""

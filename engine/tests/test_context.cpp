@@ -1,6 +1,10 @@
+// SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+//
+// SPDX-License-Identifier: MIT
+
 #include <gtest/gtest.h>
 
-#include "swipekb/recognizer.hpp"
+#include "swipekb/text.hpp"
 
 using swipekb::contextWords;
 using V = std::vector<std::string>;

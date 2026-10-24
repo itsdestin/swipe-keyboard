@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+
 """Opt-in: download Valve's real public bundles and run the canary. Off by default (slow, needs network).
 Run with: STEAM_CANARY_LIVE=1 python3 -m unittest test_real_bundles
 WHY opt-in: the repository must not carry Valve's UI code, so real bundles are fetched at test time only."""

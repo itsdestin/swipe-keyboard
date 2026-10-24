@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+
 """Trusted final same-run job only; never overwrite an existing release (including v0.2.0)."""
 import os
 from pathlib import Path

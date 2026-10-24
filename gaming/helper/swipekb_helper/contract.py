@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+
 """The on-device half of the shared contract (gaming/contract/gaming-contract.json, 'device' block).
 The daily canary reads the same file's 'checks'; this reads 'device'. One source of truth."""
 import json

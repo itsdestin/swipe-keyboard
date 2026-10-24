@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+
 # Swipe Keyboard for Steam Deck: daily automatic update (run by swipekb-update.timer; plan:
 # docs/active/plans/2026-10-23-auto-updates.md). It asks Flatpak to update only our two apps from the signed update
 # site that install.sh set up. Flatpak refuses anything not signed with the Swipe Keyboard update key.

@@ -1,0 +1,402 @@
+# Sources for the numbers in the model cards and the methods page
+
+Each section lists the passages of one document that quote a number or a factual claim, with the repository file (and section or commit) it comes from. Paths are relative to the root of https://github.com/itsdestin/swipe-keyboard unless they start with `~/.cache/` (the training machine's cache, not in the repository). `bench/scoreboard.tsv` commits: a2041d8 = n-gram files only; d63a2ce = n-gram files plus the neural next-word models; 7f53d8c = the keyboard's older Tatoeba-only files.
+
+## models/README.md
+
+- (paragraph above)
+  - source: sizes and licences: packaging/assets.lock.json trained_models
+
+## models/next-word-english/README.md
+
+- - Header values read from the shipped file: word-vector size 128, LSTM hidden size 1024, vocabulary 23,778 tokens (23,775 words plus three s...
+  - source: derived, not logged: V*128 + 2*(4096*128) + 128*1024 + V + 4096 for V=23778
+- - Header values read from the shipped file: word-vector size 128, LSTM hidden size 1024, vocabulary 23,778 tokens (23,775 words plus three s...
+  - source: packaging/assets.lock.json trained_models.nextWord.en.bytes; header read directly from the file with struct.unpack
+- 3. **Blend:** for words both sources know, score = lambda x model log-probability + (1 - lambda) x n-gram log-probability. For words only th...
+  - source: file header of en.nwp.bin; tuning: ~/.cache/swipe-keyboard-train/nwp/tune-en.txt
+- The loader refuses a file with a wrong magic, an unknown version, out-of-range sizes, a length that does not match the header exactly, or a ...
+  - source: packaging/assets.lock.json trained_models.nextWord.en.sha256; recomputed with sha256sum on ~/.cache/swipe-keyboard-train/nwp/en/en.nwp.bin: equal
+- Vocabulary: the most frequent words, up to 24,000, that are also in the keyboard's word list (so every suggestion is something the keyboard ...
+  - source: scripts/lm/nwp/prepare.py --size 24000 default; the shipped vocabulary has 23,775 words
+- **Test-set exclusion.** Any training sentence that shares a run of 8 words with any sentence of the three test sets (everyday, web, Tatoeba)...
+  - source: scripts/lm/nwp/prepare.py docstring; scripts/lm/build-fineweb2-model.py RUN = 8
+- - Script defaults: AdamW, peak learning rate 2e-3 (betas 0.9, 0.98), 300 warm-up steps then cosine decay to 3 %, about 24,576 tokens per ste...
+  - source: scripts/lm/nwp/train.py defaults
+- - Blend weights chosen afterwards by `scripts/lm/nwp/tune.py` on test-set sentences 1000 and beyond, which the scoreboard (first 300 sentenc...
+  - source: ~/.cache/swipe-keyboard-train/nwp/tune-en.txt
+- Measured by `bench/scoreboard.sh` (the keyboard's own prediction code, replayed sentence by sentence) on **300 sentences per test set**, whi...
+  - source: bench/scoreboard.sh header comment (--sentences 300; "~2,000 scored words per measure")
+- table row: Common Voice everyday sentences (CC0) | next word, right word in top 3 | 25.97 | 29.36 | +3.39
+  - source: bench/scoreboard.tsv, commit a2041d8 (n-gram only) and d63a2ce (with models), lang=en, measure=next_everyday_top3
+- table row: Common Voice everyday sentences (CC0) | after 1 letter, top 2 | 47.28 | 51.96 | +4.68
+  - source: bench/scoreboard.tsv, commit a2041d8 (n-gram only) and d63a2ce (with models), lang=en, measure=complete1_everyday_top2
+- table row: Common Voice everyday sentences (CC0) | after 3 letters, top 2 | 66.21 | 71.97 | +5.76
+  - source: bench/scoreboard.tsv, commit a2041d8 (n-gram only) and d63a2ce (with models), lang=en, measure=complete3_everyday_top2
+- table row: FineWeb test text (sample shard 001, not trained on) | next word, right word in top 3 | 26.23 | 31.62 | +5.39
+  - source: bench/scoreboard.tsv, commit a2041d8 (n-gram only) and d63a2ce (with models), lang=en, measure=next_web_top3
+- table row: FineWeb test text (sample shard 001, not trained on) | after 1 letter, top 2 | 44.42 | 52.89 | +8.47
+  - source: bench/scoreboard.tsv, commit a2041d8 (n-gram only) and d63a2ce (with models), lang=en, measure=complete1_web_top2
+- table row: FineWeb test text (sample shard 001, not trained on) | after 3 letters, top 2 | 65.21 | 73.53 | +8.32
+  - source: bench/scoreboard.tsv, commit a2041d8 (n-gram only) and d63a2ce (with models), lang=en, measure=complete3_web_top2
+- table row: Tatoeba held-out tenth | next word, right word in top 3 | 40.61 | 43.83 | +3.22
+  - source: bench/scoreboard.tsv, commit a2041d8 (n-gram only) and d63a2ce (with models), lang=en, measure=next_tatoeba_top3
+- table row: Tatoeba held-out tenth | after 1 letter, top 2 | 67.46 | 67.82 | +0.36
+  - source: bench/scoreboard.tsv, commit a2041d8 (n-gram only) and d63a2ce (with models), lang=en, measure=complete1_tatoeba_top2
+- table row: Tatoeba held-out tenth | after 3 letters, top 2 | 86.83 | 88.97 | +2.14
+  - source: bench/scoreboard.tsv, commit a2041d8 (n-gram only) and d63a2ce (with models), lang=en, measure=complete3_tatoeba_top2
+- table row: Common Voice everyday | 20.0 | 25.97 | 29.36
+  - source: FUTO figure from docs/active/plans/2026-10-22-open-engine-roadmap.md, 'Phase 1 > English pack built'; ours bench/scoreboard.tsv a2041d8/d63a2ce en next_everyday_top3
+- table row: FineWeb test pages | 23.0 | 26.23 | 31.62
+  - source: same roadmap paragraph; bench/scoreboard.tsv en next_web_top3
+- table row: Tatoeba held-out tenth | 22.9 | 40.61 | 43.83
+  - source: same roadmap paragraph; bench/scoreboard.tsv en next_tatoeba_top3
+- table row: everyday (Common Voice) | 0 | +1.31 | +6.18
+  - source: bench/scoreboard.tsv, commits a2041d8/d63a2ce, lang=en, measure=vs_gboard_everyday_0letters
+- table row: everyday (Common Voice) | 1 | +5.49 | +11.95
+  - source: bench/scoreboard.tsv, commits a2041d8/d63a2ce, lang=en, measure=vs_gboard_everyday_1letters
+- table row: everyday (Common Voice) | 2 | +7.50 | +12.67
+  - source: bench/scoreboard.tsv, commits a2041d8/d63a2ce, lang=en, measure=vs_gboard_everyday_2letters
+- table row: everyday (Common Voice) | 3 | +6.74 | +11.69
+  - source: bench/scoreboard.tsv, commits a2041d8/d63a2ce, lang=en, measure=vs_gboard_everyday_3letters
+- table row: web (FineWeb) | 0 | +3.65 | +9.14
+  - source: bench/scoreboard.tsv, commits a2041d8/d63a2ce, lang=en, measure=vs_gboard_web_0letters
+- table row: web (FineWeb) | 1 | +4.51 | +12.87
+  - source: bench/scoreboard.tsv, commits a2041d8/d63a2ce, lang=en, measure=vs_gboard_web_1letters
+- table row: web (FineWeb) | 2 | +9.37 | +18.32
+  - source: bench/scoreboard.tsv, commits a2041d8/d63a2ce, lang=en, measure=vs_gboard_web_2letters
+- table row: web (FineWeb) | 3 | +7.87 | +16.52
+  - source: bench/scoreboard.tsv, commits a2041d8/d63a2ce, lang=en, measure=vs_gboard_web_3letters
+- - **Gain varies by test set and measure:** measured changes against the n-gram pack alone range from +0.36 (Tatoeba held-out tenth, after 1 ...
+  - source: bench/scoreboard.tsv as in the table above
+- `en.nwp.bin`: **ODC-By-1.0 AND CC-BY-2.0-FR** (SPDX-style expression; the file is derived from ODC-By 1.0 web text and CC BY 2.0 France Tato...
+  - source: packaging/assets.lock.json trained_models.nextWord.en.license
+
+## models/next-word-spanish/README.md
+
+- - Header values read from the shipped file: word-vector size 128, LSTM hidden size 1024, vocabulary 24,002 tokens (23,999 words plus three s...
+  - source: derived, not logged: V*128 + 2*(4096*128) + 128*1024 + V + 4096 for V=24002
+- - Header values read from the shipped file: word-vector size 128, LSTM hidden size 1024, vocabulary 24,002 tokens (23,999 words plus three s...
+  - source: packaging/assets.lock.json trained_models.nextWord.es.bytes; header read directly from the file with struct.unpack
+- 3. **Blend:** for words both sources know, score = lambda x model log-probability + (1 - lambda) x n-gram log-probability. For words only th...
+  - source: file header of es.nwp.bin; tuning: ~/.cache/swipe-keyboard-train/nwp/tune-es.txt
+- The loader refuses a file with a wrong magic, an unknown version, out-of-range sizes, a length that does not match the header exactly, or a ...
+  - source: packaging/assets.lock.json trained_models.nextWord.es.sha256; recomputed with sha256sum on ~/.cache/swipe-keyboard-train/nwp/es/es.nwp.bin: equal
+- Vocabulary: the most frequent words, up to 24,000, that are also in the keyboard's word list (so every suggestion is something the keyboard ...
+  - source: scripts/lm/nwp/prepare.py --size 24000 default; the shipped vocabulary has 23,999 words
+- **Test-set exclusion.** Any training sentence that shares a run of 8 words with any sentence of the three test sets (everyday, web, Tatoeba)...
+  - source: scripts/lm/nwp/prepare.py docstring; scripts/lm/build-fineweb2-model.py RUN = 8
+- - Script defaults: AdamW, peak learning rate 2e-3 (betas 0.9, 0.98), 300 warm-up steps then cosine decay to 3 %, about 24,576 tokens per ste...
+  - source: scripts/lm/nwp/train.py defaults
+- - Blend weights chosen afterwards by `scripts/lm/nwp/tune.py` on test-set sentences 1000 and beyond, which the scoreboard (first 300 sentenc...
+  - source: ~/.cache/swipe-keyboard-train/nwp/tune-es.txt
+- Measured by `bench/scoreboard.sh` (the keyboard's own prediction code, replayed sentence by sentence) on **300 sentences per test set**, whi...
+  - source: bench/scoreboard.sh header comment (--sentences 300; "~2,000 scored words per measure")
+- table row: Common Voice everyday sentences (CC0) | next word, right word in top 3 | 25.01 | 26.27 | +1.26
+  - source: bench/scoreboard.tsv, commit a2041d8 (n-gram only) and d63a2ce (with models), lang=es, measure=next_everyday_top3
+- table row: Common Voice everyday sentences (CC0) | after 1 letter, top 2 | 47.85 | 49.93 | +2.08
+  - source: bench/scoreboard.tsv, commit a2041d8 (n-gram only) and d63a2ce (with models), lang=es, measure=complete1_everyday_top2
+- table row: Common Voice everyday sentences (CC0) | after 3 letters, top 2 | 60.73 | 67.08 | +6.35
+  - source: bench/scoreboard.tsv, commit a2041d8 (n-gram only) and d63a2ce (with models), lang=es, measure=complete3_everyday_top2
+- table row: FineWeb-2 test pages | next word, right word in top 3 | 27.49 | 33.25 | +5.76
+  - source: bench/scoreboard.tsv, commit a2041d8 (n-gram only) and d63a2ce (with models), lang=es, measure=next_web_top3
+- table row: FineWeb-2 test pages | after 1 letter, top 2 | 49.77 | 56.57 | +6.80
+  - source: bench/scoreboard.tsv, commit a2041d8 (n-gram only) and d63a2ce (with models), lang=es, measure=complete1_web_top2
+- table row: FineWeb-2 test pages | after 3 letters, top 2 | 65.78 | 75.10 | +9.32
+  - source: bench/scoreboard.tsv, commit a2041d8 (n-gram only) and d63a2ce (with models), lang=es, measure=complete3_web_top2
+- table row: Tatoeba held-out tenth | next word, right word in top 3 | 30.06 | 31.32 | +1.26
+  - source: bench/scoreboard.tsv, commit a2041d8 (n-gram only) and d63a2ce (with models), lang=es, measure=next_tatoeba_top3
+- table row: Tatoeba held-out tenth | after 1 letter, top 2 | 56.02 | 58.58 | +2.56
+  - source: bench/scoreboard.tsv, commit a2041d8 (n-gram only) and d63a2ce (with models), lang=es, measure=complete1_tatoeba_top2
+- table row: Tatoeba held-out tenth | after 3 letters, top 2 | 73.77 | 77.24 | +3.47
+  - source: bench/scoreboard.tsv, commit a2041d8 (n-gram only) and d63a2ce (with models), lang=es, measure=complete3_tatoeba_top2
+- table row: Common Voice everyday sentences (CC0) | next word, top 3 | 21.22 | 26.27
+  - source: bench/scoreboard.tsv commit 7f53d8c label 'installed packs (Tatoeba-only)' and commit d63a2ce, lang=es, measure=next_everyday_top3
+- table row: Common Voice everyday sentences (CC0) | after 1 letter, top 2 | 43.83 | 49.93
+  - source: bench/scoreboard.tsv commit 7f53d8c label 'installed packs (Tatoeba-only)' and commit d63a2ce, lang=es, measure=complete1_everyday_top2
+- table row: FineWeb-2 test pages | next word, top 3 | 21.20 | 33.25
+  - source: bench/scoreboard.tsv commit 7f53d8c label 'installed packs (Tatoeba-only)' and commit d63a2ce, lang=es, measure=next_web_top3
+- table row: FineWeb-2 test pages | after 1 letter, top 2 | 41.63 | 56.57
+  - source: bench/scoreboard.tsv commit 7f53d8c label 'installed packs (Tatoeba-only)' and commit d63a2ce, lang=es, measure=complete1_web_top2
+- table row: Tatoeba held-out tenth | next word, top 3 | 31.73 | 31.32
+  - source: bench/scoreboard.tsv commit 7f53d8c label 'installed packs (Tatoeba-only)' and commit d63a2ce, lang=es, measure=next_tatoeba_top3
+- table row: Tatoeba held-out tenth | after 1 letter, top 2 | 57.23 | 58.58
+  - source: bench/scoreboard.tsv commit 7f53d8c label 'installed packs (Tatoeba-only)' and commit d63a2ce, lang=es, measure=complete1_tatoeba_top2
+- table row: everyday (Common Voice) | 0 | +2.16 | +4.89
+  - source: bench/scoreboard.tsv, commits a2041d8/d63a2ce, lang=es, measure=vs_gboard_everyday_0letters
+- table row: everyday (Common Voice) | 1 | +2.99 | +6.58
+  - source: bench/scoreboard.tsv, commits a2041d8/d63a2ce, lang=es, measure=vs_gboard_everyday_1letters
+- table row: everyday (Common Voice) | 2 | +2.20 | +8.80
+  - source: bench/scoreboard.tsv, commits a2041d8/d63a2ce, lang=es, measure=vs_gboard_everyday_2letters
+- table row: everyday (Common Voice) | 3 | +4.54 | +12.88
+  - source: bench/scoreboard.tsv, commits a2041d8/d63a2ce, lang=es, measure=vs_gboard_everyday_3letters
+- table row: web (FineWeb-2) | 0 | +4.87 | +11.67
+  - source: bench/scoreboard.tsv, commits a2041d8/d63a2ce, lang=es, measure=vs_gboard_web_0letters
+- table row: web (FineWeb-2) | 1 | +8.92 | +17.46
+  - source: bench/scoreboard.tsv, commits a2041d8/d63a2ce, lang=es, measure=vs_gboard_web_1letters
+- table row: web (FineWeb-2) | 2 | +10.75 | +19.59
+  - source: bench/scoreboard.tsv, commits a2041d8/d63a2ce, lang=es, measure=vs_gboard_web_2letters
+- table row: web (FineWeb-2) | 3 | +11.05 | +19.53
+  - source: bench/scoreboard.tsv, commits a2041d8/d63a2ce, lang=es, measure=vs_gboard_web_3letters
+- - **Gain varies by test set and measure:** measured changes against the n-gram pack alone range from +1.26 (Common Voice everyday sentences ...
+  - source: bench/scoreboard.tsv as in the table above
+- `es.nwp.bin`: **ODC-By-1.0 AND CC-BY-2.0-FR** (SPDX-style expression; the file is derived from ODC-By 1.0 web text and CC BY 2.0 France Tato...
+  - source: packaging/assets.lock.json trained_models.nextWord.es.license
+
+## models/next-word-french/README.md
+
+- - Header values read from the shipped file: word-vector size 128, LSTM hidden size 1024, vocabulary 23,923 tokens (23,920 words plus three s...
+  - source: derived, not logged: V*128 + 2*(4096*128) + 128*1024 + V + 4096 for V=23923
+- - Header values read from the shipped file: word-vector size 128, LSTM hidden size 1024, vocabulary 23,923 tokens (23,920 words plus three s...
+  - source: packaging/assets.lock.json trained_models.nextWord.fr.bytes; header read directly from the file with struct.unpack
+- 3. **Blend:** for words both sources know, score = lambda x model log-probability + (1 - lambda) x n-gram log-probability. For words only th...
+  - source: file header of fr.nwp.bin; tuning: ~/.cache/swipe-keyboard-train/nwp/tune-fr.txt
+- The loader refuses a file with a wrong magic, an unknown version, out-of-range sizes, a length that does not match the header exactly, or a ...
+  - source: packaging/assets.lock.json trained_models.nextWord.fr.sha256; recomputed with sha256sum on ~/.cache/swipe-keyboard-train/nwp/fr/fr.nwp.bin: equal
+- Vocabulary: the most frequent words, up to 24,000, that are also in the keyboard's word list (so every suggestion is something the keyboard ...
+  - source: scripts/lm/nwp/prepare.py --size 24000 default; the shipped vocabulary has 23,920 words
+- **Test-set exclusion.** Any training sentence that shares a run of 8 words with any sentence of the three test sets (everyday, web, Tatoeba)...
+  - source: scripts/lm/nwp/prepare.py docstring; scripts/lm/build-fineweb2-model.py RUN = 8
+- - Script defaults: AdamW, peak learning rate 2e-3 (betas 0.9, 0.98), 300 warm-up steps then cosine decay to 3 %, about 24,576 tokens per ste...
+  - source: scripts/lm/nwp/train.py defaults
+- - Blend weights chosen afterwards by `scripts/lm/nwp/tune.py` on test-set sentences 1000 and beyond, which the scoreboard (first 300 sentenc...
+  - source: ~/.cache/swipe-keyboard-train/nwp/tune-fr.txt
+- Measured by `bench/scoreboard.sh` (the keyboard's own prediction code, replayed sentence by sentence) on **300 sentences per test set**, whi...
+  - source: bench/scoreboard.sh header comment (--sentences 300; "~2,000 scored words per measure")
+- table row: Common Voice everyday sentences (CC0) | next word, right word in top 3 | 20.46 | 22.10 | +1.64
+  - source: bench/scoreboard.tsv, commit a2041d8 (n-gram only) and d63a2ce (with models), lang=fr, measure=next_everyday_top3
+- table row: Common Voice everyday sentences (CC0) | after 1 letter, top 2 | 44.61 | 46.46 | +1.85
+  - source: bench/scoreboard.tsv, commit a2041d8 (n-gram only) and d63a2ce (with models), lang=fr, measure=complete1_everyday_top2
+- table row: Common Voice everyday sentences (CC0) | after 3 letters, top 2 | 60.38 | 65.44 | +5.06
+  - source: bench/scoreboard.tsv, commit a2041d8 (n-gram only) and d63a2ce (with models), lang=fr, measure=complete3_everyday_top2
+- table row: FineWeb-2 test pages | next word, right word in top 3 | 26.11 | 31.97 | +5.86
+  - source: bench/scoreboard.tsv, commit a2041d8 (n-gram only) and d63a2ce (with models), lang=fr, measure=next_web_top3
+- table row: FineWeb-2 test pages | after 1 letter, top 2 | 46.80 | 54.07 | +7.27
+  - source: bench/scoreboard.tsv, commit a2041d8 (n-gram only) and d63a2ce (with models), lang=fr, measure=complete1_web_top2
+- table row: FineWeb-2 test pages | after 3 letters, top 2 | 65.05 | 73.70 | +8.65
+  - source: bench/scoreboard.tsv, commit a2041d8 (n-gram only) and d63a2ce (with models), lang=fr, measure=complete3_web_top2
+- table row: Tatoeba held-out tenth | next word, right word in top 3 | 31.87 | 32.79 | +0.92
+  - source: bench/scoreboard.tsv, commit a2041d8 (n-gram only) and d63a2ce (with models), lang=fr, measure=next_tatoeba_top3
+- table row: Tatoeba held-out tenth | after 1 letter, top 2 | 58.57 | 59.35 | +0.78
+  - source: bench/scoreboard.tsv, commit a2041d8 (n-gram only) and d63a2ce (with models), lang=fr, measure=complete1_tatoeba_top2
+- table row: Tatoeba held-out tenth | after 3 letters, top 2 | 71.10 | 74.47 | +3.37
+  - source: bench/scoreboard.tsv, commit a2041d8 (n-gram only) and d63a2ce (with models), lang=fr, measure=complete3_tatoeba_top2
+- table row: Common Voice everyday sentences (CC0) | next word, top 3 | 18.24 | 22.10
+  - source: bench/scoreboard.tsv commit 7f53d8c label 'installed packs (Tatoeba-only)' and commit d63a2ce, lang=fr, measure=next_everyday_top3
+- table row: Common Voice everyday sentences (CC0) | after 1 letter, top 2 | 41.46 | 46.46
+  - source: bench/scoreboard.tsv commit 7f53d8c label 'installed packs (Tatoeba-only)' and commit d63a2ce, lang=fr, measure=complete1_everyday_top2
+- table row: FineWeb-2 test pages | next word, top 3 | 19.34 | 31.97
+  - source: bench/scoreboard.tsv commit 7f53d8c label 'installed packs (Tatoeba-only)' and commit d63a2ce, lang=fr, measure=next_web_top3
+- table row: FineWeb-2 test pages | after 1 letter, top 2 | 38.04 | 54.07
+  - source: bench/scoreboard.tsv commit 7f53d8c label 'installed packs (Tatoeba-only)' and commit d63a2ce, lang=fr, measure=complete1_web_top2
+- table row: Tatoeba held-out tenth | next word, top 3 | 31.73 | 32.79
+  - source: bench/scoreboard.tsv commit 7f53d8c label 'installed packs (Tatoeba-only)' and commit d63a2ce, lang=fr, measure=next_tatoeba_top3
+- table row: Tatoeba held-out tenth | after 1 letter, top 2 | 57.84 | 59.35
+  - source: bench/scoreboard.tsv commit 7f53d8c label 'installed packs (Tatoeba-only)' and commit d63a2ce, lang=fr, measure=complete1_tatoeba_top2
+- table row: everyday (Common Voice) | 0 | +3.64 | +5.97
+  - source: bench/scoreboard.tsv, commits a2041d8/d63a2ce, lang=fr, measure=vs_gboard_everyday_0letters
+- table row: everyday (Common Voice) | 1 | +3.26 | +4.29
+  - source: bench/scoreboard.tsv, commits a2041d8/d63a2ce, lang=fr, measure=vs_gboard_everyday_1letters
+- table row: everyday (Common Voice) | 2 | +4.34 | +9.43
+  - source: bench/scoreboard.tsv, commits a2041d8/d63a2ce, lang=fr, measure=vs_gboard_everyday_2letters
+- table row: everyday (Common Voice) | 3 | +4.12 | +9.38
+  - source: bench/scoreboard.tsv, commits a2041d8/d63a2ce, lang=fr, measure=vs_gboard_everyday_3letters
+- table row: web (FineWeb-2) | 0 | +3.78 | +8.99
+  - source: bench/scoreboard.tsv, commits a2041d8/d63a2ce, lang=fr, measure=vs_gboard_web_0letters
+- table row: web (FineWeb-2) | 1 | +5.51 | +12.70
+  - source: bench/scoreboard.tsv, commits a2041d8/d63a2ce, lang=fr, measure=vs_gboard_web_1letters
+- table row: web (FineWeb-2) | 2 | +6.97 | +14.56
+  - source: bench/scoreboard.tsv, commits a2041d8/d63a2ce, lang=fr, measure=vs_gboard_web_2letters
+- table row: web (FineWeb-2) | 3 | +4.01 | +13.53
+  - source: bench/scoreboard.tsv, commits a2041d8/d63a2ce, lang=fr, measure=vs_gboard_web_3letters
+- - **Gain varies by test set and measure:** measured changes against the n-gram pack alone range from +0.78 (Tatoeba held-out tenth, after 1 ...
+  - source: bench/scoreboard.tsv as in the table above
+- `fr.nwp.bin`: **ODC-By-1.0 AND CC-BY-2.0-FR** (SPDX-style expression; the file is derived from ODC-By 1.0 web text and CC BY 2.0 France Tato...
+  - source: packaging/assets.lock.json trained_models.nextWord.fr.license
+
+## models/next-word-german/README.md
+
+- - Header values read from the shipped file: word-vector size 128, LSTM hidden size 1024, vocabulary 23,990 tokens (23,987 words plus three s...
+  - source: derived, not logged: V*128 + 2*(4096*128) + 128*1024 + V + 4096 for V=23990
+- - Header values read from the shipped file: word-vector size 128, LSTM hidden size 1024, vocabulary 23,990 tokens (23,987 words plus three s...
+  - source: packaging/assets.lock.json trained_models.nextWord.de.bytes; header read directly from the file with struct.unpack
+- 3. **Blend:** for words both sources know, score = lambda x model log-probability + (1 - lambda) x n-gram log-probability. For words only th...
+  - source: file header of de.nwp.bin; tuning: ~/.cache/swipe-keyboard-train/nwp/tune-de.txt
+- The loader refuses a file with a wrong magic, an unknown version, out-of-range sizes, a length that does not match the header exactly, or a ...
+  - source: packaging/assets.lock.json trained_models.nextWord.de.sha256; recomputed with sha256sum on ~/.cache/swipe-keyboard-train/nwp/de/de.nwp.bin: equal
+- Vocabulary: the most frequent words, up to 24,000, that are also in the keyboard's word list (so every suggestion is something the keyboard ...
+  - source: scripts/lm/nwp/prepare.py --size 24000 default; the shipped vocabulary has 23,987 words
+- **Test-set exclusion.** Any training sentence that shares a run of 8 words with any sentence of the three test sets (everyday, web, Tatoeba)...
+  - source: scripts/lm/nwp/prepare.py docstring; scripts/lm/build-fineweb2-model.py RUN = 8
+- - Script defaults: AdamW, peak learning rate 2e-3 (betas 0.9, 0.98), 300 warm-up steps then cosine decay to 3 %, about 24,576 tokens per ste...
+  - source: scripts/lm/nwp/train.py defaults
+- - Blend weights chosen afterwards by `scripts/lm/nwp/tune.py` on test-set sentences 1000 and beyond, which the scoreboard (first 300 sentenc...
+  - source: ~/.cache/swipe-keyboard-train/nwp/tune-de.txt
+- Measured by `bench/scoreboard.sh` (the keyboard's own prediction code, replayed sentence by sentence) on **300 sentences per test set**, whi...
+  - source: bench/scoreboard.sh header comment (--sentences 300; "~2,000 scored words per measure")
+- table row: Common Voice everyday sentences (CC0) | next word, right word in top 3 | 21.24 | 25.04 | +3.80
+  - source: bench/scoreboard.tsv, commit a2041d8 (n-gram only) and d63a2ce (with models), lang=de, measure=next_everyday_top3
+- table row: Common Voice everyday sentences (CC0) | after 1 letter, top 2 | 43.43 | 48.70 | +5.27
+  - source: bench/scoreboard.tsv, commit a2041d8 (n-gram only) and d63a2ce (with models), lang=de, measure=complete1_everyday_top2
+- table row: Common Voice everyday sentences (CC0) | after 3 letters, top 2 | 65.48 | 70.01 | +4.53
+  - source: bench/scoreboard.tsv, commit a2041d8 (n-gram only) and d63a2ce (with models), lang=de, measure=complete3_everyday_top2
+- table row: FineWeb-2 test pages | next word, right word in top 3 | 19.25 | 24.22 | +4.97
+  - source: bench/scoreboard.tsv, commit a2041d8 (n-gram only) and d63a2ce (with models), lang=de, measure=next_web_top3
+- table row: FineWeb-2 test pages | after 1 letter, top 2 | 40.59 | 47.46 | +6.87
+  - source: bench/scoreboard.tsv, commit a2041d8 (n-gram only) and d63a2ce (with models), lang=de, measure=complete1_web_top2
+- table row: FineWeb-2 test pages | after 3 letters, top 2 | 57.55 | 66.69 | +9.14
+  - source: bench/scoreboard.tsv, commit a2041d8 (n-gram only) and d63a2ce (with models), lang=de, measure=complete3_web_top2
+- table row: Tatoeba held-out tenth | next word, right word in top 3 | 29.92 | 31.57 | +1.65
+  - source: bench/scoreboard.tsv, commit a2041d8 (n-gram only) and d63a2ce (with models), lang=de, measure=next_tatoeba_top3
+- table row: Tatoeba held-out tenth | after 1 letter, top 2 | 54.25 | 57.87 | +3.62
+  - source: bench/scoreboard.tsv, commit a2041d8 (n-gram only) and d63a2ce (with models), lang=de, measure=complete1_tatoeba_top2
+- table row: Tatoeba held-out tenth | after 3 letters, top 2 | 72.86 | 78.40 | +5.54
+  - source: bench/scoreboard.tsv, commit a2041d8 (n-gram only) and d63a2ce (with models), lang=de, measure=complete3_tatoeba_top2
+- table row: Common Voice everyday sentences (CC0) | next word, top 3 | 18.10 | 25.04
+  - source: bench/scoreboard.tsv commit 7f53d8c label 'installed packs (Tatoeba-only)' and commit d63a2ce, lang=de, measure=next_everyday_top3
+- table row: Common Voice everyday sentences (CC0) | after 1 letter, top 2 | 40.88 | 48.70
+  - source: bench/scoreboard.tsv commit 7f53d8c label 'installed packs (Tatoeba-only)' and commit d63a2ce, lang=de, measure=complete1_everyday_top2
+- table row: FineWeb-2 test pages | next word, top 3 | 12.88 | 24.22
+  - source: bench/scoreboard.tsv commit 7f53d8c label 'installed packs (Tatoeba-only)' and commit d63a2ce, lang=de, measure=next_web_top3
+- table row: FineWeb-2 test pages | after 1 letter, top 2 | 31.80 | 47.46
+  - source: bench/scoreboard.tsv commit 7f53d8c label 'installed packs (Tatoeba-only)' and commit d63a2ce, lang=de, measure=complete1_web_top2
+- table row: Tatoeba held-out tenth | next word, top 3 | 30.98 | 31.57
+  - source: bench/scoreboard.tsv commit 7f53d8c label 'installed packs (Tatoeba-only)' and commit d63a2ce, lang=de, measure=next_tatoeba_top3
+- table row: Tatoeba held-out tenth | after 1 letter, top 2 | 55.68 | 57.87
+  - source: bench/scoreboard.tsv commit 7f53d8c label 'installed packs (Tatoeba-only)' and commit d63a2ce, lang=de, measure=complete1_tatoeba_top2
+- table row: everyday (Common Voice) | 0 | +5.19 | +7.38
+  - source: bench/scoreboard.tsv, commits a2041d8/d63a2ce, lang=de, measure=vs_gboard_everyday_0letters
+- table row: everyday (Common Voice) | 1 | +0.96 | +5.88
+  - source: bench/scoreboard.tsv, commits a2041d8/d63a2ce, lang=de, measure=vs_gboard_everyday_1letters
+- table row: everyday (Common Voice) | 2 | +0.58 | +6.40
+  - source: bench/scoreboard.tsv, commits a2041d8/d63a2ce, lang=de, measure=vs_gboard_everyday_2letters
+- table row: everyday (Common Voice) | 3 | -0.41 | +3.86
+  - source: bench/scoreboard.tsv, commits a2041d8/d63a2ce, lang=de, measure=vs_gboard_everyday_3letters
+- table row: web (FineWeb-2) | 0 | +5.07 | +9.61
+  - source: bench/scoreboard.tsv, commits a2041d8/d63a2ce, lang=de, measure=vs_gboard_web_0letters
+- table row: web (FineWeb-2) | 1 | +2.47 | +10.76
+  - source: bench/scoreboard.tsv, commits a2041d8/d63a2ce, lang=de, measure=vs_gboard_web_1letters
+- table row: web (FineWeb-2) | 2 | +4.53 | +12.08
+  - source: bench/scoreboard.tsv, commits a2041d8/d63a2ce, lang=de, measure=vs_gboard_web_2letters
+- table row: web (FineWeb-2) | 3 | +5.59 | +14.85
+  - source: bench/scoreboard.tsv, commits a2041d8/d63a2ce, lang=de, measure=vs_gboard_web_3letters
+- - **Gain varies by test set and measure:** measured changes against the n-gram pack alone range from +1.65 (Tatoeba held-out tenth, next wor...
+  - source: bench/scoreboard.tsv as in the table above
+- `de.nwp.bin`: **ODC-By-1.0 AND CC-BY-2.0-FR** (SPDX-style expression; the file is derived from ODC-By 1.0 web text and CC BY 2.0 France Tato...
+  - source: packaging/assets.lock.json trained_models.nextWord.de.license
+
+## models/swipe-typing/README.md
+
+- Headline, "At a glance", the "In the keyboard" table, the like-for-like FUTO row, the HeliBoard "in the keyboard" and "FUTO keyboard 0.4.1" columns and the limitation figures (91.47 / 94.55, 89.47, 88.15, 90.10, 75.9, 68.2, 64.7, 80.5 and the coverage 90.3 / 92.2 / 80.0 %)
+  - source: bench/swipe-scoreboard.tsv rows dated 2026-10-24 (first guesses and Spanish/French/German: build 0.5.0-0.1, commit 6c4b0c3; English top 3: build 0.5.0-0.5, commit 9d3caf5, which changed only the 2nd and 3rd guesses; both on feature/apostrophe-aware; tools/swipekb-bench and tools/swipekb-language-bench with the shipped files) and the FUTO reference rows; the 1,946-swipe denominator of FUTO's 93.32 / 96.56 follows from bench/history.tsv 370d6f5 (1,816 / 1,946 = 93.3196 %; no whole number of the 2,000 gives it) and the skip rules of its scorer (tools/swipekb-bench.cpp at 370d6f5)
+
+- **Status: an opt-in alternative engine.** In the keyboard it is used only when the user creates an `own-engine` file; FUTO's engine remains ...
+  - source: docs/active/specs/2026-10-23-own-swipe-engine.md section 7; docs/active/plans/2026-10-22-open-engine-roadmap.md "Phase 3 final scoring"
+- - A 1-D convolution stack followed by a 2-layer bidirectional GRU, trained with the CTC loss (Graves et al., 2006) on the sequence of keys t...
+  - source: header of ~/.cache/swipe-keyboard-train/release-v3/swipe-model.bin read with struct.unpack (sha256 equals the pin in packaging/assets.lock.json); 529k from docs/active/specs/2026-10-23-own-swipe-engine.md section 6 (T1 = R2 recipe, 529k parameters); bytes from assets.lock.json trained_models.swipe.bytes
+- On-device swipe typing. The keyboard supplies: the finger path (x, y, time), the live rectangles of the keys, a verified word list for the l...
+  - source: spec section 6 "Final scoring of T1 (frequency prior 0.06, geometric cross-check 40, beam 48 ..."
+- Speed on one CPU thread: about 3.5 ms per swipe (measured on a loaded desktop, plain `-O3` build).
+  - source: spec section 6, T1 final scoring "3.5 ms/swipe, one thread"
+- Because the layer sizes are stored in the file, a bigger or smaller network needs no code change. The loader validates every header field ag...
+  - source: engine/src/swipe_net.cpp loadBytes; scripts/swipe/swipelib.py export_model; packaging/assets.lock.json trained_models.swipe.sha256; packaging/language-models/README.md "Trained models"
+- Input per step (64 steps resampled by arc length): x, y, dx, dy, log elapsed time, fraction of the path done, step length, log path length.
+  - source: spec section 1
+- What exactly went into T1: about 317,000 swipes from a session-level 35 % subset of `swipe-1` to `swipe-4`, `dev.jsonl` (54,000 English swip...
+  - source: spec section 6 "FUTO public collections ... and the final model T1"
+- - `bench-2000`, `test-extra-10000` and `test.jsonl` (FUTO's MIT test split) and the validation sessions: an overlap check dropped any swipe ...
+  - source: spec section 6 "Overlap check"
+- - Script: `scripts/swipe/train.py` (PyTorch, CTC loss on the collapsed key sequence; AdamW, one-cycle learning rate). Recipe "R2": dropout 0...
+  - source: spec section 1 item 4 and section 6 table (R2 = R1 + dropout 0.2 + board-geometry aug + speed aug)
+- - Hardware: one desktop NVIDIA RTX 4070 Super. **Training time for T1: 16 minutes** for 30 epochs.
+  - source: spec section 6 "Trained once on the RTX 4070 Super: 16 min"
+- - Model selection: search settings (frequency weight, cross-check weight, beam) were fixed on the clean validation split before scoring. `be...
+  - source: spec section 6 "second scoring of these sets, for the final chosen model only"
+- (paragraph above)
+  - source: docs/active/specs/2026-10-23-own-swipe-engine.md section 6, "Final scoring of T1": bench-2000 90.40 / 94.95 all, 92.34 / 96.99 in-dictionary (1,958); test-extra-10000 90.77 / 94.97 all, 92.80 / 97.10 in-dictionary (9,781); clean3000 in-dictionary 93.13 / 97.37
+- (paragraph above)
+  - source: FUTO bench-2000 93.32 / 96.56: spec section 6 "FUTO reference on bench-2000: 93.32 / 96.56" and bench/history.tsv row 370d6f5 '[recognizer] step 1: keyboard default' (93.3196 / 96.557). clean3000 FUTO 92.5 / 96.3: spec section 6 "The coordinator's FUTO figure on clean3000 is 92.5 / 96.3 over the 2,909 swipes it can score". ours: spec section 6 T1 final scoring
+- Plainly: like-for-like, the keyboard is **1.85 points behind FUTO on first guess and 2.01 behind on top 3** (91.47 vs 93.32; 94.55 vs 9...
+  - source: arithmetic on bench/swipe-scoreboard.tsv rows (bench-2000-futo-scorable, context yes)
+- (paragraph above)
+  - source: spec section 6, T1 final scoring: "HeliBoard (test only, 260k lists; case-insensitive; all 5,000): en 82.1 / 91.5, es 81.1 / 89.8, fr 71.7 / 85.9, de 73.3 / 82.3". FUTO column: spec section 6 "Today's FUTO engine (old packs): en 84.5 / 93.4, es 77.7 / 85.1, fr 64.6 / 76.9, de 69.7 / 76.4 -- a different dictionary, so compare with care"
+- Dictionary coverage of the HeliBoard targets with the 260,000-word lists: Spanish 97.5 %, French 98.2 %, German 91.9 % (English: not stated ...
+  - source: spec section 6 "HeliBoard gesture test sets" paragraph
+- Two common HeliBoard English boards with near-identical geometry differ by 5 to 7 points for every decoder tested, so the spread between row...
+  - source: spec section 6 Notes
+- First guess. The source calls these "val slices" of the collection; it does not describe how they were separated from training in that table...
+  - source: spec section 6 table "F1 ... 79.8 / 84.7 / 81.6; T1 ... 83.2 / 90.2 / 83.2"
+- The synthetic noisy sets (`bench/languages/synthetic-noisy-v1-*.json`, 400 words each) were scored with the **older FUTO-engine keyboard**, ...
+  - source: bench/languages/README.md "Update 2026-10-22" and "Calibration"
+- When the keyboard knows the previous words, the English n-gram prior lifts T1 on a 7,198-swipe set (trv8k) from 92.19 / 95.79 to 93.10 / 95....
+  - source: spec section 6 "Sentence-context prior"; assemble_futo.py docstring ('trv' = 5 % validation with sentence text)
+- - **English is about 2 points behind FUTO's engine** like-for-like (91.47 against 93.32 first guess on the same 1,946 swipes with previous...
+  - source: bench/swipe-scoreboard.tsv; "more real English barely helped": spec section 6 T1 paragraph
+- - **Short words (3 letters or fewer)** were the other common miss when the older FUTO-engine keyboard was scored on synthetic Spanish, Frenc...
+  - source: roadmap Phase 0.5 results ("Main misses: accent twins ... and words of <=3 letters")
+- - **Layout handling is approximate where we had no real key rectangles.** The AZERTY/QWERTZ/Spanish layouts used for synthetic training are ...
+  - source: spec section 4 and section 6 Notes
+- For a day, the validation sets named `devhold-5000`, `tune-2000` and `tune-10000` were believed to be held out. They were not: all of their ...
+  - source: docs/active/plans/2026-10-22-open-engine-roadmap.md "Correction (found by the swipe helper, verified 2026-10-22)"; spec section 6 "Correction"; scripts/swipe/split_by_session.py docstring
+- `swipe-model.bin`: **MIT**. Training data: real swipes from FUTO's swipe.futo.org collections (MIT, Copyright (c) 2025 FUTO) plus our own sy...
+  - source: packaging/assets.lock.json trained_models.swipe.license = MIT; packaging/NOTICE "Trained models"
+
+## methods.md
+
+- How FUTO's engine was measured: "Both counted 1,946 of the 2,000 swipes ... previous words" and every table under "Swipe in the keyboard", "Swipe model alone" and "Swipe, other languages"
+  - source: bench/swipe-scoreboard.tsv (2026-10-24 rows; earlier rows copied from the spec with their dates); FUTO denominator as for the swipe model card above
+
+- - A change ships only if no language got worse on any scoreboard measure beyond noise: about 1 point on sets of roughly 700 words, wider set...
+  - source: docs/active/plans/2026-10-22-open-engine-roadmap.md "Rules for every phase"
+- Matching is case-insensitive for typing tasks (capitals are display, not prediction). For swipes, the ASCII benchmark compares letters only;...
+  - source: tools/swipekb-nextword-eval.cpp header comment; tools/swipekb-swipenet-bench.cpp norm(); spec section 6
+- All three sets are built by `scripts/lm/make-nextword-testsets.py` with a fixed seed so every model is scored on the same text; 2,000 senten...
+  - source: scripts/lm/make-nextword-testsets.py docstring and usable(); bench/scoreboard.sh header (--sentences 300); scripts/lm/nwp/tune.py docstring
+- (paragraph above)
+  - source: scripts/lm/make-nextword-testsets.py docstring; English web shard: roadmap "English pack built 2026-10-22 ... shard 001 = web test set"
+- (paragraph above)
+  - source: bench/score.sh (bench-N slice of eval/test.jsonl via bench/make-slice.py); spec sections 3 and 6; scripts/swipe/split_by_session.py; scripts/swipe/assemble_futo.py docstring
+- bench-2000 is scored the same way for FUTO's engine and ours. Two denominators are always reported: **all swipes** (including those whose ta...
+  - source: roadmap Phase 3 "Honest first read ... (its tool skips 3% it cannot score)"
+- - **HeliBoard real multilingual swipes** (from the HeliBoard project's gesture test data; CC BY-SA): 5,000 real swipes per language, with ea...
+  - source: spec section 1 header and section 6 "HeliBoard gesture test sets"
+- - **Synthetic noisy swipes** (`bench/languages/synthetic-noisy-v1-{es,fr,de}.json`): 400 words each, sampled by frequency from our everyday ...
+  - source: bench/languages/README.md "Synthetic noisy swipes"; spec section 3
+- - **Hand-authored fixtures** (`synthetic-centered-v1.json`, 30 seeds): not reviewed by native speakers, no thresholds attached, used for cod...
+  - source: bench/languages/README.md first paragraph
+- - **What:** Gboard 14.2 (the copy built into Google's Android 35 x86_64 emulator image; the repository records no fuller build number), lear...
+  - source: bench/gboard/README.md "What was measured"
+- - **Check that text fill matches real typing:** 30 random phrases typed with real key taps gave the same suggestions as text fill in **27 of...
+  - source: bench/gboard/README.md; roadmap "Method check"
+- - **Limits:** one Gboard version (current Gboard is newer and may differ); Gboard with learning on was not measured; learning off, so this i...
+  - source: bench/gboard/README.md "Limits"
+- 1. FUTO's own `infer_jsonl` program on the bench-2000 slice (beam width 100, top 3). With the stock dictionary this gave 92.50 first guess /...
+  - source: bench/history.tsv row 3c52c51 'baseline: stock FUTO Swipe' 92.4974 / 95.4265; bench/score.sh futo runner
+- 2. Through our own recogniser harness with FUTO's models and our current dictionary: 93.32 first guess / 96.56 top 3 on bench-2000. This is ...
+  - source: bench/history.tsv row 370d6f5 '[recognizer] step 1: keyboard default' 93.3196 / 96.557; spec section 6
+- `bench/scoreboard.sh` is one command that rebuilds the typing table for all four languages: next word, completion after 1 and 3 letters, spe...
+  - source: bench/scoreboard.sh header
+- (paragraph above)
+  - source: bench/scoreboard.tsv, columns date / commit / label
+- 1. **8-word-run exclusion (next word).** Any training sentence that shares a run of 8 consecutive words with any sentence of the three test ...
+  - source: scripts/lm/build-fineweb2-model.py (RUN = 8); scripts/lm/nwp/prepare.py; packaging/language-models/LANGUAGE-FILES-2026-10-22-open-words-NOTICE.md "Changes made"
+- 5. **Session-level splits (swipe).** Swipes from one person look alike, so a random split would leak that person into validation. Validation...
+  - source: scripts/swipe/split_by_session.py
+- 6. **Overlap check against every evaluation file.** Before training on FUTO's other collections, every swipe whose (session, timestamp) key,...
+  - source: spec section 6 "Overlap check"; scripts/swipe/assemble_futo.py
+- What we changed: validation is now whole recording sessions held out of `dev.jsonl`; model selection uses only that; bench-2000 and test-ext...
+  - source: roadmap Phase 3 progress "Correction (found by the swipe helper, verified 2026-10-22)"; spec section 6 "Correction"; scripts/swipe/split_by_session.py
+- - **FUTO code.** The own swipe engine (CTC network, lexicon beam search, geometric fallback) was written from published literature (Graves e...
+  - source: spec header "Written without reference to FUTO code, weights or documents"; roadmap Phase 0.1 audit; docs/active/investigations/2026-10-22-authorship-audit.md
+- - **A Gboard study report.** Early in the project a static study of Gboard 18.5's app code was written. It was withdrawn at the owner's requ...
+  - source: git commit cbbcaf2 "Remove the Gboard study report and its citations (owner decision)"
+- - **wordfreq.** Replaced by word lists counted from FineWeb / FineWeb-2 and Tatoeba (share-alike term removed).
+  - source: packaging/language-models/README.md
+- (paragraph above)
+  - source: bench/scoreboard.tsv commit d63a2ce, rows next_{everyday,web,tatoeba}_top3, complete1_*_top2, complete3_*_top2, vs_gboard_{everyday,web}_1letters, per language
+- The neural models add (against the n-gram files alone, commit a2041d8): between +0.36 (English, Tatoeba, after 1 letter) and +9.32 (Spanish,...
+  - source: bench/scoreboard.tsv commit 7f53d8c label 'installed packs (Tatoeba-only)', fr vs_gboard_web_1letters -5.11, fr vs_gboard_web_3letters -13.22; largest lead 2.33 (fr vs_gboard_everyday_0letters)
+- (paragraph above)
+  - source: docs/active/specs/2026-10-23-own-swipe-engine.md section 6 "Final scoring of T1" and "FUTO reference on bench-2000"
+- (paragraph above)
+  - source: spec section 6, T1 final scoring HeliBoard sentence and "Today's FUTO engine (old packs)" sentence

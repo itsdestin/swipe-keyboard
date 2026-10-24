@@ -1,10 +1,10 @@
 # Setup and recovery details
 
-For download links and short installation steps, see the [main page](../README.md#install). This page describes **v0.4.1-1**: the Deck Flatpak, Arch/CachyOS package, and Fedora x86_64 and ARM64 packages. [The r3 release notes](releases/v0.1.0-r3.md) describe the older, English-only native downloads.
+For download links and short installation steps, see the [main page](../README.md#install). This page covers the Deck Flatpak, the Arch/CachyOS package and the Fedora x86_64 and ARM64 packages. It was written for v0.4.1-1 and updated for v0.5.0-1 where the two differ. [The r3 release notes](releases/v0.1.0-r3.md) describe the older, English-only native downloads.
 
 ## Verify a download
 
-Download [SHA256SUMS](https://github.com/itsdestin/swipe-keyboard/releases/download/v0.4.1-1/SHA256SUMS) into the same folder as the package. Open a terminal there and run:
+Download [SHA256SUMS](https://github.com/itsdestin/swipe-keyboard/releases/download/v0.5.0-1/SHA256SUMS) into the same folder as the package. Open a terminal there and run:
 
 ```sh
 sha256sum --check --ignore-missing SHA256SUMS
@@ -70,7 +70,7 @@ The choices are recorded in `~/.local/share/swipe-keyboard-gaming/install-record
 
 ## Native packages: Arch/CachyOS and Fedora Plasma Mobile
 
-Native packages require KDE Plasma Wayland and **Plasma Keyboard 6.7.x/6.8.x**, not Maliit. The release provides **Arch/CachyOS x86_64**, **Fedora 44 x86_64** and **Fedora 44 ARM64/aarch64** packages. The package records its build ABI; dependency resolution and `swipe-keyboard check` must both succeed. Do not ignore library dependencies or force a plugin onto an incompatible desktop.
+Native packages require KDE Plasma Wayland and **Plasma Keyboard 6.7 or newer**, not Maliit. They install alongside any 6.7+ keyboard and never block a Plasma upgrade; the package carries one keyboard for 6.7.x/6.8.x and one for Plasma 6.9's rebuilt keyboard, and `swipe-keyboard launch` starts the matching one (0.5.0; in 0.4.1 it started KDE's plain keyboard on 6.9 or later). The 6.9 version has not yet been tried on a real device. If the installed keyboard is not recognised (for example Plasma 7), KDE's plain keyboard starts and logs one line saying why. The release provides **Arch/CachyOS x86_64**, **Fedora 44 x86_64** and **Fedora 44 ARM64/aarch64** packages. The package records its build ABI; dependency resolution and `swipe-keyboard check` must both succeed. Do not ignore library dependencies or force a plugin onto an incompatible desktop.
 
 For Plasma Mobile on ARM64, use the **aarch64 Fedora RPM** only on a compatible Fedora 44/glibc system. `uname -m` reports the CPU architecture. It is not an ARM32, Android/iOS or postmarketOS/Alpine APK package; other distributions, especially musl-based ones, need their own builds. ARM64 is a required release target and needs its own build/load and Plasma Mobile input acceptance, not an inference from x86 testing. Emulated ARM checks do not establish physical-phone performance, battery use or touch ergonomics.
 
@@ -118,6 +118,28 @@ Preserve `~/.local/share/swipe-keyboard/setup-state.json` (or its XDG equivalent
 - Alternatives and whole-word deletion require reliable field/cursor/selection information. Changed or unavailable context intentionally clears replacement authority or falls back to ordinary deletion.
 - An application edit that is never reported to the input method cannot be detected reliably. Firefox physical Ctrl+A/Delete can leave stale field information and cause an extra leading space on the next swipe.
 
+## Learning from your typing (off by default)
+
+When switched on, the keyboard remembers, on this computer only: words you use that the language files do not know (names, slang) once you have used them twice; how often you use ordinary words; and which word you usually write after another. Suggestions and swipes then favour them, a little at first and more as the evidence grows; the language files' own order always stays the base. A swear word you typed or swiped yourself may be offered like any other word; one you never used is never offered out of the blue. Use fades with a half-life of about 45 days, and each language keeps a bounded list (4,000 words, 12,000 pairs).
+
+What it never does:
+
+- It does not learn in password, hidden, web-address, e-mail, number, date or phone fields, or wherever the application tells the keyboard not to predict. It uses the same checks as next-word prediction.
+- On stock Plasma (where the keyboard cannot see what else is in the field) it learns only words this keyboard itself entered.
+- It never sends anything over a network, and writes nothing outside the folder below. Diagnostics show counts only, never words.
+
+Where it lives: `learn-typing` (an empty file; present = on) and `learning/<language>.swklearn` (one small private file per language, mode 0600 in a 0700 folder, written atomically a few seconds after a change) inside the keyboard data folder (`~/.local/share/swipe-keyboard/` natively). A damaged file is ignored and the keyboard starts empty. A typo you type twice looks like a new word to the keyboard and can be offered; press and hold it to remove it.
+
+Choosing:
+
+- `./install.sh` asks **Learn from your typing? [y/N]** when it runs in a terminal. Packages (Arch, Fedora, Flatpak) and installs without a terminal never ask and leave it **off**. `SWIPEKB_LEARN_TYPING=yes|no` answers the question ahead of time.
+- Native packages: `swipe-keyboard learning on`, `off`, `forget` or `status`. Installs from `install.sh`: `python3 ~/.local/share/swipe-keyboard/learning.py on|off|forget|status` (the same commands). Or just create or delete the `learn-typing` file; the running keyboard notices within a second.
+- **Off** stops learning and also stops using what was learned; the stored files stay until you run `forget`.
+- **Forget everything** (`forget`) deletes the learned files at once; a keyboard that is running notices within about a second, drops what it holds in memory and writes nothing back. It is a command rather than an entry in the keyboard's settings-key menu because Qt's menu is a fixed list the keyboard cannot add to.
+- **Forget one word**: press and hold a word you taught the keyboard (a name or slang word it did not know) in the suggestion bar and choose **Remove from dictionary**. Everything learned about that word and its pairs is erased, and it is not suggested again until you type it again (it then needs its two uses once more). Ordinary dictionary words show no such menu; to clear your habits with those, use `forget`.
+
+Limits: swipes can only add words made of the language's letters (no apostrophes); a forgotten word leaves the swipe word list at the next swipe. The swipe bar that is already showing a word you just removed keeps showing it until your next swipe or key.
+
 ## Privacy and stored files
 
 Recognition runs locally. Recording is **off by default**. Sensitive-field cancellation uses the live field hints as well as cached privacy vetoes; actual effectiveness still depends on the application/backend supplying correct input information. Do not interpret one tested configuration as a universal privacy guarantee.
@@ -129,10 +151,10 @@ Native paths:
 
 The Flatpak uses app-scoped storage instead of the native paths. Developer recording requires an explicitly created `record` switch file; recordings can contain typed words and context and are not needed for ordinary use or support requests. They are not automatically deleted when removing the package.
 
-Never send passwords, personal typing, learned words, recordings or unreviewed logs. Use made-up text. Include the OS, application/version, package version and reproduction; native users can also include `swipe-keyboard check`.
+Never send passwords, personal typing, learned words (the `learning` folder), recordings or unreviewed logs. Use made-up text. Include the OS, application/version, package version and reproduction; native users can also include `swipe-keyboard check`.
 
 ## Source and licenses
 
-Use the complete corresponding-source archive attached to the [v0.4.1-1 release](https://github.com/itsdestin/swipe-keyboard/releases/tag/v0.4.1-1) for rebuilding. GitHub's automatic “Source code” ZIP/tar downloads omit submodules. The Fedora `.src.rpm`, when supplied, is for rebuilding, not installation. See [CONTRIBUTING.md](../CONTRIBUTING.md).
+Use the complete corresponding-source archive attached to the [v0.5.0-1 release](https://github.com/itsdestin/swipe-keyboard/releases/tag/v0.5.0-1) for rebuilding. The repository has no submodules, so GitHub's automatic “Source code” downloads are complete as well. The Fedora `.src.rpm`, when supplied, is for rebuilding, not installation. See [CONTRIBUTING.md](../CONTRIBUTING.md).
 
-FUTO's swipe-library is GPL-3.0; model weights use the separate FUTO Model Weights License 1.0. Dictionaries incorporate AOSP word lists (Apache-2.0) and wordfreq data (CC-BY-SA-4.0). Generated dictionary data retains CC-BY-SA attribution/terms, including language-pack transformation notices. Preserve all supplied terms, attribution and source obligations. See [NOTICE](../packaging/NOTICE) and each pack's notices. Qt/KDE components retain their licenses. Optional development models have separate terms and are not part of the base release.
+Our own trained models (neural next-word `*.nwp.bin`, swipe `swipe-model.bin`; trained and released by Destin Moss via youcoded.ai, 2026) are downloaded by checksum with the other files; the next-word models carry ODC-By 1.0 AND CC BY 2.0 FR, the swipe model MIT (trained on FUTO's MIT swipe data, notice installed as `FUTO-SWIPE-DATA-LICENSE.txt`). A missing or changed file turns off just that model (swiping then works by key geometry alone). The keyboard and its engine are the project's own code: MIT, except the keyboard add-on layers that run inside GPL software (GPL-2.0-only OR GPL-3.0-only, KDE's standard; see the README's Licences section). The English dictionary keeps the AOSP word list (Apache-2.0); all dictionaries and word lists are otherwise counted from FineWeb/FineWeb-2 text (ODC-By 1.0) and Tatoeba sentences (CC BY 2.0 FR), so only attribution terms apply and no share-alike licence is involved. Preserve all supplied terms, attribution and source obligations. See [NOTICE](../packaging/NOTICE) and each pack's notices. Qt/KDE components retain their licenses. Nothing optional or evaluation-only is part of the release.

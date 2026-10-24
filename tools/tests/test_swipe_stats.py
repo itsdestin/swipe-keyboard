@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+
 """Test for tools/swipe-stats with a synthetic recording. Run: python3 -I tools/tests/test_swipe_stats.py"""
 import importlib.machinery
 import importlib.util

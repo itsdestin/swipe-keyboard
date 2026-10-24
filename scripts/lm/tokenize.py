@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+
 """tokenize.py VOCAB PARQUET OUTDIR [WORKERS] — turn one FineWeb parquet shard into word-number streams.
 
 Output: OUTDIR/part-NNN.u32, little-endian uint32 word numbers; 2 (</s>) ends every sentence. Numbers:
@@ -8,7 +12,7 @@ WHY these splitting rules: the model must see text the way the keyboard hands co
 (swipekb::contextWords in engine/src/context.cpp): a . ! or ? starts a new sentence (a line break too: a
 paragraph or list item is not one sentence with the next), words are split on white space, punctuation is
 trimmed off both ends, and a "word" left with no letters (a number, "$5") is still a word, just an unknown
-one. Then the letters-only lower-case form is looked up, as FUTO's dictionary stores words.
+one. Then the letters-only lower-case form is looked up (the form a swipe spells).
 
 WHY pages from wiki sites are skipped: the scoreboard's sentences come from Wikipedia; Web copies of
 Wikipedia pages in the corpus would leak test sentences into the model and inflate the score."""

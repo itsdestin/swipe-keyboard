@@ -1,7 +1,8 @@
 # Context-aware search — design (step 1 of the accuracy push)
 
 **Date:** 2026-10-14 · **Status:** approved direction (Destin: "measurement first, then sentence-aware search")
-**Inputs:** clean-room report `docs/cleanroom/gboard-report.md` (D, E, I, J#1); design study of FUTO's code.
+**Inputs:** a Gboard study report (withdrawn from the project 2026-10-23 at Destin's request; no later work
+uses it); design study of FUTO's code.
 
 ## Findings that set the priority
 

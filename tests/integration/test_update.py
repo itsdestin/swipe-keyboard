@@ -1,6 +1,11 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+
 """The native updater against a local copy of the update site, a throwaway key and stand-ins for pacman and dnf."""
 import hashlib
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -149,6 +154,22 @@ class ArchUpdater(unittest.TestCase):
         self.assertEqual(self.run_updater('on'), 0)
         self.assertEqual(self.run_updater('check'), 0)
         self.assertEqual(len(self.installs()), 1)
+
+    def test_a_copy_no_package_manager_owns_says_so_and_installs_nothing(self):
+        # WHY (seen on KDE Linux, 2026-10-24): there the keyboard is a system extension, with no pacman or dnf. The
+        # status must not claim daily updates that can never happen, and a check must quietly do nothing.
+        self.publish('0.4.2-1')
+        with mock.patch('shutil.which', side_effect=lambda n: None if n in ('pacman', 'dnf') else REAL_WHICH(n)):
+            spec = importlib.util.spec_from_file_location('swipekb_update', UPDATE)
+            module = importlib.util.module_from_spec(spec)
+            with mock.patch.dict(os.environ, self.env):
+                spec.loader.exec_module(module)
+                out = io.StringIO()
+                with mock.patch.object(module.os, 'geteuid', return_value=0), mock.patch('sys.stdout', out):
+                    self.assertEqual(module.main(['status']), 0)
+                    self.assertEqual(module.main(['check']), 0)
+        self.assertIn('not updated automatically', out.getvalue().splitlines()[0])
+        self.assertEqual(self.installs(), [])
 
     def test_an_unreachable_site_is_not_an_error_and_installs_nothing(self):
         self.env['SWIPEKB_UPDATE_SITE'] = 'http://127.0.0.1:9'   # nothing listens on the discard port

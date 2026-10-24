@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+//
+// SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 #include <QtTest>
 #include "typedwordsession.h"
 class TypedWordTest:public QObject {
@@ -5,6 +9,15 @@ class TypedWordTest:public QObject {
  static EditorSnapshot e(QString text){int n=text.size();return {text,n,n,true,Qt::ImhNoPredictiveText};}
  static PredictionPolicy p(){return {1,1,1,true,0,true,true};}
 private slots:
+ void oneCapitalLetterCapitalizesNotShouts(){
+  // WHY: a sentence's first tapped letter is a capital ("H"); that asks for "How", not "HOW" (seen on Plasma 6.9).
+  // Two or more capitals ("HE") still mean the person is typing in capitals.
+  const auto typed=[](const QString &letters){TypedWordSession s;auto before=e("");
+   for(auto c:letters){auto after=e(before.text+c);s.edit(before,after,p(),1,QString(c));s.observe(after,p(),1);before=after;}
+   s.suggest({"how","he","hello"});return s.candidates();};
+  QVERIFY(typed("H").contains("How"));QVERIFY(!typed("H").contains("HOW"));
+  QVERIFY(typed("HE").contains("HELLO"));
+ }
  void ownedReplacementLiteralAndStalePress(){
   TypedWordSession s;auto before=e("sentinel ");
   for(auto c:QString("hel")){auto after=e(before.text+c);s.edit(before,after,p(),1,QString(c));QVERIFY(s.observe(after,p(),1));before=after;}

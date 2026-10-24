@@ -1,3 +1,9 @@
+/*
+ * SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+ *
+ * SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+ */
+
 // WindowBlur — asks KWin to blur what is behind the keyboard panel (the frosted look of Plasma's panels).
 // WHY it exists: touch-profile can make the keyboard translucent, but translucent keys over busy app text are
 // hard to read. Plasma's panels solve that by asking KWin to blur the area behind them; this does the same for

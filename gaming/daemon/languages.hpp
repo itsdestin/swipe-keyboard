@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+//
+// SPDX-License-Identifier: MIT
+
 // Which language the daemon serves and how (plan Sections 13 and 15 decision 7). Pure logic with no sockets and no
 // models, so every rule is unit-tested (tests/gaming/test_languages.cpp). The heavy lifting (checking language packs,
 // building the engine) is the plugin's own code in plugin/languageprofile.* and plugin/languageruntime.*.
@@ -9,7 +13,7 @@
 #include <string>
 #include <vector>
 
-#include "swipekb/recognizer.hpp"
+#include "swipekb/text.hpp"
 
 namespace gamingd {
 

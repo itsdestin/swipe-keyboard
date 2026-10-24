@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+//
+// SPDX-License-Identifier: MIT
+
 // The daemon proper: sockets, per-connection sessions, lazily loaded models. Protocol rules live in
 // protocol.hpp; this file only decides what each request DOES.
 #pragma once
@@ -13,7 +17,8 @@
 #include "languageprofile.h"
 #include "protocol.hpp"
 #include "swipekb/prediction.hpp"
-#include "swipekb/recognizer.hpp"
+#include "swipekb/spellings.hpp"
+#include "swipekb/language_engine.hpp"
 
 namespace gamingd {
 
@@ -32,11 +37,11 @@ struct Options {
 // function a std::string of typed text by accident (plan Section 8: logs contain no words, keys or traces).
 void logEvent(const char *event, long a = -1, long b = -1);
 
-// One language's models. WHY one per profile: each language has its own encoder pack, dictionary and context model,
-// resolved and checked by the plugin's own profile code (plugin/languageprofile.cpp).
+// One language's models. WHY one per profile: each language has its own dictionary and n-gram pack (the swipe model
+// is shared), resolved and checked by the plugin's own profile code (plugin/languageprofile.cpp).
 struct LanguageRuntime {
     swipekb::ProfileSnapshot profile;
-    std::unique_ptr<swipekb::Recognizer> recognizer;
+    std::unique_ptr<swipekb::LanguageEngine> recognizer;   // the swipe engine + dictionary of this language
     std::unique_ptr<swipekb::Predictor> predictor;
     Clock::time_point lastUse;
 };
@@ -50,8 +55,10 @@ public:
     // False means "turn this language off": missing or damaged pack, never a silent English fallback.
     bool profileAvailable(const QString &locale, const QString &physicalLayout, int cacheMs);
     // The loaded models for a profile (loading them now if needed); nullptr if they cannot be loaded.
-    swipekb::Recognizer *recognizer(const QString &locale, const QString &physicalLayout);
+    swipekb::LanguageEngine *recognizer(const QString &locale, const QString &physicalLayout);
     swipekb::Predictor *predictor(const QString &locale, const QString &physicalLayout);
+    // The capitals list of that profile's language (nullptr for German or an unresolved profile).
+    std::shared_ptr<const swipekb::Capitals> capitals(const QString &locale, const QString &physicalLayout);
     // WHY called after each use too: loading takes seconds, and the idle clock must start when work FINISHES.
     void touch(const QString &locale, const QString &physicalLayout);
     bool recognizerLoaded() const;

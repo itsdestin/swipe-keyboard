@@ -1,4 +1,8 @@
-// Tests for the n-gram model file + lookups (swipekb::NgramLM) and the re-ranking (swipekb::rerankCandidates).
+// SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+//
+// SPDX-License-Identifier: MIT
+
+// Tests for the n-gram model file + lookups (swipekb::NgramLM).
 // WHY a hand-made model: every number in it is known, so each back-off step can be checked exactly, and the
 // tests run without the 150 MB real model.
 #include <gtest/gtest.h>
@@ -8,7 +12,6 @@
 #include <string>
 
 #include "swipekb/ngram.hpp"
-#include "swipekb/recognizer.hpp"
 
 using namespace swipekb;
 
@@ -153,72 +156,43 @@ TEST(NgramFile, WriteRejectsInconsistentData)
     EXPECT_FALSE(NgramLM::write(tempPath("bad2.ngram"), d));
 }
 
-// ---- re-ranking ----
-
-namespace {
-RawCandidate cand(const char *w, float ctc, float lm, float len = 3, float freq = 100)
+TEST(NgramApostrophes, FormKeepsInnerApostrophesOnly)
 {
-    return {w, ctc, len, freq, lm, 0};
-}
-// Only the path score and the n-gram score count (no length or frequency terms), to keep the arithmetic plain.
-RerankWeights plain(float alpha) { return {1.0f, 0.f, 0.f, alpha}; }
-// shape / len^1 with len 3: the path score is ctc / 3.
-} // namespace
-
-TEST(Rerank, OrdersByPathScoreWithoutTheWordModel)
-{
-    const auto out = rerankCandidates({cand("an", -3, -1), cand("am", -1.5, -4), cand("as", -6, -2)}, plain(0), 3);
-    ASSERT_EQ(out.size(), 3u);
-    EXPECT_EQ(out[0].word, "am");
-    EXPECT_EQ(out[1].word, "an");
-    EXPECT_EQ(out[2].word, "as");
+    EXPECT_EQ(NgramLM::apostropheForm("We’re"), "we're");   // curly written straight
+    EXPECT_EQ(NgramLM::apostropheForm("don't,"), "don't");
+    EXPECT_EQ(NgramLM::apostropheForm("'tis"), "tis");
+    EXPECT_EQ(NgramLM::apostropheForm("states'"), "states");
+    EXPECT_EQ(NgramLM::apostropheForm("l’homme"), "l'homme");
+    EXPECT_EQ(NgramLM::apostropheForm("well-known"), "wellknown");
 }
 
-TEST(Rerank, WordModelCanReorder)
+// WHY: a pack built with --keep-apostrophes is told apart by its word list alone, so older packs load unchanged and
+// keep matching letters only, while the new ones keep "were" and "we're" apart.
+TEST(NgramApostrophes, DetectedFromTheWordListAndMatchedByForm)
 {
-    // "am" fits the path slightly better (-0.5 vs -1.0) but "an" is far likelier in context: with alpha 1 the
-    // totals are am -0.5-4 = -4.5, an -1-1 = -2, as -2-2 = -4.
-    const auto out = rerankCandidates({cand("am", -1.5, -4), cand("an", -3, -1), cand("as", -6, -2)}, plain(1), 3);
-    ASSERT_EQ(out.size(), 3u);
-    EXPECT_EQ(out[0].word, "an");
-    EXPECT_EQ(out[1].word, "as");
-    EXPECT_EQ(out[2].word, "am");
-    EXPECT_NEAR(out[0].score, -2.f, 1e-5);
-}
+    NgramModelData d;
+    d.words = {"don't", "we're", "were", "yes", "they"};   // 3..7
+    d.uni_lp = {-2.f, -99.f, -1.5f, -1.f, -1.6f, -1.2f, -1.3f, -1.4f};
+    d.uni_bo = std::vector<float>(8, 0.f);
+    d.bi_keys = {NgramLM::key(6, 4), NgramLM::key(7, 5)};   // "yes we're", "they were" (sorted by key)
+    d.bi_lp = {-0.1f, -0.1f};
+    d.bi_bo = {0.f, 0.f};
+    const auto path = tempPath("apostrophes.ngram");
+    ASSERT_TRUE(NgramLM::write(path, d));
+    NgramLM lm;
+    ASSERT_TRUE(lm.load(path));
+    EXPECT_TRUE(lm.apostrophes());
+    EXPECT_EQ(lm.form("We’re"), "we're");
+    EXPECT_EQ(lm.id("we're"), 4u);
+    EXPECT_EQ(lm.id("were"), 5u);
+    EXPECT_EQ(lm.id("dont"), 3u);    // typed without the apostrophe, the model has no "dont": its "don't"
+    EXPECT_EQ(lm.id("zzz"), NgramLM::kUnk);
+    EXPECT_GT(lm.logProb(lm.context({"yes"}), 4), lm.logProb(lm.context({"yes"}), 5));
+    EXPECT_GT(lm.logProb(lm.context({"They"}), 5), lm.logProb(lm.context({"They"}), 4));
 
-TEST(Rerank, KeepsTopKAndFutosOrderOnTies)
-{
-    const auto out = rerankCandidates({cand("aa", -3, -1), cand("bb", -3, -1), cand("cc", -3, -1)}, plain(1), 2);
-    ASSERT_EQ(out.size(), 2u);
-    EXPECT_EQ(out[0].word, "aa");
-    EXPECT_EQ(out[1].word, "bb");
-}
-
-TEST(Rerank, BestRawShapeWordAlwaysStaysVisible)
-{
-    // "qi" matches the path best (ctc -0.3) but the word model hates it: it would rank last, yet it must take
-    // the last visible slot so a clearly swiped rare word can still be picked.
-    const auto out = rerankCandidates(
-        {cand("qi", -0.3, -9), cand("so", -3, -1), cand("to", -3.3, -1), cand("go", -3.6, -1)}, plain(1), 3);
-    ASSERT_EQ(out.size(), 3u);
-    EXPECT_EQ(out[0].word, "so");
-    EXPECT_EQ(out[1].word, "to");
-    EXPECT_EQ(out[2].word, "qi");
-}
-
-TEST(Rerank, GuardChangesNothingWhenAlreadyShown)
-{
-    const auto out = rerankCandidates({cand("so", -0.3, -1), cand("to", -3, -1), cand("go", -3.3, -1),
-                                       cand("qi", -3.6, -1)},
-                                      plain(1), 3);
-    ASSERT_EQ(out.size(), 3u);
-    EXPECT_EQ(out[0].word, "so");
-    EXPECT_EQ(out[1].word, "to");
-    EXPECT_EQ(out[2].word, "go");
-}
-
-TEST(Rerank, EmptyPoolOrZeroTopK)
-{
-    EXPECT_TRUE(rerankCandidates({}, plain(1), 3).empty());
-    EXPECT_TRUE(rerankCandidates({cand("so", -1, -1)}, plain(1), 0).empty());
+    NgramLM plain;
+    ASSERT_TRUE(NgramLM::write(path, tinyModel()));
+    ASSERT_TRUE(plain.load(path));
+    EXPECT_FALSE(plain.apostrophes());
+    EXPECT_EQ(plain.form("I'm"), "im");
 }

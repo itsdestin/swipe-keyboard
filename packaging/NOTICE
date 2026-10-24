@@ -1,32 +1,36 @@
-Powered by FUTO Swipe
+Swipe Keyboard
 
-This keyboard includes models from futo-org/futo-swipe, licensed under the
-FUTO Model Weights License 1.0, not GPL. The complete model license is installed
-at /usr/share/swipe-keyboard/models/FUTO-MODEL-LICENSE.md. Model revision,
-immutable download URLs and SHA-256 checksums are recorded in assets.lock.json.
+Keyboard source: https://github.com/itsdestin/swipe-keyboard. Copyright 2026 Destin Moss <https://youcoded.ai>.
+The engine (libswipekb_engine: swipe recognition, dictionary, prediction, learning), the tools, the launcher and the
+Gaming Mode daemon are licensed MIT. The keyboard add-on layers that run inside GPL software, the Plasma 6.7/6.8
+plugin (qml/SwipeKeyboard, linked with Qt Virtual Keyboard, GPL-3.0-only) and the Plasma 6.9 front end
+(qml/SwipeKeyboard69, loaded by plasma-keyboard), are licensed GPL-2.0-only OR GPL-3.0-only OR
+LicenseRef-KDE-Accepted-GPL, KDE's standard; those binaries contain MIT engine code, which the GPL allows. The licence
+texts are in LICENSES/ of the source and in this licence folder. Every source file names its licence (SPDX header or REUSE.toml). Source revision and local
+modifications are recorded in SOURCE-PROVENANCE.txt in the corresponding source archive. The source archive is a
+required companion to binary build artifacts; these recipes do not publish anything.
 
-Keyboard source: https://github.com/itsdestin/swipe-keyboard (GPL-3.0-or-later;
-see LICENSE). Recursive source dependency revisions and local modifications
-are recorded in SOURCE-PROVENANCE.txt in the corresponding source archive.
-The source archive is a required companion to binary build artifacts; these
-recipes do not publish anything.
+The swipe engine (network runner, dictionary search, geometric decoder, sentence prior) is the project's own code.
+No third-party engine code or model weights are included.
 
-FUTO swipe-library and its recursively included ExecuTorch dependencies carry
-their own licenses/notices. Their source files and notices are included in the
-companion source archive; installed third-party notices are collected at build
-time. ExecuTorch is BSD-3-Clause; see the corresponding upstream LICENSE.
-
-English dictionary is generated from Android LatinIME/AOSP word lists
-(Apache-2.0, original notices retained) and wordfreq 3.1.1 English frequency
-data (CC-BY-SA-4.0). Transformation: scripts/dict/wordfreq_combined.py combines
-entries, preserves AOSP frequencies, adjusts apostrophe pairs, and filters
-likely misspellings, with a 250000-entry cap. The resulting combined dictionary
-is distributed under CC-BY-SA-4.0 with attribution to AOSP contributors and
-Robyn Speer/wordfreq contributors. Original input URLs/revisions/checksums
-are in assets.lock.json; wordfreq source and attribution/license information:
-https://github.com/rspeer/wordfreq and https://pypi.org/project/wordfreq/3.1.1/.
-The Spanish, French and German next-word n-gram models are compact baseline models trained from the pinned Tatoeba sentence exports, not foreign FUTO neural weights. Tatoeba's text uses CC BY 2.0 France; retain each language pack's full contributor list and attribution notice. The Tatoeba notice is installed beside the package license at `share/licenses/swipe-keyboard/TATOEBA-CC-BY-2.0-FR.txt` (normally `/usr/share/licenses/...` or `/app/share/licenses/...`). Spanish Spain and Mexico share one Spanish model; model/data hashes and provenance are in assets.lock.json and packaging/language-models/README.md. This is a small general Spanish/French/German baseline and makes no region-specific Spanish or Gboard-parity claim.
+Word lists. The English swipe dictionary keeps every word, frequency and flag of the Android LatinIME/AOSP US English
+word list (Apache-2.0, original notices retained; `Apache-2.0.txt` ships in `language-packs/`) and adds words counted
+from FineWeb text. The Spanish, French and German swipe dictionaries and all `<language>.vocab.tsv` word lists are
+counted from FineWeb / FineWeb-2 web text by Hugging Face (Open Data Commons Attribution License 1.0, `ODC-By-1.0.txt`;
+derived from Common Crawl, whose terms of use also apply) plus Tatoeba sentences (CC BY 2.0 France). Only word counts
+are kept, never text. No share-alike term applies; keep the attribution texts below. Transformation:
+scripts/lm/count-words.py (counting) and scripts/dict/corpus_dictionary.py (filtering; rebuild with
+scripts/dict/build-corpus-dictionaries.sh from the counts and the AOSP lists). Original AOSP input URLs/revisions/checksums
+and the language files release are in assets.lock.json.
+The English, Spanish, French and German next-word n-gram models, word lists and Spanish/French/German dictionaries (language files release `language-files-2026-10-23-apostrophes`, downloaded by checksum from assets.lock.json) are built from the same FineWeb / FineWeb-2 text plus Tatoeba sentences. They contain no third-party model weights. Retain each language's full Tatoeba contributor list (`<language>-CONTRIBUTORS.txt`), the Tatoeba notice (installed beside the package license at `share/licenses/swipe-keyboard/TATOEBA-CC-BY-2.0-FR.txt`, normally `/usr/share/licenses/...` or `/app/share/licenses/...`), `ODC-By-1.0.txt`, `Apache-2.0.txt` and `LANGUAGE-FILES-NOTICE.md` (all in `language-packs/`). Spanish Spain and Mexico share one Spanish model; hashes and provenance are in assets.lock.json and packaging/language-models/README.md. When English files are installed and verified, English next-word suggestions, completions and swipe ranking use the English n-gram; without them English swipes and completes from its dictionary, without next-word suggestions. These are small general baselines and make no region-specific Spanish or Gboard-parity claim.
 
 Contextual prediction is language-specific; an unavailable or corrupt pack never falls back to English. Current-word completion uses the selected profile's own dictionary; next-word suggestions use that profile's model when available. On stock Plasma, next-word model input is limited to words this keyboard confirmed in the current field because raw application completion preferences are not fully exposed. Sensitive and restricted fields remain blocked. The bundled Deck backend retains its raw-policy bridge and stricter application vetoes.
 
-Optional evaluation data and neural reranking models are not included.
+Trained models. Models trained and released by Destin Moss via youcoded.ai, 2026 (SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>). The neural next-word models (`<language>.nwp.bin`, release `models-2026-10-23`) were trained on the same FineWeb / FineWeb-2 text (ODC-By 1.0, Hugging Face; Common Crawl) and Tatoeba sentences (CC BY 2.0 France) as the n-gram files and carry the same terms; keep the files and credits named above. The swipe model (`swipe-model.bin`, MIT; installed in `language-packs/`) was trained on real swipes from FUTO's swipe.futo.org dataset (MIT licence, Copyright (c) 2025 FUTO; text in `FUTO-SWIPE-DATA-LICENSE.txt` in the licence folder) plus synthetic swipes; it contains no third-party model weights. Details, sources and build scripts: `MODELS-NOTICE.md` in the licence folder.
+
+Word lists for the guess bar: the swear-word lists (packaging/blocked-words) are from the LDNOOBW list, CC BY 4.0 (with
+AOSP's offensive flags, Apache-2.0); the texting-word lists (packaging/texting-words) are the project's own, CC0 1.0.
+The capitals lists (packaging/capitals: which English, Spanish and French words are shown capitalised) are counted
+from FineWeb / FineWeb-2 web text (Hugging Face, derived from Common Crawl), ODC-By 1.0.
+
+Optional evaluation data is not included.

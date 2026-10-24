@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+
 """Host side of the M5 VM acceptance (plan Section 14, M5). Runs on the HOST, never in the guest.
 
 WHY a host half: the engine daemon is built for this host (Qt, models), not for SteamOS, and the Flatpak that will carry it

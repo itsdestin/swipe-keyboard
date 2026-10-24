@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+
 """Packaging contract tests; stage fixtures exercise the real CMake installer."""
 import pathlib
 import subprocess
@@ -8,34 +12,100 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 class Packaging(unittest.TestCase):
     def test_multilingual_context_payload_license_and_package_copy_are_pinned(self):
+        import copy
         import hashlib
         import importlib.util
         import json
         spec=importlib.util.spec_from_file_location('package_check',ROOT/'scripts/package-check.py')
         checker=importlib.util.module_from_spec(spec);spec.loader.exec_module(checker)
+        sha=lambda data: hashlib.sha256(data).hexdigest()
         source_lock=json.loads((ROOT/'packaging/assets.lock.json').read_text())
+        # WHY synthetic bytes with a lock rewritten to match: the real files are 100+ MB downloads, and the point
+        # here is the checker's logic (every language, every credit/licence text, size and hash), not the data.
+        lock=copy.deepcopy(source_lock)
         with tempfile.TemporaryDirectory() as tmp:
             base=pathlib.Path(tmp)/'usr/share/swipe-keyboard';packs=base/'language-packs';packs.mkdir(parents=True)
             terms=(ROOT/'packaging/language-models/TATOEBA-CC-BY-2.0-FR.txt').read_bytes()
-            terms_path=packs/'TATOEBA-CC-BY-2.0-FR.txt';terms_path.write_bytes(terms)
-            for language,pin in source_lock['multilingual_context_models'].items():
+            (packs/'TATOEBA-CC-BY-2.0-FR.txt').write_bytes(terms)
+            shared=lock['language_files']
+            for key,body in (('odcTerms',b'odc terms'),('notice',b'notice')):
+                (packs/shared[key]['path']).write_bytes(body);shared[key]['sha256']=sha(body)
+            for language,pin in lock['multilingual_context_models'].items():
+                contents={f'{language}.ngram':b'ngram-'+language.encode(),f'{language}.vocab.tsv':b'vocab-'+language.encode(),
+                          f'{language}-CONTRIBUTORS.txt':b'credits-'+language.encode()}
+                for name,data in contents.items():
+                    (packs/name).write_bytes(data)
+                pin['modelSha256']=sha(contents[f'{language}.ngram']);pin['modelBytes']=len(contents[f'{language}.ngram'])
+                pin['vocabSha256']=sha(contents[f'{language}.vocab.tsv']);pin['vocabBytes']=len(contents[f'{language}.vocab.tsv'])
+                pin['contributorsSha256']=sha(contents[f'{language}-CONTRIBUTORS.txt']);pin['contributorsBytes']=len(contents[f'{language}-CONTRIBUTORS.txt'])
+                if language=='en':
+                    continue  # English has no manifest
                 model=f'{language}.ngram';vocab=f'{language}.vocab.tsv';credits=f'{language}-CONTRIBUTORS.txt'
-                for name in (model,vocab,credits):
-                    (packs/name).write_bytes((ROOT/'packaging/language-models'/name).read_bytes())
-                manifest={'schema':2,'language':language,'contextFormat':'swk-ngram-v2',
-                    'contextLicense':{'id':'CC-BY-2.0-FR','sourceSha256':pin['corpusSha256'],
-                        'termsPath':'TATOEBA-CC-BY-2.0-FR.txt','termsSha256':hashlib.sha256(terms).hexdigest(),
+                manifest={'schema':3,'compatibility':'swipekb-open-v1','language':language,'contextFormat':'swk-ngram-v2',
+                    'contextLicense':{'id':'ODC-By-1.0 AND CC-BY-2.0-FR','sourceUrl':shared['baseUrl']+model,
+                        'termsPath':'TATOEBA-CC-BY-2.0-FR.txt','termsSha256':sha(terms),
+                        'webTermsSha256':shared['odcTerms']['sha256'],'noticeSha256':shared['notice']['sha256'],
                         'attributionPath':credits,'attributionSha256':pin['contributorsSha256']},
                     'assets':{'contextModel':{'path':model,'sha256':pin['modelSha256'],'size':pin['modelBytes'],'compatibility':f'{language}:context-ngram-v1'},
                         'contextVocab':{'path':vocab,'sha256':pin['vocabSha256'],'size':pin['vocabBytes'],'compatibility':f'{language}:context-ngram-v1'}}}
                 (packs/f'{language}.json').write_text(json.dumps(manifest))
-            checker.check_multilingual_context_assets(base,source_lock)
+            checker.check_multilingual_context_assets(base,lock)
+            # Every language, English included, must ship its files; damage or absence is caught.
             old=(packs/'fr.ngram').read_bytes()
             (packs/'fr.ngram').write_bytes(old+b'bad')
             with self.assertRaisesRegex(AssertionError,'size mismatch'):
-                checker.check_multilingual_context_assets(base,source_lock)
+                checker.check_multilingual_context_assets(base,lock)
             (packs/'fr.ngram').write_bytes(old)
-            self.assertEqual(hashlib.sha256(terms).hexdigest(),source_lock['tatoeba_license_notice_sha256'])
+            (packs/'en.ngram').unlink()
+            with self.assertRaises(FileNotFoundError):
+                checker.check_multilingual_context_assets(base,lock)
+            (packs/'en.ngram').write_bytes(b'ngram-en')
+            odc=packs/shared['odcTerms']['path'];odc.write_bytes(b'changed')
+            with self.assertRaisesRegex(AssertionError,'Corrupt'):
+                checker.check_multilingual_context_assets(base,lock)
+            odc.write_bytes(b'odc terms')
+            checker.check_multilingual_context_assets(base,lock)
+            self.assertEqual(sha(terms),source_lock['tatoeba_license_notice_sha256'])
+
+    def test_trained_models_ship_exactly_as_pinned(self):
+        import copy
+        import hashlib
+        import importlib.util
+        import json
+        spec=importlib.util.spec_from_file_location('package_check',ROOT/'scripts/package-check.py')
+        checker=importlib.util.module_from_spec(spec);spec.loader.exec_module(checker)
+        sha=lambda data: hashlib.sha256(data).hexdigest()
+        lock=copy.deepcopy(json.loads((ROOT/'packaging/assets.lock.json').read_text()))
+        models=lock['trained_models']
+        with tempfile.TemporaryDirectory() as tmp:
+            root=pathlib.Path(tmp);base=root/'usr/share/swipe-keyboard';(base/'language-packs').mkdir(parents=True)
+            licences=root/'usr/share/licenses/swipe-keyboard';licences.mkdir(parents=True)
+            for language,pin in models['nextWord'].items():
+                data=b'nwp-'+language.encode();(base/'language-packs'/pin['path']).write_bytes(data);pin['sha256']=sha(data);pin['bytes']=len(data)
+            data=b'swipe';(base/'language-packs/swipe-model.bin').write_bytes(data);models['swipe'].update(sha256=sha(data),bytes=len(data))
+            for key in ('notice','swipeDataTerms'):
+                data=key.encode();(licences/models[key]['path']).write_bytes(data);models[key]['sha256']=sha(data)
+            checker.check_trained_models(root,lock)
+            # Each kind of damage is caught: a next-word model, the swipe model, a notice, and a missing file.
+            for path,bad in ((base/'language-packs/de.nwp.bin',b'nwp-xx'),(base/'language-packs/swipe-model.bin',b'swipe!'),(licences/'MODELS-NOTICE.md',b'changed')):
+                good=path.read_bytes();path.write_bytes(bad)
+                with self.assertRaises(AssertionError,msg=str(path)):
+                    checker.check_trained_models(root,lock)
+                path.write_bytes(good)
+            (base/'language-packs/en.nwp.bin').unlink()
+            with self.assertRaises(FileNotFoundError):
+                checker.check_trained_models(root,lock)
+
+    def test_repository_no_longer_carries_the_large_language_files(self):
+        # WHY: the n-gram files are fetched by checksum from the language-files release (see assets.lock.json).
+        import json
+        folder=ROOT/'packaging/language-models'
+        for language in ('es','fr','de'):
+            for name in (f'{language}.ngram',f'{language}.vocab.tsv',f'{language}-CONTRIBUTORS.txt'):
+                self.assertFalse((folder/name).exists(),name)
+        lock=json.loads((ROOT/'packaging/assets.lock.json').read_text())
+        self.assertEqual(set(lock['multilingual_context_models']),{'en','es','fr','de'})
+        self.assertTrue(lock['language_files']['baseUrl'].startswith('https://github.com/itsdestin/swipe-keyboard/releases/download/'))
 
     def test_package_descriptions_and_license_metadata_match_multilingual_payloads(self):
         texts=[(ROOT/'packaging/arch/PKGBUILD').read_text(),
@@ -50,7 +120,7 @@ class Packaging(unittest.TestCase):
         self.assertIn('custom:TATOEBA-CC-BY-2.0-FR.txt',texts[0])
         self.assertTrue((ROOT/'packaging/language-models/TATOEBA-CC-BY-2.0-FR.txt').is_file())
 
-    def test_source_archive_retains_tracked_executorch_build_inputs(self):
+    def test_source_archive_holds_tracked_files_only(self):
         import shutil
         import tarfile
         with tempfile.TemporaryDirectory() as tmp:
@@ -60,11 +130,9 @@ class Packaging(unittest.TestCase):
             (fixture/'packaging').mkdir()
             shutil.copy2(ROOT/'scripts/package-source.sh', fixture/'scripts/package-source.sh')
             shutil.copy2(ROOT/'packaging/release-targets.json', fixture/'packaging/release-targets.json')
-            tracked = 'third_party/swipe-library/third_party/executorch/build/build_variables.bzl'
-            generated = ('build/generated.o', 'third_party/swipe-library/build/generated.o',
-                         'third_party/swipe-library/third_party/executorch/cmake-out-host/generated.a')
-            shim_tracked = 'third_party/swipe-library/third_party/executorch/shim_et/xplat/executorch/build/build_variables.bzl'
-            for name in (tracked, shim_tracked, *generated):
+            tracked = 'engine/src/tracked.cpp'
+            generated = ('build/generated.o', 'build-x/generated.o')
+            for name in (tracked, *generated):
                 target = fixture/name
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_text('fixture')
@@ -76,12 +144,11 @@ class Packaging(unittest.TestCase):
             output = pathlib.Path(tmp)/'dist'
             result = subprocess.run(['bash', str(fixture/'scripts/package-source.sh'), str(output)], text=True, capture_output=True)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            with tarfile.open(output/'swipe-keyboard-0.4.1.tar.gz') as archive:
+            with tarfile.open(output/'swipe-keyboard-0.5.0.tar.gz') as archive:
                 names = {name.replace('/./', '/') for name in archive.getnames()}
-            prefix = 'swipe-keyboard-0.4.1/'
+            prefix = 'swipe-keyboard-0.5.0/'
             self.assertNotIn(prefix + 'personal-secret.txt', names)
             self.assertIn(prefix + tracked, names)
-            self.assertIn(prefix + shim_tracked, names)
             for name in generated:
                 self.assertNotIn(prefix + name, names)
 
@@ -115,6 +182,12 @@ class Packaging(unittest.TestCase):
         # package metadata therefore uses an explicit custom ref and installs its exact notice.
         self.assertIn('LicenseRef-Tatoeba-CC-BY-2.0-FR',fedora)
         self.assertIn('custom:TATOEBA-CC-BY-2.0-FR.txt',arch)
+        # Owner decision 2026-10-23: MIT where possible, KDE's GPL choice for the keyboard add-on layers only.
+        for recipe in (arch, fedora):
+            self.assertIn('MIT',recipe)
+            self.assertIn('GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL',recipe)
+            self.assertNotIn('LGPL',recipe)
+            self.assertNotIn('GPL-3.0-or-later',recipe)
         self.assertIn('TATOEBA-CC-BY-2.0-FR.txt',notice)
         self.assertIn('an unavailable or corrupt pack never falls back to English',notice)
         self.assertIn('raw application completion preference',notice)
@@ -128,7 +201,7 @@ class Packaging(unittest.TestCase):
             module.mkdir(parents=True)
             for name in ('qmldir', 'SwipeCapture.qml', 'libswipekeyboard.so', 'libswipekeyboardplugin.so', 'libswipekb_engine.so'):
                 (module / name).write_text('fixture')
-            for name in ('models/honorable_sturgeon/model_fp32.pte', 'models/magic_macaw/model_fp32.pte', 'models/hungry_jellyfish/context_lm.pte', 'models/hungry_jellyfish/vocab.txt', 'models/FUTO-MODEL-LICENSE.md', 'dict/en_swipe.combined', 'language-packs/es.json', 'language-packs/fr.json', 'language-packs/de.json', 'licenses/NOTICE'):
+            for name in ('dict/en_swipe.combined', 'language-packs/swipe-model.bin', 'language-packs/es.json', 'language-packs/fr.json', 'language-packs/de.json', 'licenses/NOTICE'):
                 target = assets / name
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_text('fixture')
@@ -146,12 +219,13 @@ include("{ROOT}/cmake/Install.cmake")
             subprocess.run(['cmake', '-S', str(source), '-B', str(p/'build'), '-DCMAKE_INSTALL_PREFIX=/usr'], check=True, capture_output=True)
             subprocess.run(['cmake', '--install', str(p/'build'), '--prefix', str(p/'stage/usr')], check=True, capture_output=True)
             stage = p/'stage/usr'
-            for name in ('bin/swipe-keyboard', 'share/applications/swipe-keyboard.desktop', 'share/swipe-keyboard/integration/setup.py', 'share/swipe-keyboard/integration/layout.py', 'share/swipe-keyboard/qml/SwipeKeyboard/libswipekb_engine.so', 'share/swipe-keyboard/models/honorable_sturgeon/model_fp32.pte', 'share/swipe-keyboard/dict/en_swipe.combined', 'share/licenses/swipe-keyboard/LICENSE', 'share/licenses/swipe-keyboard/TATOEBA-CC-BY-2.0-FR.txt'):
+            for name in ('bin/swipe-keyboard', 'share/applications/swipe-keyboard.desktop', 'share/swipe-keyboard/integration/setup.py', 'share/swipe-keyboard/integration/layout.py', 'share/swipe-keyboard/qml/SwipeKeyboard/libswipekb_engine.so', 'share/swipe-keyboard/language-packs/swipe-model.bin', 'share/swipe-keyboard/dict/en_swipe.combined', 'share/licenses/swipe-keyboard/LICENSE', 'share/licenses/swipe-keyboard/TATOEBA-CC-BY-2.0-FR.txt'):
                 self.assertTrue((stage/name).is_file(), name)
             for language in ('es', 'fr', 'de'):
                 self.assertTrue((stage/f'share/swipe-keyboard/language-packs/{language}.json').is_file())
             self.assertFalse((stage/'share/swipe-keyboard/eval').exists())
-            self.assertEqual((stage/'share/swipe-keyboard/runtime.json').read_text(), '{"qt": "6.10", "package": "0.4.1-1"}\n')
+            self.assertFalse((stage/'share/swipe-keyboard/models').exists())
+            self.assertEqual((stage/'share/swipe-keyboard/runtime.json').read_text(), '{"qt": "6.10", "package": "0.5.0-1"}\n')
             self.assertTrue((stage/'bin/swipe-keyboard').stat().st_mode & 0o111)
             self.assertTrue((stage/'share/swipe-keyboard/qml/SwipeKeyboard/libswipekb_engine.so').stat().st_mode & 0o111,
                             'Native libraries must retain executable mode for RPM debug-info discovery')
@@ -162,9 +236,13 @@ include("{ROOT}/cmake/Install.cmake")
         with tempfile.TemporaryDirectory() as tmp:
             fixture = pathlib.Path(tmp)
             shutil.copy2(ROOT/'install.sh', fixture/'install.sh')
-            for directory in ('scripts/lm', 'assets/models', 'assets/dict', 'assets/language-packs', 'build/qml', 'bin', 'third_party/swipe-library/third_party/executorch/cmake-out-host'):
+            # install.sh sources the learning question and copies the learning control script beside the data.
+            (fixture/'scripts').mkdir(parents=True, exist_ok=True)
+            (fixture/'integration').mkdir(parents=True, exist_ok=True)
+            shutil.copy2(ROOT/'scripts/learning-choice.sh', fixture/'scripts/learning-choice.sh')
+            shutil.copy2(ROOT/'integration/learning.py', fixture/'integration/learning.py')
+            for directory in ('scripts/lm', 'assets/dict', 'assets/language-packs', 'build/qml', 'bin'):
                 (fixture/directory).mkdir(parents=True, exist_ok=True)
-            (fixture/'third_party/swipe-library/third_party/executorch/cmake-out-host/libexecutorch.a').write_text('fixture')
             for command, text in {
                 'scripts/fetch-assets.sh': 'echo fetch >> "$LOG"',
                 'scripts/lm/build-lm.sh': 'echo ngram >> "$LOG"',
@@ -184,6 +262,10 @@ include("{ROOT}/cmake/Install.cmake")
             commands = (fixture/'commands').read_text().splitlines()
             self.assertIn('ctest', commands)
             self.assertNotIn('forbidden-pidof', commands)
+            # No terminal here, so the learning question is not asked and learning stays off (owner decision).
+            data = fixture/'home/data/swipe-keyboard'
+            self.assertFalse((data/'learn-typing').exists())
+            self.assertTrue((data/'learning.py').is_file())
             return commands
 
     def test_legacy_installer_does_not_build_ngram_by_default(self):
@@ -217,10 +299,10 @@ include("{ROOT}/cmake/Install.cmake")
             self.assertFalse(target.with_name('cached.part').exists())
 
     def test_portable_default(self):
-        cmake = (ROOT/'CMakeLists.txt').read_text()
-        self.assertIn('set(USE_MARCH_NATIVE OFF', cmake)
-        script = (ROOT/'scripts/build-futo.sh').read_text()
-        self.assertIn('-DUSE_MARCH_NATIVE=OFF', script)
+        # WHY: distributable binaries must never carry host-specific instructions.
+        for path in ('CMakeLists.txt', 'engine/CMakeLists.txt', 'plugin/CMakeLists.txt', 'packaging/arch/PKGBUILD',
+                     'packaging/fedora/swipe-keyboard.spec', 'packaging/flatpak/build-swipe.sh'):
+            self.assertNotIn('march=native', (ROOT/path).read_text(), path)
 
     def test_config_probe_is_part_of_native_build_install_and_elf_checks(self):
         self.assertIn('add_subdirectory(integration)', (ROOT/'CMakeLists.txt').read_text())
@@ -351,9 +433,13 @@ printf '%s\\n' "${depends[@]}"
         arch = (ROOT/'packaging/arch/PKGBUILD').read_text()
         rpm = (ROOT/'packaging/fedora/swipe-keyboard.spec').read_text()
         self.assertIn('plasma-keyboard>=6.7', arch)
-        self.assertIn('plasma-keyboard<6.9', arch)
         self.assertIn('Requires: plasma-keyboard >= 1:6.7', rpm)
-        self.assertIn('Requires: plasma-keyboard < 1:6.9', rpm)
+        # WHY no upper bound: a Plasma 6.9 system upgrade must never be refused because of this package. From 6.9 on the
+        # launcher starts the plain KDE keyboard instead (tests/integration/test_setup.py).
+        self.assertNotRegex(arch, r"plasma-keyboard\s*(<|=|>(?!=))")
+        self.assertNotRegex(rpm, r"(?m)^Requires:\s*plasma-keyboard\s*(<|=|>(?!=))")
+        stage = (ROOT/'scripts/stage-test-install.sh').read_text()
+        self.assertIn('plasma-keyboard\\<*', stage)   # the test package drops a bound inherited from an older install
         for text in (arch, rpm):
             for forbidden in ('kwriteconfig', 'kreadconfig', '%post', '%preun', 'post_install', '-march=native'):
                 self.assertNotIn(forbidden, text)

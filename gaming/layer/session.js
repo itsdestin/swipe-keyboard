@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+//
+// SPDX-License-Identifier: MIT
+
 // Typing session for Steam's on-screen keyboard (plan Sections 7 and 8, milestone M5).
 //
 // WHAT IT DOES, in plain words. The gesture arbiter (gesture.js) tells us what the fingers did. This file decides what

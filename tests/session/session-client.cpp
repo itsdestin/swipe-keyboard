@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+//
+// SPDX-License-Identifier: MIT
+
 // Ordinary Wayland text/password fields for the disposable full-KDE VM acceptance test.
 // D-Bus observes committed text; it never injects characters or loads the keyboard plugin into the client.
 #include <QGuiApplication>

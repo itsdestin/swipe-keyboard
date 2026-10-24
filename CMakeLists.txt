@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+
 cmake_minimum_required(VERSION 3.29)
 project(swipe_keyboard LANGUAGES CXX)
 
@@ -14,19 +18,12 @@ set(SWIPEKB_QML_DIR ${CMAKE_BINARY_DIR}/qml)
 # WHY a cache path lets tests/builds select an explicit read-only fixture without changing the source tree's default.
 set(SWIPEKB_ASSETS ${CMAKE_SOURCE_DIR}/assets CACHE PATH "Swipe keyboard model and language-pack assets")
 
-# Distributable binaries must not inherit upstream's host-specific default.
-set(USE_MARCH_NATIVE OFF CACHE BOOL "Enable host-specific instructions (developer only)")
-
-# FUTO's library. ExecuTorch must already be built by scripts/build-futo.sh.
-add_subdirectory(third_party/swipe-library EXCLUDE_FROM_ALL)
-if(NOT TARGET executorch)
-    message(FATAL_ERROR "ExecuTorch not built — run scripts/build-futo.sh first")
-endif()
-
 enable_testing()
 find_package(GTest REQUIRED)
 add_subdirectory(engine)
 add_subdirectory(plugin)
+# Plasma 6.9's rebuilt keyboard: a second front end without Qt Virtual Keyboard or FUTO; the launcher picks one.
+add_subdirectory(frontend-plasma69)
 add_subdirectory(tools)
 add_subdirectory(integration)
 add_subdirectory(gaming/daemon)

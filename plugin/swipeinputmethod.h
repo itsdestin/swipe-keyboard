@@ -1,3 +1,9 @@
+/*
+ * SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+ *
+ * SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+ */
+
 // SwipeInputMethod — Plasma Keyboard's input method while swipe-keyboard is installed. Taps pass through
 // untouched (keyEvent returns false, so Qt's normal handling types them). SwipeCapture.qml calls
 // finishSwipe() with a finished path; the best guess is typed and the others go to the guess bar.
@@ -11,15 +17,18 @@
 #include "nextwordsession.h"
 #include "ownedhistory.h"
 #include "typedwordsession.h"
+#include "wordswap.h"
 #include "nextwordworker.h"
 #include "languageprofile.h"
 #include "predictiondiagnostics.h"
+#include "learningmanager.h"
 #include <QPointer>
+#include <QSet>
 #include <QQuickWindow>
 #include <QQuickItem>
 #include <QEvent>
 #include <memory>
-namespace swipekb { class Recognizer; }
+namespace swipekb { class LanguageEngine; }
 
 class SwipeInputMethod : public QVirtualKeyboardAbstractInputMethod {
     Q_OBJECT
@@ -55,6 +64,12 @@ public:
     Q_INVOKABLE void endPredictionSelection(quint64 pressId);
     QObject *predictionPolicySource() const { return m_policySource; }
     void setPredictionPolicySource(QObject *);
+    // Phase 2 "learn from my typing". Off unless the owner created <data>/learn-typing (see learningmanager.h).
+    Q_INVOKABLE bool learningEnabled() { return m_learning.enabled(); }
+    // Erases everything learned, on disk and in memory, at once.
+    Q_INVOKABLE void forgetEverythingLearned();
+    // Long-press on a suggestion -> Qt's own "Remove from dictionary" menu -> this.
+    bool selectionListRemoveItem(QVirtualKeyboardSelectionListModel::Type type, int index) override;
     Q_INVOKABLE bool isReady() const;
     Q_INVOKABLE bool isReadyForLayout(const QVariantList &keys) const;
     Q_INVOKABLE int beginSwipe();
@@ -73,6 +88,28 @@ private:
     bool safeContext();
     bool safePredictionContext();
     void stageOwnedCommit(const CommitPlan &, bool correction = false);
+    // --- Phase 2: learning from the person's own typing -------------------------------------------------------
+    swipekb::PersonalModel *personal();                 // nullptr while learning is off
+    QString personalKey(const QString &word) const;
+    // Counts one committed word, only where prediction itself is allowed. Returns what it changed (for undo).
+    swipekb::PersonalModel::Undo learnWord(const QString &word, const QString &prev);
+    QString prevBeforeToken(const EditorSnapshot &editor, const QString &token) const;
+    // Re-orders a suggestion list with what was learned; also drops forgotten words.
+    QStringList personalize(const QStringList &base, const QString &prev, const QString &prefix, bool inject, int topK,
+                            double boostScale = 1.0);
+    void syncLearnedWords(bool force = false);
+    QString m_wordsLanguage;   // language the swipe engines were last filled for (see syncLearnedWords)
+    void refreshTypedSuggestions(const EditorSnapshot &editor);
+    void learnSwiped(const QString &word, const QString &prev);   // learnWord() + remember it for undo
+    void retractLastLearn();
+    swipekb::PersonalModel::Undo m_lastLearn;           // the last swiped word's count, taken back if it is fixed or erased
+    const void *m_lastLearnModel = nullptr;
+    QString m_lastLearnPrev;
+    QString m_nextPrev, m_completionPrev;               // previous word of the newest next-word / completion request
+    LearningManager m_learning;
+    QSet<QString> m_injected;                           // taught words handed to the engine as learned words
+    std::uint64_t m_syncedVersion = 0;
+    const void *m_syncedModel = nullptr, *m_syncedEngine = nullptr;
     bool m_liveQueryActive = false;
 #ifdef SWIPEKB_PRIVATE_FLAGS_DIAGNOSTIC
     bool observeFlags(const char *phase);
@@ -84,16 +121,28 @@ private:
 #endif
     void resolveCurrentProfile();
     swipekb::ProfileEpoch m_profiles;
-    std::shared_ptr<swipekb::Recognizer> m_recognizer;
+    // The language's engine: the project's own swipe engine plus the dictionary (completion, tap-to-swap, spellings).
+    std::shared_ptr<swipekb::LanguageEngine> m_engine;
     QString m_locale, m_layoutId, m_inputMode;
     void ensureContextConnections();
     EditorSnapshot predictionEditor() const;
     PredictionPolicy predictionPolicy() const;
     void invalidatePredictions();
     void observePredictionEcho();
+    void requestContextCompletion(const EditorSnapshot &editor);
     bool predictionCapable() const;
+    void applyNeuralNextWord(PredictionJob &job) const;
     CaseMode caseMode() const;
     QStringList barCandidates() const;
+    // Tap-to-swap (card #187): tapping an existing word shows alternatives; nothing swaps by itself.
+    void observeWordSwap(const EditorSnapshot &editor);
+    bool tapSwapAllowed(const EditorSnapshot &editor) const;
+    void clearWordSwap();
+    WordSwapSession m_swap;
+    CursorMoveTracker m_moves;
+    RecentSwipes m_recentSwipes;   // memory only, never written to disk
+    QString m_swapPress;
+    PredictionStamp m_swapStamp;
     quint64 m_predictionPressId = 0;
     std::optional<PredictionStamp> m_predictionTap;
     NextWordSession m_nextWord;

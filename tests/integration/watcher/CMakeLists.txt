@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+
 cmake_minimum_required(VERSION 3.20)
 project(selection_watcher LANGUAGES CXX)
 find_package(Qt6 6.8 REQUIRED COMPONENTS Core DBus)

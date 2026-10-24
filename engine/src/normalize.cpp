@@ -1,4 +1,8 @@
-#include "swipekb/recognizer.hpp"
+// SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+//
+// SPDX-License-Identifier: MIT
+
+#include "swipekb/text.hpp"
 
 #include <algorithm>
 #include <QString>
@@ -18,7 +22,7 @@ std::optional<NormalizedInput> normalize(const std::vector<TracePoint> &trace, c
     const auto symbols=QString::fromStdString(alphabet).toUcs4();
     if (symbols.isEmpty() || symbols.size()>48) return std::nullopt;
 
-    // Letter area = bounding box of all letter keys. FUTO's coordinates are relative to it, so the
+    // Letter area = bounding box of all letter keys. Coordinates are relative to it, so the
     // number row, space bar etc. never stretch the space.
     float minX = std::numeric_limits<float>::max(), minY = minX;
     float maxX = std::numeric_limits<float>::lowest(), maxY = maxX;
@@ -33,7 +37,7 @@ std::optional<NormalizedInput> normalize(const std::vector<TracePoint> &trace, c
         indices[symbols[i]]=size_t(i);
     }
     for (const KeyRect &k : keys) {
-        // WHY validate before arithmetic: NaN or duplicate geometry must not poison FUTO's spatial head.
+        // WHY validate before arithmetic: NaN or duplicate geometry must not poison the key positions.
         if (!std::isfinite(k.x) || !std::isfinite(k.y) || !std::isfinite(k.w) || !std::isfinite(k.h) ||
             k.w<=0 || k.h<=0 || !std::isfinite(k.x+k.w) || !std::isfinite(k.y+k.h)) return std::nullopt;
         const auto it=indices.find(QChar::toLower(k.letter));

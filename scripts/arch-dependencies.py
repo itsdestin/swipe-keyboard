@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+
 """Arch dependencies from direct ELF needs, not the recursive build-host library graph."""
 import argparse
 import json
@@ -50,9 +55,16 @@ def gcc_floor(tags):
     return max(floors, key=version) if floors else None
 
 
+# WHY not a hard dependency: only the Plasma 6.7/6.8 front end (qml/SwipeKeyboard) links Qt Virtual Keyboard, and on those
+# versions plasma-keyboard itself requires it. Plasma 6.9's rebuilt keyboard has no Qt Virtual Keyboard; requiring it
+# would keep (or block) a package the system no longer needs. The PKGBUILD lists it as an optional dependency.
+LEGACY_ONLY_SONAMES = {'libQt6VirtualKeyboard.so.6'}
+
+
 def dependencies(root, run=command):
     base = Path(root) / 'usr/share/swipe-keyboard'
-    libraries = sorted((base / 'qml/SwipeKeyboard').glob('*.so*'))
+    # Both front ends: Plasma 6.7/6.8 (SwipeKeyboard) and Plasma 6.9 (SwipeKeyboard69).
+    libraries = sorted((base / 'qml/SwipeKeyboard').glob('*.so*')) + sorted((base / 'qml/SwipeKeyboard69').glob('*.so*'))
     if not libraries:
         raise ValueError('No staged native libraries')
     local = {p.name for p in libraries}
@@ -85,7 +97,7 @@ def dependencies(root, run=command):
     cxx = gcc_floor({tag for tag in tags if tag.startswith(('GLIBCXX_', 'CXXABI_'))})
     gcc = gcc_floor({tag for tag in tags if tag.startswith('GCC_')})
     result = {}
-    for soname in sorted(needed - local):
+    for soname in sorted(needed - local - LEGACY_ONLY_SONAMES):
         if soname not in providers:
             raise ValueError('Unresolved direct ELF dependency: ' + soname)
         owner = run(['pacman', '-Qoq', providers[soname]]).strip()

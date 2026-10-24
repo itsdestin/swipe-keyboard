@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+//
+// SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 #include <QtTest>
 
 #include "swipesession.h"
@@ -39,7 +43,7 @@ private slots:
         QTest::addColumn<QStringList>("expected");
         QTest::newRow("empty") << QString() << QStringList();
         QTest::newRow("three") << QStringLiteral("I am going") << QStringList{"I", "am", "going"};
-        // WHY: the whole sentence so far is context (FUTO's model was tested that way), not just 3 words.
+        // WHY: the whole sentence so far is context (the sentence models use more than 3 words).
         QTest::newRow("whole sentence") << QStringLiteral("so I am going to the shop with my sister and her two dogs")
                                         << QString("so I am going to the shop with my sister and her two dogs").split(' ');
         QTest::newRow("last twenty only") << QStringLiteral("w1 w2 w3 w4 w5 w6 w7 w8 w9 w10 w11 w12 w13 w14 w15 w16 w17 w18 w19 w20 w21 w22")
@@ -298,6 +302,17 @@ private slots:
         s.clear();
         QVERIFY(!s.isActive());
         QVERIFY(!s.cursorStillAfterWord(QStringLiteral("I said hello")));
+    }
+    // WHY: with capitals shown ("iPhone", "YouTube"), Shift at a sentence start must not make "IPhone"; plain words
+    // and caps lock behave as before.
+    void capitalizeLeavesWordsWithInnerCapitalsAlone()
+    {
+        QCOMPARE(SwipeSession::applyCase("iPhone", CaseMode::Capitalize), QString("iPhone"));
+        QCOMPARE(SwipeSession::applyCase("YouTube", CaseMode::Capitalize), QString("YouTube"));
+        QCOMPARE(SwipeSession::applyCase("hello", CaseMode::Capitalize), QString("Hello"));
+        QCOMPARE(SwipeSession::applyCase("I", CaseMode::Capitalize), QString("I"));
+        QCOMPARE(SwipeSession::applyCase("iPhone", CaseMode::AllCaps), QString("IPHONE"));
+        QCOMPARE(SwipeSession::applyCase("Paris", CaseMode::AsIs), QString("Paris"));
     }
 };
 

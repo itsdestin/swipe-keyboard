@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+
 """Apply/reverse the policy patch against explicit pinned source, never a host backend."""
 import os
 from pathlib import Path

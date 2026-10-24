@@ -1,0 +1,74 @@
+# Swipe accuracy of a whole build, from its SHIPPED files (dictionary, sentence pack, swipe model). One row per measurement.
+# set: bench-2000 / test-extra-10000 = real English swipes (public MIT test split, never trained or tuned on);
+#   '-futo-scorable' = only the swipes FUTO's scorer counts (target of 2+ letters, more than 2 trace points);
+#   heliboard-LANG = real HeliBoard Gesture Data swipes (CC BY-SA, test only, no sentences, per-swipe real key boxes).
+# context: yes = the previous words of the sentence are given; no = none (with a sentence pack: scored as a sentence's first word).
+# sentence_pack: yes = the build's LANG.ngram ranks the guesses; no = dictionary word frequency only.
+# Rows dated before 2026-10-24 are earlier measurements copied from docs/active/specs/2026-10-23-own-swipe-engine.md,
+#   bench/history.tsv and bench/languages/ (not re-run); an empty cell = not recorded.
+# match: letters = lower case, letters only (don't = dont); lookup = lower case, accents kept, apostrophes/hyphens dropped.
+# notes "junk" = share of shown alternatives (guesses 2-3) that are stretched ("youuuuu"), rare (word-list frequency
+#   under 80 of 255) or rarely used names (capitalised, under 120); "alternatives useful" = when the first guess is
+#   wrong, how often the right word is among the alternatives. Both printed by tools/swipekb-bench.
+date	build	set	swipes	context	sentence_pack	match	first_pct	top3_pct	notes
+2026-10-24	0.5.0-0.5 (9d3caf5)	bench-2000	2000	yes	yes	letters	90.10	93.10	tools/swipekb-bench, qwerty.tsv layout; junk 4.72% (was 44.77%); alternatives useful 30.30% (was 34.85%); common words top-3 96.46% (was 96.18%)
+2026-10-24	0.5.0-0.5 (9d3caf5)	bench-2000-futo-scorable	1946	yes	yes	letters	91.47	94.55	tools/swipekb-bench, qwerty.tsv layout; junk 4.73% (was 44.60%); alternatives useful 36.14% (was 41.57%)
+2026-10-24	0.5.0-0.5 (9d3caf5)	test-extra-10000	10000	yes	yes	letters	90.45	93.57	tools/swipekb-bench, qwerty.tsv layout; junk 5.06% (was 44.12%); alternatives useful 32.67% (was 35.29%); common words top-3 96.42% (was 96.04%)
+2026-10-24	0.5.0-0.5 (9d3caf5)	test-extra-10000-futo-scorable	9719	yes	yes	letters	92.03	95.21	tools/swipekb-bench, qwerty.tsv layout; junk 5.10% (was 43.99%); alternatives useful 39.87% (was 43.23%)
+2026-10-24	0.5.0-0.5 (9d3caf5)	heliboard-en	4576	no	yes	lookup	80.46	89.05	tools/swipekb-language-bench, shipped profile; same build with --plain-alternatives: 80.46 / 91.37
+2026-10-24	0.5.0-0.5 (9d3caf5)	heliboard-es	4790	no	yes	lookup	75.95	84.74	tools/swipekb-language-bench, shipped profile; unchanged (only stretched spellings are dropped outside English)
+2026-10-24	0.5.0-0.5 (9d3caf5)	heliboard-fr	4999	no	yes	lookup	68.15	82.02	tools/swipekb-language-bench, shipped profile; unchanged (only stretched spellings are dropped outside English)
+2026-10-24	0.5.0-0.5 (9d3caf5)	heliboard-de	4980	no	yes	lookup	64.74	73.13	tools/swipekb-language-bench, shipped profile; unchanged (only stretched spellings are dropped outside English)
+2026-10-24	0.5.0-0.5 (9d3caf5)	bench-2000	2000	no	yes	letters	88.15	92.70	tools/swipekb-bench, qwerty.tsv layout; re-run 2026-10-24 for the 0.5.0 release
+2026-10-24	0.5.0-0.5 (9d3caf5)	bench-2000	2000	no	no	letters	89.20	93.10	tools/swipekb-bench, qwerty.tsv layout; re-run 2026-10-24 for the 0.5.0 release
+2026-10-24	0.5.0-0.5 (9d3caf5)	bench-2000-futo-scorable	1946	no	yes	letters	89.47	94.14	tools/swipekb-bench, qwerty.tsv layout; re-run 2026-10-24 for the 0.5.0 release
+2026-10-24	0.5.0-0.5 (9d3caf5)	bench-2000-futo-scorable	1946	no	no	letters	90.54	94.55	tools/swipekb-bench, qwerty.tsv layout; re-run 2026-10-24 for the 0.5.0 release
+2026-10-24	0.5.0-0.5 (9d3caf5)	test-extra-10000	10000	no	yes	letters	88.10	93.00	tools/swipekb-bench, qwerty.tsv layout; re-run 2026-10-24 for the 0.5.0 release
+2026-10-24	0.5.0-0.5 (9d3caf5)	test-extra-10000	10000	no	no	letters	89.25	93.25	tools/swipekb-bench, qwerty.tsv layout; re-run 2026-10-24 for the 0.5.0 release
+2026-10-24	0.5.0-0.5 (9d3caf5)	test-extra-10000-futo-scorable	9719	no	yes	letters	89.61	94.63	tools/swipekb-bench, qwerty.tsv layout; re-run 2026-10-24 for the 0.5.0 release
+2026-10-24	0.5.0-0.5 (9d3caf5)	test-extra-10000-futo-scorable	9719	no	no	letters	90.80	94.89	tools/swipekb-bench, qwerty.tsv layout; re-run 2026-10-24 for the 0.5.0 release
+2026-10-24	0.5.0-0.1 (6c4b0c3)	bench-2000	2000	yes	yes	letters	90.10	93.55	tools/swipekb-bench, qwerty.tsv layout
+2026-10-24	0.5.0-0.1 (6c4b0c3)	bench-2000	2000	no	yes	letters	88.15	93.15	tools/swipekb-bench, qwerty.tsv layout
+2026-10-24	0.5.0-0.1 (6c4b0c3)	bench-2000	2000	no	no	letters	89.20	93.65	tools/swipekb-bench, qwerty.tsv layout
+2026-10-24	0.5.0-0.1 (6c4b0c3)	bench-2000-futo-scorable	1946	yes	yes	letters	91.47	95.02	tools/swipekb-bench, qwerty.tsv layout
+2026-10-24	0.5.0-0.1 (6c4b0c3)	bench-2000-futo-scorable	1946	no	yes	letters	89.47	94.60	tools/swipekb-bench, qwerty.tsv layout
+2026-10-24	0.5.0-0.1 (6c4b0c3)	bench-2000-futo-scorable	1946	no	no	letters	90.54	95.12	tools/swipekb-bench, qwerty.tsv layout
+2026-10-24	0.5.0-0.1 (6c4b0c3)	test-extra-10000	10000	yes	yes	letters	90.45	93.82	tools/swipekb-bench, qwerty.tsv layout
+2026-10-24	0.5.0-0.1 (6c4b0c3)	test-extra-10000	10000	no	yes	letters	88.10	93.22	tools/swipekb-bench, qwerty.tsv layout
+2026-10-24	0.5.0-0.1 (6c4b0c3)	test-extra-10000	10000	no	no	letters	89.25	93.47	tools/swipekb-bench, qwerty.tsv layout
+2026-10-24	0.5.0-0.1 (6c4b0c3)	test-extra-10000-futo-scorable	9719	yes	yes	letters	92.03	95.47	tools/swipekb-bench, qwerty.tsv layout
+2026-10-24	0.5.0-0.1 (6c4b0c3)	test-extra-10000-futo-scorable	9719	no	yes	letters	89.61	94.87	tools/swipekb-bench, qwerty.tsv layout
+2026-10-24	0.5.0-0.1 (6c4b0c3)	test-extra-10000-futo-scorable	9719	no	no	letters	90.80	95.12	tools/swipekb-bench, qwerty.tsv layout
+2026-10-14	FUTO Swipe reference (0.3.x keyboard, 370d6f5)	bench-2000-futo-scorable	1946	yes	FUTO context model	letters	93.32	96.56	bench/history.tsv; FUTO scorer skips 54 of the 2,000
+2026-10-24	0.5.0-0.1 (6c4b0c3)	heliboard-en	4576	no	yes	lookup	80.5	91.4	tools/swipekb-language-bench, shipped profile; evaluated cases; English cases are the qwerty-board swipes whose word is in the dictionary
+2026-10-24	0.5.0-0.1 (6c4b0c3)	heliboard-es	4790	no	yes	lookup	75.9	84.7	tools/swipekb-language-bench, shipped profile; evaluated cases; target in the shipped word list 90.3 %
+2026-10-24	0.5.0-0.1 (6c4b0c3)	heliboard-fr	4999	no	yes	lookup	68.2	82.0	tools/swipekb-language-bench, shipped profile; evaluated cases; target in the shipped word list 92.2 %
+2026-10-24	0.5.0-0.1 (6c4b0c3)	heliboard-de	4980	no	yes	lookup	64.7	73.1	tools/swipekb-language-bench, shipped profile; evaluated cases; target in the shipped word list 80.0 %
+2026-10-22	FUTO keyboard 0.3.1 reference (old word lists)	heliboard-en	4576	no	FUTO context model	lookup	84.5	93.4	bench/languages/heliboard.md; same 4,576 cases
+2026-10-22	FUTO keyboard 0.3.1 reference (old word lists)	heliboard-es	4790	no	FUTO context model	lookup	77.7	85.1	bench/languages/heliboard.md
+2026-10-22	FUTO keyboard 0.3.1 reference (old word lists)	heliboard-fr	4999	no	FUTO context model	lookup	64.6	76.9	bench/languages/heliboard.md
+2026-10-22	FUTO keyboard 0.3.1 reference (old word lists)	heliboard-de	4980	no	FUTO context model	lookup	69.7	76.4	bench/languages/heliboard.md
+2026-10-23	T1 swipe model alone (tools/swipekb-swipenet-bench, frequency prior; not the shipped setup)	bench-2000	2000	no	no	letters	90.40	94.95	all swipes
+2026-10-23	T1 swipe model alone (tools/swipekb-swipenet-bench, frequency prior; not the shipped setup)	bench-2000-in-dictionary	1958	no	no	letters	92.34	96.99	targets in the word list only
+2026-10-23	T1 swipe model alone (tools/swipekb-swipenet-bench, frequency prior; not the shipped setup)	test-extra-10000	10000	no	no	letters	90.77	94.97	all swipes
+2026-10-23	T1 swipe model alone (tools/swipekb-swipenet-bench, frequency prior; not the shipped setup)	test-extra-10000-in-dictionary	9781	no	no	letters	92.80	97.10	targets in the word list only
+2026-10-23	T1 swipe model alone (tools/swipekb-swipenet-bench, frequency prior; not the shipped setup)	clean3000-in-dictionary		no	no	letters	93.13	97.37	3,000-swipe diagnostic sample of test.jsonl, in-dictionary (97.5 %)
+2026-10-23	T1 swipe model alone (tools/swipekb-swipenet-bench, frequency prior; not the shipped setup)	trv8k	7198	no	no	letters	92.19	95.79	held-back slice of FUTO train.jsonl with sentences
+2026-10-23	T1 swipe model alone (tools/swipekb-swipenet-bench, frequency prior; not the shipped setup)	trv8k	7198	yes	yes	letters	93.10	95.92	release-v2/en.ngram, previous words
+2026-10-23	T1 swipe model alone (tools/swipekb-swipenet-bench, frequency prior; not the shipped setup), 260k-word list	heliboard-en	5000	no	no	lookup	82.1	91.5	all 5,000
+2026-10-23	T1 swipe model alone (tools/swipekb-swipenet-bench, frequency prior; not the shipped setup), 260k-word list	heliboard-es	5000	no	no	lookup	81.1	89.8	all 5,000
+2026-10-23	T1 swipe model alone (tools/swipekb-swipenet-bench, frequency prior; not the shipped setup), 260k-word list	heliboard-fr	5000	no	no	lookup	71.7	85.9	all 5,000
+2026-10-23	T1 swipe model alone (tools/swipekb-swipenet-bench, frequency prior; not the shipped setup), 260k-word list	heliboard-de	5000	no	no	lookup	73.3	82.3	all 5,000
+2026-10-23	FUTO tool on clean3000 (reference)	clean3000-futo-scorable	2909	yes	FUTO context model	letters	92.5	96.3	the 2,909 swipes its tool can score
+2026-10-23	T1 swipe model alone, FUTO swipe-5 validation slices (development data, not a final test)	swipe5-fr		no	no	letters	83.2		own layout
+2026-10-23	T1 swipe model alone, FUTO swipe-5 validation slices (development data, not a final test)	swipe5-de		no	no	letters	90.2		own layout
+2026-10-23	T1 swipe model alone, FUTO swipe-5 validation slices (development data, not a final test)	swipe5-de-qwertz		no	no	letters	83.2		own layout
+2026-10-23	F1 swipe model alone (previous model), FUTO swipe-5 validation slices	swipe5-fr		no	no	letters	79.8		
+2026-10-23	F1 swipe model alone (previous model), FUTO swipe-5 validation slices	swipe5-de		no	no	letters	84.7		
+2026-10-23	F1 swipe model alone (previous model), FUTO swipe-5 validation slices	swipe5-de-qwertz		no	no	letters	81.6		
+2026-10-22	FUTO keyboard 0.3.1 reference	synthetic-noisy-v1-es	400	no	FUTO context model	lookup	89.00	98.25	synthetic swipes, bench/languages
+2026-10-22	FUTO keyboard 0.3.1 reference	synthetic-noisy-v1-fr	400	no	FUTO context model	lookup	83.25	93.00	synthetic swipes, bench/languages
+2026-10-22	FUTO keyboard 0.3.1 reference	synthetic-noisy-v1-de	400	no	FUTO context model	lookup	87.75	97.00	synthetic swipes, bench/languages
+2026-10-22	FUTO keyboard 0.3.1 reference (synthetic-swipe calibration)	bench-2000-plain-words	1669	no	FUTO context model	lookup	92.8	96.4	real swipes of the 1,669 plain a-z words; bench/languages/README.md
+2026-10-22	FUTO keyboard 0.3.1 reference (synthetic-swipe calibration)	synthetic-bench-2000-plain-words	1669	no	FUTO context model	lookup	92.3	96.0	synthetic traces of the same words, noise x0.45
+2026-10-14	FUTO Swipe stock (infer_jsonl, stock dictionary; bench/history.tsv 3c52c51)	bench-2000-futo-scorable	1946	yes	FUTO context model	letters	92.50	95.43	FUTO's own tool

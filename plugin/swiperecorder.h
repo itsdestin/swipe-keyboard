@@ -1,3 +1,9 @@
+/*
+ * SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+ *
+ * SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+ */
+
 // SwipeRecorder — opt-in recording of real swipes, so recognition can be measured and tuned offline
 // (tools/swipekb-replay replays the recordings). Off unless the owner creates the file
 // <swipe-keyboard data folder>/record; then each swipe adds one line to traces/swipes.jsonl

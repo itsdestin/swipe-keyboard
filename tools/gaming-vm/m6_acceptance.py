@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+
 """M6 / M7-layer acceptance rig. Runs INSIDE the SteamOS Gaming Mode guest as the plain user (plan Section 14, M6 and M7).
 
 Reuses the M5 rig (deploy-m6.sh puts both files in ~/m5): touchd.py running as root in the guest, the host half running

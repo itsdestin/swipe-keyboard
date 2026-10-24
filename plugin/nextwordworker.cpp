@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+//
+// SPDX-License-Identifier: MIT
+
 #include "nextwordworker.h"
 #include "swipekb/prediction.hpp"
 
@@ -50,16 +54,20 @@ void NextWordWorker::run()
         try {
             if (m_inference) { words = m_inference(job); modelLoaded=true; }
             else {
-                const auto identity = job.modelIdentity + '\n' + job.model + '\n' + job.vocab;
+                const auto identity = job.modelIdentity + '\n' + job.model + '\n' + job.vocab + '\n' + job.nwp;
                 if (loadedIdentity != identity || !predictor.ready()) {
-                    predictor.init(job.model.toStdString(), job.vocab.toStdString());
+                    predictor.init(job.model.toStdString(), job.vocab.toStdString(), job.nwp.toStdString(), false);
                     loadedIdentity = identity;
                 }
                 modelLoaded=predictor.ready();
                 std::vector<std::string> context;
                 for (const auto &word : job.context) context.push_back(word.toStdString());
-                for (const auto &word : predictor.predict(context, 12)) words << QString::fromStdString(word);
+                for (const auto &word : predictor.predict(context, job.topK, job.prefix.toStdString()))
+                    words << QString::fromStdString(word);
             }
+            // WHY after both paths: whatever produced the words, the bar shows the same capitals as a swipe.
+            if (job.capitals)
+                for (auto &w : words) w = QString::fromStdString(job.capitals->apply(w.toStdString()));
         } catch (...) { words.clear(); }
         {
             QMutexLocker lock(&m_mutex);
@@ -67,7 +75,9 @@ void NextWordWorker::run()
                 // WHY no model path/context in status: only the current profile's
                 // loaded bit may cross into support diagnostics.
                 emit modelStateChanged(job.stamp.profileEpoch,modelLoaded);
-                emit resultReady(job.stamp, words);
+                if (job.alternatives) emit alternativesReady(job.stamp, words);
+                else if (job.prefix.isEmpty()) emit resultReady(job.stamp, words);
+                else emit completionReady(job.stamp, job.prefix, words);
             }
         }
         // WHY completion follows delivery even for revoked work: callers can

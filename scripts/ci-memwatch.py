@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+
 """Record peak memory use of a CI build (evidence for parallelism changes).
 
 `sample FILE` appends "epoch used_kib available_kib" every few seconds until killed;

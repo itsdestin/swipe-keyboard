@@ -1,0 +1,54 @@
+# word<TAB>strength<TAB>tag<TAB>note   (CC0, see README.md; strength 1-255 like the dictionary; tag is - or swear)
+lg	140	-	liebe Gruesse
+glg	110	-	ganz liebe Gruesse
+mfg	130	-	mit freundlichen Gruessen
+vlg	100	-	viele Gruesse
+hdl	120	-	hab dich lieb
+hdgdl	105	-	hab dich ganz doll lieb
+vllt	145	-	vielleicht
+kp	130	-	keine Ahnung
+ka	115	-	keine Ahnung
+iwie	130	-	irgendwie
+iwo	105	-	irgendwo
+iwann	105	-	irgendwann
+bzw	145	-	beziehungsweise
+usw	150	-	und so weiter
+evtl	135	-	eventuell
+ggf	140	-	gegebenenfalls
+zb	125	-	zum Beispiel
+bspw	110	-	beispielsweise
+kb	105	-	keine Bock
+jo	130	-	ja
+joa	120	-	ja
+ne	140	-	nein
+jau	115	-	ja
+jup	105	-	ja
+jep	105	-	ja
+ey	130	-	he
+oha	115	-	ueberrascht
+puh	115	-	erleichtert
+ähm	140	-	zoegern
+äh	130	-	zoegern
+hmm	130	-	nachdenken
+ups	120	-	Missgeschick
+juhu	115	-	Freude
+moin	140	-	Gruss
+tschö	120	-	Abschied
+tschau	115	-	Abschied
+ciao	120	-	Abschied
+digga	120	-	Anrede (Slang)
+wallah	110	-	ehrlich (Slang)
+mimimi	100	-	Gejammer
+lol	150	-	Lachen
+rofl	100	-	Lachen
+omg	150	-	oh mein Gott
+wtf	140	swear	was zum Teufel
+haha	150	-	Lachen
+hihi	110	-	Lachen
+jaja	115	-	Lachen
+sry	110	-	Entschuldigung
+thx	120	-	danke
+afk	110	-	nicht am Computer
+gz	100	-	Glueckwunsch
+ok	150	-	in Ordnung
+okay	150	-	in Ordnung

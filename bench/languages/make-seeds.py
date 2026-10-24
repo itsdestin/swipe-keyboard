@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+
 """Reproduce authored, NOT native-reviewed synthetic fixtures; no corpus/user input."""
 import json
 import sys

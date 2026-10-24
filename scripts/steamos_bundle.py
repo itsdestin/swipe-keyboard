@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+
 """Assemble and check the single SteamOS download (plan Section 15, question 2).
 
 One .tar.gz holding both Flatpak bundles, install.sh, uninstall.sh, the two systemd units, a VERSION file and a

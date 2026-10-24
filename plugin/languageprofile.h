@@ -1,3 +1,9 @@
+/*
+ * SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+ *
+ * SPDX-License-Identifier: MIT
+ */
+
 #pragma once
 #include <QHash>
 #include <QString>
@@ -15,6 +21,10 @@ struct ProfileSnapshot {
     quint64 epoch=0;
 };
 QString canonicalLocale(const QString &locale);
+// Path of <dir>/swipe-model.bin when its size and SHA-256 equal the pin in assets.lock.json ("trained_models.swipe"),
+// else an empty string (the engine then runs geometry-only). resolveProfile() puts the verified file in the
+// snapshot as asset "swipeModel" (English: <modelRoot>/language-packs, then <modelRoot>; other languages: the pack folder).
+QString verifiedSwipeModel(const QString &modelRoot);
 ProfileSnapshot resolveProfile(const QString &locale, const QString &layoutId, const QString &inputMode,
                                const QString &modelRoot, quint64 epoch=0);
 // Serialized owner-thread state; async loaders pass their captured epoch to publish().

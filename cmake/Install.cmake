@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+
 # Kept separately so staging contracts can exercise installation without compiling Qt.
 include(GNUInstallDirs)
 if(NOT DEFINED SWIPEKB_SOURCE)
@@ -10,17 +14,21 @@ install(DIRECTORY "${SWIPEKB_QML_DIR}/SwipeKeyboard" DESTINATION "${_runtime}/qm
     FILES_MATCHING PATTERN "*.so*"
     PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
     PATTERN "qmldir" PATTERN "*.qml" PATTERN "*.qmltypes")
-install(DIRECTORY "${SWIPEKB_ASSETS}/models/" DESTINATION "${_runtime}/models")
 install(FILES "${SWIPEKB_ASSETS}/dict/en_swipe.combined" DESTINATION "${_runtime}/dict")
-# WHY required, not OPTIONAL: a normal installation must contain every selectable language pack.
+# WHY required, not OPTIONAL: a normal installation must contain every selectable language pack (and the shared
+# swipe model that sits beside them).
 install(DIRECTORY "${SWIPEKB_ASSETS}/language-packs/" DESTINATION "${_runtime}/language-packs")
 install(DIRECTORY "${SWIPEKB_ASSETS}/licenses/" DESTINATION "${CMAKE_INSTALL_DATADIR}/licenses/swipe-keyboard")
+# WHY the whole LICENSES/ folder: the code is MIT (the keyboard add-on layers: KDE's GPL choice), the data files keep their own;
+# every licence named by an SPDX header or REUSE.toml must travel with the package.
+install(DIRECTORY "${SWIPEKB_SOURCE}/LICENSES/" DESTINATION "${CMAKE_INSTALL_DATADIR}/licenses/swipe-keyboard/LICENSES")
 install(FILES "${SWIPEKB_SOURCE}/LICENSE" "${SWIPEKB_SOURCE}/packaging/assets.lock.json"
     "${SWIPEKB_SOURCE}/packaging/NOTICE" "${SWIPEKB_SOURCE}/packaging/language-models/TATOEBA-CC-BY-2.0-FR.txt"
     DESTINATION "${CMAKE_INSTALL_DATADIR}/licenses/swipe-keyboard")
 install(FILES "${SWIPEKB_SOURCE}/packaging/SOURCE-PROVENANCE.txt"
     DESTINATION "${CMAKE_INSTALL_DATADIR}/licenses/swipe-keyboard" OPTIONAL)
-install(FILES "${SWIPEKB_SOURCE}/integration/setup.py" "${SWIPEKB_SOURCE}/integration/layout.py"
+install(FILES "${SWIPEKB_SOURCE}/integration/setup.py" "${SWIPEKB_SOURCE}/integration/layout.py" "${SWIPEKB_SOURCE}/integration/learning.py"
+    "${SWIPEKB_SOURCE}/integration/plasma69.py"
     "${SWIPEKB_SOURCE}/integration/swipe-keyboard.desktop" DESTINATION "${_runtime}/integration")
 install(PROGRAMS "${SWIPEKB_SOURCE}/integration/swipe-keyboard" DESTINATION "${_runtime}/integration")
 # Automatic updates (plan: docs/active/plans/2026-10-23-auto-updates.md): the updater, its daily timer and the public

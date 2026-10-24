@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+//
+// SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 // Read-only loader probe: no GUI, QML engine, keyboard, models or user settings.
 #include <QCoreApplication>
 #include <QLibrary>

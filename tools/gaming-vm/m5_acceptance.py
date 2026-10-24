@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+
 """M5 acceptance rig. Runs INSIDE the SteamOS Gaming Mode guest as the plain user (plan Section 14, M5).
 
 Deploy with deploy-m5.sh. Needs: touchd.py running as root in the guest (socket /tmp/touchd.sock), the guest's Steam signed in with the

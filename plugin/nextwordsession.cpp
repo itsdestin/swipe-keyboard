@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+//
+// SPDX-License-Identifier: MIT
+
 #include "nextwordsession.h"
 #include <QRegularExpression>
 
@@ -121,8 +125,7 @@ CommitPlan NextWordSession::takePrediction(int i, PredictionStamp displayedSet, 
     CommitPlan plan;
     if (m_requested && displayedSet == m_stamp && matches(e, p, epoch) && i >= 0 && i < m_candidates.size()) {
         QString word = m_candidates.at(i);
-        if (mode == CaseMode::AllCaps) word = word.toUpper();
-        else if (mode == CaseMode::Capitalize && !word.isEmpty()) word = word.left(1).toUpper() + word.mid(1);
+        word = SwipeSession::applyCase(word, mode);   // WHY shared: same Shift/Caps rules as a swiped word
         plan.text = (SwipeSession::needsSpaceBefore(e.text.left(e.cursor)) ? QStringLiteral(" ") : QString()) + word;
         // WHY never a replacement: prediction belongs AFTER the confirmed word, unlike corrections.
         plan.replaceFrom = plan.replaceLength = 0;

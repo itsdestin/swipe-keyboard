@@ -1,10 +1,14 @@
+// SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+//
+// SPDX-License-Identifier: MIT
+
 #include <algorithm>
 #include <cstdint>
 #include <string>
 #include <vector>
 #include <QString>
 
-#include "swipekb/recognizer.hpp"
+#include "swipekb/text.hpp"
 
 namespace swipekb {
 

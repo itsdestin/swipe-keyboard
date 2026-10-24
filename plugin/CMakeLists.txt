@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+
 find_package(Qt6 6.8 REQUIRED COMPONENTS Core Gui Qml Quick VirtualKeyboard Test)
 # WHY KWindowSystem: WindowBlur asks KWin to blur behind the keyboard (KWindowEffects), the same call Plasma's
 # panels use. It ships with Plasma, so it is always there wherever Plasma Keyboard runs.
@@ -32,7 +36,7 @@ target_link_libraries(swipekb-profilecheck PRIVATE swipekb_language)
 install(TARGETS swipekb-profilecheck RUNTIME DESTINATION share/swipe-keyboard/integration)
 
 # Pure text logic, no keyboard or engine: unit-tested on its own.
-add_library(swipekb_session STATIC swipesession.cpp swipeoutcome.cpp nextwordsession.cpp predictionpolicy.cpp predictiondiagnostics.cpp)
+add_library(swipekb_session STATIC swipesession.cpp swipeoutcome.cpp nextwordsession.cpp predictionpolicy.cpp predictiondiagnostics.cpp wordswap.cpp)
 target_include_directories(swipekb_session PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 # WHY the engine: SwipeSession::contextWords forwards to swipekb::contextWords (one shared implementation).
 target_link_libraries(swipekb_session PUBLIC Qt6::Core swipekb_engine)
@@ -47,7 +51,7 @@ add_test(NAME plugin_outcome COMMAND tst_swipeoutcome)
 
 # WHY these tests are independent of a compositor/installed keyboard: prediction
 # insertion and policy authority must be pinned without activating a host backend.
-foreach(feature IN ITEMS nextwordsession predictionpolicy predictiondiagnostics ownedhistory typedwordsession)
+foreach(feature IN ITEMS nextwordsession predictionpolicy predictiondiagnostics ownedhistory typedwordsession wordswap)
     qt_add_executable(tst_${feature} tests/tst_${feature}.cpp)
     target_link_libraries(tst_${feature} PRIVATE swipekb_session Qt6::Test)
     add_test(NAME plugin_${feature} COMMAND tst_${feature})
@@ -73,6 +77,15 @@ add_test(NAME plugin_spacebarslide COMMAND tst_spacebarslide)
 set_tests_properties(plugin_spacebarslide PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_IM_MODULE=qtvirtualkeyboard")
 qt_add_executable(test_prediction ../engine/tests/test_prediction.cpp)
 target_link_libraries(test_prediction PRIVATE swipekb_engine Qt6::Test)
+# WHY: test_prediction.cpp reads the neural-model fixtures in tests/data (the features build already defines this);
+# without it the full build failed to compile this test.
+target_compile_definitions(test_prediction PRIVATE SWIPEKB_TEST_DATA="${CMAKE_CURRENT_SOURCE_DIR}/../tests/data")
+# The neural next-word model's own test (runner vs PyTorch, damaged files, hybrid predictor); same sources as the features build.
+qt_add_executable(tst_nwp ../engine/tests/tst_nwp.cpp)
+target_include_directories(tst_nwp PRIVATE ../engine/include)
+target_compile_definitions(tst_nwp PRIVATE SWIPEKB_TEST_DATA="${CMAKE_CURRENT_SOURCE_DIR}/../tests/data")
+target_link_libraries(tst_nwp PRIVATE swipekb_engine Qt6::Test)
+add_test(NAME engine_nwp COMMAND tst_nwp)
 add_test(NAME engine_prediction COMMAND test_prediction)
 set(_engine_prediction_env "SWIPEKB_TEST_ASSETS=${SWIPEKB_ASSETS}")
 if(SWIPEKB_TEST_MULTILINGUAL_MODELS)
@@ -102,8 +115,13 @@ qt_add_qml_module(swipekeyboard
     OUTPUT_DIRECTORY ${SWIPEKB_QML_DIR}/SwipeKeyboard
     QML_FILES SwipeCapture.qml
     SOURCES swipeinputmethod.h swipeinputmethod.cpp nextwordworker.h nextwordworker.cpp windowblur.h windowblur.cpp
+            learningmanager.h learningmanager.cpp
 )
 target_link_libraries(swipekeyboard PRIVATE Qt6::Quick Qt6::VirtualKeyboard KF6::WindowSystem swipekb_session swipekb_recorder swipekb_engine swipekb_language)
+# WHY PUBLIC include of the engine headers: swipekeyboard links the engine PRIVATE, so tests that include the plugin's
+# learningmanager.h (which includes swipekb/learning.hpp) could not find it and the full build stopped at the first
+# of them (the lighter tests/features project adds this include by hand).
+target_include_directories(swipekeyboard PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../engine/include)
 # WHY: flags-only observations must not exist in ordinary release builds or change authorization policy.
 option(SWIPEKB_PRIVATE_FLAGS_DIAGNOSTIC "PRIVATE flags-only Deck diagnostic (not a release)" OFF)
 if(SWIPEKB_PRIVATE_FLAGS_DIAGNOSTIC)
@@ -122,10 +140,26 @@ add_test(NAME plugin_nextwordintegration COMMAND tst_nextwordintegration)
 set_tests_properties(plugin_nextwordintegration PROPERTIES ENVIRONMENT
     "QT_QPA_PLATFORM=offscreen;QT_IM_MODULE=qtvirtualkeyboard;SWIPEKB_TEST_ASSETS=${SWIPEKB_ASSETS};SWIPEKB_TEST_PROFILE_ASSETS=${SWIPEKB_ASSETS};SWIPEKB_TEST_LANGUAGE_PACKS=${SWIPEKB_TEST_LANGUAGE_PACKS}")
 
+# Phase 2 learning from the person's own typing: the model, its on-disk store, and the whole thing inside the real input
+# method. The first two need only the engine library (the model lives there); the third is like tst_nextwordintegration.
+qt_add_executable(tst_personalmodel tests/tst_personalmodel.cpp)
+target_link_libraries(tst_personalmodel PRIVATE swipekb_engine Qt6::Test)
+add_test(NAME plugin_personalmodel COMMAND tst_personalmodel)
+qt_add_executable(tst_learningmanager tests/tst_learningmanager.cpp learningmanager.cpp learningmanager.h)
+target_include_directories(tst_learningmanager PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(tst_learningmanager PRIVATE swipekb_engine Qt6::Test)
+add_test(NAME plugin_learningmanager COMMAND tst_learningmanager)
+qt_add_executable(tst_learningintegration tests/tst_learningintegration.cpp)
+target_include_directories(tst_learningintegration PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(tst_learningintegration PRIVATE swipekeyboard Qt6::Quick Qt6::Qml Qt6::VirtualKeyboard Qt6::Test)
+add_test(NAME plugin_learningintegration COMMAND tst_learningintegration)
+set_tests_properties(plugin_learningintegration PROPERTIES SKIP_RETURN_CODE 77 ENVIRONMENT
+    "QT_QPA_PLATFORM=offscreen;QT_IM_MODULE=qtvirtualkeyboard;SWIPEKB_TEST_PROFILE_ASSETS=${SWIPEKB_ASSETS}")
+
 # WHY register in the ordinary build too: the lightweight feature project is not the normal CTest gate.
 # Fixtures are explicit opt-ins. Tests QSKIP when absent, but supplied invalid fixtures fail rather than pass.
 set(_language_fixture_env)
-foreach(fixture ENGLISH_ASSETS LANGUAGE_PACKS CC_LICENSE)
+foreach(fixture ENGLISH_ASSETS LANGUAGE_PACKS)
     set(SWIPEKB_TEST_${fixture} "" CACHE PATH "Explicit read-only language ${fixture} test fixture")
     if(SWIPEKB_TEST_${fixture})
         list(APPEND _language_fixture_env "SWIPEKB_TEST_${fixture}=${SWIPEKB_TEST_${fixture}}")
@@ -146,6 +180,11 @@ qt_add_executable(tst_languageintegration tests/tst_languageintegration.cpp)
 target_include_directories(tst_languageintegration PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(tst_languageintegration PRIVATE swipekeyboard Qt6::Quick Qt6::Qml Qt6::VirtualKeyboard Qt6::Test)
 add_test(NAME plugin_languageintegration COMMAND tst_languageintegration)
+qt_add_executable(tst_engineintegration tests/tst_engineintegration.cpp)
+target_include_directories(tst_engineintegration PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(tst_engineintegration PRIVATE swipekeyboard Qt6::Quick Qt6::Qml Qt6::VirtualKeyboard Qt6::Test)
+target_compile_definitions(tst_engineintegration PRIVATE SWIPEKB_TEST_DATA="${CMAKE_CURRENT_SOURCE_DIR}/../tests/data")
+add_test(NAME plugin_engineintegration COMMAND tst_engineintegration)
 # ORACLE for the Gaming Mode daemon (tests/gaming): records what the real plugin's guess bar shows for the authored
 # multilingual swipes. The daemon test (gaming_daemon) requires this to have run, via the CTest fixture below.
 qt_add_executable(tst_languageoracle tests/tst_languageoracle.cpp)
@@ -159,7 +198,7 @@ add_test(NAME plugin_languageoracle COMMAND tst_languageoracle)
 # (reported as passed, no output file) and gaming_daemon then failed on the missing file. The other language tests keep
 # their explicit opt-in because they exercise generation and licence checks that a plain build must not assume.
 set(_oracle_fixture_env "${_language_fixture_env}")
-if(NOT SWIPEKB_TEST_ENGLISH_ASSETS AND NOT SWIPEKB_TEST_LANGUAGE_PACKS AND IS_DIRECTORY "${SWIPEKB_ASSETS}/language-packs" AND IS_DIRECTORY "${SWIPEKB_ASSETS}/models")
+if(NOT SWIPEKB_TEST_ENGLISH_ASSETS AND NOT SWIPEKB_TEST_LANGUAGE_PACKS AND IS_DIRECTORY "${SWIPEKB_ASSETS}/language-packs" AND IS_DIRECTORY "${SWIPEKB_ASSETS}/dict")
     set(_oracle_fixture_env "SWIPEKB_TEST_ENGLISH_ASSETS=${SWIPEKB_ASSETS};SWIPEKB_TEST_LANGUAGE_PACKS=${SWIPEKB_ASSETS}/language-packs")
 endif()
 set_tests_properties(plugin_languageoracle PROPERTIES FIXTURES_SETUP plugin_oracle ENVIRONMENT
@@ -169,6 +208,10 @@ set_tests_properties(plugin_languageprofile plugin_languagepacks PROPERTIES ENVI
 set_tests_properties(plugin_languageprofile plugin_languagepacks plugin_languageintegration PROPERTIES
     SKIP_RETURN_CODE 77)
 set_tests_properties(plugin_languageintegration PROPERTIES ENVIRONMENT
+    "${_language_fixture_env};QT_QPA_PLATFORM=offscreen;QT_IM_MODULE=qtvirtualkeyboard;QT_VIRTUALKEYBOARD_DESKTOP_DISABLE=1")
+# WHY like the language integration test: it needs the same fixtures and an offscreen display. Without this it ran on
+# the real display (fails when the fixtures are supplied) and otherwise only skipped, so a break stayed invisible.
+set_tests_properties(plugin_engineintegration PROPERTIES SKIP_RETURN_CODE 77 ENVIRONMENT
     "${_language_fixture_env};QT_QPA_PLATFORM=offscreen;QT_IM_MODULE=qtvirtualkeyboard;QT_VIRTUALKEYBOARD_DESKTOP_DISABLE=1")
 # WHY SHARED + same output folder: a STATIC backing library makes the plugin static too, which Qt cannot load.
 # The three .so files (plugin, backing library, engine) sit side by side so the module folder is

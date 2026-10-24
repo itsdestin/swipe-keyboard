@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+
 """Publication is exercised with a fake gh transport; no remote effects or credentials."""
 import importlib.util
 import json

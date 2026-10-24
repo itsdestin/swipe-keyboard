@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+
 """Chrome DevTools Protocol over the hand-written websocket: one request at a time, events kept aside."""
 import http.client
 import json

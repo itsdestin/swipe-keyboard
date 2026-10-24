@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+
 """Status file (plan Section 6): what the helper is doing, for the Desktop settings page. States and counts
 only, never text the user typed (plan Section 8)."""
 import json

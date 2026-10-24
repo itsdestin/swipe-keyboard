@@ -1,4 +1,9 @@
 #!/bin/bash
+
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+
 # Copy the helper, the page layer, the shared contract and the M5 + M6 rigs into the guest at ~/m5 (the M6 rig imports the M5 one).
 # usage: tools/gaming-vm/deploy-m6.sh   (run on the host; needs the lab's guests/steamos-gaming/ssh wrapper)
 # The engine daemon is NOT copied: it runs on the host and is forwarded in (m5_host.py up; SWIPEKB_LOCALES=en_US,es_ES,fr_FR,de_DE for M7).

@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+
 """Deck setup disclosure is read-only; normal KDE selection remains explicit."""
 import contextlib
 import importlib.util

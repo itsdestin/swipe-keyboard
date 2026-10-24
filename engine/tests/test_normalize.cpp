@@ -1,11 +1,15 @@
+// SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+//
+// SPDX-License-Identifier: MIT
+
 #include <gtest/gtest.h>
 
-#include "swipekb/recognizer.hpp"
+#include "swipekb/text.hpp"
 
 using namespace swipekb;
 
-// 100 px keys in three staggered rows (row 2 shifted half a key, row 3 one and a half): the same
-// geometry as FUTO's built-in en_qwerty layout, so normalized centers must equal FUTO's numbers.
+// 100 px keys in three staggered rows (row 2 shifted half a key, row 3 one and a half). The expected centres below
+// are worked out by hand from this geometry (they equal scripts/swipe/layouts/qwerty.tsv).
 static std::vector<KeyRect> qwertyRects(float ox, float oy, float scale = 1.f)
 {
     const char *rows[3] = {"qwertyuiop", "asdfghjkl", "zxcvbnm"};
@@ -19,7 +23,7 @@ static std::vector<KeyRect> qwertyRects(float ox, float oy, float scale = 1.f)
 
 static int idx(char c) { return c - 'a'; }
 
-TEST(Normalize, KeyCentersMatchFutoDefaultLayout)
+TEST(Normalize, KeyCentersFollowTheGeometry)
 {
     auto n = normalize({{0, 0, 0}, {1, 1, 5}}, qwertyRects(30, 400));
     ASSERT_TRUE(n.has_value());

@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+
 """Text-level guards on the two workflow files (no YAML library in the standard library)."""
 import re
 import unittest

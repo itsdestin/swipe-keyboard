@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+//
+// SPDX-License-Identifier: MIT
+
 #include "server.hpp"
 
 #include <QJsonArray>
@@ -106,7 +110,7 @@ void Engine::evictOldestExcept(const std::string &keep)
     }
 }
 
-swipekb::Recognizer *Engine::recognizer(const QString &locale, const QString &physical)
+swipekb::LanguageEngine *Engine::recognizer(const QString &locale, const QString &physical)
 {
     auto *rt = runtime(locale, physical);
     if (!rt) return nullptr;
@@ -114,12 +118,15 @@ swipekb::Recognizer *Engine::recognizer(const QString &locale, const QString &ph
     if (!rt->recognizer) {
         evictOldestExcept(profileKey(locale, physical));
         const auto t = Clock::now();
-        swipekb::ModelPaths paths;
-        swipekb::RecognizerOptions options;
-        // WHY shared with the plugin: same model files, same n-gram/dictionary choice, same accent aliases.
-        if (!swipekb::configureRecognizer(rt->profile, paths, options)) { logEvent("recognizer_load_failed"); return nullptr; }
-        auto r = std::make_unique<swipekb::Recognizer>();
-        if (!r->init(paths, options)) { logEvent("recognizer_load_failed"); return nullptr; }
+        swipekb::LanguageEngineSetup setup;
+        // WHY shared with the plugin: same verified files, same n-gram/dictionary choice.
+        if (!swipekb::configureLanguageEngine(rt->profile, setup)) { logEvent("recognizer_load_failed"); return nullptr; }
+        auto r = std::make_unique<swipekb::LanguageEngine>();
+        if (!r->init(setup)) { logEvent("recognizer_load_failed"); return nullptr; }
+        // WHY the built-in texting words, as in the plugin (SwipeInputMethod::syncLearnedWords): the same swipe must
+        // give the same words in both keyboards. The daemon never learns words, so there is no learned set.
+        r->liftWords(swipekb::textingWordPairs(rt->profile.effectiveLanguage));
+        r->setCapitals(swipekb::capitalsFor(rt->profile.effectiveLanguage));   // same capitals as the keyboards
         rt->recognizer = std::move(r);
         logEvent("recognizer_loaded_ms", msSince(t));
     }
@@ -143,6 +150,12 @@ swipekb::Predictor *Engine::predictor(const QString &locale, const QString &phys
         logEvent("predictor_loaded_ms", msSince(t));
     }
     return rt->predictor.get();
+}
+
+std::shared_ptr<const swipekb::Capitals> Engine::capitals(const QString &locale, const QString &physical)
+{
+    auto *rt = runtime(locale, physical);
+    return rt ? swipekb::capitalsFor(rt->profile.effectiveLanguage) : nullptr;
 }
 
 void Engine::touch(const QString &locale, const QString &physical)
@@ -494,7 +507,9 @@ void Server::handle(Session &s, const QByteArray &body)
             // spelling of the best guess (its / it's). Same code, same order, so the same swipe gives the same words.
             std::map<std::string, float> scoreOf;
             QStringList words;
-            for (const auto &c : rec->recognize(a.value->trace, *s.layout, a.value->context, 100)) {
+            // WHY 30: the plugin asks for 30 (SwipeInputMethod::finishSwipe); the engine's order depends on how many it
+            // is asked for, so the same number keeps both keyboards' words identical.
+            for (const auto &c : rec->recognize(a.value->trace, *s.layout, a.value->context, 30)) {
                 if (c.word.empty()) continue;
                 scoreOf.emplace(c.word, c.score);
                 words << QString::fromStdString(c.word);
@@ -540,7 +555,9 @@ void Server::handle(Session &s, const QByteArray &body)
                     if (!pred) { fail(s, kErrModelUnavailable, false); return; }
                     // Words go in as typed (already composed Unicode): the plugin does the same, and the predictor
                     // lower-cases them itself, so no case handling is needed here.
-                    for (auto &w : pred->predict(a.value->words, 12)) words << QString::fromStdString(w);
+                    // WHY the capitals list: as in the keyboards' next-word bar ("I", "Paris"; "banco", not "Banco").
+                    const auto caps = engine_.capitals(locale, physical);
+                    for (auto &w : pred->predict(a.value->words, 12)) words << QString::fromStdString(caps ? caps->apply(w) : w);
                 }
                 // The plugin's regional ranking, then the number wanted (as for typed-word and next-word bars there).
                 for (const auto &w : swipekb::rankRegionalCandidates(words, locale, a.value->topK)) cands.push_back({w.toStdString(), 0.f});

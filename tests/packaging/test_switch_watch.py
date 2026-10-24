@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+
 """gaming/setup/switch-watch.sh against a throwaway HOME with stand-in desktop tools.
 
 WHY: the keyboard helper cannot see Steam's folder, so this host-side script is the only thing that notices the

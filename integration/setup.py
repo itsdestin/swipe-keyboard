@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+
 """Reversible per-user setup. Package transactions never touch KWin settings."""
 import argparse
 from contextlib import contextmanager
@@ -16,17 +21,26 @@ import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from layout import build_overlay
+import learning
+import plasma69
 
 REQUIRED_ASSETS = (
     'integration/swipekb-preflight', 'integration/swipekb-config',
     'qml/SwipeKeyboard/qmldir', 'qml/SwipeKeyboard/libswipekeyboardplugin.so',
     'qml/SwipeKeyboard/libswipekeyboard.so', 'qml/SwipeKeyboard/libswipekb_engine.so',
-    'models/honorable_sturgeon/model_fp32.pte', 'models/honorable_sturgeon/metadata.json',
-    'models/magic_macaw/model_fp32.pte', 'models/magic_macaw/metadata.json',
-    'models/hungry_jellyfish/context_lm.pte', 'models/hungry_jellyfish/metadata.json',
-    'models/hungry_jellyfish/vocab.txt', 'models/FUTO-MODEL-LICENSE.md',
+    # WHY only the dictionary among the data files: English swipes from it alone; the swipe model and the next-word
+    # files are optional (geometry-only swiping, no suggestions) and are verified by the plugin itself.
     'dict/en_swipe.combined',
 )
+# WHY a separate list: Plasma 6.9's front end (frontend-plasma69, QML module SwipeKeyboard69) uses none of FUTO's
+# models and no Qt Virtual Keyboard; it must start even after the FUTO files are gone from the package.
+REQUIRED_ASSETS_69 = (
+    'integration/swipekb-preflight',
+    'qml/SwipeKeyboard69/qmldir', 'qml/SwipeKeyboard69/libswipekeyboard69plugin.so',
+    'qml/SwipeKeyboard69/libswipekeyboard69.so', 'dict/en_swipe.combined',
+)
+# KDE's rebuilt keyboard core entered plasma-keyboard in the 6.9 development series (6.8.80, beta 6.8.90).
+NEW_CORE_VERSION = (6, 8, 80)
 UNSET = '__SWIPEKB_UNSET__'
 
 
@@ -57,7 +71,9 @@ class Controller:
         self.data = self.data_home / 'swipe-keyboard'
         self.state_file = self.data / 'setup-state.json'
         self.layouts = self.data / 'overlay/plasma/keyboard/layouts'
+        self.packages = self.data / 'overlay' / plasma69.PACKAGE_DIR
         self.stock = Path(self.env.get('SWIPEKB_SYSTEM_LAYOUTS', '/usr/share/plasma/keyboard/layouts'))
+        self.front_end = None   # 'legacy' (Qt Virtual Keyboard, Plasma 6.7/6.8) or 'plasma69'; set by check()
         self.wanted = {'InputMethod': str(self.root.parent / 'applications/swipe-keyboard.desktop'),
                        'VirtualKeyboardMode': '1'}
 
@@ -68,11 +84,10 @@ class Controller:
         except (OSError, subprocess.CalledProcessError) as error:
             raise SetupError(f'{args[0]} failed; no compatible setup could be confirmed. {error}') from error
 
-    def preflight(self):
+    def preflight(self, plugin='qml/SwipeKeyboard/libswipekeyboardplugin.so'):
         # WHY a child QPluginLoader with eager binding: version strings cannot prove
         # KF/Qt/libstdc++ symbols exist. No instance(), QML engine or desktop is started.
-        args = [str(self.root / 'integration/swipekb-preflight'),
-                str(self.root / 'qml/SwipeKeyboard/libswipekeyboardplugin.so')]
+        args = [str(self.root / 'integration/swipekb-preflight'), str(self.root / plugin)]
         try:
             self.run(args, check=True, capture_output=True, text=True, env=self.env, timeout=15)
         except (OSError, subprocess.SubprocessError) as error:
@@ -106,20 +121,45 @@ class Controller:
                         'engineReady': 'unknown', 'activeFieldPolicy': 'unknown'}
         return {'status': 'queried', 'profiles': results}
 
-    def check(self):
-        # WHY ARM is explicit: the native Fedora aarch64 package has its own
-        # required build/load acceptance; other architectures still fail closed.
-        if platform.machine() not in ('x86_64', 'AMD64', 'aarch64'):
-            raise SetupError('This package targets x86_64 or aarch64 Linux only.')
-        if self.env.get('XDG_SESSION_TYPE') != 'wayland' or 'KDE' not in self.env.get('XDG_CURRENT_DESKTOP', '').split(':'):
-            raise SetupError('Use a KDE Plasma Wayland session. Other desktops/sessions are not supported.')
-        # WHY: upstream skips its XDG layout search when this override is enabled, so our private
-        # language overlays would never load even though the plugin itself is installed correctly.
-        if self.env.get('PLASMA_KEYBOARD_USE_QT_LAYOUTS', '0') not in ('', '0'):
-            raise SetupError('Custom Qt layout override is enabled. Disable that override before using this Plasma layout extension.')
-        version = self.command(['plasma-keyboard', '--version'], env={**self.env, 'QT_QPA_PLATFORM': 'offscreen'})
-        if not re.search(r'\b6\.(?:7|8)\.\d+\b', version):
-            raise SetupError('This candidate targets Plasma Keyboard 6.7.x/6.8.x; installed version: ' + version)
+    def system_data_dirs(self):
+        """The data folders KDE's keyboard reads, without our own overlay (SWIPEKB_SYSTEM_DATA_DIRS in tests)."""
+        raw = self.env.get('SWIPEKB_SYSTEM_DATA_DIRS') or self.env.get('XDG_DATA_DIRS') or '/usr/local/share:/usr/share'
+        overlay = str(self.data / 'overlay')
+        return [d for d in raw.split(':') if d and d != overlay]
+
+    def plasma_keyboard_version(self):
+        text = self.command(['plasma-keyboard', '--version'], env={**self.env, 'QT_QPA_PLATFORM': 'offscreen'})
+        found = re.search(r'\b(\d+)\.(\d+)\.(\d+)\b', text)
+        return text, (tuple(int(part) for part in found.groups()) if found else None)
+
+    def detect_front_end(self):
+        """Which of our two front ends matches the installed keyboard. Raises SetupError for anything else.
+
+        WHY both the version AND the files must agree: the version says which engine the plasma-keyboard binary runs,
+        the files say what it will load. A disagreement (half-finished upgrade, distro patch) or an unknown version
+        starts KDE's plain keyboard: typing always works, swiping waits for a matching Swipe Keyboard.
+        """
+        text, found = self.plasma_keyboard_version()
+        new_core = plasma69.is_new_core(self.system_data_dirs())
+        legacy = (self.stock / 'en_US').is_dir()
+        if found and found >= (7, 0, 0):
+            # WHY: a new major version means a new Qt major; our Qt 6 modules could not load there.
+            raise SetupError(f'Plasma Keyboard {text.split()[-1]} is newer than this Swipe Keyboard supports (6.7 to 6.x); '
+                             'it steps aside and the plain KDE keyboard is used.')
+        if found and found >= NEW_CORE_VERSION:
+            if not new_core:
+                raise SetupError('Plasma Keyboard ' + text + ' has no keyboard packages Swipe Keyboard can extend; '
+                                 'the plain KDE keyboard is used.')
+            return 'plasma69', text
+        if found and found >= (6, 7, 0):
+            if not legacy:
+                raise SetupError('Stock Plasma Keyboard English layouts are missing.')
+            return 'legacy', text
+        if not found and new_core != legacy:
+            return ('plasma69' if new_core else 'legacy'), text
+        raise SetupError('This candidate targets Plasma Keyboard 6.7 or newer (6.x); installed version: ' + text)
+
+    def qt_check(self):
         try:
             runtime = json.loads((self.root / 'runtime.json').read_text())
             build_qt = runtime['qt']
@@ -140,12 +180,58 @@ class Controller:
         installed = re.fullmatch(r'6\.(\d+)(?:\.\d+)?', qt or '')
         if (not built or int(built[1]) < 8 or not installed or int(installed[1]) < int(built[1])):
             raise SetupError(f'Package needs Qt {build_qt} or newer in the same major; installed Qt is {qt or "unavailable"}. Use a compatible package.')
+        return runtime, qt, build_qt
+
+    def check(self):
+        # WHY ARM is explicit: the native Fedora aarch64 package has its own
+        # required build/load acceptance; other architectures still fail closed.
+        if platform.machine() not in ('x86_64', 'AMD64', 'aarch64'):
+            raise SetupError('This package targets x86_64 or aarch64 Linux only.')
+        if self.env.get('XDG_SESSION_TYPE') != 'wayland' or 'KDE' not in self.env.get('XDG_CURRENT_DESKTOP', '').split(':'):
+            raise SetupError('Use a KDE Plasma Wayland session. Other desktops/sessions are not supported.')
+        self.front_end, version = self.detect_front_end()
+        if self.front_end == 'plasma69':
+            return self.check_plasma69(version)
+        return self.check_legacy(version)
+
+    def check_plasma69(self, version):
+        """Plasma 6.9's rebuilt keyboard: our module loads, and KDE's packages can be extended. Writes nothing."""
+        runtime, qt, build_qt = self.qt_check()
+        missing = [name for name in REQUIRED_ASSETS_69 if not (self.root / name).is_file() or (self.root / name).stat().st_size == 0]
+        if missing:
+            raise SetupError('Package files are missing; reinstall the package: ' + ', '.join(missing))
+        self.preflight('qml/SwipeKeyboard69/libswipekeyboard69plugin.so')
+        # WHY a throwaway build: proves KDE's package format is one we understand before any setting changes.
+        with tempfile.TemporaryDirectory(prefix='swipe-keyboard-check-') as temp:
+            try:
+                generated = plasma69.build_packages(self.system_data_dirs(), temp)
+            except (OSError, ValueError) as error:
+                raise SetupError(str(error)) from error
+        selected = self.read_setting('InputMethod') == self.wanted['InputMethod']
+        try:
+            distro = platform.freedesktop_os_release().get('PRETTY_NAME', 'Unknown Linux')
+        except OSError:
+            distro = 'Unknown Linux'
+        return {'Distribution': distro,
+                'Package': runtime.get('package', '0.1.0 (legacy metadata)'),
+                'Plasma Keyboard': version,
+                'Qt installed / build': f'{qt} / {build_qt}',
+                'Session': 'KDE Plasma Wayland',
+                'Front end': 'Plasma 6.9 keyboard core (no Qt Virtual Keyboard, no FUTO)',
+                'Keyboard packages': f'Compatible ({len(generated)} languages)',
+                'Selected input method': 'Swipe Keyboard' if selected else 'Other / stock',
+                'Setup record': 'Present' if self.state_file.exists() else 'Absent'}
+
+    def check_legacy(self, version):
+        # WHY: upstream skips its XDG layout search when this override is enabled, so our private
+        # language overlays would never load even though the plugin itself is installed correctly.
+        if self.env.get('PLASMA_KEYBOARD_USE_QT_LAYOUTS', '0') not in ('', '0'):
+            raise SetupError('Custom Qt layout override is enabled. Disable that override before using this Plasma layout extension.')
+        runtime, qt, build_qt = self.qt_check()
         missing = [name for name in REQUIRED_ASSETS if not (self.root / name).is_file() or (self.root / name).stat().st_size == 0]
         if missing:
             raise SetupError('Package files are missing; reinstall the package: ' + ', '.join(missing))
         self.preflight()
-        if not (self.stock / 'en_US').is_dir():
-            raise SetupError('Stock Plasma Keyboard English layouts are missing.')
         if (self.data_home / 'plasma/keyboard/layouts').exists():
             raise SetupError('Existing custom keyboard layouts detected. Nothing was overwritten; use agent-assisted migration first.')
         # WHY fail before changing settings if the stock layout format has drifted upstream.
@@ -166,6 +252,7 @@ class Controller:
                 'Plasma Keyboard': version,
                 'Qt installed / build': f'{qt} / {build_qt}',
                 'Session': 'KDE Plasma Wayland',
+                'Front end': 'Plasma 6.7/6.8 (Qt Virtual Keyboard)',
                 'Language overlays': 'Compatible',
                 'Profile capability queries (not active runtime)': self.profile_checks(),
                 'Selected input method': 'Swipe Keyboard' if selected else 'Other / stock',
@@ -385,20 +472,24 @@ class Controller:
             self.restore_owned(state)
             self.refresh_kwin()
             self.state_file.unlink()
-            if self.layouts.exists():
-                shutil.rmtree(self.layouts)
+            for generated in (self.layouts, self.packages):
+                if generated.exists():
+                    shutil.rmtree(generated)
             # Personal recordings/options are deliberately retained, never silently deleted.
 
     def rebuild_layout(self):
         try:
+            if self.front_end == 'plasma69':
+                return plasma69.build_packages(self.system_data_dirs(), self.data / 'overlay')
             build_overlay(self.stock, self.layouts)
+            return []
         except (OSError, ValueError) as error:
             raise SetupError(str(error)) from error
 
     def launch_environment(self):
         self.check()
         with self.locked(wait=True):
-            self.rebuild_layout()
+            generated = self.rebuild_layout()
         env = dict(self.env)
         for key in ('QML_IMPORT_PATH', 'QML2_IMPORT_PATH'):
             env[key] = str(self.root / 'qml') + (':' + env[key] if env.get(key) else '')
@@ -418,6 +509,10 @@ class Controller:
         # WHY: Plasma's session QT_WAYLAND_RECONNECT=1 made a deselected keyboard reconnect as an
         # ordinary app and keep running invisibly with its models loaded. KWin relaunches it itself.
         env.pop('QT_WAYLAND_RECONNECT', None)
+        if self.front_end == 'plasma69':
+            # WHY: tells our module which packages it generated, so languages it did not wrap stay exactly KDE's.
+            env['SWIPEKB_PLASMA69_PACKAGES'] = ','.join(generated)
+            return env
         # WHY this distinct mode follows the checked stock Plasma 6.7/6.8 launch.
         # It is NOT raw application completion permission: the plugin also checks
         # the actual proxy class and gives any present raw bridge precedence.
@@ -460,18 +555,25 @@ def confirm_activation(controller, assume_yes=False, always_available=False):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Standalone swipe typing — Powered by FUTO Swipe')
-    parser.add_argument('action', choices=('check', 'enable', 'disable', 'launch'))
+    parser = argparse.ArgumentParser(description='Standalone swipe typing')
+    parser.add_argument('action', choices=('check', 'enable', 'disable', 'launch', 'learning'))
+    parser.add_argument('learning_action', nargs='?', choices=('on', 'off', 'forget', 'status'),
+                        help='with `learning`: turn learning from your typing on or off, erase it, or show its status')
     parser.add_argument('--yes', action='store_true', help='Explicitly accept the displayed activation changes without prompting')
     parser.add_argument('--always-available', action='store_true',
                         help='Explicitly set KDE visibility mode 1; default preserves your tablet/attached-keyboard policy')
     args = parser.parse_args()
     if args.always_available and args.action != 'enable':
         parser.error('--always-available applies only to enable')
+    if (args.action == 'learning') != (args.learning_action is not None):
+        parser.error('use: swipe-keyboard learning on|off|forget|status')
     if os.geteuid() == 0:
         parser.error('Run as your normal desktop user, not root or sudo.')
     controller = Controller(Path(__file__).resolve().parent.parent)
     try:
+        if args.action == 'learning':
+            # WHY the controller's data folder: it is the folder `launch` hands the keyboard as SWIPEKB_DATA.
+            return learning.run(args.learning_action, controller.data)
         if args.action == 'launch':
             try:
                 env = controller.launch_environment()

@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+
 """Settings, and the one place that decides which network addresses the helper may touch.
 
 WHY this is strict: the debug port gives full control of Steam's screens (plan Section 9). The helper must

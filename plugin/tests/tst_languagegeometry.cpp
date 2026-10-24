@@ -1,6 +1,11 @@
+// SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+//
+// SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 #include <QtTest>
 #include <limits>
-#include "swipekb/recognizer.hpp"
+#include "swipekb/text.hpp"
+#include "swipekb/spellings.hpp"
 #include "languagetextrules.h"
 using namespace swipekb;
 class LanguageGeometryTest : public QObject {

@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+//
+// SPDX-License-Identifier: MIT
+
 // Unit tests for the daemon's request validation (gaming/daemon/protocol.hpp), no sockets or models.
 #include <gtest/gtest.h>
 #include <QJsonArray>

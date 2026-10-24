@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+
 """Valve's zips are untrusted input: extraction must refuse anything that could escape or exhaust."""
 import stat
 import tempfile

@@ -1,8 +1,12 @@
+// SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+//
+// SPDX-License-Identifier: MIT
+
 #include "swipesession.h"
 
 #include <algorithm>
 
-#include "swipekb/recognizer.hpp"
+#include "swipekb/text.hpp"
 
 QStringList SwipeSession::contextWords(const QString &textBeforeCursor, int max)
 {
@@ -77,6 +81,10 @@ QString SwipeSession::applyCase(const QString &word, CaseMode mode)
     case CaseMode::AllCaps:
         return word.toUpper();
     case CaseMode::Capitalize:
+        // WHY a word with a capital inside is left alone: "iPhone", "eBay" or "YouTube" at a sentence start stay
+        // as the word is written, not "IPhone".
+        if (std::any_of(word.begin() + (word.isEmpty() ? 0 : 1), word.end(), [](QChar c) { return c.isUpper(); }))
+            return word;
         return word.isEmpty() ? word : word.front().toUpper() + word.mid(1);
     case CaseMode::AsIs:
         break;

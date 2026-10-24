@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+//
+// SPDX-License-Identifier: MIT
+
 // swipekb-gamingd wire protocol, version 1. Pure parsing and validation: no sockets, no models, so every
 // rule here is unit-tested without starting the daemon (tests/gaming/test_protocol.cpp).
 //
@@ -50,7 +54,7 @@
 #include <string>
 #include <vector>
 
-#include "swipekb/recognizer.hpp"
+#include "swipekb/text.hpp"
 
 namespace gamingd {
 

@@ -1,16 +1,28 @@
 #!/usr/bin/env bash
+
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+
 # install.sh — build swipe-keyboard, run its tests, and install it where Plasma Keyboard loads it:
-#   ~/.local/share/swipe-keyboard/{qml/SwipeKeyboard, models, dict, lm}. touch-profile's layout + wrapper pick it up
+#   ~/.local/share/swipe-keyboard/{qml/SwipeKeyboard, dict, language-packs, lm}. touch-profile's layout + wrapper pick it up
 #   (their hook does nothing when this folder is missing), then the on-screen keyboard is restarted.
+#   The copy also carries qml/SwipeKeyboard69, the front end for Plasma 6.9's rebuilt keyboard. On 6.9 it is started by
+#   the packaged launcher (`swipe-keyboard launch`, integration/plasma69.py), not by touch-profile's Qt Virtual
+#   Keyboard layouts; see docs/plasma-6.9-front-end.md.
 # Usage: ./install.sh              build + test + install + restart
 #        ./install.sh --no-restart  same, but leave the running keyboard alone (for testing, or installing
 #                                   without disturbing a keyboard you are typing on)
 #        ./install.sh --uninstall   remove qml/models/dict/lm (personal data like traces/ is kept) + restart
-# The n-gram ranking (lm/) is off unless ~/.local/share/swipe-keyboard/use-ngram exists (then restart the keyboard).
-# The neural re-ranking (nlm/) is off unless ~/.local/share/swipe-keyboard/use-nlm exists (same).
+# Learning from your typing (words, names, word pairs; local only) is asked here as a y/n question when a terminal is
+# attached; installs without one leave it off. Switch later with `python3 ~/.local/share/swipe-keyboard/learning.py
+# on|off|forget|status` (or just create/delete the file ~/.local/share/swipe-keyboard/learn-typing). SWIPEKB_LEARN_TYPING=yes|no skips the question.
+# The swipe engine reads language-packs/swipe-model.bin (pinned in assets.lock.json and fetched with the other files; a missing
+# or altered file means geometry-only swiping).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 DEST="${XDG_DATA_HOME:-$HOME/.local/share}/swipe-keyboard"
+. "$ROOT/scripts/learning-choice.sh"
 
 restart_keyboard() {
     # WHY: KWin owns the keyboard process and starts a fresh one after it exits; the new one loads the new files.
@@ -33,10 +45,12 @@ restart_keyboard() {
 
 case "${1:-}" in
     --uninstall)
-        rm -rf "$DEST/qml" "$DEST/models" "$DEST/dict" "$DEST/language-packs" "$DEST/lm" "$DEST/nlm" "$DEST/.qml.new" "$DEST/.models.new" \
-               "$DEST/.dict.new" "$DEST/.lm.new" "$DEST/.nlm.new" "$DEST/.language-packs.new"
+        rm -rf "$DEST/qml" "$DEST/models" "$DEST/dict" "$DEST/language-packs" "$DEST/lm" "$DEST/.qml.new" "$DEST/.models.new" \
+               "$DEST/.dict.new" "$DEST/.lm.new" "$DEST/.language-packs.new"
         restart_keyboard
         echo "swipe typing removed (keyboard back to plain tapping)"
+        # WHY said out loud: what the keyboard learned from typing stays private on disk until the person erases it.
+        [ -d "$DEST/learning" ] && echo "what the keyboard learned from your typing is kept in $DEST/learning; erase it with: python3 \"$DEST/learning.py\" forget"
         exit 0 ;;
     --no-restart|"") ;;
     *) echo "usage: ./install.sh [--no-restart|--uninstall]" >&2; exit 2 ;;
@@ -49,22 +63,25 @@ if [ "${SWIPEKB_BUILD_LM:-0}" = 1 ] && [ "${SWIPEKB_SKIP_LM:-0}" != 1 ] && [ ! -
     echo "building the explicitly requested n-gram model (scripts/lm/build-lm.sh)..."
     "$ROOT/scripts/lm/build-lm.sh" || echo "warning: n-gram model not built; the keyboard keeps its old ranking" >&2
 fi
-[ -f "$ROOT/third_party/swipe-library/third_party/executorch/cmake-out-host/libexecutorch.a" ] || "$ROOT/scripts/build-futo.sh"
 cmake -S "$ROOT" -B "$ROOT/build" -DCMAKE_BUILD_TYPE=Release
 cmake --build "$ROOT/build" -j"$(nproc)"
 (cd "$ROOT/build" && ctest --output-on-failure)
 
 mkdir -p "$DEST"
-# WHY: a failed copy must never leave a half-installed keyboard (e.g. new qml but no models). So copy all payloads
+# WHY: a failed copy must never leave a half-installed keyboard (e.g. new qml but no dictionary). So copy all payloads
 # into staging dirs first; only when every copy has succeeded (set -e stops us otherwise) swap them in back to back.
-rm -rf "$DEST/.qml.new" "$DEST/.models.new" "$DEST/.dict.new" "$DEST/.lm.new" "$DEST/.nlm.new" "$DEST/.language-packs.new"
+rm -rf "$DEST/.qml.new" "$DEST/.models.new" "$DEST/.dict.new" "$DEST/.lm.new" "$DEST/.language-packs.new"
 cp -r "$ROOT/build/qml" "$DEST/.qml.new"
-cp -r "$ROOT/assets/models" "$DEST/.models.new"
 cp -r "$ROOT/assets/dict" "$DEST/.dict.new"
 # The n-gram model is optional: copied when built; when it isn't, any older copy is removed so the installed
 # model always matches the installed dictionary (a stale one would still load and rank with old word lists).
+# WHY language-packs carries every language's next-word files too (en/es/fr/de .ngram + .vocab.tsv + credits) and the
+# shared swipe model: fetch-assets.sh downloaded them by checksum. English swipes without next-word suggestions if
+# its files are absent.
 cp -r "$ROOT/assets/language-packs" "$DEST/.language-packs.new"
-dirs="qml models dict language-packs"
+# WHY models/ is removed: older installs kept another engine's models there; nothing reads that folder any more.
+rm -rf "$DEST/models"
+dirs="qml dict language-packs"
 if [ -s "$ROOT/assets/lm/en_ngram.bin" ]; then
     mkdir -p "$DEST/.lm.new"
     cp "$ROOT/assets/lm/en_ngram.bin" "$DEST/.lm.new/"
@@ -72,16 +89,9 @@ if [ -s "$ROOT/assets/lm/en_ngram.bin" ]; then
 else
     rm -rf "$DEST/lm"
 fi
-# The neural word model is optional too (only fetched with SWIPEKB_FETCH_DEVELOPER_EXTRAS=1).
-# WHY -L: assets/nlm/en_nlm.gguf may be
-# a link to one of several downloaded models; the installed copy must be the file itself.
-if [ -s "$ROOT/assets/nlm/en_nlm.gguf" ]; then
-    mkdir -p "$DEST/.nlm.new"
-    cp -L "$ROOT/assets/nlm/en_nlm.gguf" "$DEST/.nlm.new/"
-    dirs="$dirs nlm"
-else
-    rm -rf "$DEST/nlm"
-fi
 for d in $dirs; do rm -rf "$DEST/$d" && mv "$DEST/.$d.new" "$DEST/$d"; done
 echo "installed to $DEST"
+# The small control script is copied beside the data so `learning.py on|off|forget|status` works without the checkout.
+cp -f "$ROOT/integration/learning.py" "$DEST/learning.py"
+learning_choice "$DEST"
 [ "${1:-}" = --no-restart ] || restart_keyboard

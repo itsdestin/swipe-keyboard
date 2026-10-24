@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+
 """Pinned asset caches must rebuild offline and retain strict byte verification."""
 from pathlib import Path
 import base64
@@ -52,9 +56,8 @@ class AssetFetch(unittest.TestCase):
             (root/'packaging/NOTICE').write_text('Project attribution\n')
             (root/'packaging/assets.lock.json').write_text(json.dumps({
                 'assets': [asset(encoded, 'licenses/AOSP-NOTICE.b64')]}))
-            (root/'third_party/swipe-library').mkdir(parents=True)
             with mock.patch.object(module, 'ROOT', root), \
-                 mock.patch.object(module, 'prepare_language_packs'), \
+                 mock.patch.object(module, 'prepare_language_packs'), mock.patch.object(module, 'fetch_language_files'), \
                  mock.patch('sys.argv', ['fetch-assets.py', '--assets', str(root/'assets')]), \
                  mock.patch.object(module.urllib.request, 'urlopen', return_value=io.BytesIO(encoded)):
                 module.main()
@@ -68,12 +71,72 @@ class AssetFetch(unittest.TestCase):
                 archive.extractall(rebuilt, filter='data')
             copied = rebuilt/'project'
             with mock.patch.object(module, 'ROOT', copied), \
-                 mock.patch.object(module, 'prepare_language_packs'), \
+                 mock.patch.object(module, 'prepare_language_packs'), mock.patch.object(module, 'fetch_language_files'), \
                  mock.patch('sys.argv', ['fetch-assets.py', '--assets', str(copied/'assets')]), \
                  mock.patch.object(module.urllib.request, 'urlopen', side_effect=AssertionError('network forbidden')) as network:
                 module.main()
             network.assert_not_called()
             self.assertEqual((copied/'assets/licenses/AOSP-NOTICE').read_bytes(), notice)
+
+    def test_language_files_are_fetched_by_pinned_hash_from_the_release(self):
+        import json
+        module = helper()
+        lock = json.loads((ROOT/'packaging/assets.lock.json').read_text())
+        assets = module.language_file_assets(lock)
+        names = {a['path']: a for a in assets}
+        # Four languages x (n-gram, word list, credits, dictionary) + ODC-By, Apache-2.0 terms + notice.
+        self.assertEqual(len(assets), 19)
+        for language in ('en', 'es', 'fr', 'de'):
+            for suffix in ('.ngram', '.vocab.tsv', '-CONTRIBUTORS.txt'):
+                entry = names[language + suffix]
+                self.assertEqual(entry['url'], lock['language_files']['baseUrl'] + language + suffix)
+                self.assertRegex(entry['sha256'], r'^[a-f0-9]{64}$')
+        for name in ('es.combined', 'fr.combined', 'de.combined', 'en_swipe.combined', 'Apache-2.0.txt', 'ODC-By-1.0.txt'):
+            self.assertEqual(names[name]['url'], lock['language_files']['baseUrl'] + name)
+        # The notice is stored under a clearer installed name than the release's generic NOTICE.md.
+        self.assertTrue(names['LANGUAGE-FILES-NOTICE.md']['url'].endswith('/NOTICE.md'))
+        # A tampered download is rejected and leaves nothing behind.
+        data = b'not the pinned file'
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp)/'language-files/es.ngram'
+            with mock.patch.object(module.urllib.request, 'urlopen', return_value=io.BytesIO(data)):
+                with self.assertRaisesRegex(ValueError, 'SHA256 mismatch'):
+                    module.fetch(names['es.ngram'], target)
+            self.assertFalse(target.exists())
+            self.assertFalse(target.with_name('es.ngram.part').exists())
+
+    def test_trained_models_are_pinned_and_a_test_mirror_cannot_bypass_the_pins(self):
+        import json
+        import os
+        module = helper()
+        lock = json.loads((ROOT/'packaging/assets.lock.json').read_text())
+        assets = {a['path']: a for a in module.trained_model_assets(lock)}
+        self.assertEqual(set(assets), {'language-files/en.nwp.bin', 'language-files/es.nwp.bin', 'language-files/fr.nwp.bin',
+                                       'language-files/de.nwp.bin', 'language-files/swipe-model.bin', 'language-files/MODELS-NOTICE.md',
+                                       'language-files/FUTO-SWIPE-DATA-LICENSE.txt'})
+        base = 'https://github.com/itsdestin/swipe-keyboard/releases/download/models-2026-10-23/'
+        for name, asset in assets.items():
+            self.assertRegex(asset['sha256'], r'^[a-f0-9]{64}$')
+            self.assertTrue(asset['url'].startswith(base), name)
+        self.assertEqual(assets['language-files/swipe-model.bin']['url'], base + 'swipe-model.bin')
+        # Each download is accepted only against the digest the lock pins for it.
+        for language, pin in lock['trained_models']['nextWord'].items():
+            self.assertEqual(assets[f'language-files/{language}.nwp.bin']['sha256'], pin['sha256'])
+        self.assertEqual(assets['language-files/swipe-model.bin']['sha256'], lock['trained_models']['swipe']['sha256'])
+        self.assertEqual(assets['language-files/MODELS-NOTICE.md']['url'], base + 'NOTICE.md')
+        with tempfile.TemporaryDirectory() as tmp:
+            mirror = Path(tmp)/'mirror'
+            mirror.mkdir()
+            with mock.patch.dict(os.environ, {'SWIPEKB_TEST_MODELS_MIRROR': str(mirror)}):
+                mirrored = {a['path']: a for a in module.trained_model_assets(lock)}
+            self.assertEqual(mirrored['language-files/es.nwp.bin']['url'], (mirror/'es.nwp.bin').as_uri())
+            self.assertEqual(mirrored['language-files/es.nwp.bin']['sha256'], assets['language-files/es.nwp.bin']['sha256'])
+            # A mirror serving other bytes is rejected by the pin, exactly like the real release would be.
+            (mirror/'es.nwp.bin').write_bytes(b'not the pinned model')
+            target = Path(tmp)/'out/language-files/es.nwp.bin'
+            with self.assertRaisesRegex(ValueError, 'SHA256 mismatch'):
+                module.fetch(mirrored['language-files/es.nwp.bin'], target)
+            self.assertFalse(target.exists())
 
     def test_valid_decoded_notice_cannot_mask_a_corrupt_encoded_file(self):
         module = helper()

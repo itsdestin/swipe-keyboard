@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+
 """The helper's main loop (plan Sections 3 and 6).
 
 Single thread, no framework:  find Steam's debug port -> watch its pages -> check the contract -> install the

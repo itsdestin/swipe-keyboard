@@ -1,4 +1,9 @@
 #!/bin/sh
+
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+
 # WHY fixed system-owned location: activation must not execute code from a downloaded checkout.
 # WHY a separate entry point: updates run as root from a timer, setup must never run as root.
 if [ "${1:-}" = updates ]; then

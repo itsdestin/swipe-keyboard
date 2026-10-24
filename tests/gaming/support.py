@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+
 """Shared helpers for the Steam canary tests (stdlib only)."""
 import hashlib
 import io

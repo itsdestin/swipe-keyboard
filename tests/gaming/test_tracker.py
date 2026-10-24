@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+
 """One tracking issue labelled gaming-canary: open it on the first failure, add to it afterwards."""
 import json
 import unittest

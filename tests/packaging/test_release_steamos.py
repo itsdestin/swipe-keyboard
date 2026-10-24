@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+
 """The single SteamOS download (plan Section 15 question 2): both Flatpaks, install.sh, uninstall.sh, units, checksums.
 
 Covers scripts/steamos_bundle.py and how the release gate treats the new `steamos` target.
@@ -24,7 +28,7 @@ def load(name, path):
 
 release = load('release', 'scripts/release.py')
 bundle = load('steamos_bundle', 'scripts/steamos_bundle.py')
-VERSION = '0.4.1-1'
+VERSION = '0.5.0-1'
 
 
 class SteamosBundleTests(unittest.TestCase):

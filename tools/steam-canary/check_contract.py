@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+
 """Read gaming-contract.json and judge a set of unpacked Steam files against it.
 
 WHY one engine for everyone: the daily canary (this file) and the later on-device check read the

@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+//
+// SPDX-License-Identifier: MIT
+
 #include "languageprofile.h"
 #include "languagetextrules.h"
 #include <QCryptographicHash>
@@ -53,41 +57,123 @@ static QJsonObject readObject(const QString &path)
     return QJsonDocument::fromJson(file.readAll()).object();
 }
 static bool contains(const QJsonValue &v, const QString &value) { return v.toArray().contains(value); }
+// WHY one checker for every language: English (no manifest) and es/fr/de (manifest) must accept exactly the same
+// next-word files. Everything is judged against the repository lock, never against what a manifest claims:
+// the n-gram + word list, the credit file and all licence/notice texts that must travel with them.
+struct ContextFiles { QString model, vocab, nwp; };
+static bool contextFilesVerified(const QString &language, const QString &dir, const QJsonObject &lock, ContextFiles &out)
+{
+    const auto pins=lock["multilingual_context_models"].toObject()[language].toObject();
+    const auto shared=lock["language_files"].toObject();
+    if (pins.isEmpty() || shared.isEmpty() || dir.isEmpty()) return false;
+    auto check=[&](const QString &name, const QString &sha, qint64 bytes, QString *path=nullptr) {
+        const auto found=localPath(dir,name);
+        if (found.isEmpty() || sha.size()!=64 || (bytes>=0 && QFileInfo(found).size()!=bytes) || digest(found)!=sha) return false;
+        if (path) *path=found;
+        return true;
+    };
+    ContextFiles files;
+    if (!check(language+".ngram",pins["modelSha256"].toString(),pins["modelBytes"].toInteger(-1),&files.model) ||
+        !check(language+".vocab.tsv",pins["vocabSha256"].toString(),pins["vocabBytes"].toInteger(-1),&files.vocab) ||
+        !check(language+"-CONTRIBUTORS.txt",pins["contributorsSha256"].toString(),-1) ||
+        !check("TATOEBA-CC-BY-2.0-FR.txt",lock["tatoeba_license_notice_sha256"].toString(),-1) ||
+        !check(shared["odcTerms"].toObject()["path"].toString(),shared["odcTerms"].toObject()["sha256"].toString(),-1) ||
+        !check(shared["notice"].toObject()["path"].toString(),shared["notice"].toObject()["sha256"].toString(),-1))
+        return false;
+    // WHY Apache-2.0 only for English: its dictionary keeps AOSP's word list (Apache-2.0), whose text must travel with
+    // the files; the other languages' word lists come only from FineWeb/Tatoeba (ODC-By + CC BY 2.0 FR, checked above).
+    const auto apache=shared["apacheTerms"].toObject();
+    if (language=="en" && !check(apache["path"].toString(),apache["sha256"].toString(),-1)) return false;
+    // WHY optional and judged only by the lock: the neural next-word file (LANG.nwp.bin) sits beside the n-gram and
+    // improves its suggestions. A missing, truncated or swapped file leaves `files.nwp` empty, so only that model is
+    // switched off: the n-gram, the word list and the language itself stay exactly as they were.
+    const auto nwpPin=lock["trained_models"].toObject()["nextWord"].toObject()[language].toObject();
+    if (!nwpPin.isEmpty() && nwpPin["path"].toString()==language+".nwp.bin")
+        check(nwpPin["path"].toString(),nwpPin["sha256"].toString(),nwpPin["bytes"].toInteger(-1),&files.nwp);
+    out=files; return true;
+}
+// WHY the manifest is only cross-checked: it may describe the context files, but it cannot widen what the lock allows.
+static bool manifestContextMatchesLock(const QString &language, const QJsonObject &m, const QJsonObject &lock)
+{
+    const auto pins=lock["multilingual_context_models"].toObject()[language].toObject();
+    const auto shared=lock["language_files"].toObject();
+    const auto odc=shared["odcTerms"].toObject(), notice=shared["notice"].toObject();
+    const auto assets=m["assets"].toObject(), terms=m["contextLicense"].toObject();
+    const auto model=assets["contextModel"].toObject(), vocab=assets["contextVocab"].toObject();
+    return !pins.isEmpty() && !shared.isEmpty() && m["schema"].toInt()==3 && m["contextFormat"].toString()=="swk-ngram-v2" &&
+        model["path"].toString()==language+".ngram" && model["sha256"].toString()==pins["modelSha256"].toString() &&
+        model["size"].toInteger(-1)==pins["modelBytes"].toInteger() &&
+        vocab["path"].toString()==language+".vocab.tsv" && vocab["sha256"].toString()==pins["vocabSha256"].toString() &&
+        vocab["size"].toInteger(-1)==pins["vocabBytes"].toInteger() &&
+        // WHY both sources named: the files contain FineWeb web text (ODC-By) and Tatoeba sentences (CC BY 2.0 FR).
+        terms["id"].toString()=="ODC-By-1.0 AND CC-BY-2.0-FR" &&
+        terms["attributionPath"].toString()==language+"-CONTRIBUTORS.txt" &&
+        terms["attributionSha256"].toString()==pins["contributorsSha256"].toString() &&
+        terms["termsPath"].toString()=="TATOEBA-CC-BY-2.0-FR.txt" &&
+        terms["termsSha256"].toString()==lock["tatoeba_license_notice_sha256"].toString() &&
+        terms["webTermsPath"].toString()==odc["path"].toString() && terms["webTermsSha256"].toString()==odc["sha256"].toString() &&
+        terms["noticePath"].toString()==notice["path"].toString() && terms["noticeSha256"].toString()==notice["sha256"].toString() &&
+        terms["sourceUrl"].toString()==lock["language_files"].toObject()["baseUrl"].toString()+language+".ngram" &&
+        !terms["attribution"].toString().isEmpty();
+}
 static ProfileSnapshot unavailable(ProfileSnapshot p, const QString &reason)
 {
     p.assets.clear(); p.capabilities = {}; p.unavailableReason = reason; return p;
+}
+// The lock-pinned swipe model, when it sits in one of these folders (the first folder that holds a file decides).
+// WHY optional: without it the engine decodes swipes by geometry, so a missing or altered model never stops swiping.
+static void addSwipeModel(ProfileSnapshot &p, const QStringList &dirs)
+{
+    for (const auto &dir:dirs) {
+        if (!QFileInfo::exists(QDir(dir).filePath("swipe-model.bin"))) continue;
+        const auto path=verifiedSwipeModel(dir);
+        if (!path.isEmpty()) p.assets["swipeModel"]={path,digest(path),"swipe-model-v1"};
+        return;
+    }
 }
 static ProfileSnapshot english(ProfileSnapshot p, const QString &root)
 {
     initLanguageAssets();
     const auto lock = readObject(":/swipekb/assets.lock.json");
-    QHash<QString, QString> hashes;
-    for (const auto &v : lock["assets"].toArray()) {
-        const auto a=v.toObject(); hashes[a["path"].toString()]=a["sha256"].toString();
+    // WHY only the dictionary is required: English swipes and completes from it alone; the swipe model and the
+    // n-gram pack add accuracy and next-word suggestions when they are installed and verified.
+    const auto expected=lock["language_dictionaries"].toObject()["en"].toObject()["sha256"].toString();
+    const auto dictionary=localPath(root,"dict/en_swipe.combined");
+    if (dictionary.isEmpty() || expected.size()!=64 || digest(dictionary)!=expected)
+        return unavailable(p,"Bundled English dictionary missing or checksum mismatch");
+    p.assets["dictionary"]={dictionary,expected,"en"};
+    p.packId="bundled-en"; p.packVersion=lock["language_files"].toObject()["release"].toString();
+    p.capabilities={true,false,false};
+    const QStringList dirs{QDir(root).filePath("language-packs"),root};
+    addSwipeModel(p,dirs);
+    // WHY missing or damaged next-word files are not an error: English then swipes and completes from the
+    // dictionary, without next-word suggestions.
+    ContextFiles ngram;
+    for (const auto &dir:dirs) {
+        if (!QFileInfo::exists(QDir(dir).filePath("en.ngram"))) continue;
+        if (contextFilesVerified("en",dir,lock,ngram)) {
+            const auto pins=lock["multilingual_context_models"].toObject()["en"].toObject();
+            p.assets["contextModel"]={ngram.model,pins["modelSha256"].toString(),"en:context-ngram-v1"};
+            p.assets["contextVocab"]={ngram.vocab,pins["vocabSha256"].toString(),"en:context-ngram-v1"};
+            if (!ngram.nwp.isEmpty()) p.assets["contextNwp"]={ngram.nwp,lock["trained_models"].toObject()["nextWord"].toObject()["en"].toObject()["sha256"].toString(),"en:context-nwp-v1"};
+            p.capabilities={true,true,true};
+        }
+        break;
     }
-    hashes["dict/en_swipe.combined"]=lock["dictionary_sha256"].toString();
-    auto verify = [&](const QString &relative, const QString &role, const QString &compat) {
-        const auto path=localPath(root,relative), expected=hashes.value(relative);
-        if (path.isEmpty() || expected.size()!=64 || digest(path)!=expected) return false;
-        if (!role.isEmpty()) p.assets[role]={path,expected,compat};
-        return true;
-    };
-    if (!verify("models/FUTO-MODEL-LICENSE.md", {}, {}) ||
-        !verify("models/honorable_sturgeon/model_fp32.pte", "encoder", "layout-agnostic") ||
-        !verify("dict/en_swipe.combined", "dictionary", "en"))
-        return unavailable(p,"Bundled English assets/license missing or checksum mismatch");
-    // WHY optional means absent, not substituted. Corrupt present roles invalidate the entire snapshot.
-    if (!verify("models/honorable_sturgeon/metadata.json",{},{})) return unavailable(p,"English encoder metadata checksum mismatch");
-    const QString decoder="models/magic_macaw/model_fp32.pte";
-    if (p.layoutId=="qwerty" && QFileInfo::exists(QDir(root).filePath(decoder)) &&
-        (!verify(decoder,"decoder","en:qwerty:26") || !verify("models/magic_macaw/metadata.json",{},{}))) return unavailable(p,"English decoder checksum mismatch");
-    const QString model="models/hungry_jellyfish/context_lm.pte", vocab="models/hungry_jellyfish/vocab.txt";
-    const bool hasModel=QFileInfo::exists(QDir(root).filePath(model)), hasVocab=QFileInfo::exists(QDir(root).filePath(vocab));
-    if (hasModel != hasVocab) return unavailable(p,"Context model/vocabulary must be paired");
-    if (hasModel && (!verify(model,"contextModel","en:context-v1") || !verify(vocab,"contextVocab","en:context-v1") || !verify("models/hungry_jellyfish/metadata.json",{},{})))
-        return unavailable(p,"English context checksum mismatch");
-    p.packId="bundled-en"; p.packVersion=lock["model_revision"].toString();
-    p.capabilities={true,hasModel,hasModel}; return p;
+    return p;
+}
+QString verifiedSwipeModel(const QString &modelRoot)
+{
+    initLanguageAssets();
+    const auto pin=readObject(":/swipekb/assets.lock.json")["trained_models"].toObject()["swipe"].toObject();
+    const auto sha=pin["sha256"].toString();
+    // WHY the file name only: the lock names its download place (language-files/swipe-model.bin); installed, it sits
+    // in the language-pack folder beside every language's files.
+    const auto file=QFileInfo(pin["path"].toString()).fileName();
+    if (sha.size()!=64 || file.isEmpty()) return {};
+    const auto path=localPath(modelRoot,file);
+    if (path.isEmpty() || QFileInfo(path).size()!=pin["bytes"].toInteger(-1) || digest(path)!=sha) return {};
+    return path;
 }
 ProfileSnapshot resolveProfile(const QString &locale, const QString &layoutId, const QString &inputMode,
                                const QString &modelRoot, quint64 epoch)
@@ -113,89 +199,72 @@ ProfileSnapshot resolveProfile(const QString &locale, const QString &layoutId, c
     // WHY no opt-in: the existing Qt language selection is the owner's approved selection contract.
     const auto m=readObject(QDir(root).filePath(p.effectiveLanguage+".json"));
     if (m.isEmpty()) return unavailable(p,"Language pack manifest missing or invalid");
-    if (!QStringList{"1","2"}.contains(m["schema"].toVariant().toString()) || m["id"].toString().isEmpty() || m["version"].toString().isEmpty() ||
+    // WHY schema 3 / "swipekb-open-v1" only: older packs were built for another swipe engine and carry files this
+    // keyboard no longer reads; they are refused (the language is then shown as unavailable), never half-used.
+    if (m["schema"].toInt()!=3 || m["id"].toString().isEmpty() || m["version"].toString().isEmpty() ||
         m["language"].toString()!=p.effectiveLanguage ||
-        m["compatibility"].toString()!="swipekb-futo-v1" || !contains(m["scripts"],"Latn") ||
-        m["futoRevision"].toString()!="1b13f2c85d6b347f6ea3fbc4b3aaf01fce42429a" ||
-        m["executorchRevision"].toString()!="0b0e2c5cdd67c8b4396a46ea1d1aa72ffb0128d7" ||
+        m["compatibility"].toString()!="swipekb-open-v1" || !contains(m["scripts"],"Latn") ||
         m["textRulesVersion"].toString()!=TextRulesVersion ||
-        // WHY retain the authenticated v1 format while accepting the explicit v2 orthography erratum;
-        // arbitrary transform versions still fail closed and every role hash/size remains verified.
-        !QStringList{"wordfreq-latin-v1","wordfreq-latin-v2"}.contains(m["transformationVersion"].toString())) return unavailable(p,"Pack schema/version/compatibility mismatch");
+        // WHY a single accepted transformation: the word lists are counted from FineWeb/Tatoeba (scripts/lm/count-words.py);
+        // any other transform version fails closed and every role hash/size remains verified.
+        m["transformationVersion"].toString()!="fineweb-counts-v1") return unavailable(p,"Pack schema/version/compatibility mismatch");
     const bool localeOK=contains(m["locales"],p.requestedLocale) ||
         contains(m["locales"],p.effectiveLanguage+"-*") || (p.requestedLocale==p.effectiveLanguage && contains(m["locales"],p.effectiveLanguage));
     if (!localeOK || !contains(m["layouts"],layoutId) || !contains(m["modes"],inputMode))
         return unavailable(p,"Pack does not declare requested locale/layout/mode");
     initLanguageAssets();
     const auto lock=readObject(":/swipekb/assets.lock.json");
-    QHash<QString,QString> fixedHashes;
-    for (const auto &value:lock["assets"].toArray()) {
-        const auto entry=value.toObject(); fixedHashes[entry["path"].toString()]=entry["sha256"].toString();
-    }
-    const auto encoderHash=fixedHashes.value("models/honorable_sturgeon/model_fp32.pte");
-    const auto metadataHash=fixedHashes.value("models/honorable_sturgeon/metadata.json");
-    const auto encoderTermsHash=fixedHashes.value("models/FUTO-MODEL-LICENSE.md");
-    const auto dataTermsHash=lock["cc_license_source"].toObject()["sha256"].toString();
-    if (encoderHash.size()!=64 || metadataHash.size()!=64 || encoderTermsHash.size()!=64 || dataTermsHash.size()!=64)
+    // WHY the word list's terms are ODC-By 1.0 (FineWeb text) AND CC BY 2.0 FR (Tatoeba), both pinned in the lock.
+    const auto dataTermsHash=lock["language_files"].toObject()["odcTerms"].toObject()["sha256"].toString();
+    const auto tatoebaTermsHash=lock["tatoeba_license_notice_sha256"].toString();
+    const auto noticeHash=lock["language_files"].toObject()["notice"].toObject()["sha256"].toString();
+    const auto dictionaryPin=lock["language_dictionaries"].toObject()[p.effectiveLanguage].toObject();
+    if (noticeHash.size()!=64 || dataTermsHash.size()!=64 || tatoebaTermsHash.size()!=64 || dictionaryPin["sha256"].toString().size()!=64)
         return unavailable(p,"Embedded fixed asset/license pins unavailable");
     const auto license=m["license"].toObject();
     const auto licensePath=localPath(root,license["path"].toString());
-    const auto encoderLicense=m["encoderLicense"].toObject();
-    const auto encoderTerms=localPath(root,encoderLicense["path"].toString());
     const auto dataTerms=localPath(root,license["termsPath"].toString());
-    // WHY a manifest cannot authenticate itself: fixed model/metadata/license identities come only from
-    // the embedded repository lock. The derived dictionary/attribution hashes remain local integrity checks.
-    if (license["id"].toString()!="CC-BY-SA-4.0" || license["attribution"].toString().isEmpty() ||
-        licensePath.isEmpty() || QFileInfo(licensePath).size()==0 || license["sha256"].toString().size()!=64 ||
-        digest(licensePath)!=license["sha256"].toString() || encoderTerms.isEmpty() ||
-        encoderLicense["sha256"].toString()!=encoderTermsHash || digest(encoderTerms)!=encoderTermsHash ||
-        dataTerms.isEmpty() || license["termsSha256"].toString()!=dataTermsHash || digest(dataTerms)!=dataTermsHash)
+    const auto tatoebaTerms=localPath(root,license["tatoebaTermsPath"].toString());
+    // WHY a manifest cannot authenticate itself: every file identity comes from the embedded repository lock.
+    if (license["id"].toString()!="ODC-By-1.0 AND CC-BY-2.0-FR" || license["attribution"].toString().isEmpty() ||
+        licensePath.isEmpty() || QFileInfo(licensePath).size()==0 || license["sha256"].toString()!=noticeHash ||
+        digest(licensePath)!=noticeHash ||
+        dataTerms.isEmpty() || license["termsSha256"].toString()!=dataTermsHash || digest(dataTerms)!=dataTermsHash ||
+        tatoebaTerms.isEmpty() || license["tatoebaTermsSha256"].toString()!=tatoebaTermsHash || digest(tatoebaTerms)!=tatoebaTermsHash)
         return unavailable(p,"Pack license/attribution missing or repository pin mismatch");
-    const auto source=m["source"].toObject();
-    if (source!=lock["wordfreq_wheel"].toObject() || m["modelRevision"]!=lock["model_revision"])
+    if (m["source"].toObject()!=lock["word_list_source"].toObject())
         return unavailable(p,"Pack source/model revision mismatch");
     const auto assets=m["assets"].toObject();
-    if (!assets.contains("encoder") || !assets.contains("dictionary")) return unavailable(p,"Required encoder/dictionary missing");
-    // WHY foreign context is enabled only by the paired, repository-pinned n-gram model/vocabulary;
-    // English weights or a manifest's self-asserted model hash cannot confer capability.
-    if (assets.contains("decoder") || assets.contains("contextModel") != assets.contains("contextVocab"))
-        return unavailable(p,"Unsupported decoder or unpaired context model/vocabulary");
-    const bool hasContext=assets.contains("contextModel");
-    const auto contextPins=lock["multilingual_context_models"].toObject()[p.effectiveLanguage].toObject();
-    if (hasContext && (m["schema"].toInt()!=2 || m["contextFormat"].toString()!="swk-ngram-v2" || contextPins.isEmpty() ||
-        assets["contextModel"].toObject()["sha256"].toString()!=contextPins["modelSha256"].toString() ||
-        assets["contextVocab"].toObject()["sha256"].toString()!=contextPins["vocabSha256"].toString()))
-        return unavailable(p,"Context model format or repository pin mismatch");
-    if (hasContext) {
-        const auto terms=m["contextLicense"].toObject();
-        const auto attribution=localPath(root,terms["attributionPath"].toString());
-        const auto contextTerms=localPath(root,terms["termsPath"].toString());
-        if (terms["id"].toString()!="CC-BY-2.0-FR" || terms["sourceSha256"].toString()!=contextPins["corpusSha256"].toString() ||
-            terms["attributionSha256"].toString()!=contextPins["contributorsSha256"].toString() || attribution.isEmpty() ||
-            digest(attribution)!=contextPins["contributorsSha256"].toString() || contextTerms.isEmpty() ||
-            terms["termsSha256"].toString()!=lock["tatoeba_license_notice_sha256"].toString() ||
-            digest(contextTerms)!=lock["tatoeba_license_notice_sha256"].toString() ||
-            terms["sourceUrl"].toString()!=QString("https://downloads.tatoeba.org/exports/per_language/%1/%1_sentences.tsv.bz2").arg(p.effectiveLanguage=="es" ? "spa" : p.effectiveLanguage=="fr" ? "fra" : "deu"))
-            return unavailable(p,"Context source or contributor attribution pin mismatch");
-    }
-    if (!hasContext && m["schema"].toInt()!=1) return unavailable(p,"Unsupported language pack schema");
+    if (!assets.contains("dictionary")) return unavailable(p,"Required dictionary missing");
+    if (assets.contains("contextModel") != assets.contains("contextVocab"))
+        return unavailable(p,"Context model/vocabulary must be paired");
+    const bool declaresContext=assets.contains("contextModel");
+    // WHY a context problem (missing/damaged file, pin or licence mismatch) only drops next-word suggestions:
+    // the dictionary is verified separately, and nothing unverified is ever loaded.
+    bool hasContext=false;
+    ContextFiles contextFiles;
+    if (declaresContext && manifestContextMatchesLock(p.effectiveLanguage,m,lock))
+        hasContext=contextFilesVerified(p.effectiveLanguage,root,lock,contextFiles);
     for (auto it=assets.begin(); it!=assets.end(); ++it) {
-        if (!QStringList{"encoder","dictionary","contextModel","contextVocab"}.contains(it.key()))
+        if (!QStringList{"dictionary","contextModel","contextVocab"}.contains(it.key()))
             return unavailable(p,"Unknown asset role");
+        // Context roles were judged above against the lock; when that failed they are simply left out.
+        if (it.key().startsWith("context") && !hasContext) continue;
         const auto a=it.value().toObject(); const auto path=localPath(root,a["path"].toString());
         const auto hash=a["sha256"].toString(), compat=a["compatibility"].toString();
-        const QString expectedCompat=it.key()=="encoder" ? QString("layout-agnostic") :
-            it.key().startsWith("context") ? p.effectiveLanguage+":context-ngram-v1" : p.effectiveLanguage;
+        const QString expectedCompat=it.key().startsWith("context") ? p.effectiveLanguage+":context-ngram-v1" : p.effectiveLanguage;
         if (compat!=expectedCompat) return unavailable(p,"Asset language/layout compatibility mismatch");
         if (path.isEmpty() || a["size"].toInteger(-1)<=0 || QFileInfo(path).size()!=a["size"].toInteger() ||
             hash.size()!=64 || digest(path)!=hash) return unavailable(p,"Asset missing, corrupt or checksum/size mismatch");
-        if (it.key()=="encoder") {
-            const auto metadata=localPath(root,QDir(root).relativeFilePath(QFileInfo(path).dir().filePath("metadata.json")));
-            if (hash!=encoderHash || metadata.isEmpty() || a["metadataSha256"].toString()!=metadataHash || digest(metadata)!=metadataHash)
-                return unavailable(p,"Encoder/model metadata does not match repository compatibility pins");
-        }
+        if (it.key()=="dictionary" && (hash!=dictionaryPin["sha256"].toString() || a["path"].toString()!=dictionaryPin["path"].toString()))
+            return unavailable(p,"Dictionary does not match the repository pin");
         p.assets[it.key()]={path,hash,compat};
     }
+    // The neural next-word file was verified against the lock by contextFilesVerified(); the manifest cannot add it.
+    if (hasContext && !contextFiles.nwp.isEmpty())
+        p.assets["contextNwp"]={contextFiles.nwp,lock["trained_models"].toObject()["nextWord"].toObject()[p.effectiveLanguage].toObject()["sha256"].toString(),
+                                p.effectiveLanguage+":context-nwp-v1"};
+    addSwipeModel(p,{root});
     p.packId=m["id"].toString(); p.packVersion=m["version"].toString();
     p.capabilities={true,hasContext,hasContext};
     return p;

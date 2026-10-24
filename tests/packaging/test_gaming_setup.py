@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+
 """Run gaming/setup/install.sh and uninstall.sh against a throwaway HOME with stand-in `flatpak` and `systemctl`.
 
 WHY stand-ins and a PATH that holds nothing else: the scripts must be provable without touching this computer's

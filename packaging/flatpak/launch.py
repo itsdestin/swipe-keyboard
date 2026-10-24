@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+
 """Private bundle launch only; selection/restoration belongs to KDE Settings."""
 import fcntl
 import os

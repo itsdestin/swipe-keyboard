@@ -1,4 +1,9 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+
 """Exercise setup against disposable files and a stand-in for the live KConfig bus."""
+import io
 import json
 import os
 from pathlib import Path
@@ -40,7 +45,8 @@ class Commands:
         elif command == 'swipekb-preflight':
             if self.preflight_error:
                 raise subprocess.CalledProcessError(1, args, stderr=self.preflight_error)
-            assert args[1].endswith('/qml/SwipeKeyboard/libswipekeyboardplugin.so')
+            assert args[1].endswith(('/qml/SwipeKeyboard/libswipekeyboardplugin.so', '/qml/SwipeKeyboard69/libswipekeyboard69plugin.so'))
+            self.preflighted = args[1]
             assert kwargs['timeout'] == 15
         elif command == 'swipekb-config':
             value = json.dumps({key: {'raw': self.settings.get(key),
@@ -93,7 +99,9 @@ class SetupTests(unittest.TestCase):
                     'XDG_DATA_HOME': str(self.base / 'data'),
                     'XDG_CONFIG_HOME': str(self.base / 'config'),
                     'XDG_SESSION_TYPE': 'wayland', 'XDG_CURRENT_DESKTOP': 'KDE',
-                    'SWIPEKB_SYSTEM_LAYOUTS': str(self.stock)}
+                    'SWIPEKB_SYSTEM_LAYOUTS': str(self.stock),
+                    # WHY: never read the build machine's own KDE packages; 6.9 tests create theirs here.
+                    'SWIPEKB_SYSTEM_DATA_DIRS': str(self.base / 'system-data')}
         self.commands = Commands()
         self.controller = self.module.Controller(self.root, self.env, self.commands)
 
@@ -600,6 +608,37 @@ class SetupTests(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 self.module.main()
             execute.assert_called_once_with('plasma-keyboard', ['plasma-keyboard'], dict(os.environ))
+
+    def test_plasma_keyboard_6_9_without_its_packages_or_7_steps_aside_to_the_plain_keyboard(self):
+        # WHY: the packages no longer cap plasma-keyboard, so a Plasma 6.9 upgrade installs with this add-on present. This
+        # fixture has no 6.9 keyboard packages (and 7.x is a new Qt major), so launch must start KDE's keyboard unchanged
+        # (no overlay, no plugin paths). With the packages present, 6.9 gets its own front end (test_plasma69.py).
+        for version in ('plasma-keyboard 6.9.0', 'plasma-keyboard 6.9.80', 'plasma-keyboard 6.10.1', 'plasma-keyboard 7.0.0'):
+            with self.subTest(version=version):
+                self.commands.plasma_version = version
+                with self.assertRaises(self.module.SetupError) as raised:
+                    self.controller.launch_environment()
+                self.assertIn('plain KDE keyboard', str(raised.exception))
+                self.assertFalse((self.base / 'data').exists())   # nothing built, nothing written
+                with mock.patch.object(self.module, 'Controller') as factory, \
+                     mock.patch.object(self.module.sys, 'argv', ['swipe-keyboard', 'launch']), \
+                     mock.patch.object(self.module.os, 'execvpe', side_effect=SystemExit(0)) as execute, \
+                     mock.patch('sys.stderr', new_callable=io.StringIO) as err:
+                    factory.return_value.launch_environment.side_effect = raised.exception
+                    with self.assertRaises(SystemExit):
+                        self.module.main()
+                execute.assert_called_once_with('plasma-keyboard', ['plasma-keyboard'], dict(os.environ))   # unmodified environment
+                self.assertIn('Starting the unmodified stock keyboard instead', err.getvalue())
+        self.commands.plasma_version = 'plasma-keyboard 6.8.9'
+        self.controller.check()   # the supported range still passes
+        self.commands.plasma_version = 'plasma-keyboard 6.7.0'
+        self.controller.check()
+
+    def test_disable_still_works_on_a_newer_plasma_keyboard(self):
+        self.controller.enable(always_available=True)
+        self.commands.plasma_version = 'plasma-keyboard 6.9.0'
+        self.controller.disable()
+        self.assertEqual(self.commands.settings['InputMethod'], '/old/keyboard.desktop')
 
     def test_fedora_dbus_command_name_is_supported(self):
         self.commands.fedora_commands = True

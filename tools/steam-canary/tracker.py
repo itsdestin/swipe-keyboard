@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+
 """Open or update the single GitHub tracking issue for the canary (through the `gh` command line)."""
 import json
 

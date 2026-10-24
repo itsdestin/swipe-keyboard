@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+
 # swipekb-replay: re-runs recorded swipes (plugin/swiperecorder.h writes them) through the engine offline,
 # so recognition settings can be compared on the owner's real swipes without touching the live keyboard.
 # WHY Qt Core: it already reads the recorder's JSON, and the plugin needs Qt anyway, so no new dependency.
@@ -13,7 +17,8 @@ target_link_libraries(tst_languageevaluation PRIVATE swipekb_language Qt6::Test)
 add_test(NAME tools_languageevaluation COMMAND tst_languageevaluation)
 
 add_executable(swipekb-replay swipekb-replay.cpp)
-target_link_libraries(swipekb-replay PRIVATE swipekb_engine Qt6::Core)
+# WHY the plugin's profile library: the replay sets the engine up exactly like the keyboard and the daemon.
+target_link_libraries(swipekb-replay PRIVATE swipekb_engine swipekb_language Qt6::Core)
 
 # The test builds a tiny synthetic recording, runs the tool on it and checks the table and summary.
 add_executable(tst_replay tests/tst_replay.cpp)
@@ -32,22 +37,13 @@ if(Python3_FOUND)
     add_test(NAME tools_swipe_stats COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_swipe_stats.py)
 endif()
 
-# swipekb-bench: the scoreboard's engine. Replays FUTO's real-swipe test file through our swipekb::Recognizer
-# (bench/score.sh --runner recognizer), so scores measure what ships.
-set(SWIPEKB_FUTO_LAYOUT ${CMAKE_SOURCE_DIR}/third_party/swipe-library/models/layouts/en_qwerty.json)
+# swipekb-bench: the swipe scoreboard's engine. Replays recorded swipes through swipekb::LanguageEngine (the class the
+# keyboard uses), so scores measure what ships (bench/score.sh).
 add_executable(swipekb-bench swipekb-bench.cpp)
-target_include_directories(swipekb-bench PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(swipekb-bench PRIVATE swipekb_engine Qt6::Core)
-target_compile_definitions(swipekb-bench PRIVATE SWIPEKB_DEFAULT_LAYOUT="${SWIPEKB_FUTO_LAYOUT}")
-
-# Checks that the key rectangles built from FUTO's layout file normalise back to FUTO's key centres.
-add_executable(tst_benchlayout tests/tst_benchlayout.cpp)
-target_include_directories(tst_benchlayout PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(tst_benchlayout PRIVATE swipekb_engine Qt6::Core Qt6::Test)
-target_compile_definitions(tst_benchlayout PRIVATE SWIPEKB_LAYOUT_JSON="${SWIPEKB_FUTO_LAYOUT}")
-add_test(NAME tools_benchlayout COMMAND tst_benchlayout)
-
-# swipekb-nlm-score: the neural word model's score for given candidates on FUTO's test sentences, plus its
-# speed and memory (bench/tune-nlm.py tunes the ranking from these stored scores).
-add_executable(swipekb-nlm-score swipekb-nlm-score.cpp)
-target_link_libraries(swipekb-nlm-score PRIVATE swipekb_engine Qt6::Core)
+# swipekb-sentence-check: exact spelling (apostrophes count) of swipes and next-word suggestions in held-out sentences.
+add_executable(swipekb-sentence-check swipekb-sentence-check.cpp)
+target_link_libraries(swipekb-sentence-check PRIVATE swipekb_engine Qt6::Core)
+# The swipe engine's own scoring tool (network + search settings sweeps, per-board numbers).
+add_executable(swipekb-swipenet-bench swipekb-swipenet-bench.cpp)
+target_link_libraries(swipekb-swipenet-bench PRIVATE swipekb_engine Qt6::Core)

@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+
 """Build the signed update website from one verified release (plan: docs/active/plans/2026-10-23-auto-updates.md).
 
     update_site.py build --release DIR --tag TAG --key-id FPR --out SITE [--base-url URL] [--downloads URL] [--test-key]

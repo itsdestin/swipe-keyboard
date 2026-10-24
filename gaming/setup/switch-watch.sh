@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+
 # Swipe Keyboard, Gaming Mode: watches Steam's developer-switch file. Installed by install.sh; removed by uninstall.sh.
 #
 #   switch-watch.sh check             (run by swipekb-switch-watch.timer) look, record what it saw, notify once if the switch is gone

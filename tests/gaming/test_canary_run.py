@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+
 """The whole canary against a fake Valve server: good runs, negative controls, hostile zips, dead canary."""
 import io
 import json

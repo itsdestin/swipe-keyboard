@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+
 """Exercise compatibility checks on real ELF inputs, never recursive ldd fixtures."""
 import importlib.util
 import json

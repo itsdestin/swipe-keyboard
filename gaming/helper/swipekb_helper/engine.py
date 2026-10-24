@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+
 """Client for the engine daemon (swipekb-gamingd): length-prefixed JSON over a Unix socket (gaming/daemon/protocol.hpp).
 
 WHY this file is small and dumb: the daemon owns every decision about words. We only open the socket, show the token

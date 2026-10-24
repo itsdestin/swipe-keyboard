@@ -1,4 +1,9 @@
 #!/bin/bash
+
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+
 # Copy the helper, the shared contract and the M3 rig into the guest at ~/m3 (same relative layout as the repo).
 # usage: tools/gaming-vm/deploy-m3.sh   (run on the host; needs the lab's guests/steamos-gaming/ssh wrapper)
 set -e

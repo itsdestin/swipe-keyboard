@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+
 """Build one deterministic Tatoeba sentence n-gram pack from pinned local inputs.
 
 Usage: build-tatoeba-model.py LANGUAGE EXPORT.bz2 DETAILED.bz2 DICTIONARY OUTDIR NGRAM-BUILDER

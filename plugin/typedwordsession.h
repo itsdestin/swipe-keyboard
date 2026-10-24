@@ -1,3 +1,9 @@
+/*
+ * SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+ *
+ * SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+ */
+
 #pragma once
 #include "nextwordsession.h"
 
@@ -34,6 +40,7 @@ public:
         m_echo.editorChanged(e,p,epoch,true);if(!m_echo.pendingOrVisible())clear();
     }
     QString token()const{return m_token;}
+    PredictionStamp stamp()const{return m_stamp;}
     QStringList candidates()const{return m_candidates;}
     QString selectionToken()const {
         return m_candidates.isEmpty()?QString():QStringLiteral("typed:%1:%2:%3").arg(m_stamp.profileEpoch).arg(m_stamp.editorEpoch).arg(m_stamp.requestId);
@@ -41,7 +48,8 @@ public:
     void suggest(const QStringList &ranked) {
         if(m_token.isEmpty())return;
         QStringList words;for(auto word:ranked) {
-            if(m_token==m_token.toUpper())word=word.toUpper();
+            // WHY two letters: one capital is a sentence start or a name ("H" -> "How"), not typing in capitals.
+            if(m_token.size()>1&&m_token==m_token.toUpper())word=word.toUpper();
             else if(m_token.front().isUpper())word=word.left(1).toUpper()+word.mid(1);
             if(!words.contains(word,Qt::CaseInsensitive))words<<word;
             if(words.size()==3)break;

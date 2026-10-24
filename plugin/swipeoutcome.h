@@ -1,3 +1,9 @@
+/*
+ * SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+ *
+ * SPDX-License-Identifier: MIT
+ */
+
 // SwipeOutcomeTracker — decides how each swiped word "ended", so we can measure how often the owner has to
 // fix a swipe. Pure logic (no keyboard, no files): unit-tested in tests/tst_swipeoutcome.cpp.
 //

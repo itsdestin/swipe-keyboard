@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+
 """Native KConfig semantics, only private HOME/XDG trees; never a desktop bus."""
 import json
 import os

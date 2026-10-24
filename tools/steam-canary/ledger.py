@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+
 """The canary's memory: one small JSON file per channel (build, result, hashes) plus the last run time.
 
 WHY a file on a dedicated git branch (written by the workflow): Actions caches can be evicted, and the

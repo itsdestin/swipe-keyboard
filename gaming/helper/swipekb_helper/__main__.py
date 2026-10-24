@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+
 """swipekb-helper entry point:  python3 -m swipekb_helper   (run with the folder holding swipekb_helper on PYTHONPATH)."""
 import os
 import signal

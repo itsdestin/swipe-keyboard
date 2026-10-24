@@ -1,3 +1,9 @@
+/*
+ * SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+ *
+ * SPDX-License-Identifier: MIT
+ */
+
 // SwipeSession — the text decisions around one swiped word: whether it needs a space before it, its
 // capitalization, the guess-bar alternatives, and swapping the typed word for one of them.
 // No keyboard or engine here, so every rule is unit-tested (tests/tst_swipesession.cpp).
@@ -33,9 +39,9 @@ struct SpaceContext {
 class SwipeSession {
 public:
     // Last `max` words of the current sentence, oldest first, punctuation trimmed (context for the guesses).
-    // WHY 20, not 3: FUTO's context model reads the whole sentence so far (its own test passes every earlier
-    // word, and the engine itself keeps only as many as the model can take). Cutting to 3 words lowered
-    // first-guess accuracy on the scoreboard from 93.32% to 93.01%; 20 covers any normal sentence.
+    // WHY 20, not 3: the sentence models take as many earlier words as they can use (the n-gram keeps the last two,
+    // the neural next-word model more), and cutting to 3 words once measured lower first-guess accuracy; 20 covers
+    // any normal sentence.
     static QStringList contextWords(const QString &textBeforeCursor, int max = 20);
     // True when the swiped word must be preceded by a space (Gboard-style auto-space).
     static bool needsSpaceBefore(const QString &textBeforeCursor, SpaceContext ctx = {});
@@ -53,6 +59,9 @@ public:
     // right after it, so it is the first guess-bar choice. WHY: one swipe shape is both words; the shape
     // cannot tell them apart, so the other one must be one tap away. Nothing is dropped.
     static QStringList withOtherSpelling(const QStringList &candidates, const QString &otherSpelling);
+    // Shift / Caps Lock applied to a shown word (shared with next-word suggestions); a word with a capital inside
+    // ("iPhone") is left as written under Shift.
+    static QString applyCase(const QString &word, CaseMode mode);
 
     // Starts a new session from the engine's best-first guesses. Empty plan if there are none.
     CommitPlan commitSwipe(const QString &textBeforeCursor, const QStringList &candidates, CaseMode mode,
@@ -69,7 +78,6 @@ public:
     bool isActive() const { return m_current >= 0; }
 
 private:
-    static QString applyCase(const QString &word, CaseMode mode);
 
     QStringList m_candidates;
     int m_current = -1;

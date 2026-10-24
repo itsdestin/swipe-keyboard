@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+
 """Private language hooks over each stock physical layout, without activating a profile."""
 from pathlib import Path
 import re

@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+//
+// SPDX-License-Identifier: MIT
+
 #include "swipeoutcome.h"
 
 SwipeOutcomeTracker::Outcome SwipeOutcomeTracker::beginSwipe(qint64 ts)

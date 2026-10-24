@@ -1,3 +1,9 @@
+/*
+ * SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+ *
+ * SPDX-License-Identifier: MIT
+ */
+
 #pragma once
 #include <QSet>
 #include <QStringList>

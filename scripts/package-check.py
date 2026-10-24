@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+
 """Validate an unpacked native package/DESTDIR, without starting the keyboard."""
 import argparse
 import os
@@ -50,43 +55,80 @@ def check_desktop(path):
 
 
 def check_multilingual_context_assets(base, lock):
-    """Pin every foreign n-gram, vocabulary, contributor credit, and Tatoeba notice."""
+    """Pin every language's n-gram, vocabulary, contributor credit and the web/Tatoeba/notice texts.
+
+    WHY English too: the open English n-gram is English's only next-word model, so a package without it would
+    silently lose English next-word suggestions.
+    """
     models = lock.get('multilingual_context_models')
     if not isinstance(models, dict):
         raise AssertionError('Missing pinned multilingual model metadata')
-    notice = base/'language-packs/TATOEBA-CC-BY-2.0-FR.txt'
+    packs = base/'language-packs'
+    shared = lock.get('language_files')
+    assert isinstance(shared, dict), 'Missing pinned language-files release metadata'
     expected_notice = lock.get('tatoeba_license_notice_sha256')
     assert isinstance(expected_notice, str) and re.fullmatch(r'[a-f0-9]{64}', expected_notice), 'Missing pinned Tatoeba terms notice'
-    assert hashlib.sha256(notice.read_bytes()).hexdigest() == expected_notice, 'Corrupt Tatoeba license notice'
-    for language in ('es', 'fr', 'de'):
+    assert hashlib.sha256((packs/'TATOEBA-CC-BY-2.0-FR.txt').read_bytes()).hexdigest() == expected_notice, 'Corrupt Tatoeba license notice'
+    for key in ('odcTerms', 'notice'):
+        entry = shared[key]
+        assert hashlib.sha256((packs/entry['path']).read_bytes()).hexdigest() == entry['sha256'], f'Corrupt {entry["path"]}'
+    for language in ('en', 'es', 'fr', 'de'):
         pin = models.get(language)
         assert isinstance(pin, dict), f'Missing {language} model pin'
-        manifest = json.loads((base/f'language-packs/{language}.json').read_text())
-        assert manifest.get('language') == language and manifest.get('schema') == 2, f'Invalid {language} model manifest'
+        for name, hash_key, size_key in ((f'{language}.ngram', 'modelSha256', 'modelBytes'),
+                                         (f'{language}.vocab.tsv', 'vocabSha256', 'vocabBytes'),
+                                         (f'{language}-CONTRIBUTORS.txt', 'contributorsSha256', 'contributorsBytes')):
+            data = (packs/name).read_bytes()
+            assert len(data) == pin[size_key], f'{language} {name} size mismatch'
+            assert hashlib.sha256(data).hexdigest() == pin[hash_key], f'{language} {name} hash mismatch'
+        if language == 'en':
+            continue  # English has no manifest; it is selected by the profile code from the same pinned files.
+        manifest = json.loads((packs/f'{language}.json').read_text())
+        assert manifest.get('language') == language and manifest.get('schema') == 3 and manifest.get('compatibility') == 'swipekb-open-v1', f'Invalid {language} model manifest'
         assert manifest.get('contextFormat') == 'swk-ngram-v2', f'Unsupported {language} context format'
         roles = manifest.get('assets', {})
-        for role, hash_key, size_key in (('contextModel', 'modelSha256', 'modelBytes'),
-                                         ('contextVocab', 'vocabSha256', 'vocabBytes')):
+        for role, name, hash_key, size_key in (('contextModel', f'{language}.ngram', 'modelSha256', 'modelBytes'),
+                                               ('contextVocab', f'{language}.vocab.tsv', 'vocabSha256', 'vocabBytes')):
             asset = roles.get(role)
             assert isinstance(asset, dict), f'{language} missing {role}'
-            relative = pathlib.PurePosixPath(asset.get('path', ''))
-            assert relative.name == asset.get('path') and relative.name, f'Invalid {language} {role} path'
-            payload = base/'language-packs'/relative.name
-            data = payload.read_bytes()
-            assert len(data) == pin[size_key] == asset.get('size'), f'{language} {role} size mismatch'
-            assert hashlib.sha256(data).hexdigest() == pin[hash_key] == asset.get('sha256'), f'{language} {role} hash mismatch'
+            assert asset.get('path') == name, f'Invalid {language} {role} path'
+            assert asset.get('size') == pin[size_key], f'{language} {role} size mismatch'
+            assert asset.get('sha256') == pin[hash_key], f'{language} {role} hash mismatch'
             assert asset.get('compatibility') == f'{language}:context-ngram-v1', f'{language} {role} locale mismatch'
         attribution = manifest.get('contextLicense', {})
-        assert attribution.get('id') == 'CC-BY-2.0-FR', f'{language} missing Tatoeba license metadata'
-        assert attribution.get('sourceSha256') == pin.get('corpusSha256'), f'{language} corpus identity mismatch'
+        assert attribution.get('id') == 'ODC-By-1.0 AND CC-BY-2.0-FR', f'{language} missing web/Tatoeba license metadata'
+        assert attribution.get('sourceUrl') == shared['baseUrl'] + f'{language}.ngram', f'{language} source identity mismatch'
         assert attribution.get('termsPath') == 'TATOEBA-CC-BY-2.0-FR.txt'
         assert attribution.get('termsSha256') == expected_notice, f'{language} Tatoeba notice pin mismatch'
-        credit_name = attribution.get('attributionPath')
-        assert credit_name == f'{language}-CONTRIBUTORS.txt', f'{language} contributor path mismatch'
-        credit = base/'language-packs'/credit_name
-        credit_bytes = credit.read_bytes()
-        assert hashlib.sha256(credit_bytes).hexdigest() == pin['contributorsSha256'] == attribution.get('attributionSha256'), f'{language} contributor attribution mismatch'
+        assert attribution.get('webTermsSha256') == shared['odcTerms']['sha256'], f'{language} ODC-By terms pin mismatch'
+        assert attribution.get('noticeSha256') == shared['notice']['sha256'], f'{language} language-files notice pin mismatch'
+        assert attribution.get('attributionPath') == f'{language}-CONTRIBUTORS.txt', f'{language} contributor path mismatch'
+        assert attribution.get('attributionSha256') == pin['contributorsSha256'], f'{language} contributor attribution mismatch'
     assert models['es'].get('locales') == ['es_ES', 'es_MX'], 'Spanish regional model sharing must be explicit'
+
+
+def check_trained_models(root, lock):
+    """The four neural next-word models and the swipe model must ship exactly as pinned, with their notices.
+
+    WHY mandatory in a package: the keyboard silently runs without any model it cannot verify, so a package that
+    dropped or altered one would only show up as worse suggestions. Licences: the notice (credit + sources) and the
+    MIT text of the swipe model's training data must sit in the licence folder.
+    """
+    models = lock.get('trained_models')
+    assert isinstance(models, dict), 'Missing pinned trained-model metadata'
+    base = root/'usr/share/swipe-keyboard'
+    for language in ('en', 'es', 'fr', 'de'):
+        pin = models['nextWord'][language]
+        data = (base/'language-packs'/pin['path']).read_bytes()
+        assert len(data) == pin['bytes'], f'{language} {pin["path"]} size mismatch'
+        assert hashlib.sha256(data).hexdigest() == pin['sha256'], f'{language} {pin["path"]} hash mismatch'
+    swipe = models['swipe']
+    data = (base/'language-packs'/pathlib.PurePosixPath(swipe['path']).name).read_bytes()
+    assert len(data) == swipe['bytes'] and hashlib.sha256(data).hexdigest() == swipe['sha256'], 'swipe-model.bin differs from its pin'
+    for key in ('notice', 'swipeDataTerms'):
+        entry = models[key]
+        data = (root/'usr/share/licenses/swipe-keyboard'/entry['path']).read_bytes()
+        assert hashlib.sha256(data).hexdigest() == entry['sha256'], f'Corrupt {entry["path"]}'
 
 
 def forbid_gaming_payload(root):
@@ -108,12 +150,11 @@ def check(root):
                 'qml/SwipeKeyboard/qmldir', 'qml/SwipeKeyboard/SwipeCapture.qml',
                 'qml/SwipeKeyboard/libswipekeyboard.so', 'qml/SwipeKeyboard/libswipekeyboardplugin.so',
                 'qml/SwipeKeyboard/libswipekb_engine.so',
-                'models/honorable_sturgeon/model_fp32.pte', 'models/honorable_sturgeon/metadata.json',
-                'models/magic_macaw/model_fp32.pte', 'models/magic_macaw/metadata.json',
-                'models/hungry_jellyfish/context_lm.pte', 'models/hungry_jellyfish/vocab.txt',
-                'models/hungry_jellyfish/metadata.json', 'models/FUTO-MODEL-LICENSE.md',
                 'dict/en_swipe.combined']
     required += ['integration/swipekb-profilecheck']
+    # Plasma 6.9's front end (frontend-plasma69) and its package generator.
+    required += ['integration/plasma69.py', 'qml/SwipeKeyboard69/qmldir', 'qml/SwipeKeyboard69/libswipekeyboard69.so',
+                 'qml/SwipeKeyboard69/libswipekeyboard69plugin.so']
     required += [f'language-packs/{language}.json' for language in ('es', 'fr', 'de')]
     for name in required:
         assert (base/name).is_file() and (base/name).stat().st_size, f'Missing/empty {name}'
@@ -127,22 +168,26 @@ def check(root):
     for name in ['usr/bin/swipe-keyboard', 'usr/share/applications/swipe-keyboard.desktop',
                  'usr/share/licenses/swipe-keyboard/LICENSE', 'usr/share/licenses/swipe-keyboard/NOTICE',
                  'usr/share/licenses/swipe-keyboard/assets.lock.json',
-                 'usr/share/licenses/swipe-keyboard/TATOEBA-CC-BY-2.0-FR.txt']:
+                 'usr/share/licenses/swipe-keyboard/TATOEBA-CC-BY-2.0-FR.txt',
+                 # WHY: every licence the code and data use must ship as full text (MIT for the engine and tools, KDE's
+                 # GPL choice for the keyboard add-on layers, the data files' own licences).
+                 *(f'usr/share/licenses/swipe-keyboard/LICENSES/{name}.txt' for name in (
+                     'MIT', 'GPL-2.0-only', 'GPL-3.0-only', 'LicenseRef-KDE-Accepted-GPL', 'Apache-2.0', 'ODC-By-1.0',
+                     'CC-BY-4.0', 'CC0-1.0'))]:
         assert (root/name).is_file(), f'Missing {name}'
     lock = json.loads((root/'usr/share/licenses/swipe-keyboard/assets.lock.json').read_text())
-    for asset in lock['assets']:
-        if asset['path'].startswith('models/'):
-            payload = base/asset['path']
-            assert hashlib.sha256(payload.read_bytes()).hexdigest() == asset['sha256'], f'Corrupt {payload}'
+    # WHY: the package carries only the project's own engine; an old models/ folder must never come back.
+    assert not (base/'models').exists(), 'Unexpected models/ folder (the swipe model sits in language-packs/)'
     assert hashlib.sha256((base/'dict/en_swipe.combined').read_bytes()).hexdigest() == lock['dictionary_sha256'], 'Dictionary differs from pinned build output'
     check_multilingual_context_assets(base, lock)
+    check_trained_models(root, lock)
     assert hashlib.sha256((root/'usr/share/licenses/swipe-keyboard/TATOEBA-CC-BY-2.0-FR.txt').read_bytes()).hexdigest() == lock['tatoeba_license_notice_sha256'], 'Installed Tatoeba license notice differs from pack notice pin'
     wrapper = root/'usr/bin/swipe-keyboard'
     assert wrapper.stat().st_mode & 0o111, 'Wrapper must be executable'
     assert '/usr/share/swipe-keyboard/integration/setup.py' in wrapper.read_text(), 'Wrong runtime path'
     check_desktop(root/'usr/share/applications/swipe-keyboard.desktop')
     assert json.loads((base/'runtime.json').read_text())['qt'].startswith('6.'), 'Missing Qt ABI gate'
-    for unwanted in ('eval', 'nlm', 'lm', 'dict-src'):
+    for unwanted in ('eval', 'lm', 'dict-src'):
         assert not (base/unwanted).exists(), f'Unexpected optional/source payload: {unwanted}'
     helper = base/'integration/swipekb-preflight'
     assert helper.stat().st_mode & 0o111, 'Native preflight must be executable'
@@ -158,11 +203,17 @@ def check(root):
         capability = json.loads(query.stdout)
         assert capability['swipeCapable'], f'Pack unavailable for {locale}'
         assert capability['scope'] == 'queried-installation-capability'
-        if not locale.startswith('en'):
-            assert capability['nextWordCapable'] and capability['contextRankingCapable'], f'Context pack unavailable for {locale}'
+        assert capability['nextWordCapable'] and capability['contextRankingCapable'], f'Context pack unavailable for {locale}'
         if locale.startswith('es-'):
-            assert capability['packId'] == 'wordfreq-es', f'{locale} must use the shared Spanish pack'
-    for library in [helper, config_probe, profile_probe, *(base/'qml/SwipeKeyboard').glob('*.so*')]:
+            assert capability['packId'] == 'fineweb-es', f'{locale} must use the shared Spanish pack'
+    for library in (base/'qml/SwipeKeyboard69').glob('*.so*'):
+        # WHY: the 6.9 front end must never need FUTO's engine, ExecuTorch or Qt Virtual Keyboard (owner decision 2026-10-23).
+        dynamic = subprocess.run(['readelf', '-d', str(library)], text=True, capture_output=True, check=True).stdout
+        forbidden = [line for line in dynamic.splitlines() if 'NEEDED' in line and
+                     re.search(r'libswipekb_engine|executorch|VirtualKeyboard', line)]
+        assert not forbidden, f'{library.name} needs legacy/FUTO libraries: {forbidden}'
+    for library in [helper, config_probe, profile_probe, *(base/'qml/SwipeKeyboard').glob('*.so*'),
+                    *(base/'qml/SwipeKeyboard69').glob('*.so*')]:
         check_native_machine(library)
         check_public_qt_abi(library)
         result = subprocess.run(['ldd', str(library)], text=True, capture_output=True, check=True)
