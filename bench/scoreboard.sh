@@ -77,7 +77,7 @@ for l in $langs; do
 done
 SWIPEKB_BENCH="${SWIPEKB_BENCH:-$ROOT/build/tools/swipekb-bench}"
 if [ -x "$SWIPEKB_BENCH" ]; then
-    swipe=$(BENCH_HISTORY="$tmp/swipe-history.tsv" "$ROOT/bench/score.sh" --runner recognizer --label "$label" | head -1)
+    swipe=$(BENCH_HISTORY="$tmp/swipe-history.tsv" "$ROOT/bench/score.sh" --label "$label" | head -1)
     sed -E 's/^first guess right: ([0-9.]+)%.*/en swipe_top1 \1/' <<<"$swipe" >> "$rows"
 else
     echo "(swipe not scored: $SWIPEKB_BENCH not built)" >&2

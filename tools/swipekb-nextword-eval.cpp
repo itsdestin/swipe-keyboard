@@ -32,7 +32,7 @@
 
 #include "swipekb/nwp_predictor.hpp"
 #include "swipekb/prediction.hpp"
-#include "swipekb/recognizer.hpp"
+#include "swipekb/text.hpp"
 
 namespace {
 QString lower(const std::string &word) { return QString::fromUtf8(word.data(), int(word.size())).toLower(); }

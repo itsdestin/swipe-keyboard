@@ -2,7 +2,7 @@
 """Synthetic NOISY swipe traces for the offline language bench (provenance "synthetic-noisy-v1").
 
 These are NOT human swipes and NOT native reviewed. A small noise model, fitted on real
-ENGLISH swipes (FUTO dataset, MIT), is applied to the other languages' layouts so that
+ENGLISH swipes (the MIT-licensed swipe.futo.org dataset), is applied to the other languages' layouts so that
 Spanish / French / German get a *provisional* number before real volunteers exist
 (roadmap item 0.5). The model is deliberately simple; it can only reproduce the effects
 listed below, so it still flatters a decoder compared with real people (see README).

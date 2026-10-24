@@ -5,7 +5,7 @@
 // whole sentence; the n-gram knows ~100k words and exact word pairs. Words are scored by both (log-linear
 // blend, weight stored in the model file); words the neural model lacks keep their n-gram score.
 //
-// No FUTO types here: the scoreboard tools and tests use this directly. One instance is single-threaded
+// Plain C++ interface: the scoreboard tools and tests use this directly. One instance is single-threaded
 // (it remembers the sentence state between calls, so typing one more letter or word is cheap).
 #pragma once
 

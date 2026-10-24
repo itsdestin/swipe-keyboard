@@ -5,6 +5,7 @@
 
 #include "editorport.h"
 #include "languageprofile.h"
+#include "languageruntime.h"
 #include "languagetextrules.h"
 
 #include <QDir>
@@ -90,11 +91,11 @@ SwipeController::SwipeController(EditorPort *editor, QObject *parent, NextWordWo
         };
         QStringList offered;
         for (const auto &word : personalize(words, m_nextPrev, QString(), true, 12)) {
-            if (swipekb::offeredUnprompted(word, m_lang.language, typedByPerson)) {
+            if (swipekb::offeredUnprompted(word, m_profile.effectiveLanguage, typedByPerson)) {
                 offered << word;
             }
         }
-        if (m_nextWord.accept(stamp, swipekb::rankRegionalCandidates(offered, m_lang.requestedLocale, 12))) {
+        if (m_nextWord.accept(stamp, swipekb::rankRegionalCandidates(offered, m_profile.requestedLocale, 12))) {
             refreshBar();
         }
     });
@@ -122,7 +123,7 @@ SwipeController::SwipeController(EditorPort *editor, QObject *parent, NextWordWo
         }
         words = personalize(words, m_completionPrev, prefix, true, 12);
         const auto old = m_typedWord.candidates();
-        m_typedWord.suggest(swipekb::rankRegionalCandidates(words, m_lang.requestedLocale, 3));
+        m_typedWord.suggest(swipekb::rankRegionalCandidates(words, m_profile.requestedLocale, 3));
         if (old != m_typedWord.candidates()) {
             refreshBar();
         }
@@ -139,7 +140,7 @@ SwipeController::~SwipeController()
 
 bool SwipeController::ready() const
 {
-    return m_engine && m_engine->ready() && m_lang.swipe;
+    return m_engine && m_engine->ready() && m_profile.capabilities.swipe;
 }
 
 void SwipeController::setLocale(const QString &locale)
@@ -151,25 +152,49 @@ void SwipeController::setLocale(const QString &locale)
     loadLanguage(locale);
 }
 
+void SwipeController::setLayout(const QString &kdeLayoutId)
+{
+    const QString physical = physicalLayout(kdeLayoutId);
+    if (physical == m_physicalLayout) {
+        return;
+    }
+    m_physicalLayout = physical;
+    loadLanguage(m_locale);
+}
+
+QString SwipeController::physicalLayout(const QString &kdeLayoutId)
+{
+    // WHY from KDE's layout id: the language packs declare the physical families they were measured on.
+    const QString local = kdeLayoutId.section(QLatin1Char('/'), 1).toLower();
+    for (const char *family : {"qwertz", "azerty", "qwerty"}) {
+        if (local.contains(QLatin1String(family))) {
+            return QLatin1String(family);
+        }
+    }
+    return {};
+}
+
 void SwipeController::loadLanguage(const QString &locale)
 {
     reset();
     ++m_epoch;
     m_engine.reset();
-    m_lang = swipekb69::resolveOpenLanguage(locale, modelDir());
-    if (m_lang.swipe) {
-        auto engine = std::make_unique<swipekb69::LanguageEngine>();
-        if (engine->init(m_lang.setup)) {
+    // WHY the same profile authority as the Qt Virtual Keyboard front end: one lock-verified set of files per language.
+    m_profile = swipekb::resolveProfile(locale, m_physicalLayout, QStringLiteral("Latin"), swipekb::languageModelRoot(locale, modelDir()), m_epoch);
+    swipekb::LanguageEngineSetup setup;
+    if (swipekb::configureLanguageEngine(m_profile, setup)) {
+        auto engine = std::make_unique<swipekb::LanguageEngine>();
+        if (engine->init(setup)) {
             m_engine = std::move(engine);
             // WHY at once: the built-in texting words (lol, wyd, jaja, mdr...) raise web-text counts, never lower them.
-            m_engine->liftWords(swipekb::textingWordPairs(m_lang.language));
+            m_engine->liftWords(swipekb::textingWordPairs(m_profile.effectiveLanguage));
         } else {
-            m_lang.swipe = false;
-            m_lang.unavailableReason = QStringLiteral("Language engine initialization failed");
+            m_profile.capabilities = {};
+            m_profile.unavailableReason = QStringLiteral("Language engine initialization failed");
         }
     }
     syncLearnedWords(true);
-    qCInfo(lcSwipe69) << "language" << m_lang.language << "swipe" << m_lang.swipe << "next word" << m_lang.nextWord << m_lang.unavailableReason;
+    qCInfo(lcSwipe69) << "language" << m_profile.effectiveLanguage << "swipe" << ready() << "next word" << predictionCapable() << m_profile.unavailableReason;
     Q_EMIT readyChanged();
     notifyState();
 }
@@ -188,8 +213,8 @@ bool SwipeController::readyForKeys(const QVariantList &keys) const
     if (present.isEmpty()) {
         return false;
     }
-    for (const char32_t c : swipekb::languageAlphabet(m_lang.language).toUcs4()) {
-        if (!present.contains(c) && !present.contains(swipekb::popupBase(c, m_lang.language))) {
+    for (const char32_t c : swipekb::languageAlphabet(m_profile.effectiveLanguage).toUcs4()) {
+        if (!present.contains(c) && !present.contains(swipekb::popupBase(c, m_profile.effectiveLanguage))) {
             return false;
         }
     }
@@ -261,7 +286,8 @@ CaseMode SwipeController::caseMode() const
 
 bool SwipeController::predictionCapable() const
 {
-    return ready() && m_lang.nextWord;
+    return ready() && m_profile.capabilities.nextWord && m_profile.assets.contains(QStringLiteral("contextModel"))
+        && m_profile.assets.contains(QStringLiteral("contextVocab"));
 }
 
 bool SwipeController::apply(const CommitPlan &plan)
@@ -291,8 +317,12 @@ bool SwipeController::apply(const CommitPlan &plan)
 
 PredictionJob SwipeController::job(const PredictionStamp &stamp, const QStringList &context, const QString &prefix) const
 {
-    PredictionJob j{stamp, m_lang.nextModel, m_lang.nextVocab, context, m_lang.modelIdentity, prefix};
-    j.nwp = m_lang.nextNwp;
+    const auto model = m_profile.assets.value(QStringLiteral("contextModel"));
+    const auto vocab = m_profile.assets.value(QStringLiteral("contextVocab"));
+    const auto nwp = m_profile.assets.value(QStringLiteral("contextNwp"));
+    // WHY the verified neural file only: an unverified .nwp.bin beside the n-gram is never picked up.
+    PredictionJob j{stamp, model.path, vocab.path, context, model.sha256 + vocab.sha256 + nwp.sha256, prefix};
+    j.nwp = nwp.path;
     return j;
 }
 
@@ -365,7 +395,7 @@ void SwipeController::finishSwipe(const QVariantList &points, const QVariantList
     // WHY half-strength boosts: the finger path is strong evidence; habits only break near-ties.
     const QString swipePrev = contextWords.isEmpty() ? QString() : contextWords.last();
     candidates = personalize(candidates, swipePrev, QString(), false, int(candidates.size()), 0.5);
-    candidates = swipekb::rankRegionalCandidates(candidates, m_lang.requestedLocale, 3, rawShape);
+    candidates = swipekb::rankRegionalCandidates(candidates, m_profile.requestedLocale, 3, rawShape);
     if (!candidates.isEmpty()) {
         // WHY: one swipe shape is both "its" and "it's"; the other spelling sits one tap away.
         const auto others = m_engine->otherSpellings(candidates.front().toStdString());
@@ -711,17 +741,17 @@ void SwipeController::observeWordSwap(const EditorSnapshot &editor)
         neighbours << QString::fromStdString(c.word);
     }
     // WHY: a clean word is never answered with a swear word it merely resembles.
-    if (swipekb::offeredUnprompted(span->word, m_lang.language)) {
+    if (swipekb::offeredUnprompted(span->word, m_profile.effectiveLanguage)) {
         QStringList clean;
         for (const auto &n : std::as_const(neighbours)) {
-            if (swipekb::offeredUnprompted(n, m_lang.language)) {
+            if (swipekb::offeredUnprompted(n, m_profile.effectiveLanguage)) {
                 clean << n;
             }
         }
         neighbours = clean;
     }
     neighbours = personalize(neighbours, QString(), QString(), false, 12, 0.0);
-    neighbours = swipekb::rankRegionalCandidates(neighbours, m_lang.requestedLocale, 12);
+    neighbours = swipekb::rankRegionalCandidates(neighbours, m_profile.requestedLocale, 12);
     const auto swiped = m_recentSwipes.candidatesFor(editor.text.left(span->start), span->word);
     if (!m_swap.begin(editor.text, editor.cursor, swiped, neighbours)) {
         clearWordSwap();
@@ -776,7 +806,7 @@ void SwipeController::refreshTypedSuggestions(const EditorSnapshot &editor)
         words << QString::fromStdString(c.word);
     }
     words = personalize(words, prevBeforeToken(editor, token), token, true, 12);
-    m_typedWord.suggest(swipekb::rankRegionalCandidates(words, m_lang.requestedLocale, 3));
+    m_typedWord.suggest(swipekb::rankRegionalCandidates(words, m_profile.requestedLocale, 3));
 }
 
 void SwipeController::invalidatePredictions()
@@ -1107,11 +1137,11 @@ QVariantMap SwipeController::diagnostics() const
     auto *self = const_cast<SwipeController *>(this);
     QVariantMap out;
     out.insert(QStringLiteral("frontEnd"), QStringLiteral("plasma-6.9"));
-    out.insert(QStringLiteral("language"), m_lang.language);
+    out.insert(QStringLiteral("language"), m_profile.effectiveLanguage);
     out.insert(QStringLiteral("engineReady"), ready());
     out.insert(QStringLiteral("swipeEngine"), m_engine ? QString::fromLatin1(m_engine->mode()) : QString());
-    out.insert(QStringLiteral("nextWord"), m_lang.nextWord);
-    out.insert(QStringLiteral("unavailableReason"), m_lang.unavailableReason);
+    out.insert(QStringLiteral("nextWord"), predictionCapable());
+    out.insert(QStringLiteral("unavailableReason"), m_profile.unavailableReason);
     out.insert(QStringLiteral("swipes"), m_swipesAnswered);
     out.insert(QStringLiteral("policy"), policy().source == PredictionPolicySource::RawBridge ? QStringLiteral("app-declared") : QStringLiteral("owned-history"));
     const bool learning = self->m_learning.enabled();
@@ -1127,7 +1157,7 @@ QVariantMap SwipeController::diagnostics() const
 
 swipekb::PersonalModel *SwipeController::personal()
 {
-    return m_lang.language.isEmpty() ? nullptr : m_learning.model(m_lang.language);
+    return m_profile.effectiveLanguage.isEmpty() ? nullptr : m_learning.model(m_profile.effectiveLanguage);
 }
 
 QString SwipeController::personalKey(const QString &word)

@@ -30,7 +30,7 @@ A strength only ever LIFTS a word: if the dictionary already has the word strong
    the strongest abbreviation must stay below the dictionary's everyday words (the, to, of: 210-222).
 2. Short forms (two or three letters) that look like a swipe of a more common word are the risk. Strength is
    limited by measurement (next point), never by taste.
-3. Measure before shipping a change: swipe the real test sets with and without the list (English FUTO sets
+3. Measure before shipping a change: swipe the real test sets with and without the list (the English real-swipe test sets
    bench-2000 and test-extra-10000, HeliBoard en/es/fr/de test sets; both swipe engines where they apply).
    The loss in first-guess accuracy must stay under 0.2 points on every set; lower or drop any entry that
    costs ordinary swipes. With the strengths here the measured change was at most 0.02 points (see CHANGELOG).

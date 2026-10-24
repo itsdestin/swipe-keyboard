@@ -209,10 +209,6 @@ printf generated-tool > "$SWIPEKB_ASSETS/dict-src/.venv/tool"
             (fixture/'packaging/assets.lock.json').write_text(json.dumps({'dictionary_sha256': hashlib.sha256(b'fixture-english').hexdigest()}))
             (fixture/'packaging/flatpak/org.itsdestin.SwipeKeyboard.json').write_text(json.dumps({'modules': [{'sources': [{'type': 'archive', 'path': 'swipe-source.tar.xz'}]}]}))
             shutil.copy2(ROOT/'packaging/flatpak/runtime-lock.json', fixture/'packaging/flatpak/runtime-lock.json')
-            for profile in ('', 'native-aarch64', 'kde-6.10'):
-                directory = fixture/'requirements'/profile
-                directory.mkdir(parents=True, exist_ok=True)
-                (directory/'wheels.lock.json').write_text('{"wheels": {}, "torchgen": {"filename": "fixture.whl"}}')
             output = root/'prepared'
             source_name = release.filename(self.contract['targets']['source']['files'][0], self.contract)
             actual_run = subprocess.run
@@ -223,11 +219,7 @@ printf generated-tool > "$SWIPEKB_ASSETS/dict-src/.venv/tool"
                     (output/(source_name + '.sha256')).write_text('initial snapshot checksum')
                     return mock.Mock(returncode=0)
                 return actual_run(command, **kwargs)
-            def fetch(item, cache):
-                cache.mkdir(parents=True, exist_ok=True)
-                (cache/item['filename']).write_bytes(b'fixture wheel')
-            wheels = mock.Mock(fetch=fetch)
-            with mock.patch.object(ci_source, 'ROOT', fixture), mock.patch.object(ci_source.subprocess, 'check_output', side_effect=['', self.sha]), mock.patch.object(ci_source.subprocess, 'run', side_effect=run), mock.patch.object(ci_source, 'module', side_effect=[wheels, mock.Mock()]):
+            with mock.patch.object(ci_source, 'ROOT', fixture), mock.patch.object(ci_source.subprocess, 'check_output', side_effect=['', self.sha]), mock.patch.object(ci_source.subprocess, 'run', side_effect=run), mock.patch.object(ci_source, 'module', side_effect=[mock.Mock()]):
                 ci_source.prepare(output)
             release.verify_inputs(output, self.sha, self.contract)
             release.inspect('source', output, None, self.sha, self.contract)

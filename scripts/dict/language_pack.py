@@ -141,60 +141,66 @@ def write_immutable(out, files):
             (out/name).write_bytes(data)
 
 
-def generate_english_context(encoder_root, out):
-    """English has no swipe pack of its own (FUTO's files stay in models/, its dictionary in dict/); only its
-    next-word files are installed.
+def generate_english_context(assets_root, out):
+    """English has no pack manifest of its own (its dictionary installs as dict/en_swipe.combined); only its
+    next-word files are installed here.
 
     Returns the list of files written; an empty list when the language files were not downloaded.
     """
     lock = json.loads((ROOT/'packaging/assets.lock.json').read_text())
-    files = context_pack_files('en', lock, pathlib.Path(encoder_root)/'language-files')
+    files = context_pack_files('en', lock, pathlib.Path(assets_root)/'language-files')
     if not files:
         return []
     write_immutable(out, files)
     return sorted(files)
 
 
-def generate(language, encoder_root, out):
+def generate_shared(assets_root, out):
+    """The swipe model every language uses, with its notices, beside the packs (the keyboard looks for it there).
+
+    Returns the files written; [] when the model was not downloaded. A present file with another hash is an error.
+    """
+    lock = json.loads((ROOT/'packaging/assets.lock.json').read_text())
+    models = lock['trained_models']
+    source = pathlib.Path(assets_root)/'language-files'
+    swipe = models['swipe']
+    name = pathlib.Path(swipe['path']).name
+    if not (source/name).is_file():
+        return []
+    files = {}
+    for entry, file in ((swipe, name), (models['notice'], models['notice']['path']), (models['swipeDataTerms'], models['swipeDataTerms']['path'])):
+        data = (source/file).read_bytes()
+        if sha(data) != entry['sha256'] or ('bytes' in entry and len(data) != entry['bytes']):
+            raise ValueError('trained model pin mismatch: ' + file)
+        files[file] = data
+    write_immutable(out, files)
+    return sorted(files)
+
+
+def generate(language, assets_root, out):
     if language not in ALPHABETS:
         raise ValueError('unsupported language')
     # WHY an explicit storage gate: never consume the reserved workspace free-space floor.
     if shutil.disk_usage(out.parent).free < 21 * 1024**3:
         raise ValueError('less than 21 GiB free; preserve the 20 GiB floor')
     lock = json.loads((ROOT/'packaging/assets.lock.json').read_text())
-    # The dictionary now comes from the same pinned download as the n-gram files, so it is required.
-    context_files = context_pack_files(language, lock, pathlib.Path(encoder_root)/'language-files')
-    if not context_files:
+    # The dictionary comes from the same pinned download as the n-gram files, so it is required.
+    files = context_pack_files(language, lock, pathlib.Path(assets_root)/'language-files')
+    if not files:
         raise ValueError(f'language files for {language} not downloaded (run scripts/fetch-assets.py)')
     dictionary_name = lock['language_dictionaries'][language]['path']
-    dictionary = context_files[dictionary_name]
-    model_entry = next(a for a in lock['assets'] if a['path']=='models/honorable_sturgeon/model_fp32.pte')
-    terms_entry = next(a for a in lock['assets'] if a['path']=='models/FUTO-MODEL-LICENSE.md')
-    metadata_entry = next(a for a in lock['assets'] if a['path']=='models/honorable_sturgeon/metadata.json')
-    metadata_bytes = (pathlib.Path(encoder_root)/metadata_entry['path']).read_bytes()
-    if sha(metadata_bytes)!=metadata_entry['sha256']:
-        raise ValueError('encoder metadata checksum mismatch')
-    encoder = (pathlib.Path(encoder_root)/model_entry['path']).read_bytes()
-    terms = (pathlib.Path(encoder_root)/terms_entry['path']).read_bytes()
-    if sha(encoder)!=model_entry['sha256'] or sha(terms)!=terms_entry['sha256']:
-        raise ValueError('encoder/license checksum mismatch')
-    files = {'encoder.pte': encoder, 'metadata.json': metadata_bytes, 'FUTO-MODEL-LICENSE.md': terms, **context_files}
     def asset(name, compatibility):
         data = files[name]
-        result = {'path': name, 'sha256': sha(data), 'size': len(data), 'compatibility': compatibility}
-        if name=='encoder.pte':
-            result['metadataSha256']=sha(metadata_bytes)
-        return result
+        return {'path': name, 'sha256': sha(data), 'size': len(data), 'compatibility': compatibility}
     shared = lock['language_files']
     notice_name = shared['notice']['path']
     manifest = {
-        # WHY schema 2 always: the profile loader treats schema 1 as "no next-word pack", and these files always ship together.
-        'schema': 2, 'id': f'fineweb-{language}', 'version': PACK_VERSION,
+        # WHY schema 3 / swipekb-open-v1: the pack holds only the project's own open files (word list, n-gram,
+        # next-word model, licences); the keyboard refuses older packs built for another swipe engine.
+        'schema': 3, 'id': f'fineweb-{language}', 'version': PACK_VERSION,
         'language': language, 'locales': [language, f'{language}-*'],
         'layouts': ['qwerty', 'azerty', 'qwertz'], 'modes': ['Latin'],
-        'scripts': ['Latn'], 'futoRevision': '1b13f2c85d6b347f6ea3fbc4b3aaf01fce42429a',
-        'executorchRevision': '0b0e2c5cdd67c8b4396a46ea1d1aa72ffb0128d7',
-        'compatibility': 'swipekb-futo-v1', 'textRulesVersion': 'unicode-latin-v1',
+        'scripts': ['Latn'], 'compatibility': 'swipekb-open-v1', 'textRulesVersion': 'unicode-latin-v1',
         'transformationVersion': TRANSFORMATION,
         # The word list is counted from the same web text and Tatoeba sentences as the n-gram files; the notice
         # describes it, ODC-By and the Tatoeba terms are the texts that must travel with it.
@@ -202,39 +208,35 @@ def generate(language, encoder_root, out):
                     'termsPath': shared['odcTerms']['path'], 'termsSha256': sha(files[shared['odcTerms']['path']]),
                     'tatoebaTermsPath': 'TATOEBA-CC-BY-2.0-FR.txt', 'tatoebaTermsSha256': sha(files['TATOEBA-CC-BY-2.0-FR.txt']),
                     'attribution': 'FineWeb / FineWeb-2 (Hugging Face; Common Crawl) under ODC-By 1.0 and Tatoeba contributors under CC BY 2.0 FR; source notices in the notice file'},
-        'encoderLicense': {'path': 'FUTO-MODEL-LICENSE.md', 'sha256': sha(terms)},
-        'source': lock['word_list_source'], 'modelRevision': lock['model_revision'],
-        'assets': {'encoder': asset('encoder.pte', 'layout-agnostic'),
-                   'dictionary': asset(dictionary_name, language),
-                   'contextModel': {'path': f'{language}.ngram', 'sha256': sha(files[f'{language}.ngram']),
-                                    'size': len(files[f'{language}.ngram']), 'compatibility': f'{language}:context-ngram-v1'},
-                   'contextVocab': {'path': f'{language}.vocab.tsv', 'sha256': sha(files[f'{language}.vocab.tsv']),
-                                    'size': len(files[f'{language}.vocab.tsv']), 'compatibility': f'{language}:context-ngram-v1'}},
+        'source': lock['word_list_source'],
+        'assets': {'dictionary': asset(dictionary_name, language),
+                   'contextModel': asset(f'{language}.ngram', f'{language}:context-ngram-v1'),
+                   'contextVocab': asset(f'{language}.vocab.tsv', f'{language}:context-ngram-v1')},
         'contextFormat': 'swk-ngram-v2',
-        'contextLicense': context_license(language, lock, context_files),
+        'contextLicense': context_license(language, lock, files),
     }
     encoded = (json.dumps(manifest, ensure_ascii=False, sort_keys=True, indent=2)+'\n').encode()
     files[f'{language}.json'] = encoded
     # WHY check every conflict before any write: changing pack format/limits must not partially mutate
     # an immutable existing pack. Publish the manifest last, with no timestamps or rewrites on rerun.
     write_immutable(out, files)
-    return len(dictionary)
+    return len(files[dictionary_name])
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--language', choices=ALPHABETS)
-    # WHY a separate switch: English reuses FUTO's swipe files; only its next-word files are installed from here.
+    # WHY a separate switch: English has no manifest; only its next-word files are installed from here.
     parser.add_argument('--english-context', action='store_true')
-    parser.add_argument('--encoder-root', type=pathlib.Path, required=True)
+    parser.add_argument('--assets-root', type=pathlib.Path, required=True)
     parser.add_argument('--out', type=pathlib.Path, required=True)
     args = parser.parse_args()
     if args.english_context:
-        print('English next-word files:', generate_english_context(args.encoder_root, args.out) or 'not downloaded')
+        print('English next-word files:', generate_english_context(args.assets_root, args.out) or 'not downloaded')
         return
     if not args.language:
         parser.error('--language or --english-context required')
-    print(f'Language {args.language}: {generate(args.language, args.encoder_root, args.out)} dictionary bytes; quality UNVALIDATED')
+    print(f'Language {args.language}: {generate(args.language, args.assets_root, args.out)} dictionary bytes; quality UNVALIDATED')
 
 
 if __name__ == '__main__':

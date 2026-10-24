@@ -16,8 +16,8 @@ public:
     // to the n-gram if there is one; the keyboard passes siblingFallback=false so only a lock-verified file is used.
     bool init(const std::string &model, const std::string &vocab, const std::string &nwp = {}, bool siblingFallback = true);
     bool ready() const;
-    // prefix: letters already typed of the current word (completion); empty = next word. Only the n-gram
-    // packs complete; the English neural model returns nothing for a prefix, keeping dictionary completion.
+    // prefix: letters already typed of the current word (completion); empty = next word. Only n-gram packs
+    // ("SWKBNG2") load; init() refuses any other file.
     std::vector<std::string> predict(const std::vector<std::string> &context, int topK, const std::string &prefix = {});
 private:
     struct Impl;

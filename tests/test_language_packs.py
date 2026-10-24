@@ -29,18 +29,17 @@ class LanguagePacks(unittest.TestCase):
             self.assertIsNone(m.clean_word(word, 'fr'))
 
     def generator_inputs(self):
-        # WHY explicit: the real files are a 125 MB pinned download (scripts/fetch-assets.py fetches them) and the
-        # FUTO encoder is a pinned model; supplied-but-wrong fixtures fail, absent ones skip.
+        # WHY explicit: the real files are a 125 MB pinned download (scripts/fetch-assets.py fetches them);
+        # supplied-but-wrong fixtures fail, absent ones skip.
         folder = os.environ.get('SWIPEKB_TEST_ENGLISH_ASSETS')
         if not folder or not (pathlib.Path(folder)/'language-files').is_dir():
-            self.skipTest('Set SWIPEKB_TEST_ENGLISH_ASSETS to an assets folder with models/ and language-files/ (fetch-assets.py)')
+            self.skipTest('Set SWIPEKB_TEST_ENGLISH_ASSETS to an assets folder with language-files/ (fetch-assets.py)')
         return pathlib.Path(folder)
 
     def assets_root(self, tmp, assets, language_files=True):
-        """A scratch assets folder: the pinned models plus (optionally) the downloaded language files."""
+        """A scratch assets folder with (optionally) the downloaded language files."""
         root = pathlib.Path(tmp)/'assets'
         root.mkdir()
-        (root/'models').symlink_to(assets/'models', target_is_directory=True)
         if language_files:
             (root/'language-files').symlink_to(assets/'language-files', target_is_directory=True)
         return root
@@ -106,7 +105,13 @@ class LanguagePacks(unittest.TestCase):
             out = pathlib.Path(d)/'pack'
             self.module.generate('de', root, out)
             manifest = json.loads((out/'de.json').read_text())
-            self.assertEqual(manifest['schema'], 2)
+            self.assertEqual(manifest['schema'], 3)
+            self.assertEqual(manifest['compatibility'], 'swipekb-open-v1')
+            self.assertEqual(set(manifest['assets']), {'dictionary', 'contextModel', 'contextVocab'})
+            # WHY an exact key set: a pack carries only what the open format defines (no other engine's pins).
+            self.assertEqual(set(manifest), {'schema', 'id', 'version', 'language', 'locales', 'layouts', 'modes', 'scripts',
+                                             'compatibility', 'textRulesVersion', 'transformationVersion', 'license',
+                                             'source', 'assets', 'contextFormat', 'contextLicense'})
             self.assertEqual(manifest['id'], 'fineweb-de')
             self.assertEqual(manifest['transformationVersion'], 'fineweb-counts-v1')
             self.assertEqual(manifest['source'], lock['word_list_source'])
@@ -116,7 +121,7 @@ class LanguagePacks(unittest.TestCase):
             for name in ('de.combined', 'de.ngram', 'de.vocab.tsv', 'de-CONTRIBUTORS.txt', 'ODC-By-1.0.txt',
                          'LANGUAGE-FILES-NOTICE.md', 'TATOEBA-CC-BY-2.0-FR.txt'):
                 self.assertTrue((out/name).is_file(), name)
-            for name in ('CC-BY-SA-4.0.txt', 'de-LICENSE.txt'):
+            for name in ('CC-BY-SA-4.0.txt', 'de-LICENSE.txt', 'metadata.json'):
                 self.assertFalse((out/name).exists(), name)
             self.assertEqual(hashlib.sha256((out/'de.combined').read_bytes()).hexdigest(), lock['language_dictionaries']['de']['sha256'])
             context = lock['multilingual_context_models']['de']
@@ -136,6 +141,12 @@ class LanguagePacks(unittest.TestCase):
                 self.assertTrue((out/name).is_file(), name)
             self.assertNotIn('CC-BY-SA-4.0.txt', written)
             self.assertEqual(self.module.generate_english_context(root, out), written)  # rerun changes nothing
+            # The shared swipe model sits beside the packs, exactly as pinned, with its notices.
+            shared = self.module.generate_shared(root, out)
+            if shared:
+                swipe = lock['trained_models']['swipe']
+                self.assertEqual(hashlib.sha256((out/'swipe-model.bin').read_bytes()).hexdigest(), swipe['sha256'])
+                self.assertIn(lock['trained_models']['swipeDataTerms']['path'], shared)
 
     def test_wrong_or_partial_language_files_are_rejected_before_any_output(self):
         assets = self.generator_inputs()
@@ -143,7 +154,6 @@ class LanguagePacks(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             bad = pathlib.Path(d)/'assets'
             (bad/'language-files').mkdir(parents=True)
-            (bad/'models').symlink_to(assets/'models', target_is_directory=True)
             for source in files.iterdir():
                 (bad/'language-files'/source.name).write_bytes(source.read_bytes())
             for tampered in ('es.ngram', 'es.combined'):
@@ -168,7 +178,7 @@ class LanguagePacks(unittest.TestCase):
             before = snapshot()
             self.module.generate('fr', root, out)
             self.assertEqual(snapshot(), before)
-            (out/'encoder.pte').write_bytes(b'locally corrupted immutable output')
+            (out/'fr.combined').write_bytes(b'locally corrupted immutable output')
             corrupt = snapshot()
             with self.assertRaisesRegex(ValueError, 'immutable'):
                 self.module.generate('fr', root, out)

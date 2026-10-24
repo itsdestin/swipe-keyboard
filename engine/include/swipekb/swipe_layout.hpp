@@ -2,7 +2,7 @@
 //
 // WHY a plain list of rectangles: nothing in the swipe engine is QWERTY-specific. AZERTY, QWERTZ, Spanish (with
 // its own n-tilde key) and so on are different lists; accented letters in a word list fold onto their base key
-// unless the layout has a key for them. Written without reference to FUTO code.
+// unless the layout has a key for them. Written for this project from its design doc, without reference to other swipe engines' code.
 #pragma once
 
 #include <string>

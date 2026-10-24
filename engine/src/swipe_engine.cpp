@@ -35,6 +35,15 @@ size_t SwipeEngine::loadWords(const std::string &tsv) {
     return n;
 }
 
+size_t SwipeEngine::setWords(const std::vector<std::pair<std::string, int>> &words) {
+    if (!d_) d_ = std::make_shared<Data>();
+    d_->lex = SwipeLexicon();
+    for (const auto &[w, f] : words) d_->lex.add(w, f, d_->layout);
+    d_->lex.finish();
+    rebuild();
+    return words.size();
+}
+
 bool SwipeEngine::loadModel(const std::string &path) {
     if (!d_) d_ = std::make_shared<Data>();
     return d_->net.load(path);

@@ -1,17 +1,18 @@
 // swipekb-replay — re-runs recorded swipes through the recognition engine and scores the guesses.
 //
 // WHY: tuning recognition needs evidence from the owner's real swipes. The keyboard can record swipes
-// (plugin/swiperecorder.h -> traces/swipes.jsonl); this tool replays them offline with different settings
-// (no decoder, no context model, other beam width, other dictionary) and prints how often the intended word
-// was the first guess or in the top three. Nothing here touches the live keyboard.
+// (plugin/swiperecorder.h -> traces/swipes.jsonl); this tool replays them offline through the keyboard's own engine
+// set-up (same profile check, same files, same texting words as the plugin and the Gaming Mode daemon), optionally
+// with another dictionary, model or n-gram file, and prints how often the intended word was the first guess or in
+// the top three. Nothing here touches the live keyboard.
 //
 // Usage:
 //   swipekb-replay --data DIR --swipes swipes.jsonl --expect words.txt
-//                  [--no-decoder] [--no-lm] [--beam N] [--dict PATH] [--use-ngram] [--no-ngram] [--ngram PATH]
-//                  [--alpha X]
+//                  [--locale en_US] [--dict PATH] [--model PATH] [--no-model] [--ngram PATH] [--no-ngram]
 // words.txt: one expected word per line, in the same order as the swipes; "-" (or a blank line) = skip.
 
 #include <QByteArray>
+#include <QHash>
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -26,34 +27,30 @@
 #include <string>
 #include <vector>
 
-#include "swipekb/recognizer.hpp"
+#include "languageprofile.h"
+#include "languageruntime.h"
+#include "languagetextrules.h"
+#include "swipekb/language_engine.hpp"
 
 namespace {
 
 struct Args {
-    std::string data, swipes, expect, dict, ngram, candidatesJson;
-    bool noDecoder = false, noLm = false, noNgram = false, useNgram = false;
-    int beam = 0;
-    swipekb::RerankWeights weights;
+    std::string data, swipes, expect, dict, model, ngram, candidatesJson, locale = "en_US";
+    bool noModel = false, noNgram = false;
 };
 
 void usage()
 {
     std::fprintf(stderr,
                  "usage: swipekb-replay --data DIR --swipes swipes.jsonl --expect words.txt\n"
-                 "                      [--no-decoder] [--no-lm] [--beam N] [--dict PATH]\n"
-                 "                      [--use-ngram] [--no-ngram] [--ngram PATH] [--alpha X]\n"
-                 "  --data DIR      folder with models/ and dict/ (e.g. ~/.local/share/swipe-keyboard)\n"
+                 "                      [--locale en_US] [--dict PATH] [--model PATH] [--no-model] [--ngram PATH] [--no-ngram]\n"
+                 "  --data DIR      installed data folder (dict/, language-packs/), e.g. /usr/share/swipe-keyboard\n"
                  "  --swipes FILE   recorded swipes, one JSON line each (traces/swipes.jsonl)\n"
                  "  --expect FILE   intended word per swipe, one per line, same order; '-' skips a swipe\n"
-                 "  --no-decoder    encoder only (drop the second model)\n"
-                 "  --no-lm         drop the context language model\n"
-                 "  --beam N        beam width (default: engine default, 100)\n"
+                 "  --locale L      language profile (default en_US; other languages read DIR/language-packs)\n"
                  "  --dict PATH     use another dictionary file\n"
-                 "  --use-ngram     rank with the n-gram model (lm/en_ngram.bin) even if the keyboard default is off\n"
-                 "  --no-ngram      rank with FUTO's context model (the old way)\n"
-                 "  --ngram PATH    rank with this n-gram model file\n"
-                 "  --alpha X       weight of the n-gram model in the ranking\n"
+                 "  --model PATH    use another swipe model file;  --no-model: geometry only\n"
+                 "  --ngram PATH    use another n-gram file;       --no-ngram: word frequency only\n"
                  "  --candidates-json FILE  also write every swipe's exact guesses and scores as JSON\n"
                  );
 }
@@ -80,30 +77,20 @@ bool parseArgs(int argc, char **argv, Args &a)
             if (!value(a.candidatesJson)) return false;
         } else if (s == "--dict") {
             if (!value(a.dict)) return false;
-        } else if (s == "--beam") {
-            std::string n;
-            if (!value(n)) return false;
-            a.beam = std::atoi(n.c_str());
-            if (a.beam <= 0) return false;
+        } else if (s == "--model") {
+            if (!value(a.model)) return false;
         } else if (s == "--ngram") {
             if (!value(a.ngram)) return false;
-            a.useNgram = true;
-        } else if (s == "--use-ngram") {
-            a.useNgram = true;
-        } else if (s == "--alpha") {
-            std::string n;
-            if (!value(n)) return false;
-            a.weights.alpha = std::strtof(n.c_str(), nullptr);
+        } else if (s == "--locale") {
+            if (!value(a.locale)) return false;
+        } else if (s == "--no-model") {
+            a.noModel = true;
         } else if (s == "--no-ngram") {
             a.noNgram = true;
-        } else if (s == "--no-decoder") {
-            a.noDecoder = true;
-        } else if (s == "--no-lm") {
-            a.noLm = true;
         } else {
             // WHY name the argument: an unknown option used to print only the usage text, on stderr. A run that
             // hides stderr (2>/dev/null) then showed nothing at all and looked like a crash. That happened with
-            // o="--use-ngram --no-lm"; $R ... $o in zsh, which (unlike bash) passes $o as ONE argument with
+            // o="--no-model --no-ngram"; $R ... $o in zsh, which (unlike bash) passes $o as ONE argument with
             // a space inside, so no option matched. Saying exactly which argument was refused, and why it
             // might have happened, turns that silent "crash" into a one-line explanation.
             std::fprintf(stderr, "swipekb-replay: unknown option '%s'\n", s.c_str());
@@ -167,7 +154,7 @@ bool readSwipes(const std::string &path, std::vector<Swipe> &out)
             const QString letter = k.value("letter").toString();
             if (letter.size() != 1)
                 continue;
-            s.keys.push_back({letter.at(0).toLatin1(), float(k.value("x").toDouble()), float(k.value("y").toDouble()),
+            s.keys.push_back({char32_t(letter.at(0).unicode()), float(k.value("x").toDouble()), float(k.value("y").toDouble()),
                               float(k.value("w").toDouble()), float(k.value("h").toDouble())});
         }
         for (const QJsonValue &v : o.value("context").toArray())
@@ -213,18 +200,21 @@ int main(int argc, char **argv)
         return 2;
     }
 
-    swipekb::ModelPaths paths = swipekb::ModelPaths::fromDir(a.data);
-    // WHY clearing a path drops that model: the engine only loads the optional models whose files exist.
-    if (a.noDecoder)
-        paths.decoder.clear();
-    if (a.noLm) {
-        paths.lm_model.clear();
-        paths.lm_vocab.clear();
+    // WHY the keyboard's own profile check and set-up: by default the tool measures what ships.
+    const QString data = QString::fromStdString(a.data), locale = QString::fromStdString(a.locale);
+    const auto profile = swipekb::resolveProfile(locale, QStringLiteral("qwerty"), QStringLiteral("Latin"),
+                                                 swipekb::languageModelRoot(locale, data));
+    swipekb::LanguageEngineSetup setup;
+    if (!swipekb::configureLanguageEngine(profile, setup) && a.dict.empty()) {
+        std::fprintf(stderr, "no usable language profile in %s (%s)\n", a.data.c_str(), qPrintable(profile.unavailableReason));
+        return 1;
     }
-    if (!a.dict.empty())
-        paths.dictionary = a.dict;
-    if (!a.ngram.empty())
-        paths.ngram = a.ngram;
+    setup.language = swipekb::canonicalLocale(locale).section('-', 0, 0).toStdString();
+    if (!a.dict.empty()) setup.dictionary = a.dict;
+    if (!a.model.empty()) setup.swipeModel = a.model;
+    if (!a.ngram.empty()) setup.ngram = a.ngram;
+    if (a.noModel) setup.swipeModel.clear();
+    if (a.noNgram) setup.ngram.clear();
 
     std::vector<Swipe> swipes;
     QStringList expected;
@@ -235,18 +225,17 @@ int main(int argc, char **argv)
                      swipes.size(), static_cast<long long>(expected.size()),
                      static_cast<long long>(std::min<qsizetype>(swipes.size(), expected.size())));
 
-    swipekb::Recognizer r;
-    // WHY the keyboard's default unless a flag says otherwise: by default the tool measures what ships.
-    const bool ngram = !a.noNgram && (a.useNgram || swipekb::RecognizerOptions{}.ngram);
-    if (!r.init(paths, {.beam_width = a.beam, .ngram = ngram, .weights = a.weights})) {
+    swipekb::LanguageEngine r;
+    if (!r.init(setup)) {
         std::fprintf(stderr, "engine failed to load from %s\n", a.data.c_str());
         return 1;
     }
+    // WHY the texting words, as the keyboard adds them (SwipeInputMethod::syncLearnedWords).
+    r.liftWords(swipekb::textingWordPairs(QString::fromStdString(setup.language)));
 
-    // WHY "ranking": a missing n-gram file silently falls back to FUTO's ranking; the output must say which ran.
-    std::printf("settings: decoder=%s lm=%s beam=%s dict=%s ranking=%s\n", a.noDecoder ? "off" : "on",
-                a.noLm ? "off" : "on", a.beam ? std::to_string(a.beam).c_str() : "default", paths.dictionary.c_str(),
-                r.usingNgram() ? "ngram" : "futo");
+    // WHY "ranking"/"engine": a missing file silently falls back; the output must say which parts ran.
+    std::printf("settings: engine=%s ranking=%s dict=%s\n", r.mode(), r.usingNgram() ? "ngram" : "frequency",
+                setup.dictionary.c_str());
     std::printf("%-4s %s%s%s%s%s%s\n", "#", cell("expected", 14).c_str(), cell("guess1", 14).c_str(),
                 cell("guess2", 14).c_str(), cell("guess3", 14).c_str(), cell("result", 8).c_str(), "live-typed");
 
@@ -262,13 +251,18 @@ int main(int argc, char **argv)
             continue;
         }
         const Swipe &s = swipes[i];
-        const auto cands = r.recognize(s.trace, s.keys, s.context, 3);
+        // WHY 30 guesses, then the regional ranking cut to 3: the same steps as the keyboard (and the daemon), so
+        // the replayed guesses are the ones the guess bar would show.
         QStringList guesses;
-        QJsonArray exactRow;
-        for (const auto &c : cands) {
-            guesses << QString::fromStdString(c.word);
-            exactRow.append(QJsonArray{QString::fromStdString(c.word), double(c.score)});
+        QHash<QString, double> scoreOf;
+        for (const auto &c : r.recognize(s.trace, s.keys, s.context, 30)) {
+            const auto w = QString::fromStdString(c.word);
+            if (!scoreOf.contains(w)) scoreOf.insert(w, double(c.score));
+            guesses << w;
         }
+        guesses = swipekb::rankRegionalCandidates(guesses, swipekb::canonicalLocale(locale), 3, QString::fromStdString(r.bestShapeWord()));
+        QJsonArray exactRow;
+        for (const auto &w : guesses) exactRow.append(QJsonArray{w, scoreOf.value(w)});
         exact.append(exactRow);
         // WHY case-insensitive: the engine may capitalize ("I", names); the shape of the swipe is what counts.
         int rank = -1;

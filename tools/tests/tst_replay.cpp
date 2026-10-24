@@ -8,7 +8,7 @@
 #include <QTemporaryDir>
 
 // Runs swipekb-replay on a tiny synthetic recording (clean swipes through key centers, the same shape as
-// engine/tests/test_recognizer.cpp) and checks that the table and summary print and that the counts add up.
+// engine/tests/test_language_engine.cpp) and checks that the table and summary print and that the counts add up.
 
 static QString assets() { return qEnvironmentVariable("SWIPEKB_ASSETS"); }
 
@@ -69,26 +69,26 @@ private slots:
         QVERIFY(p.readAllStandardError().contains("usage"));
     }
 
-    // Regression: `o="--use-ngram --no-lm"; swipekb-replay ... $o 2>/dev/null` in zsh printed nothing and
+    // Regression: `o="--no-model --no-ngram"; swipekb-replay ... $o 2>/dev/null` in zsh printed nothing and
     // looked like a crash. zsh passed both options as ONE argument; the tool refused it with only the usage
     // text on stderr. It must now name the refused argument and explain the space.
     void joinedOptionsAreNamedNotSilent()
     {
         QProcess p;
         p.start(QStringLiteral(SWIPEKB_REPLAY_EXE),
-                {"--data", "d", "--swipes", "s", "--expect", "e", "--use-ngram --no-lm"});
+                {"--data", "d", "--swipes", "s", "--expect", "e", "--no-model --no-ngram"});
         QVERIFY(p.waitForFinished(30000));
         QCOMPARE(p.exitStatus(), QProcess::NormalExit); // a clean refusal, not a crash
         QCOMPARE(p.exitCode(), 2);
         const QByteArray err = p.readAllStandardError();
-        QVERIFY2(err.contains("unknown option '--use-ngram --no-lm'"), err.constData());
+        QVERIFY2(err.contains("unknown option '--no-model --no-ngram'"), err.constData());
         QVERIFY2(err.contains("contains a space"), err.constData());
     }
 
     void replaysAndCountsAddUp()
     {
-        if (!QFile::exists(assets() + "/models/honorable_sturgeon/model_fp32.pte"))
-            QSKIP("run scripts/fetch-assets.sh");
+        if (!QFile::exists(assets() + "/dict/en_swipe.combined"))
+            QSKIP("set SWIPEKB_ASSETS to a fetched asset tree (scripts/fetch-assets.sh)");
         QTemporaryDir dir;
         const auto keys = qwerty();
         // Five swipes; the third is skipped with "-". The fourth is expected as a word the swipe does not
@@ -145,11 +145,11 @@ private slots:
         QProcess p2;
         p2.start(QStringLiteral(SWIPEKB_REPLAY_EXE),
                  {"--data", assets(), "--swipes", dir.filePath("swipes.jsonl"), "--expect", dir.filePath("words.txt"),
-                  "--no-decoder", "--no-lm", "--beam", "20"});
+                  "--no-model", "--no-ngram"});
         QVERIFY(p2.waitForFinished(120000));
         const QString out2 = QString::fromUtf8(p2.readAllStandardOutput());
         QCOMPARE(p2.exitCode(), 0);
-        QVERIFY2(out2.contains("decoder=off lm=off beam=20"), qPrintable(out2));
+        QVERIFY2(out2.contains("engine=own-geometry ranking=frequency"), qPrintable(out2));
         QVERIFY(out2.contains("summary: 4 scored, 1 skipped"));
     }
 };

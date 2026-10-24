@@ -17,8 +17,7 @@ IDENTITY = '.ci-cache-identity'
 
 # Everything that changes the cached output. Directories are hashed recursively.
 # A missing entry is an error, so a rename can never silently shrink a key.
-_BUILD_SCRIPTS = ['scripts/apply-build-patches.py', 'scripts/provision-build-deps.py',
-                  'scripts/patches/swipe-metadata.patch', 'requirements']
+_BUILD_SCRIPTS = ['CMakeLists.txt', 'cmake']
 KEY_FILES = {
     # Flatpak Qt/Plasma module stages: manifest (sources, hashes, flags, jobs), exact SDK/runtime
     # commits, the Plasma patch inputs and the wrapper that fixes jobs/sandbox flags.
@@ -27,12 +26,12 @@ KEY_FILES = {
                        'packaging/flatpak/build.py',
                        'scripts/patches/plasma-prediction-policy.patch',
                        'scripts/patches/backendpredictionpolicy.h'],
-    # ExecuTorch compiler results (content-addressed by ccache itself; the key only picks which
-    # store to start from). The salt carries the swipe-library/ExecuTorch commit and toolchain.
+    # Compiler results (content-addressed by ccache itself; the key only picks which store to start
+    # from). The salt carries the toolchain.
     'flatpak-ccache': ['packaging/flatpak/org.itsdestin.SwipeKeyboard.json',
                        'packaging/flatpak/runtime-lock.json',
                        'packaging/flatpak/build-swipe.sh'] + _BUILD_SCRIPTS,
-    'native-ccache': ['scripts/build-futo.sh', 'packaging/arch/PKGBUILD',
+    'native-ccache': ['packaging/arch/PKGBUILD',
                       'packaging/fedora/swipe-keyboard.spec'] + _BUILD_SCRIPTS,
 }
 

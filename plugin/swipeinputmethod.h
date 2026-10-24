@@ -22,7 +22,7 @@
 #include <QQuickItem>
 #include <QEvent>
 #include <memory>
-namespace swipekb { class Recognizer; class OwnSwipe; }
+namespace swipekb { class LanguageEngine; }
 
 class SwipeInputMethod : public QVirtualKeyboardAbstractInputMethod {
     Q_OBJECT
@@ -101,9 +101,9 @@ private:
     QString m_lastLearnPrev;
     QString m_nextPrev, m_completionPrev;               // previous word of the newest next-word / completion request
     LearningManager m_learning;
-    QSet<QString> m_injected;                           // taught words added to the swipe dictionary (it cannot drop them)
+    QSet<QString> m_injected;                           // taught words handed to the engine as learned words
     std::uint64_t m_syncedVersion = 0;
-    const void *m_syncedModel = nullptr, *m_syncedRecognizer = nullptr, *m_syncedOwn = nullptr;
+    const void *m_syncedModel = nullptr, *m_syncedEngine = nullptr;
     bool m_liveQueryActive = false;
 #ifdef SWIPEKB_PRIVATE_FLAGS_DIAGNOSTIC
     bool observeFlags(const char *phase);
@@ -115,12 +115,8 @@ private:
 #endif
     void resolveCurrentProfile();
     swipekb::ProfileEpoch m_profiles;
-    std::shared_ptr<swipekb::Recognizer> m_recognizer;
-    // The project's own swipe engine, only when the owner opted in (see ownswipe.h). FUTO's m_recognizer stays
-    // loaded beside it: it is the fallback for any swipe the own engine cannot answer.
-    std::shared_ptr<swipekb::OwnSwipe> m_own;
-    // Counts only (never words): how many swipes each engine answered, shown in diagnostics.
-    quint64 m_ownAnswered = 0, m_ownFellBack = 0;
+    // The language's engine: the project's own swipe engine plus the dictionary (completion, tap-to-swap, spellings).
+    std::shared_ptr<swipekb::LanguageEngine> m_engine;
     QString m_locale, m_layoutId, m_inputMode;
     void ensureContextConnections();
     EditorSnapshot predictionEditor() const;

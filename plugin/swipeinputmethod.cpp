@@ -7,8 +7,7 @@
 #include <QLoggingCategory>
 #include <QtVirtualKeyboard/QVirtualKeyboardInputContext>
 
-#include "swipekb/recognizer.hpp"
-#include "ownswipe.h"
+#include "swipekb/language_engine.hpp"
 #include "swiperecorder.h"
 #include "livehintsquery.h"
 #include "predictionpolicy.h"
@@ -103,7 +102,7 @@ SwipeInputMethod::SwipeInputMethod(QObject *parent, NextWordWorker::Inference in
             // WHY context-ranked words first, dictionary after: the sentence picks among words that start with
             // the typed letters; the dictionary still offers one-letter-off corrections when nothing matches.
             QStringList words=ranked;
-            for (const auto &candidate:m_recognizer->complete(prefix.toStdString(),12)) words<<QString::fromStdString(candidate.word);
+            for (const auto &candidate:m_engine->complete(prefix.toStdString(),12)) words<<QString::fromStdString(candidate.word);
             // WHY after both lists are joined: the person's own words (names, favourites after this word) are weighed
             // against the n-gram's order and the dictionary's, never replacing them wholesale.
             words=personalize(words, m_completionPrev, prefix, true, 12);
@@ -121,8 +120,7 @@ void SwipeInputMethod::resolveCurrentProfile()
     QPointer<SwipeInputMethod> self(this);
     reset();
     if (!self) return;
-    m_recognizer.reset();
-    m_own.reset();
+    m_engine.reset();
     m_predictionModelState=swipekb::PredictionModelState::NotRequested;
     emit profileChanged();
     if (!self || m_profiles.snapshot().epoch!=epoch) return;
@@ -131,40 +129,17 @@ void SwipeInputMethod::resolveCurrentProfile()
     const QString root=swipekb::languageModelRoot(m_locale,SwipeRecorder::modelDir());
     auto snapshot=swipekb::resolveProfile(m_locale,m_layoutId,m_inputMode,root,epoch);
     if (snapshot.capabilities.swipe) {
-        swipekb::ModelPaths paths;
-        swipekb::RecognizerOptions options;
-        swipekb::configureRecognizer(snapshot,paths,options);
-        if (qEnvironmentVariableIntValue("SWIPEKB_NO_DECODER")) paths.decoder.clear();
-        // WHY a fresh runtime: never init() on an engine already owned by a consumer/worker.
-        auto runtime=std::make_shared<swipekb::Recognizer>();
-        if (runtime->init(paths,options)) {
-            if (m_profiles.snapshot().epoch==epoch) {
-                m_recognizer=std::move(runtime);
-                // WHY opt-in and read once per profile resolve: FUTO stays the default; the owner turns the own
-                // engine on with an empty `own-engine` file in the data dir (or SWIPEKB_ENGINE=own in tests).
-                if (swipekb::OwnSwipe::requested(SwipeRecorder::dataDir().toStdString())) {
-                    swipekb::OwnSwipeSetup setup;
-                    setup.dictionary=paths.dictionary;
-                    // WHY only an n-gram pack: the sentence prior is our n-gram file; FUTO's neural context model is not usable here.
-                    // (configureRecognizer fills paths.ngram only when the English/foreign context is the open n-gram.)
-                    if (!paths.ngram.empty()) setup.ngram=paths.ngram;
-                    // WHY same folder as the FUTO models; not pinned/verified yet (test-only model), a missing or
-                    // damaged file simply leaves the engine geometry-only.
-                    // SWIPEKB_SWIPE_MODEL points at a model anywhere (manual trials and tests); never set in normal use.
-                    // WHY verified: the default file is checked against the sha256 in assets.lock.json; a mismatch means
-                    // geometry-only (the same fallback as a missing file). The env override stays unverified (trials/tests).
-                    const QString overridePath=qEnvironmentVariable("SWIPEKB_SWIPE_MODEL");
-                    setup.model=(overridePath.isEmpty() ? swipekb::verifiedSwipeModel(SwipeRecorder::modelDir()) : overridePath).toStdString();
-                    setup.keepCase=snapshot.effectiveLanguage.startsWith(QLatin1String("de"));
-                    auto own=std::make_shared<swipekb::OwnSwipe>();
-                    if (own->init(setup)) m_own=std::move(own);
-                }
-            }
+        swipekb::LanguageEngineSetup setup;
+        swipekb::configureLanguageEngine(snapshot,setup);
+        // WHY a fresh engine: never init() one already owned by a consumer/worker.
+        auto engine=std::make_shared<swipekb::LanguageEngine>();
+        if (engine->init(setup)) {
+            if (m_profiles.snapshot().epoch==epoch) m_engine=std::move(engine);
         } else {
             snapshot.capabilities={}; snapshot.assets.clear(); snapshot.unavailableReason="Verified profile engine initialization failed";
         }
     }
-    // WHY forced: a fresh recognizer / own engine has none of the taught words yet.
+    // WHY forced: a fresh engine has none of the taught words yet.
     // WHY the language is remembered here: the profile is only published after this sync, so the published snapshot
     // still holds the previous language while the new engines are being filled with words.
     m_wordsLanguage=snapshot.effectiveLanguage;
@@ -614,7 +589,7 @@ void SwipeInputMethod::update()
     }
 }
 
-bool SwipeInputMethod::isReady() const { return m_profiles.snapshot().capabilities.swipe && m_recognizer && m_recognizer->ready(); }
+bool SwipeInputMethod::isReady() const { return m_profiles.snapshot().capabilities.swipe && m_engine && m_engine->ready(); }
 
 bool SwipeInputMethod::isReadyForLayout(const QVariantList &keys) const
 {
@@ -769,37 +744,20 @@ void SwipeInputMethod::finishSwipe(const QVariantList &points, const QVariantLis
         context.push_back(w.toStdString());
 
     const auto snapshot=m_profiles.snapshot();
-    const auto runtime=m_recognizer;
+    const auto engine=m_engine;
     QStringList candidates;
 #ifdef SWIPEKB_PRIVATE_FLAGS_DIAGNOSTIC
     ++m_diagnosticRecognitionCount;
     qWarning().nospace() << "SWIPE_FLAGS phase=recognition generation=" << m_generation
         << " recognition_count=" << m_diagnosticRecognitionCount;
 #endif
-    // WHY regional policy precedes truncation; a complete beam keeps both spellings eligible.
-    // WHY the own engine goes first when opted in, and FUTO answers whenever it cannot (bad geometry, empty
-    // result, exception): swiping never depends on the experimental path.
-    QString rawShape;
-    bool answeredByOwn=false;
-    const auto own=m_own;
-    if (own) {
-        swipekb::OwnSwipe::Result r;
-        if (own->recognize(trace, rects, context, 30, r)) {
-            for (const auto &w : r.words) candidates << QString::fromStdString(w);
-            rawShape=QString::fromStdString(r.bestShape);
-            answeredByOwn=true; ++m_ownAnswered;
-        } else {
-            ++m_ownFellBack;
-        }
-    }
-    if (!answeredByOwn) {
-    for (const auto &c : runtime->recognize(trace, rects, context, 100)) {
+    // WHY regional policy precedes truncation; a wide beam (30) keeps both regional spellings eligible.
+    for (const auto &c : engine->recognize(trace, rects, context, 30)) {
         // WHY skip empty: an empty guess would type nothing yet still open a session and a blank guess-bar entry.
         if (!c.word.empty())
             candidates << QString::fromStdString(c.word);
     }
-    rawShape=QString::fromStdString(runtime->bestShapeWord());
-    }
+    const QString rawShape=QString::fromStdString(engine->bestShapeWord());
     // WHY half-strength boosts: the finger path is strong evidence, so the person's habits only break near-ties
     // and lift a word a couple of places; the raw-shape guard below still keeps the best path match visible.
     const QString swipePrev=contextWords.isEmpty() ? QString() : contextWords.last();
@@ -810,7 +768,7 @@ void SwipeInputMethod::finishSwipe(const QVariantList &points, const QVariantLis
     // WHY: the swipe shape of "its" is also "it's" (apostrophes are not swiped); put the dictionary's other
     // spelling of the best guess first in the guess bar so switching is one tap.
     if (!candidates.isEmpty()) {
-        const auto others = runtime->otherSpellings(candidates.front().toStdString());
+        const auto others = engine->otherSpellings(candidates.front().toStdString());
         if (!others.empty())
             candidates = SwipeSession::withOtherSpelling(candidates, QString::fromStdString(others.front()));
     }
@@ -1231,9 +1189,9 @@ void SwipeInputMethod::observeWordSwap(const EditorSnapshot &editor)
     const auto snapshot = m_profiles.snapshot();
     // Dictionary neighbours: the same swipe shape's other spelling (its / it's), then one-edit words.
     QStringList neighbours;
-    for (const auto &o : m_recognizer->otherSpellings(span->word.toLower().toStdString()))
+    for (const auto &o : m_engine->otherSpellings(span->word.toLower().toStdString()))
         neighbours << QString::fromStdString(o);
-    for (const auto &c : m_recognizer->similar(span->word.toStdString(), 12))
+    for (const auto &c : m_engine->similar(span->word.toStdString(), 12))
         neighbours << QString::fromStdString(c.word);
     // WHY filtered unless the person's own word is one: a clean word is never answered with a swear word it
     // merely resembles; for a word they typed that is blocked, its neighbours derive from their word, so allowed.
@@ -1267,8 +1225,8 @@ void SwipeInputMethod::requestContextCompletion(const EditorSnapshot &editor)
 {
     // Dictionary completions are already showing; this re-ranks them by the sentence so far, on the worker
     // thread, and replaces them when the answer arrives (a few milliseconds later).
-    // WHY n-gram packs only: FUTO's neural model (English fallback) cannot complete a word, so English
-    // completion works only when the English n-gram pack is installed; otherwise it stays exactly as it was.
+    // WHY n-gram packs only: without the language's pack there is no sentence model, and dictionary completion
+    // stays exactly as it was.
     if (!predictionCapable() ||
         !m_profiles.snapshot().assets.value(QStringLiteral("contextModel")).compatibility.endsWith(QStringLiteral(":context-ngram-v1"))) return;
     const auto token=m_typedWord.token();
@@ -1314,7 +1272,7 @@ QVariantMap SwipeInputMethod::diagnostics() const
     context.fieldAllowed=context.hasContext && !(ic->inputMethodHints() & deny) && ic->preeditText().isEmpty()
         && ic->cursorPosition()>=0 && ic->cursorPosition()==ic->anchorPosition()
         && (context.ownedHistory || (context.policyKnown && policy.completionAllowed && (policy.purpose==0 || policy.purpose==1)));
-    context.ngramOnly=(m_recognizer && m_recognizer->usingNgram());
+    context.ngramOnly=(m_engine && m_engine->usingNgram());
     context.model=m_predictionModelState;
     const auto profile=m_profiles.snapshot();
     auto out=swipekb::profileDiagnostics(profile);
@@ -1323,9 +1281,7 @@ QVariantMap SwipeInputMethod::diagnostics() const
     out.insert(QStringLiteral("scope"),QStringLiteral("runtime"));
     out.insert(QStringLiteral("engineReady"),isReady());
     // WHY names and counts only: which recogniser is active, never what was typed.
-    out.insert(QStringLiteral("swipeEngine"),m_own ? QString::fromLatin1(m_own->mode()) : QStringLiteral("futo"));
-    out.insert(QStringLiteral("ownEngineSwipes"),m_ownAnswered);
-    out.insert(QStringLiteral("ownEngineFallbacks"),m_ownFellBack);
+    out.insert(QStringLiteral("swipeEngine"),m_engine ? QString::fromLatin1(m_engine->mode()) : QStringLiteral("none"));
     // WHY counts only: whether learning is on and how much is remembered, never which words.
     auto *self=const_cast<SwipeInputMethod *>(this);
     const bool learning=self->m_learning.enabled();
@@ -1433,9 +1389,9 @@ swipekb::PersonalModel::Undo SwipeInputMethod::learnWord(const QString &rawWord,
     if (!safe || !NextWordSession::allowed(predictionEditor(), predictionPolicy())) return {};
     auto *model=personal();
     if (!model) return {};
-    // WHY not words we added ourselves: FUTO's dictionary keeps a taught word until restart, so after "forget" it
-    // would look like a built-in word and skip the two-use rule.
-    const bool known=m_recognizer && m_recognizer->hasWord(word.toStdString()) && !m_injected.contains(personalKey(word));
+    // WHY not words we added ourselves: a taught word is in the engine's word list, so it would look like a built-in
+    // word and skip the two-use rule.
+    const bool known=m_engine && m_engine->hasWord(word.toStdString()) && !m_injected.contains(personalKey(word));
     if (!known) {
         // WHY these skips: a lone letter, SHOUTING and "heyyyyy" are slips, not words worth remembering.
         static const QRegularExpression run(QStringLiteral("(.)\\1{3,}"));
@@ -1474,8 +1430,8 @@ QStringList SwipeInputMethod::personalize(const QStringList &base, const QString
 {
     auto *model=personal();
     const qint64 now=LearningManager::now();
-    // WHY first: FUTO's dictionary cannot drop a word once added, so a taught word that was forgotten (or learning
-    // switched off) is filtered out of every list here instead.
+    // WHY first: a taught word that was forgotten (or learning switched off) must vanish from every list at once,
+    // even before the engine's word list is next rebuilt.
     QStringList kept;
     for (const auto &word:base) {
         const auto key=personalKey(word);
@@ -1502,26 +1458,19 @@ void SwipeInputMethod::syncLearnedWords(bool force)
 {
     auto *model=personal();
     const std::uint64_t version=model ? model->swipeWordsVersion() : 0;
-    if (!force && model==m_syncedModel && version==m_syncedVersion && m_recognizer.get()==m_syncedRecognizer
-        && m_own.get()==m_syncedOwn) return;
-    m_syncedModel=model; m_syncedVersion=version; m_syncedRecognizer=m_recognizer.get(); m_syncedOwn=m_own.get();
+    if (!force && model==m_syncedModel && version==m_syncedVersion && m_engine.get()==m_syncedEngine) return;
+    m_syncedModel=model; m_syncedVersion=version; m_syncedEngine=m_engine.get();
     std::vector<std::pair<std::string,int>> words;
     if (model) words=model->swipeWords(LearningManager::now());
     for (const auto &w:words) m_injected.insert(QString::fromStdString(w.first));
-    // WHY both swipe engines: FUTO's dictionary gains the words in place (it cannot drop them: see personalize());
-    // the own engine rebuilds its word list at the next swipe and does drop forgotten ones.
-    if (m_recognizer) m_recognizer->addWords(words);
-    // WHY the built-in texting abbreviations (lol, wyd, jaja, mdr, lg...) after the learned words, for both engines:
-    // the web-text word lists miss or under-count them. liftWords only RAISES a word, so a learned or ordinary word
-    // is never weakened; the own engine keeps the stronger of two equal spellings by itself. They reach swipes and
-    // completions only; the next-word model is not retrained, and swear acronyms stay out of unprompted suggestions.
-    const auto texting=swipekb::textingWordPairs(m_wordsLanguage);
-    if (m_recognizer) m_recognizer->liftWords(texting);
-    if (m_own) {
-        auto both=words;
-        both.insert(both.end(),texting.begin(),texting.end());
-        m_own->setExtraWords(both);
-    }
+    if (!m_engine) return;
+    // WHY a replaced set: the engine drops forgotten words itself, and rebuilds its swipe word list at the next swipe.
+    m_engine->setLearnedWords(words);
+    // WHY the built-in texting abbreviations (lol, wyd, jaja, mdr, lg...) too: the web-text word lists miss or
+    // under-count them. liftWords only RAISES a word, so a learned or ordinary word is never weakened. They reach
+    // swipes and completions only; the next-word model is not retrained, and swear acronyms stay out of unprompted
+    // suggestions.
+    m_engine->liftWords(swipekb::textingWordPairs(m_wordsLanguage));
 }
 
 void SwipeInputMethod::refreshTypedSuggestions(const EditorSnapshot &editor)
@@ -1529,7 +1478,7 @@ void SwipeInputMethod::refreshTypedSuggestions(const EditorSnapshot &editor)
     const QString token=m_typedWord.token();
     if (token.isEmpty() || !isReady()) return;
     QStringList words;
-    for (const auto &candidate:m_recognizer->complete(token.toStdString(),12)) words<<QString::fromStdString(candidate.word);
+    for (const auto &candidate:m_engine->complete(token.toStdString(),12)) words<<QString::fromStdString(candidate.word);
     words=personalize(words, prevBeforeToken(editor, token), token, true, 12);
     m_typedWord.suggest(swipekb::rankRegionalCandidates(words,m_profiles.snapshot().requestedLocale,3));
 }

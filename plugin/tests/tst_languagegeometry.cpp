@@ -1,6 +1,7 @@
 #include <QtTest>
 #include <limits>
-#include "swipekb/recognizer.hpp"
+#include "swipekb/text.hpp"
+#include "swipekb/spellings.hpp"
 #include "languagetextrules.h"
 using namespace swipekb;
 class LanguageGeometryTest : public QObject {

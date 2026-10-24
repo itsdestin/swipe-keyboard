@@ -28,45 +28,25 @@ qt_standard_project_setup(REQUIRES 6.8)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 
-# WHY a private static library of the project's FUTO-free pieces (interim, see src/openengine.h): the shared
-# swipekb_engine/swipekb_session targets still link FUTO's library today. When feature/179-drop-futo lands they become
-# FUTO-free and this list shrinks to the front end's own files.
-add_library(swipekb69_open STATIC
-    ${SWIPEKB_ROOT}/engine/src/context.cpp
-    ${SWIPEKB_ROOT}/engine/src/ngram.cpp
-    ${SWIPEKB_ROOT}/engine/src/ngram_predictor.cpp
-    ${SWIPEKB_ROOT}/engine/src/nwp_model.cpp
-    ${SWIPEKB_ROOT}/engine/src/nwp_predictor.cpp
-    ${SWIPEKB_ROOT}/engine/src/learning.cpp
-    ${SWIPEKB_ROOT}/engine/src/spelling.cpp
-    ${SWIPEKB_ROOT}/engine/src/swipe_layout.cpp
-    ${SWIPEKB_ROOT}/engine/src/swipe_net.cpp
-    ${SWIPEKB_ROOT}/engine/src/swipe_beam.cpp
-    ${SWIPEKB_ROOT}/engine/src/swipe_geo.cpp
-    ${SWIPEKB_ROOT}/engine/src/swipe_engine.cpp
-    ${SWIPEKB_ROOT}/engine/src/swipe_lm.cpp
-    ${SWIPEKB_ROOT}/plugin/languageprofile.cpp
-    ${SWIPEKB_ROOT}/plugin/languagetextrules.cpp
-    ${SWIPEKB_ROOT}/plugin/languageruntime.cpp
-    ${SWIPEKB_ROOT}/plugin/language-assets.qrc
-    ${SWIPEKB_ROOT}/plugin/ownswipe.cpp
-    ${SWIPEKB_ROOT}/plugin/swipesession.cpp
-    ${SWIPEKB_ROOT}/plugin/nextwordsession.cpp
-    ${SWIPEKB_ROOT}/plugin/predictionpolicy.cpp
-    ${SWIPEKB_ROOT}/plugin/wordswap.cpp
-    ${SWIPEKB_ROOT}/plugin/nextwordworker.cpp
-    ${SWIPEKB_ROOT}/plugin/nextwordworker.h
-    ${SWIPEKB_ROOT}/plugin/learningmanager.cpp
-    ${SWIPEKB_ROOT}/plugin/learningmanager.h
-    src/openpredictor.cpp
-    src/openengine.cpp
-    src/openengine.h
+# WHY a static library of the shared engine sources (the same files the other front end uses, compiled into this
+# module): the SwipeKeyboard69 folder stays self-contained, with no load path into the Plasma 6.7/6.8 front end's folder,
+# and this directory still builds on its own. Everything here is FUTO-free (feature/179-drop-futo).
+set(_engine ${SWIPEKB_ROOT}/engine/src)
+set(_plugin ${SWIPEKB_ROOT}/plugin)
+add_library(swipekb69_core STATIC
+    ${_engine}/context.cpp ${_engine}/language_engine.cpp ${_engine}/learning.cpp ${_engine}/ngram.cpp
+    ${_engine}/ngram_predictor.cpp ${_engine}/normalize.cpp ${_engine}/nwp_model.cpp ${_engine}/nwp_predictor.cpp
+    ${_engine}/prediction.cpp ${_engine}/spelling.cpp ${_engine}/swipe_beam.cpp ${_engine}/swipe_engine.cpp
+    ${_engine}/swipe_geo.cpp ${_engine}/swipe_layout.cpp ${_engine}/swipe_lm.cpp ${_engine}/swipe_net.cpp
+    ${_plugin}/languageprofile.cpp ${_plugin}/languageruntime.cpp ${_plugin}/languagetextrules.cpp ${_plugin}/language-assets.qrc
+    ${_plugin}/swipesession.cpp ${_plugin}/nextwordsession.cpp ${_plugin}/predictionpolicy.cpp ${_plugin}/wordswap.cpp
+    ${_plugin}/nextwordworker.cpp ${_plugin}/nextwordworker.h ${_plugin}/learningmanager.cpp ${_plugin}/learningmanager.h
     # The front end's own logic, also linked by the unit tests (no QML or KDE needed).
     src/swipecontroller.h src/swipecontroller.cpp src/editorport.h src/editorport.cpp)
-target_include_directories(swipekb69_open PUBLIC ${SWIPEKB_ROOT}/engine/include ${SWIPEKB_ROOT}/plugin ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_link_libraries(swipekb69_open PUBLIC Qt6::Core)
+target_include_directories(swipekb69_core PUBLIC ${SWIPEKB_ROOT}/engine/include ${_plugin} ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(swipekb69_core PUBLIC Qt6::Core)
 # WHY: the embedded lock/word lists are packaged data; never serve a stale compile from a cache.
-set_target_properties(swipekb69_open PROPERTIES C_COMPILER_LAUNCHER "" CXX_COMPILER_LAUNCHER "")
+set_target_properties(swipekb69_core PROPERTIES C_COMPILER_LAUNCHER "" CXX_COMPILER_LAUNCHER "")
 
 # The QML module plasma-keyboard 6.9 loads through our generated layout wrappers.
 qt_add_library(swipekeyboard69 SHARED)
@@ -78,7 +58,7 @@ qt_add_qml_module(swipekeyboard69
     OUTPUT_DIRECTORY ${SWIPEKB_QML_DIR}/SwipeKeyboard69
     QML_FILES qml/SwipeLayer.qml qml/SuggestionStrip.qml qml/SwipeAttach.qml
     SOURCES src/swipehook.h src/swipehook.cpp)
-target_link_libraries(swipekeyboard69 PRIVATE Qt6::Quick Qt6::Qml swipekb69_open)
+target_link_libraries(swipekeyboard69 PRIVATE Qt6::Quick Qt6::Qml swipekb69_core)
 target_include_directories(swipekeyboard69 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 set_target_properties(swipekeyboard69 PROPERTIES LIBRARY_OUTPUT_DIRECTORY ${SWIPEKB_QML_DIR}/SwipeKeyboard69)
 # WHY $ORIGIN only: the module folder is self-contained; a missing sibling must fail loudly, never load from the build dir.

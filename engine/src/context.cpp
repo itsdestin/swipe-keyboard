@@ -4,7 +4,7 @@
 #include <vector>
 #include <QString>
 
-#include "swipekb/recognizer.hpp"
+#include "swipekb/text.hpp"
 
 namespace swipekb {
 

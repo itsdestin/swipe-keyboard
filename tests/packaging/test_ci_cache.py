@@ -96,7 +96,7 @@ class KeyTests(unittest.TestCase):
             self.assertIn(needed, stages)
         for name in ('flatpak-ccache', 'native-ccache'):
             joined = ' '.join(cache.KEY_FILES[name])
-            for needed in ('apply-build-patches.py', 'provision-build-deps.py', 'swipe-metadata.patch', 'requirements'):
+            for needed in ('CMakeLists.txt', 'cmake'):
                 self.assertIn(needed, joined)
 
 

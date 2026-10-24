@@ -1,6 +1,6 @@
 #include "languagetextrules.h"
 #include "languageprofile.h"
-#include "swipekb/recognizer.hpp"
+#include "swipekb/text.hpp"
 #include <QFile>
 #include <QDir>
 #include <QRegularExpression>
@@ -40,7 +40,7 @@ QString languageAlphabet(const QString &language)
 QStringList textContextWords(const QString &text,int maxWords)
 {
     // WHY share the engine's pure context implementation: live swiping, prediction and replay must agree,
-    // including interior punctuation and symbols in English. context.cpp has no FUTO/model dependency.
+    // including interior punctuation and symbols in English. context.cpp has no model dependency.
     QStringList out;
     for (const auto &word:contextWords(displayForm(text).toStdString(),maxWords)) out.append(QString::fromStdString(word));
     return out;

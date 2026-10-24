@@ -145,8 +145,7 @@ private slots:
         if (!languagefixtures::available()) QSKIP("Explicit pinned English assets and language pack fixtures not supplied");
         QJsonObject manifest;
         QVERIFY(languagefixtures::populate(dir.path(),manifest));
-        const auto data=languagefixtures::read(dir.filePath("dict.combined"));
-        const auto metadata=languagefixtures::read(dir.filePath("metadata.json"));
+        const auto data=languagefixtures::read(dir.filePath("fr.combined"));
         const auto notice=languagefixtures::read(dir.filePath("LANGUAGE-FILES-NOTICE.md"));
         auto asset = [&](const QString &path, const QString &compatibility) {
             const auto bytes=languagefixtures::read(dir.filePath(path));
@@ -160,7 +159,7 @@ private slots:
         QVERIFY2(p.capabilities.swipe,qPrintable(p.unavailableReason));
         QCOMPARE(p.epoch, quint64(42)); QCOMPARE(p.effectiveLanguage, QString("fr"));
         QVERIFY(!p.capabilities.contextRanking); QVERIFY(!p.capabilities.nextWord);
-        QCOMPARE(p.assets.size(),2); QVERIFY(!p.assets.contains("decoder"));
+        QCOMPARE(p.assets.size(),1); QVERIFY(p.assets.contains("dictionary"));
         QVERIFY(!resolveProfile("fr", "qwertz", "Latin", dir.path()).capabilities.swipe);
         auto original = manifest;
         QVERIFY(!resolveProfile("fr","azerty","Numeric",dir.path()).capabilities.swipe);
@@ -168,7 +167,6 @@ private slots:
         auto source=manifest["source"].toObject(); source["sha256"]="wrong"; manifest["source"]=source;
         QVERIFY(!resolve().capabilities.swipe); manifest=original;
         write("LANGUAGE-FILES-NOTICE.md","tampered"); QVERIFY(!resolve().capabilities.swipe); write("LANGUAGE-FILES-NOTICE.md",notice);
-        write("metadata.json","tampered"); QVERIFY(!resolve().capabilities.swipe); write("metadata.json",metadata);
         QTemporaryDir outside;
         QFile external(outside.filePath("dictionary")); QVERIFY(external.open(QIODevice::WriteOnly)); external.write(data); external.close();
         auto traversed=manifest["assets"].toObject(); auto escaped=traversed["dictionary"].toObject();
@@ -176,17 +174,23 @@ private slots:
         manifest["assets"]=traversed; QVERIFY(!resolve().capabilities.swipe); manifest=original;
         manifest["compatibility"] = "wrong"; QVERIFY(!resolve().capabilities.swipe); manifest = original;
         manifest.remove("license"); QVERIFY(!resolve().capabilities.swipe); manifest = original;
+        // An unknown role (e.g. an old pack's swipe network) or an unpaired context file refuses the pack.
+        write("encoder.bin","old engine file");
         auto assets = manifest["assets"].toObject();
-        assets["decoder"] = asset("encoder.pte","en:qwerty:26"); manifest["assets"] = assets;
+        assets["encoder"] = asset("encoder.bin","layout-agnostic"); manifest["assets"] = assets;
         QVERIFY(!resolve().capabilities.swipe); manifest = original;
-        assets = manifest["assets"].toObject(); assets["contextModel"] = asset("encoder.pte","fr:context-v1");
+        assets = manifest["assets"].toObject(); assets["contextModel"] = asset("fr.combined","fr:context-ngram-v1");
         manifest["assets"] = assets; QVERIFY(!resolve().capabilities.swipe); manifest = original;
-        write("dict.combined", "corrupt"); QVERIFY(!resolve().capabilities.swipe);
-        QFile::remove(dir.filePath("encoder.pte")); QVERIFY(!resolve().capabilities.swipe);
+        // A self-consistent but unpinned word list is refused: the lock, not the manifest, decides.
+        write("other.combined","dictionary=x\n word=autre,f=100\n");
+        assets = manifest["assets"].toObject(); assets["dictionary"] = asset("other.combined","fr"); manifest["assets"] = assets;
+        QCOMPARE(resolve().unavailableReason, QString("Dictionary does not match the repository pin")); manifest = original;
+        write("fr.combined", "corrupt"); QVERIFY(!resolve().capabilities.swipe);
+        QFile::remove(dir.filePath("fr.combined")); QVERIFY(!resolve().capabilities.swipe);
     }
     void rejectsSelfAttestedFixedAssets_data() {
         QTest::addColumn<QString>("role");
-        for (const auto &role:{"encoder","metadata","encoderLicense","dataTerms","tatoebaTerms","notice"}) QTest::newRow(role)<<QString(role);
+        for (const auto &role:{"dataTerms","tatoebaTerms","notice"}) QTest::newRow(role)<<QString(role);
     }
     void rejectsSelfAttestedFixedAssets() {
         QFETCH(QString,role);
@@ -197,26 +201,36 @@ private slots:
             return resolveProfile("fr","azerty","Latin",dir.path());
         };
         QVERIFY2(resolve().capabilities.swipe,qPrintable(resolve().unavailableReason));
-        const QByteArray incompatible=role=="metadata" ? QByteArray("{\"kind\":\"decoder\",\"layout\":\"en_qwerty\"}") : QByteArray("incompatible but self-consistent replacement");
+        const QByteArray incompatible("incompatible but self-consistent replacement");
         const auto replacementHash=languagefixtures::hash(incompatible);
-        auto assets=manifest["assets"].toObject(); auto encoder=assets["encoder"].toObject();
         QString file;
-        if (role=="encoder") { file="encoder.pte"; encoder["sha256"]=replacementHash; encoder["size"]=incompatible.size(); }
-        else if (role=="metadata") { file="metadata.json"; encoder["metadataSha256"]=replacementHash; }
-        else if (role=="encoderLicense") {
-            file="FUTO-LICENSE"; auto license=manifest["encoderLicense"].toObject(); license["sha256"]=replacementHash; manifest["encoderLicense"]=license;
-        } else if (role=="dataTerms") {
+        if (role=="dataTerms") {
             file="ODC-By-1.0.txt"; auto license=manifest["license"].toObject(); license["termsSha256"]=replacementHash; manifest["license"]=license;
         } else if (role=="tatoebaTerms") {
             file="TATOEBA-CC-BY-2.0-FR.txt"; auto license=manifest["license"].toObject(); license["tatoebaTermsSha256"]=replacementHash; manifest["license"]=license;
         } else {
             file="LANGUAGE-FILES-NOTICE.md"; auto license=manifest["license"].toObject(); license["sha256"]=replacementHash; manifest["license"]=license;
         }
-        assets["encoder"]=encoder; manifest["assets"]=assets;
         QVERIFY(languagefixtures::write(dir.path(),file,incompatible));
         const auto rejected=resolve();
         QVERIFY2(!rejected.capabilities.swipe,qPrintable("Self-attested "+role+" must not replace a repository pin"));
         QVERIFY(rejected.assets.isEmpty());
+    }
+    void refusesOldFormatPacksCleanly() {
+        // A pack made for the previous swipe engine (schema 2, its own compatibility tag and revision pins, encoder
+        // files) must be refused with a reason, never half-used or crash, whatever else it holds.
+        if (!languagefixtures::available()) QSKIP("Explicit pinned language pack fixtures not supplied");
+        QTemporaryDir dir; QJsonObject manifest; QVERIFY(languagefixtures::populate(dir.path(),manifest));
+        manifest["schema"]=2; manifest["compatibility"]="swipekb-legacy-v1";
+        manifest["engineRevision"]="1b13f2c85d6b347f6ea3fbc4b3aaf01fce42429a";
+        QVERIFY(languagefixtures::write(dir.path(),"fr.json",QJsonDocument(manifest).toJson()));
+        auto p=resolveProfile("fr","azerty","Latin",dir.path());
+        QVERIFY(!p.capabilities.swipe); QVERIFY(p.assets.isEmpty());
+        QCOMPARE(p.unavailableReason,QString("Pack schema/version/compatibility mismatch"));
+        manifest["schema"]=3; QVERIFY(languagefixtures::write(dir.path(),"fr.json",QJsonDocument(manifest).toJson()));
+        QVERIFY(!resolveProfile("fr","azerty","Latin",dir.path()).capabilities.swipe);   // still the old compatibility
+        QVERIFY(languagefixtures::write(dir.path(),"fr.json","{ not json"));
+        QVERIFY(resolveProfile("fr","azerty","Latin",dir.path()).unavailableReason.contains("manifest"));
     }
     void switchEpochs() {
         ProfileEpoch state;

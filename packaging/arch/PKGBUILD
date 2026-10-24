@@ -2,22 +2,24 @@
 pkgname=swipe-keyboard
 pkgver=0.4.0
 pkgrel=1
-pkgdesc='English, Spanish, French and German swipe typing, completions and next-word suggestions for Plasma Keyboard — Powered by FUTO Swipe'
+pkgdesc='English, Spanish, French and German swipe typing, completions and next-word suggestions for Plasma Keyboard'
 arch=('x86_64')
 url='https://github.com/itsdestin/swipe-keyboard'
-# WHY SPDX lists only CC-BY-2.0 (Generic), not Tatoeba's France port: retain the
-# jurisdiction-specific terms with Arch's custom-file marker, installed below.
-# WHY MIT: our swipe model (swipe-model.bin) is trained on FUTO's MIT-licensed swipe data; the neural next-word models carry
-# the same ODC-By + CC BY 2.0 FR terms as the n-gram files (models trained and released by Destin Moss via youcoded.ai, 2026).
-# WHY ODC-By-1.0: the next-word files are also built from FineWeb web text (Open Data Commons Attribution).
-license=('GPL-3.0-or-later' 'Apache-2.0' 'ODC-By-1.0' 'LicenseRef-FUTO-Model-Weights-1.0' 'MIT' 'custom:TATOEBA-CC-BY-2.0-FR.txt')
+# WHY these licences (KDE's licensing policy for the code; each data file keeps its own, see REUSE.toml):
+# keyboard plugin and tools GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL; engine library
+# LGPL-2.1-only OR LGPL-3.0-only OR LicenseRef-KDE-Accepted-LGPL; AOSP word list Apache-2.0; FineWeb text ODC-By-1.0;
+# Tatoeba sentences CC BY 2.0 France (SPDX lists only the Generic port, so the France terms are a custom file installed
+# below); the swipe model MIT (trained on MIT-licensed swipe data; models trained and released by Destin Moss via
+# youcoded.ai, 2026); the swear-word list CC-BY-4.0; the texting-word lists CC0-1.0.
+license=('GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL' 'LGPL-2.1-only OR LGPL-3.0-only OR LicenseRef-KDE-Accepted-LGPL'
+         'Apache-2.0' 'ODC-By-1.0' 'MIT' 'CC-BY-4.0' 'CC0-1.0' 'custom:TATOEBA-CC-BY-2.0-FR.txt')
 # WHY no upper bound and no hard qt6-virtualkeyboard: one package serves Plasma 6.7/6.8 (Qt Virtual Keyboard front end,
 # whose plasma-keyboard already requires that library) and Plasma 6.9 (front end on KDE's rebuilt keyboard, which has no
 # Qt Virtual Keyboard). The launcher picks the matching one. Kirigami: the 6.9 suggestion row uses its theme colours.
 depends=('python' 'systemd' 'plasma-keyboard>=6.7' 'qt6-declarative' 'kirigami' 'kwindowsystem' 'kconfig' 'qt6-tools')
 optdepends=('qt6-virtualkeyboard: needed by the Plasma 6.7/6.8 front end (plasma-keyboard 6.7/6.8 already installs it)')
 # Kirigami supplies the QML accent-colour probe exercised by native plugin tests.
-makedepends=('cmake' 'ninja' 'gcc' 'git' 'make' 'python-pip' 'kirigami' 'gtest' 'curl')
+makedepends=('cmake' 'ninja' 'gcc' 'kirigami' 'gtest')
 # Real KConfigWatcher regression needs a fresh private session, never the host bus.
 checkdepends=('dbus')
 # Native library dependencies are supplemented from the actual staged ELF files.
@@ -29,8 +31,7 @@ sha256sums=('SKIP')
 build() {
   cd "$srcdir/swipe-keyboard-$pkgver"
   scripts/fetch-assets.sh
-  scripts/build-futo.sh
-  cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr -DUSE_MARCH_NATIVE=OFF -DSWIPEKB_PACKAGE_VERSION="$pkgver-$pkgrel"
+  cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr -DSWIPEKB_PACKAGE_VERSION="$pkgver-$pkgrel"
   cmake --build build
 }
 

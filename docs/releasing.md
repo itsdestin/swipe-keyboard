@@ -20,14 +20,12 @@ Never replace v0.2.0 assets.
 
 ## One local check command
 
-From a checkout with the recursively pinned submodules initialized and the pinned
-small model metadata fixtures available:
+From a clean checkout:
 
 ```sh
 python3 scripts/release.py check-versions && python3 -m unittest discover -s tests/packaging -v && python3 -m unittest discover -s tests/integration -v
 ```
 
-`git submodule update --init --recursive` prepares the pinned source dependencies.
 Normal complete asset preparation is `python3 scripts/fetch-assets.py` (CPython
 3.14, Linux x86_64 or aarch64; preserves its existing 21 GiB free-space floor). Unit tests do
 not compile all third-party products. Integration tests without built native helpers
@@ -50,9 +48,8 @@ Read-only credentials apply throughout PR/build/gate jobs. No `pull_request_targ
 cross-run artifact promotion, optional platform bypass, or product build cache exists.
 Dependency-only speed caches exist (see "Dependency caches" below); release tags never use them.
 
-- `prepare`: clean pinned checkout, recursive submodules, CPython 3.14, recipe
-  consistency; fetches authenticated assets, builds language packs, captures licenses
-  and native/SDK dependency wheel locks once. Emits a source identity inside the
+- `prepare`: clean pinned checkout, CPython 3.14, recipe
+  consistency; fetches authenticated assets, builds language packs, captures licenses once. Emits a source identity inside the
   complete source archive. Python-only release/publication contract tests run from
   that archive; Qt/KF-dependent native suites run inside their actual distro jobs.
 - `arch`: existing July 2026 Arch baseline recipe, unprivileged real build, tests,
@@ -63,7 +60,7 @@ Dependency-only speed caches exist (see "Dependency caches" below); release tags
   dependency-checked installation/removal in its disposable container.
 - `fedora-arm64`: mandatory native `ubuntu-24.04-arm` runner with the multiarch
   Fedora 44 container, explicitly verifies `uname -m=aarch64` and actual free space.
-  Builds fresh ExecuTorch/product objects with `USE_MARCH_NATIVE=OFF`, full native
+  Builds fresh product objects (never `-march=native`), full native
   CTest and packaging/integration suites. Checks every shipped ELF machine,
   dependencies, privacy contracts, English/ES/FR/DE profiles and packaged QRC/loader;
   installs/checks/removes the exact RPM as for x86. Uploads only the `.aarch64.rpm`:
@@ -101,13 +98,12 @@ Dependency-only speed caches exist (see "Dependency caches" below); release tags
 
 Flatpak preparation generates an **external** `manifest.json`, replaces the source
 archive hash after archive creation, and materializes pinned upstream archives and
-reviewed patches beside it. Dependency wheels are authenticated inside the complete
-source archive rather than duplicated. The published `*-flatpak-build-inputs.tar.gz`
+reviewed patches beside it. The published `*-flatpak-build-inputs.tar.gz`
 contains that portable recipe and its extra inputs; extract it beside the separately
 published complete source archive (the recipe references `../swipe-keyboard-<version>.tar.gz`).
 Its hash is not inserted back into the source archive. The tracked Flatpak manifest
 is the template/legacy lab recipe, **not** a claim that its old local archive hash
-identifies new source. Native and SDK wheel profiles remain separate. No signature
+identifies new source. No signature
 verification disable or SDK mismatch waiver is used.
 
 Producer evidence binds the exact filename, architecture, embedded/package version,
@@ -194,11 +190,10 @@ Cold dependency work is cached, never the keyboard itself. Rules, enforced by
   (manifest, SDK/runtime commits, Plasma patches, `build.py`, flatpak-builder and runner-image
   versions). On restore the layout, identity marker and every ostree object are verified; any
   doubt discards the cache and rebuilds the stages from source.
-- **ExecuTorch compiler results** (ccache) for Flatpak, Arch, Fedora and Fedora ARM64, one store
+- **Compiler results** (ccache) for Flatpak, Arch, Fedora and Fedora ARM64, one store
   per platform, never shared. ccache hashes the compiler, flags and preprocessed source itself, so a
-  stale entry is a miss, never different bytes. (Engine and keyboard objects joined later; see
-  "Fast path and the merge guarantee".) Keys start from the swipe-library commit
-  (which pins ExecuTorch) plus patches, recipes, build scripts and requirement locks.
+  stale entry is a miss, never different bytes. Keys start from the recipes, the build scripts and the
+  toolchain.
 - Flatpak build parallelism is 4 (matching the 4-CPU hosted runner) in `build.py`, the manifest
   environment and `build-swipe.sh`; the job summary records peak memory.
 
@@ -221,14 +216,12 @@ Cold dependency work is cached, never the keyboard itself. Rules, enforced by
 - **Gate bytes:** on tags the gate re-downloads the files and hashes the actual bytes, as before.
   On other runs nothing is published, so it checks the evidence each producer recorded (hashes taken
   when the file was made) and skips the re-download (~2.5 minutes).
-- **ccache now covers our own code** on non-release runs: ExecuTorch, the FUTO engine and the
-  keyboard's objects. ccache keys each result on the compiler's contents, flags, defines and the
+- **ccache covers our own code** on non-release runs (the engine and the keyboard's objects). ccache keys each result on the compiler's contents, flags, defines and the
   preprocessed source including headers, so a stale or foreign entry only misses. The language-asset
   QRC library opts out in CMake, and QRC generation, install output and packages are never cached.
   Each platform has its own store and tags use none. Stores are saved per commit by trusted pushes
   and dispatch only; pull requests read the newest `main` store.
-- Not changed: the 180 MB PyTorch wheel used only for `torchgen`. PyPI's `torchgen` is an unrelated
-  third-party package, and the official source is the full PyTorch repository, which is larger.
+- No Python wheels are needed to build (the build has no Python dependencies beyond the interpreter).
 
 ### Gaming Mode jobs in the fast path
 

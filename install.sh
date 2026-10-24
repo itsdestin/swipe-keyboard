@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # install.sh — build swipe-keyboard, run its tests, and install it where Plasma Keyboard loads it:
-#   ~/.local/share/swipe-keyboard/{qml/SwipeKeyboard, models, dict, lm}. touch-profile's layout + wrapper pick it up
+#   ~/.local/share/swipe-keyboard/{qml/SwipeKeyboard, dict, language-packs, lm}. touch-profile's layout + wrapper pick it up
 #   (their hook does nothing when this folder is missing), then the on-screen keyboard is restarted.
 # Usage: ./install.sh              build + test + install + restart
 #        ./install.sh --no-restart  same, but leave the running keyboard alone (for testing, or installing
@@ -9,10 +9,8 @@
 # Learning from your typing (words, names, word pairs; local only) is asked here as a y/n question when a terminal is
 # attached; installs without one leave it off. Switch later with `python3 ~/.local/share/swipe-keyboard/learning.py
 # on|off|forget|status` (or just create/delete the file ~/.local/share/swipe-keyboard/learn-typing). SWIPEKB_LEARN_TYPING=yes|no skips the question.
-# The n-gram ranking (lm/) is off unless ~/.local/share/swipe-keyboard/use-ngram exists (then restart the keyboard).
-# The project's own swipe engine (card #179) replaces FUTO's recogniser only while ~/.local/share/swipe-keyboard/own-engine
-# exists (restart the keyboard). It looks for swipe-model.bin beside the FUTO models (pinned in assets.lock.json and fetched with
-# the other files; a missing or altered file means geometry only). Without the own-engine file, FUTO answers exactly as before.
+# The swipe engine reads language-packs/swipe-model.bin (pinned in assets.lock.json and fetched with the other files; a missing
+# or altered file means geometry-only swiping).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 DEST="${XDG_DATA_HOME:-$HOME/.local/share}/swipe-keyboard"
@@ -57,24 +55,25 @@ if [ "${SWIPEKB_BUILD_LM:-0}" = 1 ] && [ "${SWIPEKB_SKIP_LM:-0}" != 1 ] && [ ! -
     echo "building the explicitly requested n-gram model (scripts/lm/build-lm.sh)..."
     "$ROOT/scripts/lm/build-lm.sh" || echo "warning: n-gram model not built; the keyboard keeps its old ranking" >&2
 fi
-[ -f "$ROOT/third_party/swipe-library/third_party/executorch/cmake-out-host/libexecutorch.a" ] || "$ROOT/scripts/build-futo.sh"
 cmake -S "$ROOT" -B "$ROOT/build" -DCMAKE_BUILD_TYPE=Release
 cmake --build "$ROOT/build" -j"$(nproc)"
 (cd "$ROOT/build" && ctest --output-on-failure)
 
 mkdir -p "$DEST"
-# WHY: a failed copy must never leave a half-installed keyboard (e.g. new qml but no models). So copy all payloads
+# WHY: a failed copy must never leave a half-installed keyboard (e.g. new qml but no dictionary). So copy all payloads
 # into staging dirs first; only when every copy has succeeded (set -e stops us otherwise) swap them in back to back.
 rm -rf "$DEST/.qml.new" "$DEST/.models.new" "$DEST/.dict.new" "$DEST/.lm.new" "$DEST/.language-packs.new"
 cp -r "$ROOT/build/qml" "$DEST/.qml.new"
-cp -r "$ROOT/assets/models" "$DEST/.models.new"
 cp -r "$ROOT/assets/dict" "$DEST/.dict.new"
 # The n-gram model is optional: copied when built; when it isn't, any older copy is removed so the installed
 # model always matches the installed dictionary (a stale one would still load and rank with old word lists).
-# WHY language-packs carries every language's next-word files too (en/es/fr/de .ngram + .vocab.tsv + credits):
-# fetch-assets.sh downloaded them by checksum. English falls back to FUTO's model if they are absent.
+# WHY language-packs carries every language's next-word files too (en/es/fr/de .ngram + .vocab.tsv + credits) and the
+# shared swipe model: fetch-assets.sh downloaded them by checksum. English swipes without next-word suggestions if
+# its files are absent.
 cp -r "$ROOT/assets/language-packs" "$DEST/.language-packs.new"
-dirs="qml models dict language-packs"
+# WHY models/ is removed: older installs kept another engine's models there; nothing reads that folder any more.
+rm -rf "$DEST/models"
+dirs="qml dict language-packs"
 if [ -s "$ROOT/assets/lm/en_ngram.bin" ]; then
     mkdir -p "$DEST/.lm.new"
     cp "$ROOT/assets/lm/en_ngram.bin" "$DEST/.lm.new/"

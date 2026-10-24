@@ -1,12 +1,10 @@
 // swipekb n-gram language model — "how likely is this word after the previous one or two words".
 //
-// WHY our own small model instead of FUTO's context model: FUTO's model squeezes the whole sentence into 16
-// numbers and guesses the next word from that; it is weak at exactly the cases that decide a swipe ("of the"
-// vs "of thee", "I am" vs "I an"). Word-pair and word-triple statistics from a large text collection
-// (a 3-gram model, scripts/lm/) know those. The model is one read-only file, mapped into memory, so loading it
+// WHY word-pair and word-triple statistics from a large text collection (a 3-gram model, scripts/lm/): they are
+// strong at exactly the cases that decide a swipe ("of the" vs "of thee", "I am" vs "I an"). The model is one read-only file, mapped into memory, so loading it
 // is instant and several keyboard processes share one copy.
 //
-// No FUTO types here: the scoreboard tools and tests use this directly.
+// Plain C++ (no Qt types in the interface): the scoreboard tools and tests use this directly.
 #pragma once
 
 #include <cstddef>
@@ -42,7 +40,7 @@ public:
     static uint64_t key(uint32_t v, uint32_t w) { return (uint64_t(v) << kIdBits) | w; }
     static uint64_t key(uint32_t u, uint32_t v, uint32_t w) { return (uint64_t(u) << (2 * kIdBits)) | key(v, w); }
 
-    // Lower case, letters only: the form FUTO's dictionary stores words in, and the form the model is built in.
+    // Lower case, letters only: the form a swipe spells (no apostrophes), and the form the model is built in.
     // ASCII is lower-cased; other letters are kept as they are (English dictionary).
     static std::string alphaForm(std::string_view word);
 

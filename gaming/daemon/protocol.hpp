@@ -50,7 +50,7 @@
 #include <string>
 #include <vector>
 
-#include "swipekb/recognizer.hpp"
+#include "swipekb/text.hpp"
 
 namespace gamingd {
 

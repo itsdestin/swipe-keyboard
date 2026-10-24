@@ -1,6 +1,6 @@
-// Spellings — puts apostrophes and hyphens back into FUTO's letters-only guesses (see recognizer.hpp).
+// Spellings — the dictionary's other spellings of one swipe shape (see spellings.hpp).
 
-#include "swipekb/recognizer.hpp"
+#include "swipekb/spellings.hpp"
 
 #include <algorithm>
 #include <cstdlib>
@@ -98,7 +98,7 @@ Spellings Spellings::fromCombinedText(const std::string &text, const std::string
         if (!aliases.empty()) out.otherKeys_[lower(word)]=aliases.front();
     }
     for (auto &[letters, g] : groups) {
-        // Most frequent first; on a tie the plain letters-only spelling first (it is what FUTO returned).
+        // Most frequent first; on a tie the plain letters-only spelling first (the form a swipe spells).
         std::stable_sort(g.begin(), g.end(), [&](const auto &a, const auto &b) {
             if (a.second != b.second)
                 return a.second > b.second;

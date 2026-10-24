@@ -52,7 +52,6 @@ class AssetFetch(unittest.TestCase):
             (root/'packaging/NOTICE').write_text('Project attribution\n')
             (root/'packaging/assets.lock.json').write_text(json.dumps({
                 'assets': [asset(encoded, 'licenses/AOSP-NOTICE.b64')]}))
-            (root/'third_party/swipe-library').mkdir(parents=True)
             with mock.patch.object(module, 'ROOT', root), \
                  mock.patch.object(module, 'prepare_language_packs'), mock.patch.object(module, 'fetch_language_files'), \
                  mock.patch('sys.argv', ['fetch-assets.py', '--assets', str(root/'assets')]), \
@@ -109,17 +108,17 @@ class AssetFetch(unittest.TestCase):
         lock = json.loads((ROOT/'packaging/assets.lock.json').read_text())
         assets = {a['path']: a for a in module.trained_model_assets(lock)}
         self.assertEqual(set(assets), {'language-files/en.nwp.bin', 'language-files/es.nwp.bin', 'language-files/fr.nwp.bin',
-                                       'language-files/de.nwp.bin', 'models/swipe-model.bin', 'language-files/MODELS-NOTICE.md',
+                                       'language-files/de.nwp.bin', 'language-files/swipe-model.bin', 'language-files/MODELS-NOTICE.md',
                                        'language-files/FUTO-SWIPE-DATA-LICENSE.txt'})
         base = 'https://github.com/itsdestin/swipe-keyboard/releases/download/models-2026-10-23/'
         for name, asset in assets.items():
             self.assertRegex(asset['sha256'], r'^[a-f0-9]{64}$')
             self.assertTrue(asset['url'].startswith(base), name)
-        self.assertEqual(assets['models/swipe-model.bin']['url'], base + 'swipe-model.bin')
+        self.assertEqual(assets['language-files/swipe-model.bin']['url'], base + 'swipe-model.bin')
         # Each download is accepted only against the digest the lock pins for it.
         for language, pin in lock['trained_models']['nextWord'].items():
             self.assertEqual(assets[f'language-files/{language}.nwp.bin']['sha256'], pin['sha256'])
-        self.assertEqual(assets['models/swipe-model.bin']['sha256'], lock['trained_models']['swipe']['sha256'])
+        self.assertEqual(assets['language-files/swipe-model.bin']['sha256'], lock['trained_models']['swipe']['sha256'])
         self.assertEqual(assets['language-files/MODELS-NOTICE.md']['url'], base + 'NOTICE.md')
         with tempfile.TemporaryDirectory() as tmp:
             mirror = Path(tmp)/'mirror'

@@ -10,9 +10,9 @@ install(DIRECTORY "${SWIPEKB_QML_DIR}/SwipeKeyboard" DESTINATION "${_runtime}/qm
     FILES_MATCHING PATTERN "*.so*"
     PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
     PATTERN "qmldir" PATTERN "*.qml" PATTERN "*.qmltypes")
-install(DIRECTORY "${SWIPEKB_ASSETS}/models/" DESTINATION "${_runtime}/models")
 install(FILES "${SWIPEKB_ASSETS}/dict/en_swipe.combined" DESTINATION "${_runtime}/dict")
-# WHY required, not OPTIONAL: a normal installation must contain every selectable language pack.
+# WHY required, not OPTIONAL: a normal installation must contain every selectable language pack (and the shared
+# swipe model that sits beside them).
 install(DIRECTORY "${SWIPEKB_ASSETS}/language-packs/" DESTINATION "${_runtime}/language-packs")
 install(DIRECTORY "${SWIPEKB_ASSETS}/licenses/" DESTINATION "${CMAKE_INSTALL_DATADIR}/licenses/swipe-keyboard")
 install(FILES "${SWIPEKB_SOURCE}/LICENSE" "${SWIPEKB_SOURCE}/packaging/assets.lock.json"

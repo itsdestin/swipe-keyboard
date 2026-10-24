@@ -2,7 +2,7 @@
 
 #include <algorithm>
 
-#include "swipekb/recognizer.hpp"
+#include "swipekb/text.hpp"
 
 QStringList SwipeSession::contextWords(const QString &textBeforeCursor, int max)
 {

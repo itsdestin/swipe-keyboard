@@ -8,7 +8,7 @@
 // same privacy gates that guard next-word prediction.
 //
 // WHY plain C++ with no Qt and no keyboard types: the offline personal test (tools/swipekb-personal-eval) must
-// run the exact code the keyboard runs, and must build without FUTO's library. Callers lower-case words before
+// run the exact code the keyboard runs, with no keyboard library. Callers lower-case words before
 // handing them in ("keys"), so the unicode rules stay in one place (languagetextrules in the plugin).
 // WHY single-threaded: only the keyboard's GUI thread touches it.
 //

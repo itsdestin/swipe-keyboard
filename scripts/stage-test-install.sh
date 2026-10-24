@@ -13,7 +13,6 @@
 #   install   sudo pacman -U the test package, then ask the on-screen keyboard to restart (needs a terminal for sudo)
 #   rollback  sudo pacman -U the saved previous package (checks its checksum first), then restart the keyboard
 #   status    show the installed version and which trained models the installed copy contains
-#   own-engine on|off   create/delete ~/.local/share/swipe-keyboard/own-engine (our swipe engine instead of FUTO's)
 # Env: SWIPEKB_FULLBUILD (work folder, default ~/.cache/swipe-keyboard-train/fullbuild)
 #      SWIPEKB_TEST_REL   (package release, default 1.1: newer than 1, so pacman treats it as an upgrade)
 #      SWIPEKB_ROLLBACK_PKG (previous package file; default <work>/rollback/swipe-keyboard-0.3.1-1-x86_64.pkg.tar.zst)
@@ -53,9 +52,10 @@ package)
     DEPENDS=$(pacman -Qi swipe-keyboard | sed -n 's/^Depends On *: //p')
     {
         echo "pkgname=swipe-keyboard"; echo "pkgver=$VERSION"; echo "pkgrel=$REL"
-        echo "pkgdesc='Swipe Keyboard test build (own engine + trained models)'"; echo "arch=('x86_64')"
+        echo "pkgdesc='Swipe Keyboard test build (open engine + trained models)'"; echo "arch=('x86_64')"
         echo "url='https://github.com/itsdestin/swipe-keyboard'"
-        echo "license=('GPL-3.0-or-later' 'Apache-2.0' 'ODC-By-1.0' 'LicenseRef-FUTO-Model-Weights-1.0' 'MIT' 'custom:TATOEBA-CC-BY-2.0-FR.txt')"
+        # WHY the same licence list as packaging/arch/PKGBUILD (KDE licences for the code, each data file its own).
+        echo "license=('GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL' 'LGPL-2.1-only OR LGPL-3.0-only OR LicenseRef-KDE-Accepted-LGPL' 'Apache-2.0' 'ODC-By-1.0' 'MIT' 'CC-BY-4.0' 'CC0-1.0' 'custom:TATOEBA-CC-BY-2.0-FR.txt')"
         printf "depends=("; for d in $DEPENDS; do case "$d" in None|plasma-keyboard\<*) ;; *) printf "'%s' " "$d" ;; esac; done; echo ")"
         echo "options=('!strip' '!debug')"
         echo "package() { cp -a '$STAGE/usr' \"\$pkgdir/usr\"; }"
@@ -64,7 +64,7 @@ package)
     ls -l "$PKG"; sha256sum "$PKG" | tee "$PKG.sha256" ;;
 verify)
     python3 "$ROOT/scripts/package-check.py" "$STAGE" && echo "staged tree OK (hashes, licences, trained models, profile checks)"
-    [ -f "$PKG" ] && bsdtar -tf "$PKG" | grep -E "nwp.bin|swipe-model.bin|MODELS-NOTICE|FUTO-SWIPE-DATA" ;;
+    [ -f "$PKG" ] && bsdtar -tf "$PKG" | grep -E "nwp.bin|swipe-model.bin|MODELS-NOTICE|SWIPE-DATA-LICENSE" ;;
 install)
     [ -f "$PKG" ] || { echo "build the package first: $0 package" >&2; exit 1; }
     [ -f "$ROLLBACK" ] || { echo "rollback package missing: $ROLLBACK (refusing to install without a way back)" >&2; exit 1; }
@@ -76,18 +76,11 @@ rollback)
     (cd "$(dirname "$ROLLBACK")" && sha256sum -c SHA256SUMS)
     # WHY no extra cleanup: pacman removes the test package's files as part of replacing it with the saved one.
     pacman_install "$ROLLBACK"
-    rm -f "$DATA/own-engine"
     restart_keyboard
     echo "now installed: $(pacman -Q swipe-keyboard)" ;;
 status)
     pacman -Q swipe-keyboard
     pacman -Ql swipe-keyboard | grep -E "nwp.bin|swipe-model.bin" || echo "(no trained models in the installed copy)"
-    [ -e "$DATA/own-engine" ] && echo "own engine: ON" || echo "own engine: off (FUTO engine)" ;;
-own-engine)
-    case "${2:-}" in
-        on)  mkdir -p "$DATA" && : > "$DATA/own-engine"; restart_keyboard ;;
-        off) rm -f "$DATA/own-engine"; restart_keyboard ;;
-        *)   echo "usage: $0 own-engine on|off" >&2; exit 2 ;;
-    esac ;;
+    ;;
 *) sed -n 2,22p "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
 esac

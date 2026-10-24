@@ -8,7 +8,7 @@ if(NOT SWIPEKB_TEST_MODEL_DATA AND SWIPEKB_ASSETS AND EXISTS "${SWIPEKB_ASSETS}/
     set(SWIPEKB_TEST_MODEL_DATA "${SWIPEKB_ASSETS}")
 endif()
 qt_add_executable(tst_plasma69_controller tst_controller.cpp fakeeditor.h)
-target_link_libraries(tst_plasma69_controller PRIVATE swipekb69_open Qt6::Test)
+target_link_libraries(tst_plasma69_controller PRIVATE swipekb69_core Qt6::Test)
 add_test(NAME plasma69_controller COMMAND tst_plasma69_controller)
 set_tests_properties(plasma69_controller PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 120
     ENVIRONMENT "SWIPEKB_TEST_MODEL_DATA=${SWIPEKB_TEST_MODEL_DATA};QT_QPA_PLATFORM=offscreen")

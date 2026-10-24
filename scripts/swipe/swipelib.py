@@ -1,6 +1,6 @@
 """Shared pieces of the swipe-net pipeline: layout, trace -> model input, labels, the network, model export.
 
-Written without reference to FUTO code. The C++ runner (engine/src/swipe_net.cpp, swipe_trace.cpp) must reproduce
+Written for this project without reference to other swipe engines' code. The C++ runner (engine/src/swipe_net.cpp, swipe_trace.cpp) must reproduce
 `trace_to_input` and `SwipeNet.forward` exactly; tests/features compares them on a committed fixture.
 
 Method (all first-principles / published ideas): resample the finger trace to a fixed number of steps by arc length,

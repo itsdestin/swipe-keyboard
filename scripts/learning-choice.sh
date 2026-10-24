@@ -2,8 +2,7 @@
 # learning_choice DATA_DIR — decides whether "learn from my typing" is switched on, and says so plainly.
 # Sourced by install.sh; kept in its own file so the question can be tested without installing anything.
 #
-# The choice is one file in the keyboard's data folder: `learn-typing` present = on (same pattern as use-ngram and
-# own-engine). Nothing is learned without it. Later: `python3 DATA_DIR/learning.py on|off|forget|status`, or, for
+# The choice is one file in the keyboard's data folder: `learn-typing` present = on. Nothing is learned without it. Later: `python3 DATA_DIR/learning.py on|off|forget|status`, or, for
 # the native packages, `swipe-keyboard learning on|off|forget|status`.
 #
 # WHY default OFF everywhere except an explicit "y": typing is private, so only a person who answered yes at a

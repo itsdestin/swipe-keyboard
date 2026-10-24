@@ -21,19 +21,19 @@ What stays in this folder: `TATOEBA-CC-BY-2.0-FR.txt` (the Tatoeba terms notice,
 - Word lists (`<lang>.vocab.tsv`) and the `<lang>.combined` swipe dictionaries (also `en_swipe.combined`): counted from the
   same two sources, so they carry the same attribution terms (no share-alike). The English dictionary additionally keeps
   every word, frequency and flag of the Android LatinIME US English list, Apache-2.0 (`Apache-2.0.txt`).
-- No FUTO neural weights or data are in these files. FUTO's swipe encoder/decoder is still used for the swipe shape itself.
+- No third-party model weights are in these files.
 
 Each pack manifest (`es.json`, `fr.json`, `de.json`) records `contextLicense` with id `ODC-By-1.0 AND CC-BY-2.0-FR` and the
 hashes of the credit, Tatoeba, ODC-By and notice texts; the loader compares all of it with the repository lock, so a
-manifest cannot vouch for itself. English has no manifest of its own (its swipe files stay under `models/`); the loader
-checks the same files against the same lock.
+manifest cannot vouch for itself (schema 3, compatibility `swipekb-open-v1`; older packs are refused). English has no
+manifest of its own (its dictionary installs as `dict/en_swipe.combined`); the loader checks the same files against the same lock.
 
 ## How the keyboard uses them
 
 - Spanish, French, German: swipe ranking, next-word suggestions and completions use the language's n-gram.
 - English: when `language-packs/en.ngram` + `en.vocab.tsv` and their credit/licence texts are present and verified,
-  English uses them for next-word suggestions, completions and swipe ranking instead of FUTO's `hungry_jellyfish` model.
-  If any of them is missing or fails verification, English silently keeps using FUTO's model, as before.
+  English uses them for next-word suggestions, completions and swipe ranking.
+  If any of them is missing or fails verification, English swipes and completes from its dictionary, without suggestions.
 - If a Spanish, French or German file is missing or fails verification, that language still swipes and types with its
   dictionary; only the suggestions are switched off.
 
@@ -44,11 +44,12 @@ and size, `en/es/fr/de.nwp.bin` (neural next-word models, ODC-By-1.0 AND CC-BY-2
 FineWeb-2 and Tatoeba text), `swipe-model.bin` (MIT; trained on FUTO's MIT swipe.futo.org data plus our synthetic swipes), the
 release `NOTICE.md` (installed as `MODELS-NOTICE.md`) and the MIT text of FUTO's swipe data. `scripts/fetch-assets.py`
 puts the next-word files in `assets/language-files/` (`language_pack.py` copies them next to `LANG.ngram` in
-`language-packs/`) and the swipe model in `assets/models/`; both notices go to `assets/licenses/`.
+`language-packs/`) and the swipe model in `assets/language-files/` (`language_pack.py generate_shared` installs it as
+`language-packs/swipe-model.bin`, shared by every language); both notices go to `assets/licenses/`.
 At run time (`plugin/languageprofile.cpp`) a `LANG.nwp.bin` is used only when its size and SHA-256 equal the lock; the
 engine is handed that exact path and never picks up an unchecked neighbour. A missing or altered file turns off only that
 model: the n-gram keeps working, and the language is never disabled. `swipe-model.bin` is checked the same way before the
-own engine loads it (mismatch: geometry only). The `SWIPEKB_SWIPE_MODEL` environment override (trials and tests) is not checked.
+swipe engine loads it (mismatch: geometry only). The `SWIPEKB_SWIPE_MODEL` environment override (trials and tests) is not checked.
 Test-only: `SWIPEKB_TEST_MODELS_MIRROR=<folder or URL>` makes `fetch-assets.py` read these files from a local folder instead
 of the release (the pins still decide what is accepted).
 

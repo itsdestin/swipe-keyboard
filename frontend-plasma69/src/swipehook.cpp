@@ -181,6 +181,7 @@ KeyboardAttachment::KeyboardAttachment(QQuickItem *keyboard, QQuickItem *loader,
     connect(m_loader, SIGNAL(itemChanged()), this, SLOT(decorate()), Qt::QueuedConnection);
     connect(m_keyboard, SIGNAL(packageIdChanged()), this, SLOT(decorate()), Qt::QueuedConnection);
     connect(m_keyboard, SIGNAL(layoutTypeChanged()), this, SLOT(decorate()), Qt::QueuedConnection);
+    connect(m_keyboard, SIGNAL(layoutIdChanged()), this, SLOT(decorate()), Qt::QueuedConnection);
     const int engineSignal = m_keyboard->metaObject()->indexOfSignal("inputEngineChanged()");
     if (engineSignal >= 0) {
         connect(m_keyboard, SIGNAL(inputEngineChanged()), this, SLOT(rebuild()), Qt::QueuedConnection);
@@ -234,6 +235,10 @@ void KeyboardAttachment::decorate()
     auto *item = m_loader ? qobject_cast<QQuickItem *>(m_loader->property("item").value<QObject *>()) : nullptr;
     const QString packageId = m_keyboard ? m_keyboard->property("packageId").toString() : QString();
     const bool ours = item && m_controller && m_packages.contains(packageId);
+    if (auto *controller = qobject_cast<SwipeController *>(m_controller.data())) {
+        // WHY: the language packs are verified per physical family (QWERTY, AZERTY, QWERTZ).
+        controller->setLayout(m_keyboard->property("layoutId").toString());
+    }
     // The column our row goes into: the layout itself (KeyboardLayout), or the page a KeyboardLayoutLoader shows
     // (KDE's symbol pages are Loaders with two pages).
     QQuickItem *column = item;

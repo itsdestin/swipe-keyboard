@@ -524,17 +524,14 @@ private slots:
         ic->inputEngine()->setInputMethod(nullptr);
     }
     // WHY one body for both English cases: completion must follow the pack that is installed. With the open
-    // English n-gram the typed letters are re-ranked by the sentence (like Spanish); with only FUTO's neural
-    // model nothing is sent to the completion worker, exactly as before.
+    // English n-gram the typed letters are re-ranked by the sentence (like Spanish); without it nothing is sent to
+    // the completion worker and the dictionary completes alone.
 private:
     void englishCompletion(bool withNgram) {
         const QString profile=qEnvironmentVariable("SWIPEKB_TEST_PROFILE_ASSETS"), packs=qEnvironmentVariable("SWIPEKB_TEST_LANGUAGE_PACKS");
         if(profile.isEmpty() || !QFileInfo::exists(packs+"/en.ngram"))QSKIP("English assets and an installed English n-gram fixture required");
         QTemporaryDir modelRoot;
-        for(const QString &path:{QString("models/FUTO-MODEL-LICENSE.md"),QString("models/honorable_sturgeon/model_fp32.pte"),
-            QString("models/honorable_sturgeon/metadata.json"),QString("models/magic_macaw/model_fp32.pte"),QString("models/magic_macaw/metadata.json"),
-            QString("models/hungry_jellyfish/context_lm.pte"),QString("models/hungry_jellyfish/vocab.txt"),QString("models/hungry_jellyfish/metadata.json"),
-            QString("dict/en_swipe.combined")}) {
+        for(const QString &path:{QString("dict/en_swipe.combined")}) {
             QVERIFY(QDir().mkpath(QFileInfo(modelRoot.filePath(path)).absolutePath()));
             QVERIFY2(QFile::copy(QDir(profile).filePath(path),modelRoot.filePath(path)),qPrintable(path));
         }
@@ -563,8 +560,8 @@ private:
             return QStringList{"houses","house"};});
         ic->inputEngine()->setInputMethod(&method);method.setInputMode("en_US",QVirtualKeyboardInputEngine::InputMode::Latin);method.setPhysicalLayout("qwerty");
         QVERIFY2(method.isReady(),qPrintable(method.profileSnapshot().unavailableReason));
-        QCOMPARE(method.profileSnapshot().assets["contextModel"].compatibility,
-                 withNgram ? QString("en:context-ngram-v1") : QString("en:context-v1"));
+        QCOMPARE(method.profileSnapshot().assets.value("contextModel").compatibility,
+                 withNgram ? QString("en:context-ngram-v1") : QString());
         TestPolicyBridge bridge;method.setPredictionPolicySource(&bridge);
         QGuiApplication::inputMethod()->update(Qt::ImQueryAll);QTRY_VERIFY(ic->inputItem()==&edit);
         for(auto c:QString("hou")){
@@ -576,7 +573,7 @@ private:
             QCOMPARE(contexts,QStringList({"we","live","in","a"}));
             QCOMPARE(prefixes.last(),QStringLiteral("hou"));
         } else {
-            QVERIFY(!completions.tryAcquire(1,1500)); // FUTO's neural model cannot complete a word: unchanged.
+            QVERIFY(!completions.tryAcquire(1,1500)); // no n-gram pack: dictionary completion only.
         }
         ic->inputEngine()->setInputMethod(nullptr);
     }
@@ -833,7 +830,7 @@ private slots:
         const auto beforeLayout = method.profileSnapshot().epoch;
         method.setPhysicalLayout("azerty");
         QVERIFY(method.profileSnapshot().epoch > beforeLayout);
-        QVERIFY(!method.profileSnapshot().assets.contains("decoder"));
+        QVERIFY(method.profileSnapshot().assets.contains("dictionary"));
         ic->inputEngine()->setInputMethod(nullptr);
     }
     void frenchContextModelProducesThreeSelectableQtPredictions() {

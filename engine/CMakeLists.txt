@@ -1,12 +1,15 @@
 # WHY Qt Core only: shared Unicode normalization/casing without a GUI/runtime keyboard dependency.
 find_package(Qt6 6.8 REQUIRED COMPONENTS Core)
-add_library(swipekb_engine SHARED src/normalize.cpp src/context.cpp src/ngram.cpp src/recognizer.cpp src/spelling.cpp src/ngram_predictor.cpp src/nwp_model.cpp src/nwp_predictor.cpp src/prediction.cpp)
+add_library(swipekb_engine SHARED src/normalize.cpp src/context.cpp src/ngram.cpp src/spelling.cpp src/ngram_predictor.cpp src/nwp_model.cpp src/nwp_predictor.cpp src/prediction.cpp)
 # WHY its own line: the personal-learning layer (card: open-engine Phase 2) stays separate from the predictors above.
 target_sources(swipekb_engine PRIVATE src/learning.cpp)
+# The swipe engine (network + dictionary search + geometry) and the LanguageEngine facade over all of it.
+target_sources(swipekb_engine PRIVATE src/swipe_layout.cpp src/swipe_net.cpp src/swipe_beam.cpp src/swipe_geo.cpp
+    src/swipe_engine.cpp src/swipe_lm.cpp src/language_engine.cpp)
 target_include_directories(swipekb_engine PUBLIC include)
-# WHY PRIVATE: FUTO's library forces -fno-rtti on whatever compiles against it. Keeping it private
-# confines that to this .so, so the Qt plugin (which needs RTTI) is unaffected.
-target_link_libraries(swipekb_engine PRIVATE swipe_decoder executorch Qt6::Core ${CMAKE_DL_LIBS})
+# WHY Qt Core is PUBLIC: Unicode normalisation and casing come from Qt, and tests/tools that use QString with the
+# engine headers then need nothing extra.
+target_link_libraries(swipekb_engine PUBLIC Qt6::Core)
 # Sits next to the Qt plugin, which finds it through an $ORIGIN rpath.
 set_target_properties(swipekb_engine PROPERTIES LIBRARY_OUTPUT_DIRECTORY ${SWIPEKB_QML_DIR}/SwipeKeyboard)
 
@@ -14,11 +17,10 @@ add_executable(test_normalize tests/test_normalize.cpp)
 target_link_libraries(test_normalize PRIVATE swipekb_engine GTest::gtest_main)
 add_test(NAME engine_normalize COMMAND test_normalize)
 
-add_executable(test_recognizer tests/test_recognizer.cpp)
-# WHY explicit: the multilingual completion fixture uses QTemporaryDir; the engine's Qt dependency is private.
-target_link_libraries(test_recognizer PRIVATE swipekb_engine GTest::gtest_main Qt6::Core)
-add_test(NAME engine_recognizer COMMAND test_recognizer)
-set_tests_properties(engine_recognizer PROPERTIES ENVIRONMENT "SWIPEKB_ASSETS=${SWIPEKB_ASSETS}")
+add_executable(test_language_engine tests/test_language_engine.cpp)
+target_link_libraries(test_language_engine PRIVATE swipekb_engine GTest::gtest_main)
+add_test(NAME engine_language COMMAND test_language_engine)
+set_tests_properties(engine_language PROPERTIES ENVIRONMENT "SWIPEKB_ASSETS=${SWIPEKB_ASSETS}")
 
 add_executable(test_context tests/test_context.cpp)
 target_link_libraries(test_context PRIVATE swipekb_engine GTest::gtest_main)

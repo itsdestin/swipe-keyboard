@@ -113,14 +113,7 @@ qt_add_qml_module(swipekeyboard
     SOURCES swipeinputmethod.h swipeinputmethod.cpp nextwordworker.h nextwordworker.cpp windowblur.h windowblur.cpp
             learningmanager.h learningmanager.cpp
 )
-# WHY a static library of the project's own swipe engine (card #179): opt-in alternative to FUTO's recogniser. It uses
-# NgramLM from the shared swipekb_engine, so ngram.cpp is not compiled a second time.
-add_library(swipekb_ownswipe STATIC ownswipe.cpp ../engine/src/swipe_layout.cpp ../engine/src/swipe_net.cpp
-    ../engine/src/swipe_beam.cpp ../engine/src/swipe_geo.cpp ../engine/src/swipe_engine.cpp ../engine/src/swipe_lm.cpp)
-set_target_properties(swipekb_ownswipe PROPERTIES POSITION_INDEPENDENT_CODE ON)
-target_include_directories(swipekb_ownswipe PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} ../engine/include)
-target_link_libraries(swipekb_ownswipe PUBLIC swipekb_engine Qt6::Core)
-target_link_libraries(swipekeyboard PRIVATE Qt6::Quick Qt6::VirtualKeyboard KF6::WindowSystem swipekb_session swipekb_recorder swipekb_engine swipekb_language swipekb_ownswipe)
+target_link_libraries(swipekeyboard PRIVATE Qt6::Quick Qt6::VirtualKeyboard KF6::WindowSystem swipekb_session swipekb_recorder swipekb_engine swipekb_language)
 # WHY PUBLIC include of the engine headers: swipekeyboard links the engine PRIVATE, so tests that include the plugin's
 # learningmanager.h (which includes swipekb/learning.hpp) could not find it and the full build stopped at the first
 # of them (the lighter tests/features project adds this include by hand).
@@ -183,11 +176,11 @@ qt_add_executable(tst_languageintegration tests/tst_languageintegration.cpp)
 target_include_directories(tst_languageintegration PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(tst_languageintegration PRIVATE swipekeyboard Qt6::Quick Qt6::Qml Qt6::VirtualKeyboard Qt6::Test)
 add_test(NAME plugin_languageintegration COMMAND tst_languageintegration)
-qt_add_executable(tst_ownswipeintegration tests/tst_ownswipeintegration.cpp)
-target_include_directories(tst_ownswipeintegration PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(tst_ownswipeintegration PRIVATE swipekeyboard swipekb_ownswipe Qt6::Quick Qt6::Qml Qt6::VirtualKeyboard Qt6::Test)
-target_compile_definitions(tst_ownswipeintegration PRIVATE SWIPEKB_TEST_DATA="${CMAKE_CURRENT_SOURCE_DIR}/../tests/data")
-add_test(NAME plugin_ownswipeintegration COMMAND tst_ownswipeintegration)
+qt_add_executable(tst_engineintegration tests/tst_engineintegration.cpp)
+target_include_directories(tst_engineintegration PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(tst_engineintegration PRIVATE swipekeyboard Qt6::Quick Qt6::Qml Qt6::VirtualKeyboard Qt6::Test)
+target_compile_definitions(tst_engineintegration PRIVATE SWIPEKB_TEST_DATA="${CMAKE_CURRENT_SOURCE_DIR}/../tests/data")
+add_test(NAME plugin_engineintegration COMMAND tst_engineintegration)
 # ORACLE for the Gaming Mode daemon (tests/gaming): records what the real plugin's guess bar shows for the authored
 # multilingual swipes. The daemon test (gaming_daemon) requires this to have run, via the CTest fixture below.
 qt_add_executable(tst_languageoracle tests/tst_languageoracle.cpp)
@@ -201,7 +194,7 @@ add_test(NAME plugin_languageoracle COMMAND tst_languageoracle)
 # (reported as passed, no output file) and gaming_daemon then failed on the missing file. The other language tests keep
 # their explicit opt-in because they exercise generation and licence checks that a plain build must not assume.
 set(_oracle_fixture_env "${_language_fixture_env}")
-if(NOT SWIPEKB_TEST_ENGLISH_ASSETS AND NOT SWIPEKB_TEST_LANGUAGE_PACKS AND IS_DIRECTORY "${SWIPEKB_ASSETS}/language-packs" AND IS_DIRECTORY "${SWIPEKB_ASSETS}/models")
+if(NOT SWIPEKB_TEST_ENGLISH_ASSETS AND NOT SWIPEKB_TEST_LANGUAGE_PACKS AND IS_DIRECTORY "${SWIPEKB_ASSETS}/language-packs" AND IS_DIRECTORY "${SWIPEKB_ASSETS}/dict")
     set(_oracle_fixture_env "SWIPEKB_TEST_ENGLISH_ASSETS=${SWIPEKB_ASSETS};SWIPEKB_TEST_LANGUAGE_PACKS=${SWIPEKB_ASSETS}/language-packs")
 endif()
 set_tests_properties(plugin_languageoracle PROPERTIES FIXTURES_SETUP plugin_oracle ENVIRONMENT
@@ -214,7 +207,7 @@ set_tests_properties(plugin_languageintegration PROPERTIES ENVIRONMENT
     "${_language_fixture_env};QT_QPA_PLATFORM=offscreen;QT_IM_MODULE=qtvirtualkeyboard;QT_VIRTUALKEYBOARD_DESKTOP_DISABLE=1")
 # WHY like the language integration test: it needs the same fixtures and an offscreen display. Without this it ran on
 # the real display (fails when the fixtures are supplied) and otherwise only skipped, so a break stayed invisible.
-set_tests_properties(plugin_ownswipeintegration PROPERTIES SKIP_RETURN_CODE 77 ENVIRONMENT
+set_tests_properties(plugin_engineintegration PROPERTIES SKIP_RETURN_CODE 77 ENVIRONMENT
     "${_language_fixture_env};QT_QPA_PLATFORM=offscreen;QT_IM_MODULE=qtvirtualkeyboard;QT_VIRTUALKEYBOARD_DESKTOP_DISABLE=1")
 # WHY SHARED + same output folder: a STATIC backing library makes the plugin static too, which Qt cannot load.
 # The three .so files (plugin, backing library, engine) sit side by side so the module folder is

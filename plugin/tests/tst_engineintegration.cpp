@@ -1,6 +1,6 @@
-// The project's own swipe engine inside the keyboard plugin (opt-in; FUTO stays the default).
-// WHY these cases: each guards one promise made to the owner: off by default, on only when asked, never "no swipe"
-// when the model file is missing, never a crash, and sensitive fields stay untouched.
+// The swipe engine inside the keyboard plugin (swipekb::LanguageEngine, the only swipe engine).
+// WHY these cases: each guards one promise made to the owner: the pinned model is used, never "no swipe" when the
+// model file is missing or damaged, never a crash on a broken swipe, and sensitive fields stay untouched.
 #include <QtTest>
 #include <QTemporaryDir>
 #include <QQmlComponent>
@@ -9,9 +9,9 @@
 #include <QQuickItem>
 #include <QScopeGuard>
 #include <QGuiApplication>
+#include <QFileInfo>
 #include <QtVirtualKeyboard/QVirtualKeyboardInputContext>
 #include "languagefixtures.h"
-#include "ownswipe.h"
 #include "swipeinputmethod.h"
 
 namespace {
@@ -44,27 +44,25 @@ struct EnvGuard {
 };
 }
 
-class OwnSwipeIntegrationTest : public QObject {
+class EngineIntegrationTest : public QObject {
     Q_OBJECT
-    // Runs one English swipe of "the" in a fresh keyboard whose data folder holds (or lacks) the own-engine files.
+    // Runs one English swipe of `word` in a fresh keyboard. model: use the tiny fixture model (else a missing file);
+    // pinned: leave the asset tree's own verified model in charge (no override at all).
     struct Run { QString text; QVariantMap diagnostics; int token = -1; QStringList alternatives; };
-    Run swipeThe(bool engineEnv, bool flagFile, bool model, Qt::InputMethodHints hints = Qt::ImhNone, bool damagedModel = false, const QString &word = QStringLiteral("the"), bool nanPoint = false) {
+    Run swipeThe(bool model, Qt::InputMethodHints hints = Qt::ImhNone, bool damagedModel = false, const QString &word = QStringLiteral("the"), bool nanPoint = false, bool pinned = false) {
         Run run;
         const auto assets=qEnvironmentVariable("SWIPEKB_TEST_ENGLISH_ASSETS"), packs=qEnvironmentVariable("SWIPEKB_TEST_LANGUAGE_PACKS");
         QTemporaryDir root, data;
-        // WHY SWIPEKB_SWIPE_MODEL instead of copying the 130 MB assets: the pinned asset folder is read-only and
-        // must stay byte-identical, and the default location (<model dir>/swipe-model.bin) is covered by the
-        // "missing" case, since the fixture folder has no such file.
+        // WHY SWIPEKB_SWIPE_MODEL instead of copying the assets: the pinned asset folder is read-only and must stay
+        // byte-identical; the pinned default location is covered by the `pinned` case.
         const QString modelFile=root.filePath("swipe-model.bin");
         // SWIPEKB_TEST_SWIPE_MODEL (optional) swaps the tiny fixture for a real trained model, for the manual sanity case.
         if (model) QFile::copy(qEnvironmentVariable("SWIPEKB_TEST_SWIPE_MODEL",QStringLiteral(SWIPEKB_TEST_DATA "/swipe_net/model_f32.bin")),modelFile);
         if (damagedModel) { QFile f(modelFile); (void)f.open(QIODevice::WriteOnly); f.write("SKNN-not-a-model"); }
-        if (flagFile) { QFile f(data.filePath("own-engine")); (void)f.open(QIODevice::WriteOnly); }
-        EnvGuard e1("SWIPEKB_MODEL_DATA"), e2("SWIPEKB_LANGUAGE_PACKS"), e3("SWIPEKB_DATA"), e4("SWIPEKB_ENGINE"), e5("SWIPEKB_SWIPE_MODEL");
+        EnvGuard e1("SWIPEKB_MODEL_DATA"), e2("SWIPEKB_LANGUAGE_PACKS"), e3("SWIPEKB_DATA"), e5("SWIPEKB_SWIPE_MODEL");
         qputenv("SWIPEKB_MODEL_DATA",assets.toUtf8()); qputenv("SWIPEKB_LANGUAGE_PACKS",packs.toUtf8());
         qputenv("SWIPEKB_DATA",data.path().toUtf8());
-        if (model || damagedModel) qputenv("SWIPEKB_SWIPE_MODEL",modelFile.toUtf8()); else qunsetenv("SWIPEKB_SWIPE_MODEL");
-        if (engineEnv) qputenv("SWIPEKB_ENGINE","own"); else qunsetenv("SWIPEKB_ENGINE");
+        if (pinned) qunsetenv("SWIPEKB_SWIPE_MODEL"); else qputenv("SWIPEKB_SWIPE_MODEL",modelFile.toUtf8());   // absent file = missing model
         QQmlEngine qml; QQmlComponent component(&qml);
         component.setData(QByteArray(R"(
             import QtQuick
@@ -105,49 +103,40 @@ class OwnSwipeIntegrationTest : public QObject {
     }
 private slots:
     // ---- plugin level (needs the pinned English assets, like tst_languageintegration) ----
-    void offByDefaultFutoAnswers() {
+    void pinnedModelIsUsedByDefault() {
         if (!languagefixtures::runtimeAvailable()) QSKIP("Explicit pinned English assets and real language packs required");
-        const auto r=swipeThe(false,false,true);
-        QVERIFY(r.token>=0); QVERIFY(!r.text.trimmed().isEmpty());
-        QCOMPARE(r.diagnostics["swipeEngine"].toString(),QString("futo"));
-        QCOMPARE(r.diagnostics["ownEngineSwipes"].toULongLong(),quint64(0));
-    }
-    void envSwitchUsesOwnEngine() {
-        if (!languagefixtures::runtimeAvailable()) QSKIP("Explicit pinned English assets and real language packs required");
-        const auto r=swipeThe(true,false,true);
-        QVERIFY(r.token>=0); QVERIFY(!r.text.trimmed().isEmpty());
+        if (!QFileInfo::exists(qEnvironmentVariable("SWIPEKB_TEST_LANGUAGE_PACKS")+"/swipe-model.bin")) QSKIP("Pinned swipe model not in the fixture");
+        const auto r=swipeThe(false,Qt::ImhNone,false,"the",false,true);
+        QVERIFY(r.token>=0); QCOMPARE(r.text.trimmed().toLower(),QString("the"));
         QCOMPARE(r.diagnostics["swipeEngine"].toString(),QString("own"));
-        QCOMPARE(r.diagnostics["ownEngineSwipes"].toULongLong(),quint64(1));
-        QCOMPARE(r.diagnostics["ownEngineFallbacks"].toULongLong(),quint64(0));
         QVERIFY(!r.alternatives.isEmpty());
     }
-    void flagFileUsesOwnEngine() {
+    void overrideModelIsUsed() {
         if (!languagefixtures::runtimeAvailable()) QSKIP("Explicit pinned English assets and real language packs required");
-        const auto r=swipeThe(false,true,true);
+        const auto r=swipeThe(true);
+        QVERIFY(r.token>=0); QVERIFY(!r.text.trimmed().isEmpty());
         QCOMPARE(r.diagnostics["swipeEngine"].toString(),QString("own"));
-        QCOMPARE(r.diagnostics["ownEngineSwipes"].toULongLong(),quint64(1));
     }
     void missingModelFallsBackToGeometry() {
         if (!languagefixtures::runtimeAvailable()) QSKIP("Explicit pinned English assets and real language packs required");
-        const auto r=swipeThe(true,false,false);
+        const auto r=swipeThe(false);
         QCOMPARE(r.diagnostics["swipeEngine"].toString(),QString("own-geometry"));
-        QCOMPARE(r.diagnostics["ownEngineSwipes"].toULongLong(),quint64(1)); // still answered by us, not FUTO
         QCOMPARE(r.text.trimmed().toLower(),QString("the")); // sentence start capitalises
     }
     void damagedModelFallsBackToGeometry() {
         if (!languagefixtures::runtimeAvailable()) QSKIP("Explicit pinned English assets and real language packs required");
-        const auto r=swipeThe(true,false,false,Qt::ImhNone,true);
+        const auto r=swipeThe(false,Qt::ImhNone,true);
         QCOMPARE(r.diagnostics["swipeEngine"].toString(),QString("own-geometry"));
         QCOMPARE(r.text.trimmed().toLower(),QString("the")); // sentence start capitalises
     }
-    // WHY a trace with a broken point: the own engine says "no" for it. The keyboard must then hand the swipe to FUTO
-    // (never crash or type the own engine's guess) and count the fall-back.
-    void unanswerableSwipeFallsBackToFuto() {
+    // WHY a trace with a broken point: the engine answers nothing for it. The keyboard must then type nothing (never
+    // crash or type junk), and stay ready for the next swipe.
+    void unanswerableSwipeTypesNothing() {
         if (!languagefixtures::runtimeAvailable()) QSKIP("Explicit pinned English assets and real language packs required");
-        const auto r=swipeThe(true,false,true,Qt::ImhNone,false,"the",true);
+        const auto r=swipeThe(true,Qt::ImhNone,false,"the",true);
         QVERIFY(r.token>=0);
-        QCOMPARE(r.diagnostics["ownEngineSwipes"].toULongLong(),quint64(0));
-        QCOMPARE(r.diagnostics["ownEngineFallbacks"].toULongLong(),quint64(1));
+        QVERIFY(r.text.trimmed().isEmpty());
+        QVERIFY(r.diagnostics["engineReady"].toBool());
     }
     // Manual sanity with a real trained model (skipped unless SWIPEKB_TEST_SWIPE_MODEL names one): clean straight
     // swipes of ordinary words must come out as those words through the plugin path.
@@ -155,74 +144,23 @@ private slots:
         if (!languagefixtures::runtimeAvailable() || qEnvironmentVariable("SWIPEKB_TEST_SWIPE_MODEL").isEmpty())
             QSKIP("Needs the pinned English assets and SWIPEKB_TEST_SWIPE_MODEL");
         for (const QString &word:{"hello","world","keyboard","because","thing"}) {
-            const auto r=swipeThe(true,false,true,Qt::ImhNone,false,word);
+            const auto r=swipeThe(true,Qt::ImhNone,false,word);
             QCOMPARE(r.diagnostics["swipeEngine"].toString(),QString("own"));
-            QCOMPARE(r.diagnostics["ownEngineSwipes"].toULongLong(),quint64(1));
             QCOMPARE(r.text.trimmed().toLower(),word);
         }
     }
     void deniedFieldsStayUntouched() {
         if (!languagefixtures::runtimeAvailable()) QSKIP("Explicit pinned English assets and real language packs required");
-        const auto r=swipeThe(true,false,true,Qt::ImhSensitiveData);
-        QVERIFY(r.token<0);                 // swipe refused before any recognition, exactly as with FUTO
+        const auto r=swipeThe(true,Qt::ImhSensitiveData);
+        QVERIFY(r.token<0);                 // swipe refused before any recognition
         QVERIFY(r.text.isEmpty());
-        QCOMPARE(r.diagnostics["ownEngineSwipes"].toULongLong(),quint64(0));
-        QCOMPARE(r.diagnostics["ownEngineFallbacks"].toULongLong(),quint64(0));
-    }
-
-    // ---- the glue class on its own (no assets needed) ----
-    void requestedOnlyWhenAsked() {
-        EnvGuard env("SWIPEKB_ENGINE"); qunsetenv("SWIPEKB_ENGINE");
-        QTemporaryDir dir;
-        QVERIFY(!swipekb::OwnSwipe::requested(dir.path().toStdString()));
-        QFile f(dir.filePath("own-engine")); QVERIFY(f.open(QIODevice::WriteOnly)); f.close();
-        QVERIFY(swipekb::OwnSwipe::requested(dir.path().toStdString()));
-        qputenv("SWIPEKB_ENGINE","futo");
-        QVERIFY(!swipekb::OwnSwipe::requested(dir.path().toStdString())); // an explicit env value wins
-    }
-    void glueAnswersAndRefusesBadInput() {
-        QTemporaryDir dir;
-        QFile d(dir.filePath("t.combined")); QVERIFY(d.open(QIODevice::WriteOnly));
-        d.write("dictionary=main:en,locale=en,version=1\n word=the,f=220,flags=,originalFreq=220\n word=he,f=210\n word=she,f=200\n"
-                " word=don't,f=190\n word=bad,f=0\n word=zzz,f=100,nonword=true\n word=cat,f=150\n"); d.close();
-        swipekb::OwnSwipeSetup setup; setup.dictionary=d.fileName().toStdString();
-        swipekb::OwnSwipe own; QVERIFY(own.init(setup));
-        QVERIFY(!own.hasModel()); QCOMPARE(QString(own.mode()),QString("own-geometry"));
-        std::vector<swipekb::KeyRect> keys; const QStringList rows{"qwertyuiop","asdfghjkl","zxcvbnm"};
-        for (int r=0;r<rows.size();++r) for (int i=0;i<rows[r].size();++i) keys.push_back({char32_t(rows[r][i].unicode()),float(i*100),float(r*100),100,100});
-        std::vector<swipekb::TracePoint> trace; float t=0;
-        for (const auto &p:traceFor("the",qwertyKeys())) { const auto m=p.toMap(); trace.push_back({m["x"].toFloat(),m["y"].toFloat(),t}); t+=16; }
-        swipekb::OwnSwipe::Result res;
-        QVERIFY(own.recognize(trace,keys,{},10,res));
-        QCOMPARE(QString::fromStdString(res.words.front()),QString("the"));
-        QVERIFY(std::find(res.words.begin(),res.words.end(),std::string("zzz"))==res.words.end()); // nonword entries never offered
-        QCOMPARE(QString::fromStdString(res.bestShape).isEmpty(),false);
-        // Moving the keys (a window resize) must keep answering without a rebuild failure.
-        auto scaled=keys; for (auto &k:scaled) { k.x*=2; k.y*=2; k.w*=2; k.h*=2; }
-        auto big=trace; for (auto &p:big) { p.x*=2; p.y*=2; }
-        QVERIFY(own.recognize(big,scaled,{},10,res)); QCOMPARE(QString::fromStdString(res.words.front()),QString("the"));
-        // Unusable inputs answer "no" (the plugin then uses FUTO) instead of guessing or crashing.
-        QVERIFY(!own.recognize({trace.front()},keys,{},10,res));
-        QVERIFY(!own.recognize(trace,{},{},10,res));
-        auto zeroSized=keys; zeroSized[0].w=0;
-        QVERIFY(!own.recognize(trace,zeroSized,{},10,res));
-        auto nan=trace; nan[3].x=std::nanf("");
-        QVERIFY(!own.recognize(nan,keys,{},10,res));
-    }
-    void glueRefusesUnreadableDictionary() {
-        swipekb::OwnSwipeSetup setup; setup.dictionary="/nonexistent/dictionary.combined";
-        swipekb::OwnSwipe own; QVERIFY(!own.init(setup));
-        QTemporaryDir dir; QFile d(dir.filePath("empty.combined")); QVERIFY(d.open(QIODevice::WriteOnly)); d.write("dictionary=x\n"); d.close();
-        setup.dictionary=d.fileName().toStdString();
-        QVERIFY(own.init(setup));      // file exists, but holds no words: the first swipe says no
-        std::vector<swipekb::KeyRect> keys{{'a',0,0,10,10},{'b',10,0,10,10}};
-        swipekb::OwnSwipe::Result res;
-        QVERIFY(!own.recognize({{1,1,0},{15,5,10}},keys,{},5,res));
     }
 };
 
 int main(int argc,char **argv) {
-    QGuiApplication app(argc,argv); OwnSwipeIntegrationTest test;
-    return QTest::qExec(&test,argc,argv);
+    QGuiApplication app(argc,argv); EngineIntegrationTest test;
+    const int result=QTest::qExec(&test,argc,argv);
+    // WHY CTest must show missing fixtures as skipped, never as a green pass.
+    return result ? result : (languagefixtures::runtimeAvailable() ? 0 : 77);
 }
-#include "tst_ownswipeintegration.moc"
+#include "tst_engineintegration.moc"

@@ -51,8 +51,8 @@ def check_desktop(path):
 def check_multilingual_context_assets(base, lock):
     """Pin every language's n-gram, vocabulary, contributor credit and the web/Tatoeba/notice texts.
 
-    WHY English too: the open English n-gram replaces FUTO's neural model, so a package without it would
-    silently lose English prediction quality.
+    WHY English too: the open English n-gram is English's only next-word model, so a package without it would
+    silently lose English next-word suggestions.
     """
     models = lock.get('multilingual_context_models')
     if not isinstance(models, dict):
@@ -78,7 +78,7 @@ def check_multilingual_context_assets(base, lock):
         if language == 'en':
             continue  # English has no manifest; it is selected by the profile code from the same pinned files.
         manifest = json.loads((packs/f'{language}.json').read_text())
-        assert manifest.get('language') == language and manifest.get('schema') == 2, f'Invalid {language} model manifest'
+        assert manifest.get('language') == language and manifest.get('schema') == 3 and manifest.get('compatibility') == 'swipekb-open-v1', f'Invalid {language} model manifest'
         assert manifest.get('contextFormat') == 'swk-ngram-v2', f'Unsupported {language} context format'
         roles = manifest.get('assets', {})
         for role, name, hash_key, size_key in (('contextModel', f'{language}.ngram', 'modelSha256', 'modelBytes'),
@@ -106,7 +106,7 @@ def check_trained_models(root, lock):
 
     WHY mandatory in a package: the keyboard silently runs without any model it cannot verify, so a package that
     dropped or altered one would only show up as worse suggestions. Licences: the notice (credit + sources) and the
-    MIT text of FUTO's swipe data must sit in the licence folder.
+    MIT text of the swipe model's training data must sit in the licence folder.
     """
     models = lock.get('trained_models')
     assert isinstance(models, dict), 'Missing pinned trained-model metadata'
@@ -117,7 +117,7 @@ def check_trained_models(root, lock):
         assert len(data) == pin['bytes'], f'{language} {pin["path"]} size mismatch'
         assert hashlib.sha256(data).hexdigest() == pin['sha256'], f'{language} {pin["path"]} hash mismatch'
     swipe = models['swipe']
-    data = (base/'models'/pathlib.PurePosixPath(swipe['path']).name).read_bytes()
+    data = (base/'language-packs'/pathlib.PurePosixPath(swipe['path']).name).read_bytes()
     assert len(data) == swipe['bytes'] and hashlib.sha256(data).hexdigest() == swipe['sha256'], 'swipe-model.bin differs from its pin'
     for key in ('notice', 'swipeDataTerms'):
         entry = models[key]
@@ -144,10 +144,6 @@ def check(root):
                 'qml/SwipeKeyboard/qmldir', 'qml/SwipeKeyboard/SwipeCapture.qml',
                 'qml/SwipeKeyboard/libswipekeyboard.so', 'qml/SwipeKeyboard/libswipekeyboardplugin.so',
                 'qml/SwipeKeyboard/libswipekb_engine.so',
-                'models/honorable_sturgeon/model_fp32.pte', 'models/honorable_sturgeon/metadata.json',
-                'models/magic_macaw/model_fp32.pte', 'models/magic_macaw/metadata.json',
-                'models/hungry_jellyfish/context_lm.pte', 'models/hungry_jellyfish/vocab.txt',
-                'models/hungry_jellyfish/metadata.json', 'models/FUTO-MODEL-LICENSE.md',
                 'dict/en_swipe.combined']
     required += ['integration/swipekb-profilecheck']
     # Plasma 6.9's front end (frontend-plasma69) and its package generator.
@@ -162,10 +158,8 @@ def check(root):
                  'usr/share/licenses/swipe-keyboard/TATOEBA-CC-BY-2.0-FR.txt']:
         assert (root/name).is_file(), f'Missing {name}'
     lock = json.loads((root/'usr/share/licenses/swipe-keyboard/assets.lock.json').read_text())
-    for asset in lock['assets']:
-        if asset['path'].startswith('models/'):
-            payload = base/asset['path']
-            assert hashlib.sha256(payload.read_bytes()).hexdigest() == asset['sha256'], f'Corrupt {payload}'
+    # WHY: the package carries only the project's own engine; an old models/ folder must never come back.
+    assert not (base/'models').exists(), 'Unexpected models/ folder (the swipe model sits in language-packs/)'
     assert hashlib.sha256((base/'dict/en_swipe.combined').read_bytes()).hexdigest() == lock['dictionary_sha256'], 'Dictionary differs from pinned build output'
     check_multilingual_context_assets(base, lock)
     check_trained_models(root, lock)
@@ -191,8 +185,7 @@ def check(root):
         capability = json.loads(query.stdout)
         assert capability['swipeCapable'], f'Pack unavailable for {locale}'
         assert capability['scope'] == 'queried-installation-capability'
-        if not locale.startswith('en'):
-            assert capability['nextWordCapable'] and capability['contextRankingCapable'], f'Context pack unavailable for {locale}'
+        assert capability['nextWordCapable'] and capability['contextRankingCapable'], f'Context pack unavailable for {locale}'
         if locale.startswith('es-'):
             assert capability['packId'] == 'fineweb-es', f'{locale} must use the shared Spanish pack'
     for library in (base/'qml/SwipeKeyboard69').glob('*.so*'):

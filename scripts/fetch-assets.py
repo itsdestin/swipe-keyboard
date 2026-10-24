@@ -77,9 +77,8 @@ def language_file_assets(lock):
 def trained_model_assets(lock):
     """The trained models (release `trained_models` in the lock), as fetch() assets with their install-tree paths.
 
-    WHY pinned like the FUTO files: they are downloaded once from the public release and every build re-verifies
-    them by SHA-256. Paths are inside <assets>: next-word models and notices under language-files/ (the language
-    packs are generated from there), the swipe model under models/ (where the keyboard looks for it).
+    WHY pinned: they are downloaded once from the public release and every build re-verifies them by SHA-256.
+    Paths are inside <assets>/language-files (the language packs are generated from there).
     Test-only: SWIPEKB_TEST_MODELS_MIRROR (a folder or URL holding the same file names) replaces the release URL, so
     the install path can be exercised before the release exists; the pins still decide whether a file is accepted.
     """
@@ -104,7 +103,8 @@ def trained_model_assets(lock):
 def fetch_trained_models(assets, lock):
     for asset in trained_model_assets(lock):
         fetch(asset, assets/asset['path'])
-    # WHY in licenses/ too: the MIT notice for FUTO's swipe data and the models' credit/source notice must ship with them.
+    # WHY in licenses/ too: the MIT notice of the swipe model's training data and the models' credit/source notice
+    # must ship with them.
     (assets/'licenses').mkdir(parents=True, exist_ok=True)
     for key in ('notice', 'swipeDataTerms'):
         name = lock['trained_models'][key]['path']
@@ -138,8 +138,10 @@ def prepare_language_packs(assets):
     for language in ('es', 'fr', 'de'):
         size = module.generate(language, assets, assets/'language-packs')
         print(f'{language}: {size} dictionary bytes; quality not native-reviewed')
-    # WHY after the three packs: English next-word files live beside them so one folder holds every language's files.
+    # WHY after the three packs: English next-word files and the shared swipe model live beside them, so one folder
+    # holds every language's files.
     module.generate_english_context(assets, assets/'language-packs')
+    module.generate_shared(assets, assets/'language-packs')
 
 
 def main():
@@ -159,14 +161,6 @@ def main():
     if encoded.exists():
         (licenses/'AOSP-NOTICE').write_bytes(base64.b64decode(encoded.read_bytes()))
         encoded.unlink()
-    dependency = ROOT/'third_party/swipe-library'
-    for source in dependency.rglob('*'):
-        if source.is_file() and source.name.upper().startswith(('LICENSE', 'COPYING', 'NOTICE')):
-            relative = source.relative_to(dependency)
-            if not any(x.startswith(('.', 'build', 'cmake-out')) for x in relative.parts):
-                target = licenses/'third-party'/relative
-                target.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(source, target)
     shutil.copy2(ROOT/'packaging/NOTICE', licenses/'NOTICE')
     # WHY before the packs: they embed these files (and refuse to build on a hash mismatch).
     fetch_language_files(args.assets)

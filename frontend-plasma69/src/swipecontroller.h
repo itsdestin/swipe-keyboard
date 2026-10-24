@@ -28,7 +28,8 @@
 #include "learningmanager.h"
 #include "nextwordsession.h"
 #include "nextwordworker.h"
-#include "openengine.h"
+#include "languageprofile.h"
+#include "swipekb/language_engine.hpp"
 #include "ownedhistory.h"
 #include "swipesession.h"
 #include "typedwordsession.h"
@@ -55,7 +56,7 @@ public:
     bool ready() const;
     QString language() const
     {
-        return m_lang.language;
+        return m_profile.effectiveLanguage;
     }
     bool fieldAllowsSwipe() const;
     QStringList candidates() const;
@@ -71,6 +72,10 @@ public:
 
     // The language follows the layout's locale; called by the hook (and tests) with "en_US", "de_DE", ...
     void setLocale(const QString &locale);
+    // KDE's layout id ("org.kde.plasma.keyboard.de_DE/mobile-qwertz"); the profile needs its physical family.
+    void setLayout(const QString &kdeLayoutId);
+    // "qwerty", "azerty", "qwertz", or "" for a layout the language packs do not declare (Dvorak...).
+    static QString physicalLayout(const QString &kdeLayoutId);
     // Letter keys measured by the layer ({letter,x,y,w,h}): true when every letter of the language has a key.
     Q_INVOKABLE bool readyForKeys(const QVariantList &keys) const;
 
@@ -145,8 +150,9 @@ private:
     void syncLearnedWords(bool force = false);
 
     QPointer<EditorPort> m_editor;
-    swipekb69::OpenLanguage m_lang;
-    std::unique_ptr<swipekb69::LanguageEngine> m_engine;
+    swipekb::ProfileSnapshot m_profile;
+    std::unique_ptr<swipekb::LanguageEngine> m_engine;
+    QString m_physicalLayout = QStringLiteral("qwerty");
     QString m_locale;
     quint64 m_epoch = 1; // profile epoch: changes with the language
     quint64 m_focusEpoch = 1; // field identity: changes with hints/focus (the policy's context id)
