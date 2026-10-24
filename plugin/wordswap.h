@@ -1,7 +1,7 @@
 /*
  * SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
  *
- * SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+ * SPDX-License-Identifier: MIT
  */
 
 // WordSwap — "tap an existing word, see alternatives, swap it" (card #187). Pure text rules: finding the word

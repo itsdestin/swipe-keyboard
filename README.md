@@ -195,7 +195,8 @@ Swiping, completion and suggestions run on the project's own open engine. Code l
 ## Licences
 
 Most of Swipe Keyboard is **MIT**: the engine (swipe recognition, dictionary, completion, next-word prediction, learning),
-the tools and training/benchmark scripts, the launcher and command-line tool, the Gaming Mode daemon and the build files.
+the tools and training/benchmark scripts, the launcher and command-line tool, the Gaming Mode daemon, the shared language
+and session rules (also used by Gaming Mode) and the build files.
 Two parts are **GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL** (KDE's standard licence), because they plug
 into GPL software and must stay compatible with it: `plugin/` (the Plasma 6.7/6.8 add-on, linked with Qt Virtual
 Keyboard, which is GPL-3.0-only) and `frontend-plasma69/` (the Plasma 6.9 add-on, which runs inside KDE's

@@ -1,7 +1,7 @@
 /*
  * SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
  *
- * SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+ * SPDX-License-Identifier: MIT
  */
 
 // SwipeOutcomeTracker — decides how each swiped word "ended", so we can measure how often the owner has to

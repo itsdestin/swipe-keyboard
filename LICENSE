@@ -4,8 +4,9 @@ Swipe Keyboard follows the REUSE specification (https://reuse.software): every f
 licence, either in an SPDX header or in REUSE.toml, and the full licence texts are in LICENSES/.
 
 - MIT: the engine (engine/: swipe recognition, dictionary, completion, prediction, learning), tools/, scripts/,
-  bench/, the launcher and command-line tool (integration/), the Gaming Mode daemon (gaming/), their tests and all
-  CMake build files.
+  bench/, the launcher and command-line tool (integration/), the Gaming Mode daemon (gaming/), the shared language
+  and session rules that sit in plugin/ but are also used by Gaming Mode, the tools and the Plasma 6.9 front end
+  (each file says MIT in its header), their tests and all CMake build files.
 - GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL (KDE's standard; you may use the GNU GPL version 2 or
   version 3, or a later version accepted by KDE e.V.): only the keyboard add-on layers, because they plug into GPL
   software and must stay compatible with it: plugin/ (Plasma 6.7/6.8, linked with Qt Virtual Keyboard, GPL-3.0-only)
@@ -16,8 +17,7 @@ licence, either in an SPDX header or in REUSE.toml, and the full licence texts a
   AOSP word list Apache-2.0, the swear-word lists CC-BY-4.0, the texting-word lists CC0-1.0, the trained models as
   declared in their release (see packaging/NOTICE and packaging/language-models/README.md).
 
-Note on built programs: the shared language and session rules live in plugin/ (KDE's GPL choice) and are also linked
-into the Gaming Mode daemon and some tools, so those binaries as built combine MIT and GPL code and are distributed
-under the GPL's terms; their own source files remain MIT.
+Built programs: the Gaming Mode daemon and the tools are built only from MIT code (and Qt, under the LGPL), so they
+are MIT as built. The two keyboard add-on layers are GPL as built, since they combine with GPL software.
 
 Copyright 2026 Destin Moss <https://youcoded.ai> unless a file says otherwise.

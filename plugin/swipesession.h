@@ -1,7 +1,7 @@
 /*
  * SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
  *
- * SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+ * SPDX-License-Identifier: MIT
  */
 
 // SwipeSession — the text decisions around one swiped word: whether it needs a space before it, its

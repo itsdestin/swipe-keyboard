@@ -37,8 +37,25 @@ def header_licence(path):
     return found.group(1).strip() if found else None
 
 
+def shared_plugin_files():
+    """The plugin/ sources that Gaming Mode, the tools and the 6.9 front end also build: MIT (owner decision 2026-10-23).
+
+    WHY read from plugin/CMakeLists.txt, not a hand list: a file added to these libraries later must be MIT too, or the
+    daemon and tools would quietly become GPL as built again."""
+    cmake = (ROOT/'plugin/CMakeLists.txt').read_text()
+    names = set()
+    for lib in ('swipekb_language', 'swipekb_session'):
+        sources = re.search(r'add_library\(' + lib + r' STATIC ([^)]*)\)', cmake).group(1).split()
+        names |= {pathlib.Path(s).stem for s in sources if s.endswith('.cpp') and not s.startswith('../')}
+    names |= {'nextwordworker', 'learningmanager'}   # built into frontend-plasma69's core and the feature tests
+    return {f'plugin/{n}{ext}' for n in names for ext in ('.cpp', '.h') if (ROOT/f'plugin/{n}{ext}').exists()}
+
+
+SHARED = shared_plugin_files()
+
+
 def wanted(path):
-    if path.endswith('CMakeLists.txt') or path.endswith('.cmake'):
+    if path.endswith('CMakeLists.txt') or path.endswith('.cmake') or path in SHARED:
         return 'MIT'
     return KDE_GPL if path.startswith(GPL_FOLDERS) else 'MIT'
 
@@ -61,6 +78,7 @@ class Licensing(unittest.TestCase):
         # Spot checks of the decision itself, so a bulk edit cannot quietly flip a whole part.
         for path in ('engine/src/language_engine.cpp', 'engine/src/learning.cpp', 'tools/swipekb-bench.cpp',
                      'scripts/fetch-assets.py', 'integration/setup.py', 'integration/plasma69.py', 'gaming/daemon/server.cpp',
+                     'plugin/languageprofile.cpp', 'plugin/swipesession.h', 'plugin/learningmanager.cpp',
                      'CMakeLists.txt', 'plugin/CMakeLists.txt', 'frontend-plasma69/CMakeLists.txt'):
             self.assertEqual(header_licence(path), 'MIT', path)
         for path in ('plugin/swipeinputmethod.cpp', 'plugin/SwipeCapture.qml', 'frontend-plasma69/src/swipecontroller.cpp',
@@ -70,6 +88,13 @@ class Licensing(unittest.TestCase):
         toml = (ROOT/'REUSE.toml').read_text()
         patch = toml[toml.index('scripts/patches/plasma-prediction-policy.patch'):]
         self.assertIn(KDE_GPL, patch.split('[[annotations]]')[0])
+
+    def test_gaming_mode_and_tools_build_only_mit_plugin_code(self):
+        # WHY: these programs link swipekb_language / swipekb_session; if any of their sources were GPL, the programs
+        # would be GPL as built (LICENSE says they are MIT).
+        self.assertGreaterEqual(len(SHARED), 20)
+        for path in SHARED:
+            self.assertEqual(header_licence(path), 'MIT', path)
 
     def test_licences_folder_holds_exactly_the_licences_in_use(self):
         names = {p.stem for p in (ROOT/'LICENSES').glob('*.txt')}

@@ -46,7 +46,9 @@ Before a release, complete `docs/release-acceptance.md`. Give Qt/KDE, dictionary
 ## Licensing
 
 The project is REUSE-compliant (`reuse lint` must pass) and "MIT where possible" (owner decision 2026-10-23): engine,
-tools, scripts, benchmarks, launcher, Gaming Mode daemon, their tests and every CMake file `MIT`; only `plugin/`,
+tools, scripts, benchmarks, launcher, Gaming Mode daemon, the shared language/session rules in `plugin/` (the
+`swipekb_language`/`swipekb_session` sources plus `nextwordworker` and `learningmanager`, which Gaming Mode, the tools and
+the 6.9 front end also build), their tests and every CMake file `MIT`; only the rest of `plugin/`,
 `frontend-plasma69/` (both plug into GPL code) and KDE's code in `scripts/patches/` use
 `GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL`; documentation `CC-BY-4.0`; trivial data `CC0-1.0`;
 data files keep their own licences (see `REUSE.toml`). New source files start with an SPDX header
