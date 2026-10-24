@@ -1,0 +1,29 @@
+# Swipe accuracy of a whole build, from its SHIPPED files (dictionary, sentence pack, swipe model). One row per measurement.
+# set: bench-2000 / test-extra-10000 = real English swipes (public MIT test split, never trained or tuned on);
+#   '-futo-scorable' = only the swipes FUTO's scorer counts (target of 2+ letters, more than 2 trace points);
+#   heliboard-LANG = real HeliBoard Gesture Data swipes (CC BY-SA, test only, no sentences, per-swipe real key boxes).
+# context: yes = the previous words of the sentence are given; no = none (with a sentence pack: scored as a sentence's first word).
+# sentence_pack: yes = the build's LANG.ngram ranks the guesses; no = dictionary word frequency only.
+# match: letters = lower case, letters only (don't = dont); lookup = lower case, accents kept, apostrophes/hyphens dropped.
+date	build	set	swipes	context	sentence_pack	match	first_pct	top3_pct	notes
+2026-10-24	0.5.0-0.1 (6c4b0c3)	bench-2000	2000	yes	yes	letters	90.10	93.55	tools/swipekb-bench, qwerty.tsv layout
+2026-10-24	0.5.0-0.1 (6c4b0c3)	bench-2000	2000	no	yes	letters	88.15	93.15	tools/swipekb-bench, qwerty.tsv layout
+2026-10-24	0.5.0-0.1 (6c4b0c3)	bench-2000	2000	no	no	letters	89.20	93.65	tools/swipekb-bench, qwerty.tsv layout
+2026-10-24	0.5.0-0.1 (6c4b0c3)	bench-2000-futo-scorable	1946	yes	yes	letters	91.47	95.02	tools/swipekb-bench, qwerty.tsv layout
+2026-10-24	0.5.0-0.1 (6c4b0c3)	bench-2000-futo-scorable	1946	no	yes	letters	89.47	94.60	tools/swipekb-bench, qwerty.tsv layout
+2026-10-24	0.5.0-0.1 (6c4b0c3)	bench-2000-futo-scorable	1946	no	no	letters	90.54	95.12	tools/swipekb-bench, qwerty.tsv layout
+2026-10-24	0.5.0-0.1 (6c4b0c3)	test-extra-10000	10000	yes	yes	letters	90.45	93.82	tools/swipekb-bench, qwerty.tsv layout
+2026-10-24	0.5.0-0.1 (6c4b0c3)	test-extra-10000	10000	no	yes	letters	88.10	93.22	tools/swipekb-bench, qwerty.tsv layout
+2026-10-24	0.5.0-0.1 (6c4b0c3)	test-extra-10000	10000	no	no	letters	89.25	93.47	tools/swipekb-bench, qwerty.tsv layout
+2026-10-24	0.5.0-0.1 (6c4b0c3)	test-extra-10000-futo-scorable	9719	yes	yes	letters	92.03	95.47	tools/swipekb-bench, qwerty.tsv layout
+2026-10-24	0.5.0-0.1 (6c4b0c3)	test-extra-10000-futo-scorable	9719	no	yes	letters	89.61	94.87	tools/swipekb-bench, qwerty.tsv layout
+2026-10-24	0.5.0-0.1 (6c4b0c3)	test-extra-10000-futo-scorable	9719	no	no	letters	90.80	95.12	tools/swipekb-bench, qwerty.tsv layout
+2026-10-14	FUTO Swipe reference (0.3.x keyboard, 370d6f5)	bench-2000-futo-scorable	1946	yes	FUTO context model	letters	93.32	96.56	bench/history.tsv; FUTO scorer skips 54 of the 2,000
+2026-10-24	0.5.0-0.1 (6c4b0c3)	heliboard-en	4576	no	yes	lookup	80.5	91.4	tools/swipekb-language-bench, shipped profile; evaluated cases
+2026-10-24	0.5.0-0.1 (6c4b0c3)	heliboard-es	4790	no	yes	lookup	75.9	84.7	tools/swipekb-language-bench, shipped profile; evaluated cases
+2026-10-24	0.5.0-0.1 (6c4b0c3)	heliboard-fr	4999	no	yes	lookup	68.2	82.0	tools/swipekb-language-bench, shipped profile; evaluated cases
+2026-10-24	0.5.0-0.1 (6c4b0c3)	heliboard-de	4980	no	yes	lookup	64.7	73.1	tools/swipekb-language-bench, shipped profile; evaluated cases
+2026-10-22	FUTO keyboard 0.3.1 reference (old word lists)	heliboard-en	4576	no	FUTO context model	lookup	84.5	93.4	bench/languages/heliboard.md
+2026-10-22	FUTO keyboard 0.3.1 reference (old word lists)	heliboard-es	4790	no	FUTO context model	lookup	77.7	85.1	bench/languages/heliboard.md
+2026-10-22	FUTO keyboard 0.3.1 reference (old word lists)	heliboard-fr	4999	no	FUTO context model	lookup	64.6	76.9	bench/languages/heliboard.md
+2026-10-22	FUTO keyboard 0.3.1 reference (old word lists)	heliboard-de	4980	no	FUTO context model	lookup	69.7	76.4	bench/languages/heliboard.md

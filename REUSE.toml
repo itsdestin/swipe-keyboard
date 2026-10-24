@@ -21,7 +21,7 @@ SPDX-License-Identifier = "CC-BY-4.0"
 # Trivial or generated data: configuration, manifests, locks, layouts, benchmark logs, test fixtures.
 [[annotations]]
 path = [".gitignore", ".gitattributes", "**.json", "plugin/language-assets.qrc", "scripts/swipe/layouts/**",
-        "bench/history.tsv", "bench/scoreboard.tsv", "bench/nextword-es.tsv", "bench/languages/**.json",
+        "bench/history.tsv", "bench/scoreboard.tsv", "bench/swipe-scoreboard.tsv", "bench/nextword-es.tsv", "bench/languages/**.json",
         "tests/data/**", "tests/gaming/fixtures/**", "docs/practice/**"]
 precedence = "aggregate"
 SPDX-FileCopyrightText = "2026 Destin Moss <https://youcoded.ai>"

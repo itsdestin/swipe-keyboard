@@ -159,6 +159,14 @@ final chosen model only): bench-2000 90.40 / 94.95 all swipes, 92.34 / 96.99 in-
 (FUTO 92.5 / 96.3 on the 2,909 swipes it scores). HeliBoard (test only, 260k lists; case-insensitive; all 5,000): en 82.1 / 91.5,
 es 81.1 / 89.8, fr 71.7 / 85.9, de 73.3 / 82.3.
 
+**Shipped build (0.5.0-0.1, 2026-10-24; `bench/swipe-scoreboard.tsv`).** The numbers above are the swipe model alone
+(`swipekb-swipenet-bench`, frequency prior, its own word list). Through `swipekb::LanguageEngine` with the files that ship
+(dictionary, apostrophe-aware `en.ngram`, this model): bench-2000 with previous words 90.10 / 93.55 (all 2,000), 91.47 / 95.02
+on the 1,946 swipes FUTO's scorer counts -- the setting of FUTO's 93.32 / 96.56; no previous words 88.15 / 93.15 (n-gram
+scores every word as a sentence start), without the n-gram 89.20 / 93.65. test-extra-10000: 90.45 / 93.82 with context,
+92.03 / 95.47 on its 9,719 FUTO-scorable swipes. HeliBoard with the shipped 100k word lists (`swipekb-language-bench`,
+lookup match): en 80.5 / 91.4, es 75.9 / 84.7, fr 68.2 / 82.0, de 64.7 / 73.1 (the 260k-list figures above are not what ships).
+
 **Sentence-context prior** (previous words rebuilt from `sentence` + `word_idx`; `NgramWordPrior` with
 `release-v2/en.ngram`, weight 1.0, `swipekb-swipenet-bench --ngram ... --context`): on trv8k T1 goes from 92.19 / 95.79
 (frequency prior) to 93.10 / 95.92 first/top-3 (in-dictionary 95.28 / 98.17): +0.9 first guess; plain-unigram n-gram

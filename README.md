@@ -5,7 +5,7 @@ Swipe across the letters to type a word, or tap normally. It adds swipe typing, 
 - **Works on:** KDE Plasma on Wayland (Plasma Keyboard 6.7 or newer): Arch/CachyOS, Fedora 44 (including Plasma Mobile on ARM64) and Steam Deck Desktop Mode. Steam Deck Gaming Mode is a preview.
 - **Private:** nothing is sent anywhere. Learning from your typing is off unless you turn it on, and recording is off.
 - **Open:** the recognition engine and the models are open source and reusable; see [For developers](#for-developers).
-- **Honest limits:** on English swipes it is a few points less accurate than the FUTO engine used up to version 0.4.1 (see [How good is it](#how-good-is-it)). Spanish, French and German next-word suggestions are early baselines. Plasma 6.9 support has not yet been tried on a real device.
+- **Honest limits:** on English, Spanish and German swipes it is a few points less accurate than the FUTO engine used up to version 0.4.1 (see [How good is it](#how-good-is-it)). Spanish, French and German next-word suggestions are early baselines. Plasma 6.9 support has not yet been tried on a real device.
 
 **Test release v0.5.0-1**
 
@@ -177,8 +177,8 @@ If restoring the keyboard fails, removal stops. Follow the error or use the [rec
 ## How good is it
 
 - **Suggestions (next word and completion).** On our recorded test queries in all four languages, the suggestions were ahead of Gboard on every measure, by about 4 to 20 points. The test: **Gboard 14.2, Android 35 emulator, learning off, tested 2026-10-22**, 100 sentences per set. Newer Gboard versions and Gboard after it has learned from a user were not measured, so this says nothing general about Gboard.
-- **Swipe typing, English.** On 2,000 real swipes the first guess is right 90.4 % of the time and the right word is in the top 3 for 95.0 %. The FUTO engine used up to version 0.4.1 scored 93.3 % and 96.6 % on the same swipes. This model was measured before the final 0.5.0 build and has not been re-measured since. Swipe typing was not compared with Gboard.
-- **Swipe typing, Spanish, French, German.** 72 to 81 % first guess on 5,000 real swipes each from another project's test data. Their training data is partly synthetic.
+- **Swipe typing, English.** On 1,946 real swipes typed inside sentences (the keyboard knows the earlier words), the first guess is right 91.5 % of the time and the right word is in the top 3 for 95.0 %. The FUTO engine used up to version 0.4.1 scored 93.3 % and 96.6 % on the same swipes, measured the same way. For the first word of a sentence ours is right 89.5 % of the time. Measured on the final 0.5.0 test build, 2026-10-24 ([all rows](bench/swipe-scoreboard.tsv)). Swipe typing was not compared with Gboard.
+- **Swipe typing, Spanish, French, German.** First guess right 75.9 % (Spanish), 68.2 % (French) and 64.7 % (German) on about 5,000 real swipes each from another project's test data, with no sentence around them. On the same swipes the FUTO engine of version 0.4.1 scored 77.7 %, 64.6 % and 69.7 %: French is better now, Spanish and German worse. Their training data is partly synthetic, and the German word list lacks about one in five of the test words.
 - Test sets are small, so differences under about 1 to 2 points are noise. How everything was measured, and one measurement error we found and retracted: [docs/methods.md](docs/methods.md). Per-model tables: [docs/models](docs/models/README.md).
 
 ## For developers
