@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
 //
-// SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+// SPDX-License-Identifier: MIT
 
 // Gesture arbiter tests (plan M4). Run through tests/gaming/test_layer.py (or `node --test tests/gaming/test_layer.js`).
 // Every behaviour is checked against the Steam-keyboard model in fake_keyboard.js, with the layer on AND off,

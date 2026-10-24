@@ -2,7 +2,7 @@
 
 # SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
 #
-# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+# SPDX-License-Identifier: MIT
 
 """Tests for the typing half of the helper (plan M5): the __swipekb binding, the checks on every page message, the engine
 conversation, the commit through Steam's text call, and what is (not) written to disk.

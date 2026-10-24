@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
 //
-// SPDX-License-Identifier: LGPL-2.1-only OR LGPL-3.0-only OR LicenseRef-KDE-Accepted-LGPL
+// SPDX-License-Identifier: MIT
 
 // Next-word suggestions from a language's n-gram pack plus, when the pack has one, its neural model
 // (LANG.nwp.bin next to LANG.ngram): the path of swipekb::Predictor for Spanish, French, German and English.

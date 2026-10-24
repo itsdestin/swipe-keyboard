@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
 //
-// SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+// SPDX-License-Identifier: MIT
 
 // swipekb-gamingd — the Gaming Mode engine daemon. See protocol.hpp for the wire protocol and the plan
 // (docs/active/plans/2026-10-22-gaming-mode.md, Sections 3, 5, 8, 9) for why it exists.

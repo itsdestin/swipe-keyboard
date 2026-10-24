@@ -2,7 +2,7 @@
 
 # SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
 #
-# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+# SPDX-License-Identifier: MIT
 
 # Installs the Gaming Mode helper (gaming/helper/swipekb_helper, plain Python, standard library only) into the
 # GamingHelper Flatpak. Run by flatpak-builder from the copied source tree; SWIPEKB_HELPER_PREFIX exists only so

@@ -2,7 +2,7 @@
 
 # SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
 #
-# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+# SPDX-License-Identifier: MIT
 
 # stage-test-install.sh — turn a staged build (DESTDIR-style tree) into a throw-away Arch package for a first real
 # test install, and roll back to the package that was installed before. Nothing here runs by itself: every command is

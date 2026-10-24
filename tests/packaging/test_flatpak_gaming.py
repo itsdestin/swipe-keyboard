@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
 #
-# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+# SPDX-License-Identifier: MIT
 
 """Packaging contracts for Gaming Mode (plan docs/active/plans/2026-10-22-gaming-mode.md, Sections 4, 5, 9).
 

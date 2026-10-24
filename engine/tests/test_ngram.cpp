@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
 //
-// SPDX-License-Identifier: LGPL-2.1-only OR LGPL-3.0-only OR LicenseRef-KDE-Accepted-LGPL
+// SPDX-License-Identifier: MIT
 
 // Tests for the n-gram model file + lookups (swipekb::NgramLM).
 // WHY a hand-made model: every number in it is known, so each back-off step can be checked exactly, and the

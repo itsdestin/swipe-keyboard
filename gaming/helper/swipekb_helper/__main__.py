@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
 #
-# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+# SPDX-License-Identifier: MIT
 
 """swipekb-helper entry point:  python3 -m swipekb_helper   (run with the folder holding swipekb_helper on PYTHONPATH)."""
 import os

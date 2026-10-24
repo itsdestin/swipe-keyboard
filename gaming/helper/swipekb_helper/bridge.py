@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
 #
-# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+# SPDX-License-Identifier: MIT
 
 """The go-between for typing (plan Sections 3, 7.4 and 8): page -> helper -> engine -> Steam's own text call -> page.
 

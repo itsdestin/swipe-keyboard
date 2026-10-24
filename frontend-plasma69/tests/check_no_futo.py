@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
-# SPDX-License-Identifier: BSD-2-Clause
+# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
 """Fails when a Plasma 6.9 front-end binary carries or needs FUTO's or ExecuTorch's code.
 
 WHY: the owner decided (2026-10-23) that the 6.9 front end must not use FUTO at all. Symbols are read with nm

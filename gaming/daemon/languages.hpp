@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
 //
-// SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+// SPDX-License-Identifier: MIT
 
 // Which language the daemon serves and how (plan Sections 13 and 15 decision 7). Pure logic with no sockets and no
 // models, so every rule is unit-tested (tests/gaming/test_languages.cpp). The heavy lifting (checking language packs,

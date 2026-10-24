@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+
 """The launcher picks the right front end for the installed Plasma Keyboard, and the 6.9 package generator.
 
 Everything runs against disposable folders: fake KDE packages in both of KDE's formats (master's "Files" map and

@@ -1,10 +1,12 @@
 Swipe Keyboard
 
 Keyboard source: https://github.com/itsdestin/swipe-keyboard. Copyright 2026 Destin Moss <https://youcoded.ai>.
-The keyboard plugin and its tools are licensed GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL, the
-engine library (libswipekb_engine: swipe recognition and prediction) LGPL-2.1-only OR LGPL-3.0-only OR
-LicenseRef-KDE-Accepted-LGPL, following KDE's licensing policy; the licence texts are in LICENSES/ of the source and
-in this licence folder. Every source file names its licence (SPDX header or REUSE.toml). Source revision and local
+The engine (libswipekb_engine: swipe recognition, dictionary, prediction, learning), the tools, the launcher and the
+Gaming Mode daemon are licensed MIT. The keyboard add-on layers that run inside GPL software, the Plasma 6.7/6.8
+plugin (qml/SwipeKeyboard, linked with Qt Virtual Keyboard, GPL-3.0-only) and the Plasma 6.9 front end
+(qml/SwipeKeyboard69, loaded by plasma-keyboard), are licensed GPL-2.0-only OR GPL-3.0-only OR
+LicenseRef-KDE-Accepted-GPL, KDE's standard; those binaries contain MIT engine code, which the GPL allows. The licence
+texts are in LICENSES/ of the source and in this licence folder. Every source file names its licence (SPDX header or REUSE.toml). Source revision and local
 modifications are recorded in SOURCE-PROVENANCE.txt in the corresponding source archive. The source archive is a
 required companion to binary build artifacts; these recipes do not publish anything.
 

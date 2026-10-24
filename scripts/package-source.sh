@@ -2,7 +2,7 @@
 
 # SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
 #
-# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+# SPDX-License-Identifier: MIT
 
 # Local, unpublished source snapshot of selected Git-tracked files.
 # New release files must be explicitly staged first; arbitrary untracked/private files never enter it.

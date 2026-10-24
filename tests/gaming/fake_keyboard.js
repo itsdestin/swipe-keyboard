@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
 //
-// SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+// SPDX-License-Identifier: MIT
 
 // Stand-in for Steam's on-screen keyboard page, for the gesture-layer tests (plan M4).
 // WHY this exists: the layer is only worth testing against something that behaves like Steam's keyboard, so this

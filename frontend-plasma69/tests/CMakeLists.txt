@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
-# SPDX-License-Identifier: BSD-2-Clause
+# SPDX-License-Identifier: MIT
 
 # The controller's rules against a fake text field and the real (FUTO-free) engine files.
 set(SWIPEKB_TEST_MODEL_DATA "" CACHE PATH "Installed-layout data folder (dict/, models/, language-packs/) for the 6.9 tests")

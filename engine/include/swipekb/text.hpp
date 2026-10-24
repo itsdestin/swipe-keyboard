@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
 //
-// SPDX-License-Identifier: LGPL-2.1-only OR LGPL-3.0-only OR LicenseRef-KDE-Accepted-LGPL
+// SPDX-License-Identifier: MIT
 
 // Plain value types shared by every part of the engine and its callers (keyboard plugin, Gaming Mode daemon,
 // tools): a finger path, the on-screen key rectangles, a ranked guess, and the "previous words" rule.

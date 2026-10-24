@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
 //
-// SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+// SPDX-License-Identifier: MIT
 
 // Stand-in for one Steam UI page: a persistent Node vm context with just enough of `window`/`document`
 // to run the helper's real layer stub. Line protocol on stdin/stdout, one JSON object per line.

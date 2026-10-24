@@ -2,7 +2,7 @@
 
 # SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
 #
-# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+# SPDX-License-Identifier: MIT
 
 # learning_choice DATA_DIR — decides whether "learn from my typing" is switched on, and says so plainly.
 # Sourced by install.sh; kept in its own file so the question can be tested without installing anything.

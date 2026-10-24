@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
 #
-# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+# SPDX-License-Identifier: MIT
 
 """A stand-in for swipekb-gamingd for the helper's typing tests (plan M5): same framing and same rules about candidate ids as the real
 daemon (protocol.hpp): ids are issued per swipe request, valid for the latest request on that connection only, and `commit` answers

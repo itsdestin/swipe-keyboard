@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
 #
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: MIT
 
 # swipekb-gamingd: the Gaming Mode engine daemon (plan Section 4). Qt Core only (JSON); no GUI, no Network module.
 find_package(Qt6 6.8 REQUIRED COMPONENTS Core)

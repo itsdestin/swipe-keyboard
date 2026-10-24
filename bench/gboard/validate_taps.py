@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
 #
-# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+# SPDX-License-Identifier: MIT
 
 # Check: does Gboard suggest the same words when phrases are typed with real key taps
 # as when the text box is filled directly (the fast method used by gboard_probe.py)?

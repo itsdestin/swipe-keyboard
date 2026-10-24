@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+
 """Plasma 6.9 keyboard packages with Swipe Keyboard inside, generated from KDE's own packages at every launch.
 
 KDE's rebuilt keyboard (plasma-keyboard 6.8.80+) finds keyboard packages under

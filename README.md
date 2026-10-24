@@ -190,4 +190,17 @@ If restoring the keyboard fails, removal stops. Follow the error or use the [rec
 
 For bug reports, include your system, app, keyboard version and steps using made-up text. **Do not send passwords, recordings or personal typing.**
 
-Swiping, completion and suggestions run on the project's own open engine. Code licences follow KDE's policy (GPL-2.0-only OR GPL-3.0-only for the keyboard, LGPL-2.1-only OR LGPL-3.0-only for the engine library; see `LICENSES/`). [Licenses and notices](packaging/NOTICE).
+Swiping, completion and suggestions run on the project's own open engine. Code licences: MIT for the engine, tools, launcher and Gaming Mode daemon; KDE's GPL-2.0-only OR GPL-3.0-only only for the keyboard add-on layers that run inside GPL software (see [Licences](#licences)). [Licenses and notices](packaging/NOTICE).
+
+## Licences
+
+Most of Swipe Keyboard is **MIT**: the engine (swipe recognition, dictionary, completion, next-word prediction, learning),
+the tools and training/benchmark scripts, the launcher and command-line tool, the Gaming Mode daemon and the build files.
+Two parts are **GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL** (KDE's standard licence), because they plug
+into GPL software and must stay compatible with it: `plugin/` (the Plasma 6.7/6.8 add-on, linked with Qt Virtual
+Keyboard, which is GPL-3.0-only) and `frontend-plasma69/` (the Plasma 6.9 add-on, which runs inside KDE's
+plasma-keyboard and uses its internals). The patches to KDE's own code in `scripts/patches/` keep KDE's licence.
+Documentation is CC-BY-4.0, trivial data CC0-1.0, and every data file keeps its own licence (word lists ODC-By-1.0 and
+CC BY 2.0 France, the AOSP word list Apache-2.0, the swear-word lists CC-BY-4.0, the texting words CC0-1.0, the trained
+models as declared in their release). Each file names its licence (SPDX header or `REUSE.toml`; `reuse lint` passes);
+the texts are in `LICENSES/`, summarised in [LICENSE](LICENSE).

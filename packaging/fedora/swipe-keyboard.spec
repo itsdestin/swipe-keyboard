@@ -1,17 +1,18 @@
 # SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
 #
-# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+# SPDX-License-Identifier: MIT
 
 Name: swipe-keyboard
 Version: 0.4.0
 Release: 1%{?dist}
 Summary: English, Spanish, French and German swipe typing, completions and next-word suggestions for Plasma Keyboard
-# WHY these licences (KDE's licensing policy for the code; each data file keeps its own, see REUSE.toml): plugin and
-# tools GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL; engine library LGPL-2.1-only OR LGPL-3.0-only OR
-# LicenseRef-KDE-Accepted-LGPL; AOSP word list Apache-2.0; FineWeb text ODC-By-1.0; the swipe model MIT (trained on
-# MIT-licensed swipe data; models: Destin Moss via youcoded.ai, 2026); swear-word list CC-BY-4.0; texting words CC0-1.0.
+# WHY these licences (owner decision 2026-10-23: MIT where possible; each data file keeps its own, see REUSE.toml):
+# engine, tools, launcher MIT; the keyboard add-on layers that plug into GPL code (Qt Virtual Keyboard plugin, Plasma 6.9
+# front end) GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL; AOSP word list Apache-2.0; FineWeb text
+# ODC-By-1.0; the swipe model MIT (trained on MIT-licensed swipe data; models: Destin Moss via youcoded.ai, 2026);
+# swear-word list CC-BY-4.0; texting words CC0-1.0.
 # SPDX lists CC-BY-2.0 (Generic), not the Tatoeba France port: its terms are a custom LicenseRef with its notice.
-License: (GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL) AND (LGPL-2.1-only OR LGPL-3.0-only OR LicenseRef-KDE-Accepted-LGPL) AND Apache-2.0 AND ODC-By-1.0 AND MIT AND CC-BY-4.0 AND CC0-1.0 AND LicenseRef-Tatoeba-CC-BY-2.0-FR
+License: MIT AND (GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL) AND Apache-2.0 AND ODC-By-1.0 AND CC-BY-4.0 AND CC0-1.0 AND LicenseRef-Tatoeba-CC-BY-2.0-FR
 URL: https://github.com/itsdestin/swipe-keyboard
 Source0: %{name}-%{version}.tar.gz
 ExclusiveArch: x86_64 aarch64

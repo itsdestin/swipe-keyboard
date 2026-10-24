@@ -2,7 +2,7 @@
 
 # SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
 #
-# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+# SPDX-License-Identifier: MIT
 
 """Runs the gesture-layer tests (tests/gaming/test_layer.js, plan M4) under Node so `unittest discover` sees them.
 A missing Node is a hard failure, not a skip: a green run must mean the layer really ran.

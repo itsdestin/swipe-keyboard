@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
 #
-# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+# SPDX-License-Identifier: MIT
 
 """make-vocab.py DICT OUT — the word list the n-gram model knows: every word of the swipe dictionary in the
 letters-only form a swipe spells (lower case: "don't" -> "dont"), most frequent first, with the

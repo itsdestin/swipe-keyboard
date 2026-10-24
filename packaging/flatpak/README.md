@@ -67,3 +67,7 @@ private overlay under app-scoped data and preserves KWin's inherited FD.
 Stock SteamOS root protection, Qt/Plasma libraries, pacman and existing input
 method configuration must stay unchanged. Do not relax dependencies or replace
 host libraries to make this candidate run.
+
+Licences: the Flatpak installs the same licence folder as the native packages (`/app/share/licenses/swipe-keyboard/`
+with `LICENSES/`): MIT for the engine, tools and launcher, `GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL`
+for the Qt Virtual Keyboard plugin; bundled Qt/KDE components keep their own licences (installed beside it).

@@ -1,17 +1,23 @@
 Swipe Keyboard licences
 
-This project follows KDE's licensing policy (https://community.kde.org/Policies/Licensing_Policy) and the REUSE
-specification (https://reuse.software): every file names its copyright holders and licence, either in an SPDX header
-or in REUSE.toml, and the full licence texts are in LICENSES/.
+Swipe Keyboard follows the REUSE specification (https://reuse.software): every file names its copyright holders and
+licence, either in an SPDX header or in REUSE.toml, and the full licence texts are in LICENSES/.
 
-- Keyboard plugin, QML, integration, tools, scripts and tests: GPL-2.0-only OR GPL-3.0-only OR
-  LicenseRef-KDE-Accepted-GPL (you may use the GNU GPL version 2 or version 3, or a later version accepted by KDE e.V.).
-- Engine library (engine/: swipe recognition, dictionary, prediction): LGPL-2.1-only OR LGPL-3.0-only OR
-  LicenseRef-KDE-Accepted-LGPL.
-- CMake build files: BSD-3-Clause.
-- Documentation and images: CC-BY-SA-4.0. Trivial or generated data: CC0-1.0.
+- MIT: the engine (engine/: swipe recognition, dictionary, completion, prediction, learning), tools/, scripts/,
+  bench/, the launcher and command-line tool (integration/), the Gaming Mode daemon (gaming/), their tests and all
+  CMake build files.
+- GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL (KDE's standard; you may use the GNU GPL version 2 or
+  version 3, or a later version accepted by KDE e.V.): only the keyboard add-on layers, because they plug into GPL
+  software and must stay compatible with it: plugin/ (Plasma 6.7/6.8, linked with Qt Virtual Keyboard, GPL-3.0-only)
+  and frontend-plasma69/ (Plasma 6.9, runs inside KDE's plasma-keyboard and uses its internals), with their tests.
+  The patches to KDE's code in scripts/patches/ keep KDE's licence.
+- Documentation and images: CC-BY-4.0. Trivial or generated data: CC0-1.0.
 - Data files keep their own licences: word lists and language packs ODC-By-1.0 and CC BY 2.0 France (Tatoeba), the
   AOSP word list Apache-2.0, the swear-word lists CC-BY-4.0, the texting-word lists CC0-1.0, the trained models as
   declared in their release (see packaging/NOTICE and packaging/language-models/README.md).
+
+Note on built programs: the shared language and session rules live in plugin/ (KDE's GPL choice) and are also linked
+into the Gaming Mode daemon and some tools, so those binaries as built combine MIT and GPL code and are distributed
+under the GPL's terms; their own source files remain MIT.
 
 Copyright 2026 Destin Moss <https://youcoded.ai> unless a file says otherwise.

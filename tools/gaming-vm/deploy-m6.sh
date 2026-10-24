@@ -2,7 +2,7 @@
 
 # SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
 #
-# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+# SPDX-License-Identifier: MIT
 
 # Copy the helper, the page layer, the shared contract and the M5 + M6 rigs into the guest at ~/m5 (the M6 rig imports the M5 one).
 # usage: tools/gaming-vm/deploy-m6.sh   (run on the host; needs the lab's guests/steamos-gaming/ssh wrapper)

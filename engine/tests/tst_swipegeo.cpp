@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
 //
-// SPDX-License-Identifier: LGPL-2.1-only OR LGPL-3.0-only OR LicenseRef-KDE-Accepted-LGPL
+// SPDX-License-Identifier: MIT
 
 // The no-network fallback decoder, on traces drawn through key centres (with and without sloppiness).
 #include <QtTest>

@@ -2,7 +2,7 @@
 
 # SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
 #
-# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+# SPDX-License-Identifier: MIT
 
 # Swipe Keyboard for Steam Deck: installer. Runs as you, in Desktop Mode, in a terminal.
 # Gaming Mode part asks for the Deck's administrator password ONCE, to close SteamOS's outside door (see below).

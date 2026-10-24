@@ -45,9 +45,10 @@ Before a release, complete `docs/release-acceptance.md`. Give Qt/KDE, dictionary
 
 ## Licensing
 
-The project follows KDE's licensing policy and is REUSE-compliant (`reuse lint` must pass): keyboard plugin, QML, tools and
-scripts `GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL`; the engine library (`engine/`)
-`LGPL-2.1-only OR LGPL-3.0-only OR LicenseRef-KDE-Accepted-LGPL`; CMake files `BSD-3-Clause`; documentation and images
-`CC-BY-SA-4.0`; trivial data `CC0-1.0`; data files keep their own licences (see `REUSE.toml`). New source files start with
-an SPDX header, e.g. `SPDX-FileCopyrightText: 2026 Your Name <email>` and `SPDX-License-Identifier: ...`. Code copied
-from elsewhere keeps its original licence and attribution.
+The project is REUSE-compliant (`reuse lint` must pass) and "MIT where possible" (owner decision 2026-10-23): engine,
+tools, scripts, benchmarks, launcher, Gaming Mode daemon, their tests and every CMake file `MIT`; only `plugin/`,
+`frontend-plasma69/` (both plug into GPL code) and KDE's code in `scripts/patches/` use
+`GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL`; documentation `CC-BY-4.0`; trivial data `CC0-1.0`;
+data files keep their own licences (see `REUSE.toml`). New source files start with an SPDX header
+(`SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>` and the licence for their folder;
+`tests/packaging/test_licensing.py` checks it). Anything copied from elsewhere keeps its original licence and attribution.

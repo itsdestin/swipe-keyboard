@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
 #
-# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+# SPDX-License-Identifier: MIT
 
 """Packaging contract tests; stage fixtures exercise the real CMake installer."""
 import pathlib
@@ -182,10 +182,11 @@ class Packaging(unittest.TestCase):
         # package metadata therefore uses an explicit custom ref and installs its exact notice.
         self.assertIn('LicenseRef-Tatoeba-CC-BY-2.0-FR',fedora)
         self.assertIn('custom:TATOEBA-CC-BY-2.0-FR.txt',arch)
-        # KDE's licensing policy for the code (GPL for the plugin, LGPL for the engine library).
+        # Owner decision 2026-10-23: MIT where possible, KDE's GPL choice for the keyboard add-on layers only.
         for recipe in (arch, fedora):
+            self.assertIn('MIT',recipe)
             self.assertIn('GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL',recipe)
-            self.assertIn('LGPL-2.1-only OR LGPL-3.0-only OR LicenseRef-KDE-Accepted-LGPL',recipe)
+            self.assertNotIn('LGPL',recipe)
             self.assertNotIn('GPL-3.0-or-later',recipe)
         self.assertIn('TATOEBA-CC-BY-2.0-FR.txt',notice)
         self.assertIn('an unavailable or corrupt pack never falls back to English',notice)

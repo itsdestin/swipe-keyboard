@@ -2,7 +2,7 @@
 
 # SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
 #
-# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+# SPDX-License-Identifier: MIT
 
 # Copy the helper, the page layer, the shared contract and the M4 rig into the guest at ~/m4 (same relative layout as the repo).
 # usage: tools/gaming-vm/deploy-m4.sh   (run on the host; needs the lab's guests/steamos-gaming/ssh wrapper)

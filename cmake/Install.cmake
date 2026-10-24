@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
 #
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: MIT
 
 # Kept separately so staging contracts can exercise installation without compiling Qt.
 include(GNUInstallDirs)
@@ -19,7 +19,7 @@ install(FILES "${SWIPEKB_ASSETS}/dict/en_swipe.combined" DESTINATION "${_runtime
 # swipe model that sits beside them).
 install(DIRECTORY "${SWIPEKB_ASSETS}/language-packs/" DESTINATION "${_runtime}/language-packs")
 install(DIRECTORY "${SWIPEKB_ASSETS}/licenses/" DESTINATION "${CMAKE_INSTALL_DATADIR}/licenses/swipe-keyboard")
-# WHY the whole LICENSES/ folder: the code is under KDE's GPL/LGPL choices and the data files under their own licences;
+# WHY the whole LICENSES/ folder: the code is MIT (the keyboard add-on layers: KDE's GPL choice), the data files keep their own;
 # every licence named by an SPDX header or REUSE.toml must travel with the package.
 install(DIRECTORY "${SWIPEKB_SOURCE}/LICENSES/" DESTINATION "${CMAKE_INSTALL_DATADIR}/licenses/swipe-keyboard/LICENSES")
 install(FILES "${SWIPEKB_SOURCE}/LICENSE" "${SWIPEKB_SOURCE}/packaging/assets.lock.json"

@@ -2,7 +2,7 @@
 
 # SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
 #
-# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+# SPDX-License-Identifier: MIT
 
 # build-lm.sh — builds assets/lm/en_ngram.bin, the word-sequence (3-gram) model that can rank swipe guesses
 # by "how likely is this word after the previous two" (engine/include/swipekb/ngram.hpp).

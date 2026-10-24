@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
 #
-# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+# SPDX-License-Identifier: MIT
 
 """Opt-in: download Valve's real public bundles and run the canary. Off by default (slow, needs network).
 Run with: STEAM_CANARY_LIVE=1 python3 -m unittest test_real_bundles

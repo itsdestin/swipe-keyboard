@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
 //
-// SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+// SPDX-License-Identifier: MIT
 
 // swipekb-bench — scores the keyboard's swipe engine on recorded swipes, through swipekb::LanguageEngine (the class
 // the keyboard and the Gaming Mode daemon use), so every number measures the code that ships: the dictionary

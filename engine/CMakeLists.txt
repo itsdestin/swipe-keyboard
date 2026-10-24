@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
 #
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: MIT
 
 # WHY Qt Core only: shared Unicode normalization/casing without a GUI/runtime keyboard dependency.
 find_package(Qt6 6.8 REQUIRED COMPONENTS Core)

@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
-# SPDX-License-Identifier: BSD-2-Clause
+# SPDX-License-Identifier: MIT
 #
 # End-to-end tests against KDE's REAL rebuilt keyboard core, built from a plasma-keyboard source tree
 # (SWIPEKB_PLASMA_KEYBOARD_SOURCE, e.g. a clone of master or of the 6.9 beta tag) into this build folder only.
