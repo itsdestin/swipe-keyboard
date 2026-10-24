@@ -141,7 +141,7 @@ class Helper:
 
     def _stub(self):
         if self._stub_source is None:
-            cfg = {'version': LAYER_VERSION, 'watchdog_ms': int(self.cfg.layer_watchdog * 1000),
+            cfg = {'version': LAYER_VERSION, 'watchdog_ms': int(self.cfg.layer_watchdog * 1000), 'ui_origin': self.device.ui_origin,
                    'device': self.device.page_config, 'gesture': dict(self.cfg.gesture), 'session': dict(self.cfg.session), 'failsafe': dict(self.cfg.failsafe)}
             # WHY read at use, pasted in as text: the layer files ship as data beside the helper and are sent to
             # Steam's page through the debug port; nothing is fetched and nothing is written into Steam.
@@ -216,15 +216,19 @@ class Helper:
                       'Steam\'s debug port is open to other devices on the network (port %s). Gaming Mode swipe is off. '
                       'Run the Swipe Keyboard installer again to close it.' % ', '.join(str(p) for p in doors))
 
-    def _steam_pages(self, title):
+    def _steam_pages(self, title, popup_ok=False):
         """Ids of the pages with this title that Steam itself serves.
 
         WHY the address as well as the title (review fix 1): a title is set by whoever wrote the page. Steam's in-client web
         browser opens ordinary web pages next to Steam's own, and one of those could call itself "SharedJSContext" and be
         mistaken for the hidden page that holds SteamClient (receiving every swiped word) or for the keyboard page."""
         d = self.device
+        # WHY popup_ok (stable Steam, 2026-10-23): Steam's keyboard window is listed as about:blank?... because Steam's UI opened
+        # it; inside, it is a Steam page. Only the keyboard page may be accepted this way, and _attach then asks the page itself
+        # for its origin (which no web page can fake) before anything is installed. The hidden SteamClient page stays strict.
         return [i for i, t in list(self.targets.items())
-                if t['type'] == 'page' and t['title'] == title and d and d.is_steam_url(t.get('url', ''))]
+                if t['type'] == 'page' and t['title'] == title and d
+                and (d.is_steam_url(t.get('url', '')) or (popup_ok and d.is_steam_popup_placeholder(t.get('url', ''))))]
 
     def _hidden_page(self):
         """The one hidden page that holds SteamClient, or None. Two candidates are never guessed between."""
@@ -508,7 +512,7 @@ class Helper:
                 self._detach(pid, remove=True)
             return
         kb = self.device.keyboard_title
-        wanted = self._steam_pages(kb)
+        wanted = self._steam_pages(kb, popup_ok=True)
         for pid in list(self.pages):
             if pid not in wanted:
                 self._detach(pid, remove=True)
@@ -593,6 +597,11 @@ class Helper:
     def _attach(self, target_id):
         c = cdp.Cdp.open(self.cfg.port, cdp.page_path(target_id), timeout=self.cfg.call_timeout)
         try:
+            # WHY first: the listed address may be Steam's about:blank placeholder, so the page's own origin decides. The browser
+            # sets it; a web page cannot claim Steam's. Nothing (no binding, no script) is given to a page that fails this.
+            origin = c.evaluate('location.origin')
+            if origin != self.device.ui_origin:
+                raise cdp.CdpError('the keyboard page is not Steam\'s own (origin %s)' % _short(str(origin)))
             # WHY both: the registration brings the stub back at the start of every later document in this
             # page (UI reload) with no round trip; the evaluate puts it into the page that is open right now.
             # The registration lives only as long as this socket, so a dead helper leaves none behind.

@@ -11,6 +11,7 @@ const vm = require('vm');
 const readline = require('readline');
 let ctx = null;
 let steam = null;
+let origin = 'https://steamloopback.host';
 let timers = [];
 let bindings = [];   // names the helper registered with Runtime.addBinding; they survive a new document like Chrome's
 let outgoing = [];   // [name, payload] pairs the page called, waiting to be collected
@@ -37,7 +38,7 @@ function newContext() {
   };
   for (const name of bindings) sb[name] = (p) => { outgoing.push([name, String(p)]); };
   ctx = vm.createContext(sb);
-  vm.runInContext('var window = globalThis; var top = globalThis;', ctx);
+  vm.runInContext('var window = globalThis; var top = globalThis; var location = {origin: ' + JSON.stringify(origin) + '};', ctx);
   if (steam === 'ok') vm.runInContext('var __sent = []; var SteamClient = {Input: {ControllerKeyboardSendText: function(t){ __sent.push(String(t)); }}};', ctx);
   if (steam === 'nomethod') vm.runInContext('var SteamClient = {Input: {}};', ctx);
   if (steam === 'badtype') vm.runInContext('var SteamClient = {Input: {ControllerKeyboardSendText: 5}};', ctx);
@@ -47,7 +48,7 @@ function out(o) { process.stdout.write(JSON.stringify(o) + '\n'); }
 newContext();
 readline.createInterface({ input: process.stdin }).on('line', (line) => {
   const m = JSON.parse(line);
-  if (m.op === 'init') { steam = m.steam; newContext(); out({ id: m.id, ok: true }); }
+  if (m.op === 'init') { steam = m.steam; if (m.origin) origin = m.origin; newContext(); out({ id: m.id, ok: true }); }
   else if (m.op === 'binding') { if (!bindings.includes(m.name)) bindings.push(m.name); ctx[m.name] = (p) => { outgoing.push([m.name, String(p)]); }; out({ id: m.id, ok: true }); }
   else if (m.op === 'drain') { out({ id: m.id, ok: true, out: outgoing.splice(0) }); }
   else if (m.op === 'reset') {

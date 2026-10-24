@@ -332,6 +332,13 @@ test('the installed frame starts the gestures, keeps them after a failure, and r
   L.remove();
 });
 
+test('the frame does not start in a page from any other origin', () => {
+  const page = build({ origin: 'https://evil.example' });
+  const L = installStub(page);
+  assert.equal(L, undefined, 'no layer');
+  assert.equal(page.win.listenerCount(), 0, 'no touch listeners');
+});
+
 test('removing the frame (or the helper going silent) takes the touch listeners off', async () => {
   const page = build(); const L = installStub(page);
   assert.ok(page.win.listenerCount() > 0);

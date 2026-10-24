@@ -24,6 +24,7 @@ class Device:
             if o.scheme != 'https' or not o.hostname or o.port or o.username or o.path not in ('', '/') or o.query or o.fragment:
                 raise ContractError('bad ui_origin')
             self.ui_host = o.hostname
+            self.ui_origin = 'https://' + o.hostname
             self.methods = list(d['steam_client_methods'])
             for m in self.methods:
                 if not (_PATH.match(m['object']) and _PATH.match(m['name']) and m['target'] == self.client_title):
@@ -33,6 +34,11 @@ class Device:
             self.page_config = {'keyboard_dom': d['keyboard_dom'], 'password_signal': d['password_signal']}
         except (KeyError, TypeError, StopIteration, ContractError) as e:
             raise ContractError('contract device block unusable: %s' % (e,))
+
+    def is_steam_popup_placeholder(self, url):
+        """True for the address stable Steam lists for windows its own UI opens (about:blank?...). WHY not trusted on its own:
+        any page can open such a window. The helper accepts it only after the page itself reports Steam's origin."""
+        return isinstance(url, str) and (url == 'about:blank' or url.startswith('about:blank?'))
 
     def is_steam_url(self, url):
         """True only for https://<Steam's UI host>/... exactly: no other host, no user:password@, no custom port, no http."""

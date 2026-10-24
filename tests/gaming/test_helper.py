@@ -651,6 +651,41 @@ class SteamOrigin(Base):
         time.sleep(0.8)  # settle
         self.assertIsNone(r.layer(evil))
 
+    def test_stable_steams_placeholder_keyboard_page_is_used_once_it_proves_its_origin(self):
+        # WHY: stable Steam (2026-10-23) lists its keyboard window as about:blank?..., while inside it is Steam's page.
+        r = self.rig()
+        r.fake.add_target(SJS, steam='ok')
+        b = r.fake.add_target(BP, url='about:blank?createflags=6292738&browserType=4')
+        r.helper().start()
+        wait_for(lambda: r.attr(b) == LAYER_VERSION, what='layer in the placeholder-listed keyboard page')
+        wait_for(lambda: r.status().get('state') == 'active', what='active')
+        # The test's own attribute checks are logged too; among the helper's questions the origin comes first.
+        asked = [e for e in r.fake.page(b).eval_log if not e.startswith('document.documentElement.getAttribute')]
+        self.assertEqual(asked[0], 'location.origin', 'the origin must be asked before anything else')
+
+    def test_a_placeholder_page_from_another_origin_gets_nothing(self):
+        # WHY: any page can open an about:blank window and title it like Steam's keyboard; only its origin tells them apart.
+        r = self.rig()
+        r.fake.add_target(SJS, steam='ok')
+        evil = r.fake.add_target(BP, url='about:blank?createflags=1', origin='https://evil.example')
+        r.helper().start()
+        wait_for(lambda: r.fake.page(evil).eval_log, what='origin asked')
+        time.sleep(0.8)  # settle: negative proof
+        # Asked again on each retry, but never anything else: no binding, no script.
+        self.assertEqual(set(r.fake.page(evil).eval_log), {'location.origin'}, 'nothing but the origin question may reach it')
+        self.assertEqual(r.fake.page(evil).scripts, {})
+        self.assertIsNone(r.layer(evil))
+        self.assertNotEqual(r.status().get('state'), 'active')
+
+    def test_the_hidden_steamclient_page_is_never_accepted_as_a_placeholder(self):
+        r = self.rig()
+        evil = r.fake.add_target(SJS, steam='ok', url='about:blank?x=1')
+        b = r.fake.add_target(BP)
+        r.helper().start()
+        time.sleep(0.8)  # settle
+        self.assertEqual(len(r.fake.page(evil).eval_log), 0)
+        self.assertIsNone(r.layer(b))
+
     def test_look_alike_addresses_are_refused(self):
         r = self.rig()
         h = r.helper()
