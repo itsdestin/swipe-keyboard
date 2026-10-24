@@ -161,10 +161,11 @@ def check(root):
                  'usr/share/licenses/swipe-keyboard/LICENSE', 'usr/share/licenses/swipe-keyboard/NOTICE',
                  'usr/share/licenses/swipe-keyboard/assets.lock.json',
                  'usr/share/licenses/swipe-keyboard/TATOEBA-CC-BY-2.0-FR.txt',
-                 # WHY: KDE's licence choices for the code (plugin GPL, engine LGPL) must ship as full texts.
+                 # WHY: every licence the code and data use must ship as full text (MIT for the engine and tools, KDE's
+                 # GPL choice for the keyboard add-on layers, the data files' own licences).
                  *(f'usr/share/licenses/swipe-keyboard/LICENSES/{name}.txt' for name in (
-                     'GPL-2.0-only', 'GPL-3.0-only', 'LicenseRef-KDE-Accepted-GPL', 'LGPL-2.1-only', 'LGPL-3.0-only',
-                     'LicenseRef-KDE-Accepted-LGPL', 'Apache-2.0', 'ODC-By-1.0', 'CC-BY-4.0', 'CC0-1.0'))]:
+                     'MIT', 'GPL-2.0-only', 'GPL-3.0-only', 'LicenseRef-KDE-Accepted-GPL', 'Apache-2.0', 'ODC-By-1.0',
+                     'CC-BY-4.0', 'CC0-1.0'))]:
         assert (root/name).is_file(), f'Missing {name}'
     lock = json.loads((root/'usr/share/licenses/swipe-keyboard/assets.lock.json').read_text())
     # WHY: the package carries only the project's own engine; an old models/ folder must never come back.
