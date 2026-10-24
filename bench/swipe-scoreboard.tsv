@@ -52,3 +52,4 @@ date	build	set	swipes	context	sentence_pack	match	first_pct	top3_pct	notes
 2026-10-22	FUTO keyboard 0.3.1 reference	synthetic-noisy-v1-de	400	no	FUTO context model	lookup	87.75	97.00	synthetic swipes, bench/languages
 2026-10-22	FUTO keyboard 0.3.1 reference (synthetic-swipe calibration)	bench-2000-plain-words	1669	no	FUTO context model	lookup	92.8	96.4	real swipes of the 1,669 plain a-z words; bench/languages/README.md
 2026-10-22	FUTO keyboard 0.3.1 reference (synthetic-swipe calibration)	synthetic-bench-2000-plain-words	1669	no	FUTO context model	lookup	92.3	96.0	synthetic traces of the same words, noise x0.45
+2026-10-14	FUTO Swipe stock (infer_jsonl, stock dictionary; bench/history.tsv 3c52c51)	bench-2000-futo-scorable	1946	yes	FUTO context model	letters	92.50	95.43	FUTO's own tool
