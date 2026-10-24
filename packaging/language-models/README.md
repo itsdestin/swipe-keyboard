@@ -1,14 +1,13 @@
-# Language files (next-word, completion and swipe-ranking n-grams)
+# Language files (word lists, next-word and swipe-ranking data)
 
-English, Spanish, French and German each have a word-level trigram model (`<lang>.ngram`), a word list
-(`<lang>.vocab.tsv`) and a Tatoeba credit file (`<lang>-CONTRIBUTORS.txt`). They are **not stored in this repository**:
-they are published once as the GitHub release `language-files-2026-10-23-apostrophes` and every build downloads them by
-SHA-256 (`language_files` and `multilingual_context_models` in `../assets.lock.json`; `scripts/fetch-assets.py`
-puts them in `assets/language-files/`, `scripts/dict/language_pack.py` copies them into `assets/language-packs/`,
-and the installer/packages ship that folder). A file that does not match its pin is refused at build time and again
-at run time.
+For English, Spanish, French and German the keyboard needs: a word-level trigram file (`<lang>.ngram`), a word list
+(`<lang>.vocab.tsv`) and a Tatoeba credit file (`<lang>-CONTRIBUTORS.txt`). They are **not stored in this repository**.
+They are published once as the GitHub release `language-files-2026-10-23-apostrophes`, and every build downloads them
+by SHA-256 (`language_files` and `multilingual_context_models` in `../assets.lock.json`). `scripts/fetch-assets.py`
+puts them in `assets/language-files/`, `scripts/dict/language_pack.py` copies them into `assets/language-packs/`, and the
+installer and packages ship that folder. A file that does not match its pin is refused at build time and again at run time.
 
-What stays in this folder: `TATOEBA-CC-BY-2.0-FR.txt` (the Tatoeba terms notice, pinned by hash) and
+What stays in this folder: `TATOEBA-CC-BY-2.0-FR.txt` (the Tatoeba terms, pinned by hash) and
 `LANGUAGE-FILES-2026-10-22-open-words-NOTICE.md` (the same text as the release's `NOTICE.md`, installed as
 `language-packs/LANGUAGE-FILES-NOTICE.md`).
 
@@ -87,11 +86,4 @@ What the keyboard checks at run time (`plugin/languageprofile.cpp`): the manifes
 CC-BY-2.0-FR` with the notice, ODC-By text and Tatoeba text matching the lock (a damaged licence text makes the language
 unavailable; a damaged n-gram or credit list only removes suggestions); English's n-gram additionally needs `Apache-2.0.txt`.
 
-Measured when the open word lists replaced the wordfreq ones, 2026-10-22 (published files vs these; 2,000 test sentences per
-set): no measure fell more than 0.1 point. Next word right in top 3 and completion after 1 and 3 letters right in top 2:
--0.09 to +2.0 points on every set and language (French gained most). English real swipes (2,000, with the English n-gram):
-first guess 93.11 -> 93.01 %, top 3 96.40 -> 96.30 %. Spanish/French/German synthetic swipes (400 words each): first guess
-88.25/83.00/87.50 -> 89.00/83.25/87.75 %, top 3 98.50/93.75/96.75 -> 98.25/93.00/97.00 %. Words of the test sentences found
-in the word list: English 99.7/97.9/98.8 -> 99.7/98.0/99.8 %, French 95.0/95.1/96.8 -> 96.7/97.1/98.7 %, German
-95.6/92.8/96.9 -> 95.9/93.2/97.5 %, Spanish 97.9/97.8/98.7 -> 97.4/97.3/98.5 % (slightly lower: single letters and slang).
-The German synthetic targets are now spelled as the dictionary shows them (`bench/languages/display-targets.py`).
+Measured when the open word lists replaced the wordfreq ones (2026-10-22; 2,000 test sentences per set, published files against these): no measure fell by more than 0.1 point. Next word right in the top 3, and completion after 1 and 3 letters right in the top 2, changed by -0.09 to +2.0 points on every set and language (French gained most). English real swipes (2,000, with the English n-gram): first guess 93.11 to 93.01 %, top 3 96.40 to 96.30 %. Spanish, French and German synthetic swipes (400 words each): first guess 88.25/83.00/87.50 to 89.00/83.25/87.75 %, top 3 98.50/93.75/96.75 to 98.25/93.00/97.00 %. Those swipe figures were taken with the earlier keyboard engine. Words of the test sentences found in the word list: English 99.7/97.9/98.8 to 99.7/98.0/99.8 %, French 95.0/95.1/96.8 to 96.7/97.1/98.7 %, German 95.6/92.8/96.9 to 95.9/93.2/97.5 %, Spanish 97.9/97.8/98.7 to 97.4/97.3/98.5 % (slightly lower: single letters and slang). The German synthetic targets are now spelled as the dictionary shows them (`bench/languages/display-targets.py`).

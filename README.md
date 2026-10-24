@@ -1,8 +1,13 @@
 # Swipe Keyboard for KDE Plasma
 
-Swipe across letters to type, or tap normally. English (US/UK), Spanish, French and German. Works locally; typing recording is off by default. Updates install themselves.
+Swipe across the letters to type a word, or tap normally. It adds swipe typing, word suggestions and spelling help to KDE Plasma's on-screen keyboard, in **English (US/UK), Spanish, French and German**. It runs entirely on your own device, and updates itself.
 
-**Test release v0.5.0-1 · KDE Plasma Wayland**
+- **Works on:** KDE Plasma on Wayland (Plasma Keyboard 6.7 or newer): Arch/CachyOS, Fedora 44 (including Plasma Mobile on ARM64) and Steam Deck Desktop Mode. Steam Deck Gaming Mode is a preview.
+- **Private:** nothing is sent anywhere. Learning from your typing is off unless you turn it on, and recording is off.
+- **Open:** the recognition engine and the models are open source and reusable; see [For developers](#for-developers).
+- **Honest limits:** on English swipes it is a few points less accurate than the FUTO engine used up to version 0.4.1 (see [How good is it](#how-good-is-it)). Spanish, French and German next-word suggestions are early baselines. Plasma 6.9 support has not yet been tried on a real device.
+
+**Test release v0.5.0-1**
 
 > **0.5.0 is not released yet** (this branch prepares it), so the download links below start working when it is.
 > The current release is [v0.4.1-1](https://github.com/itsdestin/swipe-keyboard/releases/tag/v0.4.1-1). Remove this note when publishing.
@@ -55,56 +60,40 @@ flatpak run --user --command=kcmshell6 org.itsdestin.SwipeKeyboard kcm_plasmakey
 
 ### Steam Deck — Gaming Mode (preview)
 
-**[Download the SteamOS file](https://github.com/itsdestin/swipe-keyboard/releases/download/v0.5.0-1/swipe-keyboard-0.5.0-1-steamos-x86_64.tar.gz)**
+**[Download the SteamOS file](https://github.com/itsdestin/swipe-keyboard/releases/download/v0.5.0-1/swipe-keyboard-0.5.0-1-steamos-x86_64.tar.gz)** (the same file as the Desktop Mode installer above; it also contains the Desktop Mode keyboard)
 
-**Preview: tested only on a virtual Steam Deck so far, not yet on a real one.** If something goes wrong, Steam's normal keyboard keeps working, and `bash uninstall.sh` removes everything. Please [report problems](https://github.com/itsdestin/swipe-keyboard/issues), especially text that comes out jumbled. Read the warning below before installing.
+**Preview: tested only on a virtual Steam Deck, not yet on a real one.** It adds swipe typing and a row of word suggestions on top of Steam's own on-screen keyboard, which keeps working underneath. If something goes wrong, `bash uninstall.sh` removes everything. Please [report problems](https://github.com/itsdestin/swipe-keyboard/issues), especially jumbled text.
 
-Gaming Mode support keeps Steam's own on-screen keyboard exactly as it is and adds swipe typing and a row of word suggestions on top of it. It is a separate, opt-in step you take in Desktop Mode, and it can be undone completely. This one download also contains the Desktop Mode keyboard, so you do not need the Flatpak above as well.
+**Read this first.** Gaming Mode works through a developer switch that Valve provides in Steam. Steam's Subscriber Agreement says you may not modify software accessed through Steam without Valve's consent. Whether this counts is unclear. We change no Steam file and do not touch games or anti-cheat, and a popular community tool (Decky Loader) uses the same switch, but Valve has not approved this and could stop it. With the switch on, other programs on your Deck can control Steam's screens, and, unless you block it in question 2, so can other devices on your Wi-Fi or home network (SteamOS opens port 8081 to the whole network). We are not lawyers; use it only if you are comfortable with that.
 
-1. Switch to **Desktop Mode** and save the download to **Downloads**. Open **Konsole** and run, **without `sudo`**:
+1. In **Desktop Mode**, save the download to **Downloads**, open **Konsole** and run, **without `sudo`**:
 
    ```sh
    cd ~/Downloads && tar xzf swipe-keyboard-0.5.0-1-steamos-x86_64.tar.gz && cd swipe-keyboard-steamos-0.5.0-1
    bash install.sh
    ```
 
-   It asks two plain-language questions and shows you everything it will change before doing anything.
-2. Restart Steam once if it was already open (the installer never restarts Steam while a game is running).
+   It asks two plain-language questions and lists every change before making it.
+2. Restart Steam once if it was open (the installer never restarts Steam during a game).
 3. Switch to Gaming Mode, touch a text field and swipe across the letters.
 
-**Choice 1: do you want Gaming Mode at all?** Pressing Enter picks the safer answer, the Desktop Mode keyboard only: nothing about Steam or your network changes and no password is asked.
+**Question 1: do you want Gaming Mode at all?** Pressing Enter picks the safe answer: the Desktop Mode keyboard only. Nothing about Steam or your network changes and no password is asked. Choosing Gaming Mode turns on the Valve developer switch and needs one Steam restart.
 
-| | Desktop keyboard only (default) | Also Gaming Mode swipe |
-|---|---|---|
-| You get | Swipe typing in Desktop Mode | Swipe typing and suggestions over Steam and games too |
-| Cost | None | Turns on a Valve developer switch that Steam's rules arguably forbid using this way; Valve can break it at any time; Steam needs one restart |
+**Question 2 (only if you chose Gaming Mode): who else may reach Steam's developer switch?** The default blocks other devices: it asks for your Deck's administrator password once (if you never set one, run `passwd` in Konsole first), changes one small file in `/etc/systemd/system`, and stops network tools that use the switch from another computer. The alternative leaves it open, which needs no password but lets anyone on the same network control Steam on your Deck: never on public or shared Wi-Fi. If a block fails, the installer asks again; it never turns Gaming Mode on with the door open unless you say so.
 
-**Choice 2 (only if you chose Gaming Mode): who else may reach Steam's developer switch?** On SteamOS the switch can also be reached from other devices on your Wi-Fi or home network, who could then control Steam and run programs on your Deck.
+**Passwords.** Inside Steam's own password boxes the keyboard layer does nothing. Over games and other programs Steam does not say whether a box is a password box, so nothing is learned or saved there, and suggestions are dropped when the keyboard closes.
 
-| | Block other devices (default) | Leave it open |
-|---|---|---|
-| You get | Only your Deck can use the switch; safe on shared or public Wi-Fi | No password prompt; keeps network access for people who use it on purpose, such as developer tools on another computer |
-| Cost | Asks for your Deck's administrator password once (if you never set one, run `passwd` in Konsole first). Network tools that use the switch stop working | Anyone on the same network can control Steam on your Deck. Do not use on public or shared Wi-Fi |
+**Swipes start on a letter key.** A finger that rests on a letter for a moment before moving can type that one letter. Backspace, Shift, Space and Enter are unchanged.
 
-If you choose to block and then skip or fail the password, the installer asks again: leave it open, or skip Gaming Mode. It never turns Gaming Mode on with the door open unless you say so. Blocking changes one small file in `/etc/systemd/system` and nothing else on your Deck.
+**If the developer switch is turned off** (by you, another tool or Steam), Gaming Mode swipe stops and Steam's normal keyboard is used. We never put the file back on our own; the next time you are in Desktop Mode a notification offers **Turn it back on** or **Dismiss**. If Steam changes something we depend on, Gaming Mode switches itself off.
 
-**If the developer switch gets turned off.** Gaming Mode swipe depends on one small file that Steam reads when it starts. If that file disappears (you or another tool removed it, or Steam turned the setting off), swipe in Gaming Mode stops and Steam's normal keyboard is used, which always keeps working. We never put the file back on our own. Instead, a check on your Deck notices within about a minute and, the next time you are in Desktop Mode, shows a notification: "Steam's developer switch was turned off" with two buttons, **Turn it back on** and **Dismiss**. You are told once; you are told again only if it goes off again after being fixed. Gaming Mode itself cannot show our notification (nothing in Gaming Mode can), so while you are only playing you will not hear about it until you next visit Desktop Mode. **Turn it back on** opens a small window that shows the one empty file it will create, asks you to confirm, and reminds you to restart Steam once. Running `bash install.sh` again does the same and says what it found.
-
-**Change your mind later.** Run `bash install.sh` again. It offers both choices again, independently: add Gaming Mode later, turn it off while keeping the Desktop keyboard, or switch between blocked and open. To remove everything, run `bash uninstall.sh` from the same download. It only removes what the installer added, including the block if the installer made it.
-
-**How this works, and a warning.** Gaming Mode support works by attaching to Steam's own on-screen keyboard through a developer switch that Valve provides in Steam. It adds swipe typing and suggestions on top and leaves Steam's keyboard as it is. Steam's Subscriber Agreement says you may not modify or create derivative works of software accessed through Steam without Valve's written consent. Whether this counts is unclear. We do not change any Steam file, we do not touch games or anti-cheat, and a popular community tool (Decky Loader) uses the same switch, but Valve has not approved this and could stop it or object at any time. Turning the switch on lets other programs on your Deck control Steam's screens, and, unless you block it in the second install question, so can other devices on your Wi-Fi or home network (SteamOS opens a second door, port 8081, to the whole network). You can turn this off at any time. We are not lawyers; use it only if you are comfortable with that.
-
-**Passwords.** Inside Steam's own password boxes the keyboard layer does nothing. Over games and other programs, Steam does not say whether a box is a password box, so nothing is learned or saved there and suggestions are kept only until you close the keyboard.
-
-**Swipes start on a letter key.** Steam's keyboard already types letters when you lift your finger, so taps should feel the same as before (to be measured on a real Deck). A finger that rests on a letter for a moment before moving can type that one letter; Backspace, Shift, Space and Enter are unchanged.
-
-**If Steam changes something we depend on, Gaming Mode support switches itself off and Steam's keyboard keeps working.** Updates install by themselves, as for Desktop Mode above.
+**Change your mind:** run `bash install.sh` again to add Gaming Mode, remove it, or switch between blocked and open. `bash uninstall.sh` removes only what the installer added. Full details, status messages and the exact files: [Gaming Mode details](docs/install-details.md#gaming-mode-on-steam-deck-preview-first-released-in-v041-1).
 
 ### Arch / CachyOS
 
 **[Download the x86_64 package](https://github.com/itsdestin/swipe-keyboard/releases/download/v0.5.0-1/swipe-keyboard-0.5.0-1-x86_64.pkg.tar.zst)**
 
-Requires KDE Plasma Wayland with Plasma Keyboard 6.7 or newer. It works with 6.7.x and 6.8.x; on Plasma 6.9 and later it steps aside (you get KDE's plain keyboard) until a version made for 6.9 is released, and it never blocks the Plasma upgrade.
+Requires KDE Plasma Wayland with Plasma Keyboard 6.7 or newer. One package carries a keyboard for 6.7/6.8 and one for Plasma 6.9's rebuilt keyboard and starts the matching one. The 6.9 version is new and has only been tested against KDE's development code, not yet on a real Plasma 6.9 device. If anything does not fit, KDE's plain keyboard starts and typing keeps working. The package never blocks a Plasma upgrade.
 
 1. Save the download to **Downloads**, then open **Konsole** from the application menu and paste:
 
@@ -133,7 +122,7 @@ If restoring the keyboard fails, removal stops. Follow the error or use the [rec
 
 ### Fedora 44 / Plasma Mobile
 
-For KDE Plasma or Plasma Mobile with Plasma Keyboard 6.7.x or 6.8.x (on 6.9 and later it steps aside, see above). Choose the file matching your device:
+For KDE Plasma or Plasma Mobile with Plasma Keyboard 6.7 or newer (see the Plasma 6.9 note under Arch). Choose the file matching your device:
 
 | Device | Download |
 |---|---|
@@ -175,37 +164,49 @@ If restoring the keyboard fails, removal stops. Follow the error or use the [rec
 
 ## Using the keyboard
 
-- **Languages:** enable languages in **On-Screen Keyboard** settings, then switch with the globe key. Deck users should use the settings command in their section above. Maximize the settings window if the list is clipped.
-- **Swipe:** drag across letters and lift to enter a word. Tap an alternative above the keys to change it.
-- **Tap typing:** suggestions finish or correct the word you are typing. The strongest is centered, and your exact spelling remains available. Only tapping a suggestion changes the word; Space does not autocorrect it.
-- **Next-word suggestions:** in English, Spanish, French or German, tap or swipe a word, then press Space. The strongest suggestion is in the middle. Tap a suggestion to insert it. Spanish, French and German suggestions are an early baseline and can be repetitive or less natural.
-- **Learning (off unless you turn it on):** the keyboard can remember your names, slang and favourite word pairs, on this computer only, and never from password, e-mail, web-address or number fields. Turn it on or off with `swipe-keyboard learning on` / `off`, erase it with `swipe-keyboard learning forget`, or press and hold a learned suggestion and choose **Remove from dictionary**. [Details](docs/install-details.md#learning-from-your-typing-off-by-default)
-- **Move the cursor:** slide your finger (or mouse) sideways along the Space bar. The cursor moves in the direction you slide and no space is typed: one character at a time when you slide slowly, and further the faster you slide, like a touchpad. A normal tap still types a space. It works on the letters page, including in password fields, but not on the `?123` symbols page.
-- **Texting words:** common abbreviations and slang (lol, wyd, rn, jaja, mdr, lg ...) can be swiped and completed in English, Spanish, French and German. Swear-word abbreviations are never suggested before you type them.
-- **Backspace:** the first press can remove the whole swiped word. Moving the cursor or changing fields can clear suggestions.
+- **Languages:** enable them in **On-Screen Keyboard** settings, then switch with the globe key. On a Deck, use the settings command in its install section above. Maximise the settings window if the list is cut off.
+- **Swipe:** drag across the letters and lift to enter a word. Tap an alternative above the keys to change it.
+- **Tap typing:** suggestions finish or correct the word you are typing. The strongest is in the middle and your exact spelling stays available. Only tapping a suggestion changes the word; Space never autocorrects.
+- **Next-word suggestions:** after a word, press Space; tap a suggestion to insert it. Spanish, French and German suggestions are an early baseline and can be repetitive or less natural.
+- **Apostrophes and capitals:** the sentence decides "were" or "we're", "its" or "it's". "I", names, places, days and months come out capitalised in English, Spanish and French.
+- **Texting words:** lol, wyd, rn, jaja, mdr, lg and similar can be swiped and completed. Abbreviations of swear words are never suggested before you type them.
+- **Learning (off until you turn it on):** remembers your names, slang and favourite word pairs on this computer only, never from password, e-mail, web-address or number fields. `swipe-keyboard learning on` / `off`; `swipe-keyboard learning forget` erases it; or press and hold a learned suggestion and choose **Remove from dictionary**. [Details](docs/install-details.md#learning-from-your-typing-off-by-default)
+- **Move the cursor:** slide along the Space bar. Slow slides move one character at a time and fast slides go further. A normal tap still types a space. It works on the letters page, including in password fields, not on `?123`.
+- **Backspace:** the first press can remove the whole swiped word. Moving the cursor or changing fields clears suggestions.
+
+## How good is it
+
+- **Suggestions (next word and completion).** On our recorded test queries in all four languages, the suggestions were ahead of Gboard on every measure, by about 4 to 20 points. The test: **Gboard 14.2, Android 35 emulator, learning off, tested 2026-10-22**, 100 sentences per set. Newer Gboard versions and Gboard after it has learned from a user were not measured, so this says nothing general about Gboard.
+- **Swipe typing, English.** On 2,000 real swipes the first guess is right 90.4 % of the time and the right word is in the top 3 for 95.0 %. The FUTO engine used up to version 0.4.1 scored 93.3 % and 96.6 % on the same swipes. This model was measured before the final 0.5.0 build and has not been re-measured since. Swipe typing was not compared with Gboard.
+- **Swipe typing, Spanish, French, German.** 72 to 81 % first guess on 5,000 real swipes each from another project's test data. Their training data is partly synthetic.
+- Test sets are small, so differences under about 1 to 2 points are noise. How everything was measured, and one measurement error we found and retracted: [docs/methods.md](docs/methods.md). Per-model tables: [docs/models](docs/models/README.md).
+
+## For developers
+
+The engine behind the keyboard is a separate C++ library (`engine/`, MIT) with one entry point, `swipekb::LanguageEngine`: give it the finger path and the key rectangles and it returns ranked words; it also does completion, spelling alternatives and next-word suggestions. It needs Qt 6 Core. See [engine/README.md](engine/README.md) for what it takes and returns, the limits, and how to build it. The trained models (four small next-word models and one swipe model) and word lists are published as GitHub releases and described, with licences and accuracy, in [docs/models](docs/models/README.md) and on [Hugging Face](https://huggingface.co/youcoded). To contribute, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Help
 
 - **Keyboard not appearing?** Touch the field instead of clicking it. Native-package users can run `swipe-keyboard check`.
-- **No next-word suggestions?** Select a supported language, enter a word through this keyboard and press Space. Native predictions start from keyboard-entered words, not pasted text. Password and restricted fields do not offer suggestions.
+- **No next-word suggestions?** Select a supported language, type a word with this keyboard, then press Space. Predictions start from words typed on this keyboard, not pasted text. Password and restricted fields offer none.
 - **Only one app has trouble?** Try another KDE Wayland app; application support varies.
 
-[More help, recovery and privacy](docs/install-details.md) · [Report a bug](https://github.com/itsdestin/swipe-keyboard/issues/new?template=bug.yml) · [Release notes](docs/releases/v0.5.0-1.md)
+[More help, recovery and privacy](docs/install-details.md) · [Report a bug](https://github.com/itsdestin/swipe-keyboard/issues/new?template=bug.yml) · [Release notes](docs/releases/v0.5.0-1.md) · [Changelog](CHANGELOG.md)
 
 For bug reports, include your system, app, keyboard version and steps using made-up text. **Do not send passwords, recordings or personal typing.**
 
-Swiping, completion and suggestions run on the project's own open engine. Code licences: MIT for the engine, tools, launcher and Gaming Mode daemon; KDE's GPL-2.0-only OR GPL-3.0-only only for the keyboard add-on layers that run inside GPL software (see [Licences](#licences)). [Licenses and notices](packaging/NOTICE).
-
 ## Licences
 
-Most of Swipe Keyboard is **MIT**: the engine (swipe recognition, dictionary, completion, next-word prediction, learning),
-the tools and training/benchmark scripts, the launcher and command-line tool, the Gaming Mode daemon, the shared language
-and session rules (also used by Gaming Mode) and the build files.
-Two parts are **GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL** (KDE's standard licence), because they plug
-into GPL software and must stay compatible with it: `plugin/` (the Plasma 6.7/6.8 add-on, linked with Qt Virtual
-Keyboard, which is GPL-3.0-only) and `frontend-plasma69/` (the Plasma 6.9 add-on, which runs inside KDE's
-plasma-keyboard and uses its internals). The patches to KDE's own code in `scripts/patches/` keep KDE's licence.
-Documentation is CC-BY-4.0, trivial data CC0-1.0, and every data file keeps its own licence (word lists ODC-By-1.0 and
-CC BY 2.0 France, the AOSP word list Apache-2.0, the swear-word lists CC-BY-4.0, the texting words CC0-1.0, the trained
-models as declared in their release). Each file names its licence (SPDX header or `REUSE.toml`; `reuse lint` passes);
-the texts are in `LICENSES/`, summarised in [LICENSE](LICENSE).
+| Part | Licence |
+|---|---|
+| Engine, tools, launcher, Gaming Mode, shared language rules, build files | MIT |
+| The two keyboard add-on layers that run inside GPL software: `plugin/` (Plasma 6.7/6.8, linked with Qt Virtual Keyboard) and `frontend-plasma69/` (Plasma 6.9, runs inside KDE's plasma-keyboard) | GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL (KDE's standard) |
+| Patches to KDE's own code (`scripts/patches/`) | KDE's licence |
+| Next-word models and word lists (Hugging Face FineWeb text, Tatoeba sentences) | ODC-By 1.0 and CC BY 2.0 France: attribution only |
+| Swipe model | MIT (trained on FUTO's MIT swipe data plus synthetic swipes) |
+| English dictionary base: Android's word list | Apache-2.0 |
+| Swear-word lists | CC BY 4.0 |
+| Texting-word lists, trivial data | CC0 |
+| Documentation | CC BY 4.0 |
+
+Models were trained and released by Destin Moss via youcoded.ai, 2026. No FUTO code or models are in the keyboard. Each file names its licence (SPDX header or `REUSE.toml`; `reuse lint` passes); the texts are in `LICENSES/`, summarised in [LICENSE](LICENSE) and [packaging/NOTICE](packaging/NOTICE).

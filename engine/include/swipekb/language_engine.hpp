@@ -2,6 +2,12 @@
 //
 // SPDX-License-Identifier: MIT
 
+// Integrators, start here (see engine/README.md for a worked example, the files to download and their licences):
+//   LanguageEngine e; LanguageEngineSetup s; s.language="en"; s.dictionary="en_swipe.combined";
+//   e.init(s);  e.recognize(trace, keys, contextWords(textBeforeCursor), 3);  e.complete("hel");
+// Only the dictionary is required; the n-gram pack and the swipe model are optional and each one that is missing
+// or damaged only switches its own part off. Needs Qt 6 Core. MIT licence.
+//
 // LanguageEngine — everything the keyboard (and the Gaming Mode daemon) asks of one language, behind one class:
 //   * swipe recognition: the project's own swipe engine (network + dictionary beam search + geometric cross-check,
 //     with the geometry-only decoder as fallback) ranked by the language's n-gram sentence prior when it has one;
