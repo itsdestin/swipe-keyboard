@@ -180,6 +180,29 @@ def check_versions(contract):
             raise ValueError('Version metadata drift: ' + path)
 
 
+README = ROOT/'README.md'
+DOWNLOAD = re.compile(r'https://github\.com/itsdestin/swipe-keyboard/releases/download/v([0-9][0-9.]*-[0-9][0-9.]*)/')
+
+
+def readme_versions(text):
+    """Every release version the README's download links point at."""
+    return set(DOWNLOAD.findall(text))
+
+
+def update_readme(text, contract):
+    """Point every download link, file name and command at this release (card #200).
+
+    WHY a plain replacement of the one old version string: the README names it in links, file names, tar/cd/pacman/dnf
+    commands, the release header and the release-notes link, and all of them must move together. Refuses when the
+    links name more than one version, because then which one is "old" is a guess.
+    """
+    old = readme_versions(text)
+    if len(old) != 1:
+        raise ValueError('README download links name ' + (', '.join(sorted(old)) or 'no version') + '; fix by hand')
+    (previous,) = old
+    return text.replace(previous, version(contract)), previous
+
+
 def steamos_bundle():
     # WHY loaded by path: this file is itself loaded by path in tests, so a plain import of a sibling would fail.
     import importlib.util
@@ -245,7 +268,7 @@ def inspect(target, directory, stage, sha, contract):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=('version', 'check-versions', 'record', 'gate', 'verify', 'verify-inputs', 'mode'))
+    parser.add_argument('command', choices=('version', 'check-versions', 'record', 'gate', 'verify', 'verify-inputs', 'mode', 'readme'))
     parser.add_argument('--directory', type=Path, default=Path('release'))
     parser.add_argument('--evidence', type=Path, default=Path('evidence'))
     parser.add_argument('--target')
@@ -261,6 +284,10 @@ def main():
     elif args.command == 'mode':
         import os
         print(run_mode(os.environ))
+    elif args.command == 'readme':
+        text, previous = update_readme(README.read_text(), contract)
+        README.write_text(text)
+        print(f'README now points at {version(contract)} (was {previous}); review the diff before committing')
     elif args.command == 'check-versions':
         check_versions(contract)
         print('Release recipe versions agree: ' + version(contract))

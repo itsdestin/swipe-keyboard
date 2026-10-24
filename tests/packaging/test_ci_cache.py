@@ -26,7 +26,7 @@ def env(event, ref, repo=REPO, fork=''):
 
 class PolicyTests(unittest.TestCase):
     def test_release_tags_never_read_or_write_a_cache(self):
-        # WHY: release policy requires every tag candidate to rebuild everything cold.
+        # WHY: a tag never reads or writes a cache; it reuses main's tested files for its commit or rebuilds cold (card #200).
         for event in ('push', 'workflow_dispatch'):
             self.assertEqual(cache.policy(env(event, 'refs/tags/v0.3.1')), (False, False))
 

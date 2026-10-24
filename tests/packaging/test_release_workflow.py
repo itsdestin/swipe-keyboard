@@ -31,6 +31,9 @@ class WorkflowTests(unittest.TestCase):
             with self.subTest(target=name):
                 self.assertIn(f'https://github.com/itsdestin/swipe-keyboard/releases/download/{tag}/{installer}', guide)
         self.assertTrue((ROOT/'docs/releases'/f'{tag}.md').is_file())
+        # WHY (card #200): every download link must name this release; one left on an older version sends people
+        # to old files. `python3 scripts/release.py readme` moves them all after a version change.
+        self.assertEqual(set(re.findall(r'/releases/download/(v[^/]+)/', guide)), {tag})
 
     def test_real_producers_and_always_completion_gate(self):
         self.assertEqual(set(self.jobs), {'prepare', 'arch', 'fedora', 'fedora-arm64', 'flatpak', 'steamos-helper', 'steamos', 'keyboard-ci', 'gaming-tests', 'publish', 'update-site-check', 'update-site'})
@@ -165,7 +168,7 @@ class WorkflowTests(unittest.TestCase):
 
     def test_dependency_caches_are_trusted_and_never_touch_releases(self):
         import json
-        # WHY: tag candidates must rebuild everything cold, and only trusted events may write.
+        # WHY: tag candidates never touch caches (they reuse main's tested files or rebuild cold), and only trusted events may write.
         for name in ('arch', 'fedora', 'fedora-arm64', 'flatpak'):
             job = self.jobs[name]
             self.assertIn('scripts/ci-cache.py policy', job, name)

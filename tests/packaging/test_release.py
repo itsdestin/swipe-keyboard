@@ -480,3 +480,26 @@ class FastGateTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class ReadmeTests(unittest.TestCase):
+    """`release.py readme` moves every download link, file name and command to the release (card #200)."""
+    URL = 'https://github.com/itsdestin/swipe-keyboard/releases/download/'
+    CONTRACT = {'version': '0.5.0', 'release': 1, 'targets': {}}
+
+    def test_every_mention_of_the_old_version_moves_together(self):
+        text = (f'**Test release v0.4.1-1**\n[get]({self.URL}v0.4.1-1/swipe-keyboard-0.4.1-1-x86_64.pkg.tar.zst)\n'
+                'sudo pacman -U ~/Downloads/swipe-keyboard-0.4.1-1-x86_64.pkg.tar.zst\n'
+                'cd swipe-keyboard-steamos-0.4.1-1\n[notes](docs/releases/v0.4.1-1.md)\nOn version 0.4.0 or older?\n')
+        new, previous = release.update_readme(text, self.CONTRACT)
+        self.assertEqual(previous, '0.4.1-1')
+        self.assertNotIn('0.4.1-1', new)
+        self.assertEqual(new.count('0.5.0-1'), 6)
+        self.assertIn('0.4.0 or older', new)   # prose about other versions is left alone
+
+    def test_links_naming_two_versions_are_refused(self):
+        text = f'{self.URL}v0.4.1-1/a {self.URL}v0.4.0-1/b'
+        with self.assertRaises(ValueError):
+            release.update_readme(text, self.CONTRACT)
+        with self.assertRaises(ValueError):
+            release.update_readme('no links', self.CONTRACT)
