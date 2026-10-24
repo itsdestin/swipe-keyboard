@@ -256,6 +256,32 @@ private:
             method->beginPredictionSelection(method->predictionSelectionToken());
             method->selectionListItemSelected(QVirtualKeyboardSelectionListModel::Type::WordCandidateList, index);
         }
+        // A straight-line swipe through the letters of `word` on a 100-pixel qwerty grid. Returns false when refused.
+        bool swipe(const QString &word) {
+            QVariantList keys, points; const QStringList rows{"qwertyuiop", "asdfghjkl", "zxcvbnm"};
+            for (int r = 0; r < rows.size(); ++r) for (int c = 0; c < rows[r].size(); ++c)
+                keys << QVariantMap{{"letter", QString(rows[r][c])}, {"x", c * 100}, {"y", r * 100}, {"w", 100}, {"h", 100}};
+            QPointF previous;
+            for (auto letter : word) {
+                QPointF center;
+                for (const auto &v : keys) { auto k = v.toMap(); if (k["letter"].toString() == QString(letter)) center = {k["x"].toDouble() + 50, k["y"].toDouble() + 50}; }
+                if (points.isEmpty()) points << QVariantMap{{"x", center.x()}, {"y", center.y()}, {"t", 0}};
+                else for (int step = 1; step <= 8; ++step) { auto p = previous + (center - previous) * (step / 8.0); points << QVariantMap{{"x", p.x()}, {"y", p.y()}, {"t", points.size() * 16}}; }
+                previous = center;
+            }
+            const int generation = method->beginSwipe();
+            if (generation < 0) return false;
+            method->finishSwipe(points, keys, generation);
+            return true;
+        }
+        // The app reports its current state (Chromium sends surrounding text + cursor, then Qt asks again).
+        void report() { QGuiApplication::inputMethod()->update(Qt::ImQueryAll); method->update(); }
+        void connectNative() {
+            // WHY a Shift press: it connects the keyboard to the field's stock proxy, as real use does within the
+            // first key, so the owned-history rule really runs.
+            method->keyEvent(Qt::Key_Shift, QString(), Qt::NoModifier);
+            report();
+        }
     };
 private slots:
     void tappingAWordShowsAlternativesAndChangesNothing() {
@@ -455,27 +481,13 @@ private slots:
         // guesses even though the field is not readable; text that was already there stays untouched and unoffered.
         if (qEnvironmentVariable("SWIPEKB_TEST_PROFILE_ASSETS").isEmpty()) QSKIP("English assets required");
         SwapFixture f; QVERIFY(f.init("we say ", 7, {}, "en_US", nullptr, true)); QTRY_VERIFY(f.ic->inputItem() == f.edit.get());
-        f.method->keyEvent(Qt::Key_Shift, QString(), Qt::NoModifier);
-        QVERIFY(f.method->diagnostics().value("predictionContextSource").toString() == QStringLiteral("keyboard-owned-history"));
-        QGuiApplication::inputMethod()->update(Qt::ImQueryAll); f.method->update();
-        QVariantList keys, points; const QStringList rows{"qwertyuiop", "asdfghjkl", "zxcvbnm"};
-        for (int r = 0; r < rows.size(); ++r) for (int c = 0; c < rows[r].size(); ++c)
-            keys << QVariantMap{{"letter", QString(rows[r][c])}, {"x", c * 100}, {"y", r * 100}, {"w", 100}, {"h", 100}};
-        QPointF previous;
-        for (auto letter : QStringLiteral("hello")) {
-            QPointF center;
-            for (const auto &v : keys) { auto k = v.toMap(); if (k["letter"].toString() == QString(letter)) center = {k["x"].toDouble() + 50, k["y"].toDouble() + 50}; }
-            if (points.isEmpty()) points << QVariantMap{{"x", center.x()}, {"y", center.y()}, {"t", 0}};
-            else for (int step = 1; step <= 8; ++step) { auto p = previous + (center - previous) * (step / 8.0); points << QVariantMap{{"x", p.x()}, {"y", p.y()}, {"t", points.size() * 16}}; }
-            previous = center;
-        }
-        const int generation = f.method->beginSwipe(); QVERIFY(generation >= 0);
-        f.method->finishSwipe(points, keys, generation);
-        QGuiApplication::inputMethod()->update(Qt::ImQueryAll); f.method->update();
+        f.connectNative();
+        QCOMPARE(f.method->diagnostics().value("predictionContextSource").toString(), QStringLiteral("keyboard-owned-history"));
+        QVERIFY(f.swipe("hello")); f.report();
         const QString typed = f.edit->text.mid(7).trimmed(); QVERIFY(typed.size() >= 2);
         const auto swipeGuesses = f.bar();
         QVERIFY(!swipeGuesses.isEmpty());
-        QTest::qWait(400);
+        QTest::qWait(400);                            // the swipe's own edit has settled: a move now is a tap
         f.tapAt(7 + typed.size() / 2);                // into the swiped word
         const auto shown = f.bar();
         QVERIFY2(!shown.isEmpty(), "no alternatives for the keyboard's own word");
@@ -488,17 +500,64 @@ private slots:
         QCOMPARE(f.edit->text.left(7), QStringLiteral("we say "));   // nothing before it touched
         QVERIFY2(f.edit->text.mid(7).startsWith(pick), qPrintable(f.edit->text));
         QTest::qWait(400);
-        f.tapAt(7 + 1);
+        f.tapAt(f.edit->text.size()); f.tapAt(7 + 1);
         QVERIFY2(!f.bar().isEmpty(), "the swapped-in word is the keyboard's own too");
         f.tapAt(f.edit->text.size());
-        // Someone else edits the field: the keyboard no longer vouches for any word in it.
+        // Someone else types after it (a separate word, so the word itself is intact): the keyboard no longer
+        // vouches for any word in the field.
         QTest::qWait(400);
-        // WHY after the word: the text before it is unchanged, so only the outside-edit rule can refuse it.
-        f.edit->text += QStringLiteral("there"); f.edit->cursor = f.edit->text.size();
-        QGuiApplication::inputMethod()->update(Qt::ImQueryAll); f.method->update();
+        f.edit->text += QStringLiteral(" there"); f.edit->cursor = f.edit->text.size(); f.report();
         QTest::qWait(400);
         f.tapAt(7 + 1);
+        QVERIFY2(f.bar().isEmpty(), qPrintable("offered after an outside edit: " + f.bar().join(",")));
+        f.choose(0); QVERIFY(f.edit->text.endsWith(QStringLiteral(" there")));
+    }
+    void chromiumStyleReportsStillOfferTheKeyboardsOwnWord() {
+        // WHY (Destin: no alternatives in YouCoded and Chrome): Chromium apps talk to the keyboard through KWin
+        // (Wayland text-input-v3) and get the owned-history rule on stock Plasma. They report the result of the
+        // keyboard's own typing late (first repeating the old state), repeat the same report, and answer a
+        // tap with a cursor-only report, possibly twice. None of that may look like someone else's edit.
+        if (qEnvironmentVariable("SWIPEKB_TEST_PROFILE_ASSETS").isEmpty()) QSKIP("English assets required");
+        SwapFixture f; QVERIFY(f.init("ok ", 3, {}, "en_US", nullptr, true)); QTRY_VERIFY(f.ic->inputItem() == f.edit.get());
+        f.connectNative();
+        const QString before = f.edit->text;
+        f.edit->suppressInputMethodUpdate = true;      // the app takes the text but says nothing yet
+        QVERIFY(f.swipe("hello"));
+        const QString after = f.edit->text; const int end = f.edit->cursor;
+        QVERIFY(after.size() > before.size());
+        QTest::qWait(120);
+        f.edit->lagText = true; f.edit->laggedText = before; f.edit->cursor = before.size();
+        f.report();                                                        // first: the old state, again
+        QTest::qWait(1500);                                                // late: a busy machine, past 1 second
+        f.edit->lagText = false; f.edit->cursor = end; f.report();         // then: the new text and cursor
+        QTest::qWait(60);
+        f.report();                                                        // the same state again
+        f.edit->suppressInputMethodUpdate = false;
+        QCOMPARE(f.edit->text, after); QCOMPARE(f.edit->cursor, end);
+        QTest::qWait(400);
+        const QString word = after.mid(3).trimmed();
+        f.tapAt(3 + word.size() / 2); f.report();                          // a tap, reported twice
+        QVERIFY2(!f.bar().isEmpty(), qPrintable("no alternatives after Chromium-style reports in: " + after));
+        QCOMPARE(f.edit->text, after);
+        const QString pick = f.bar().first();
+        f.choose(0);
+        QCOMPARE(f.edit->text.left(3), QStringLiteral("ok "));
+        QVERIFY2(f.edit->text.mid(3).startsWith(pick), qPrintable(f.edit->text));
+    }
+    void anAppThatSendsNoTextGetsNoAlternativesAndLosesNoText() {
+        // WHY: Chromium may leave the surrounding text out. Then the keyboard cannot see its word, so it offers
+        // nothing and never deletes blind.
+        if (qEnvironmentVariable("SWIPEKB_TEST_PROFILE_ASSETS").isEmpty()) QSKIP("English assets required");
+        SwapFixture f; QVERIFY(f.init("ok ", 3, {}, "en_US", nullptr, true)); QTRY_VERIFY(f.ic->inputItem() == f.edit.get());
+        f.connectNative();
+        QVERIFY(f.swipe("hello")); f.report();
+        const QString after = f.edit->text;
+        QTest::qWait(400);
+        f.edit->lagText = true; f.edit->laggedText = QString();
+        f.tapAt(0); f.tapAt(5);
         QVERIFY(f.bar().isEmpty());
+        f.choose(0);
+        QCOMPARE(f.edit->text, after);
     }
     void sentenceAwareRankingUsesTheWordsBeforeTheTappedWord() {
         // WHY: with an n-gram pack the worker reorders the dictionary's neighbours by the words before the tapped word.

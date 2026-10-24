@@ -90,7 +90,9 @@ bool CursorMoveTracker::observe(const QString &text, int cursor, qint64 now)
         if (m_have && !sameText) { m_changed = true; m_since = now; }
         if (m_changed ? now - m_since >= kSettleMs : now - m_since >= kGiveUpMs) m_pending = false;
     }
-    m_outside = m_have && !sameText && !m_pending;
+    const bool lateEcho = m_awaitingEcho && now - m_editAt < kLateEchoMs;
+    if (m_have && !sameText) m_awaitingEcho = false;
+    m_outside = m_have && !sameText && !m_pending && !lateEcho;
     const bool moved = m_have && sameText && cursor != m_cursor && !m_pending;
     m_have = true; m_hash = h; m_size = n; m_cursor = cursor;
     return moved;
@@ -98,7 +100,7 @@ bool CursorMoveTracker::observe(const QString &text, int cursor, qint64 now)
 
 void CursorMoveTracker::clear()
 {
-    m_have = m_pending = m_changed = m_outside = false;
+    m_have = m_pending = m_changed = m_outside = m_awaitingEcho = false;
     m_hash = 0; m_size = 0; m_cursor = -1;
 }
 

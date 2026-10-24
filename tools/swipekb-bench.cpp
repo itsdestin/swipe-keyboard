@@ -201,7 +201,12 @@ int main(int argc, char **argv)
         if (!h1) { ++firstWrong; rescued += h3; }
         if (known) { ++inDict; dict1 += h1; dict3 += h3; }
         // WHY a per-swipe list: comparing two runs swipe by swipe shows which words a change won or lost.
-        if (list) std::printf("swipe\t%zu\t%s\t%s\n", n, s.word.c_str(), c.empty() ? "" : c[0].word.c_str());
+        // WHY every guess, not only the first: comparing runs of the alternatives needs to see which word was lost.
+        if (list) {
+            std::printf("swipe\t%zu\t%s", n, s.word.c_str());
+            for (const auto &x : c) std::printf("\t%s", x.word.c_str());
+            std::printf("\n");
+        }
     }
     auto pct = [](size_t a, size_t b) { return b ? 100.0 * double(a) / double(b) : 0.0; };
     std::printf("Results: %zu samples\n  top-1: %zu / %zu = %.2f%%\n  top-3: %zu / %zu = %.2f%%\n", n, top1, n, pct(top1, n), top3, n, pct(top3, n));

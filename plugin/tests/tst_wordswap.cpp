@@ -154,6 +154,22 @@ private slots:
         t.observe("hello there", 3, 2100);                      // a tap: text unchanged
         QVERIFY(!t.outsideEdit());
     }
+    void aLateReportOfOwnTypingIsNotAnOutsideEdit() {
+        // Chromium on a busy machine: the app reports the keyboard's own word well after the usual settle time.
+        CursorMoveTracker t;
+        t.observe("ok ", 3, 0);
+        t.ownEdit(100);
+        t.observe("ok ", 3, 600);
+        t.observe("ok ", 3, 1500);                              // nothing yet; taps already count again
+        t.observe("ok hello ", 9, 2500);                        // the late report of our own edit
+        QVERIFY(!t.outsideEdit());
+        t.observe("ok hello there", 14, 2800);                  // a second change: someone else's
+        QVERIFY(t.outsideEdit());
+        t.ownEdit(5000);
+        t.observe("ok hello there", 14, 5100);
+        t.observe("ok hello there!", 15, 9000);                 // far too late to be ours
+        QVERIFY(t.outsideEdit());
+    }
     void memoryIsBounded() {
         RecentSwipes m;
         for (int i = 0; i < 40; ++i) m.remember(QString("t%1 ").arg(i), "w", {"w", "x"});

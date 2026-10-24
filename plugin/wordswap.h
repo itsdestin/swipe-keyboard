@@ -48,18 +48,21 @@ class CursorMoveTracker {
 public:
     static qint64 nowMs();
     // Call whenever the keyboard itself is about to change the text (a key, a swipe, a picked word).
-    void ownEdit(qint64 now = nowMs()) { m_pending = true; m_changed = false; m_since = now; }
+    void ownEdit(qint64 now = nowMs()) { m_pending = true; m_changed = false; m_since = now; m_awaitingEcho = true; m_editAt = now; }
     // True when this snapshot is a cursor move by the person: same text as last time, different cursor, and
     // no own edit still settling. WHY a settle time: Qt reports the text and the cursor of one edit as
     // separate notifications in either order, so the cursor can "move" right after the text changed. The edit
     // counts as settled 250 ms after its text arrived (or 1 s after it was made if the text never did).
     bool observe(const QString &text, int cursor, qint64 now = nowMs());
     // True when the last observe() saw the text change with no own edit settling: someone else edited the field.
+    // WHY kLateEchoMs: Chromium apps (YouCoded, Chrome) report the keyboard's own typing late on a busy machine;
+    // the first change within that time of an own edit whose text had not arrived yet is that report.
     bool outsideEdit() const { return m_outside; }
     void clear();
-    static constexpr qint64 kSettleMs = 250, kGiveUpMs = 1000;
+    static constexpr qint64 kSettleMs = 250, kGiveUpMs = 1000, kLateEchoMs = 3000;
 private:
-    bool m_have = false, m_pending = false, m_changed = false, m_outside = false;
+    bool m_have = false, m_pending = false, m_changed = false, m_outside = false, m_awaitingEcho = false;
+    qint64 m_editAt = 0;
     size_t m_hash = 0;
     qsizetype m_size = 0;
     int m_cursor = -1;
