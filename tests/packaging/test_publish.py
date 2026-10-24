@@ -101,3 +101,26 @@ class PublishTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class ReadmeLinkTests(unittest.TestCase):
+    """After publishing, every README download link for the release must answer (card #200)."""
+    URL = 'https://github.com/itsdestin/swipe-keyboard/releases/download/v0.5.0-1/'
+
+    def opener(self, status):
+        def open_url(request, timeout):
+            self.assertEqual(request.get_method(), 'HEAD')
+            if status is None:
+                raise OSError('404 Not Found')
+            answer = mock.MagicMock(status=status)
+            answer.__enter__.return_value = answer
+            return answer
+        return open_url
+
+    def test_working_links_pass(self):
+        text = f'[a]({self.URL}a.flatpak) and [b]({self.URL}b.rpm)'
+        self.assertEqual(publish.broken_readme_links(text, 'v0.5.0-1', self.opener(200)), [])
+
+    def test_missing_file_or_no_link_is_reported(self):
+        self.assertEqual(len(publish.broken_readme_links(f'[a]({self.URL}a.flatpak)', 'v0.5.0-1', self.opener(None))), 1)
+        self.assertEqual(publish.broken_readme_links('no links', 'v0.5.0-1', self.opener(200)), ['README has no download link for v0.5.0-1'])
