@@ -22,6 +22,7 @@
 #      SWIPEKB_KDE_SOURCES  KDE plasma-keyboard checkouts for step 3, space-separated
 #                           (default: plasma-keyboard-master and pk69/plasma-keyboard-mr179 under ~/.cache/swipe-keyboard-train)
 #      SWIPEKB_TESTSETS     next-word test sets (see bench/scoreboard.sh)
+#      SWIPEKB_EVAL         the real-swipe test data for bench/score.sh (default <assets>/eval)
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CACHE="$HOME/.cache/swipe-keyboard-train"
@@ -54,6 +55,13 @@ gaming_suite() {   # WHY two skipped: they need the built daemon and already run
 step "Gaming Mode tests" gaming_suite
 step "language file tests" py_suite tests
 
+features_check() {   # the separate feature-test project (language rules, next-word evaluator); also builds the scorer
+    nice -n 10 cmake -S "$ROOT/tests/features" -B "$WORK/features" -G Ninja -DCMAKE_BUILD_TYPE=Release -DTEST_PROFILE_ASSETS="${SWIPEKB_ASSETS:-$CACHE/quick/assets}" >"$WORK/features.configure.log" 2>&1 \
+        || { tail -20 "$WORK/features.configure.log"; return 1; }
+    nice -n 10 ninja -C "$WORK/features" | tail -1 && QT_QPA_PLATFORM=offscreen nice -n 10 ctest --test-dir "$WORK/features" -j "$(nproc)" --output-on-failure | tail -4
+}
+step "feature tests" features_check
+
 fe_check() {   # fe_check KDE_SOURCE: build and test the 6.9 front end against one KDE checkout
     local out="$WORK/fe-$(basename "$1")"
     nice -n 10 cmake -S "$ROOT/frontend-plasma69" -B "$out" -G Ninja -DSWIPEKB_PLASMA_KEYBOARD_SOURCE="$1" \
@@ -70,9 +78,9 @@ if [ "$skip_bench" = 0 ]; then
     # WHY copies: the scoreboards append rows; the lane must not edit tracked files. Copy rows back by hand
     # when a release records its numbers.
     cp "$ROOT/bench/history.tsv" "$WORK/history.tsv"; cp "$ROOT/bench/scoreboard.tsv" "$WORK/scoreboard.tsv"
-    step "English real swipes (--check)" env SWIPEKB_ASSETS="$A" SWIPEKB_BENCH="$WORK/tools/swipekb-bench" \
+    step "English real swipes (--check)" env SWIPEKB_ASSETS="$A" SWIPEKB_EVAL="${SWIPEKB_EVAL:-$A/eval}" SWIPEKB_BENCH="$WORK/tools/swipekb-bench" \
         BENCH_HISTORY="$WORK/history.tsv" nice -n 10 "$ROOT/bench/score.sh" --label "full-verify $(git -C "$ROOT" rev-parse --short HEAD)" --check
-    step "next word, all languages (--check)" env SWIPEKB_NEXTWORD_EVAL="$WORK/tools/swipekb-nextword-eval" \
+    step "next word, all languages (--check)" env SWIPEKB_NEXTWORD_EVAL="$WORK/features/swipekb-nextword-eval" \
         SWIPEKB_PACKS="$A/language-packs" SCOREBOARD="$WORK/scoreboard.tsv" \
         nice -n 10 "$ROOT/bench/scoreboard.sh" --label "full-verify $(git -C "$ROOT" rev-parse --short HEAD)" --check
 fi
