@@ -3,6 +3,10 @@
 
 # The controller's rules against a fake text field and the real (FUTO-free) engine files.
 set(SWIPEKB_TEST_MODEL_DATA "" CACHE PATH "Installed-layout data folder (dict/, models/, language-packs/) for the 6.9 tests")
+# WHY default to the build's own assets: the full build already fetched them in the installed layout.
+if(NOT SWIPEKB_TEST_MODEL_DATA AND SWIPEKB_ASSETS AND EXISTS "${SWIPEKB_ASSETS}/dict/en_swipe.combined")
+    set(SWIPEKB_TEST_MODEL_DATA "${SWIPEKB_ASSETS}")
+endif()
 qt_add_executable(tst_plasma69_controller tst_controller.cpp fakeeditor.h)
 target_link_libraries(tst_plasma69_controller PRIVATE swipekb69_open Qt6::Test)
 add_test(NAME plasma69_controller COMMAND tst_plasma69_controller)

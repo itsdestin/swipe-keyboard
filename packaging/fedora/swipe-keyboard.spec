@@ -23,7 +23,13 @@ Requires: python3, systemd, qt6-qtbase, qt6-qttools, kf6-kconfig
 # WHY no upper bound: a Plasma 6.9 upgrade must never be blocked by this package. On 6.9+ the launcher
 # (integration/setup.py) sees the newer keyboard and starts the plain KDE keyboard instead.
 Requires: plasma-keyboard >= 1:6.7
-# RPM generates Qt/KF/libstdc++ ABI dependencies automatically from installed ELF.
+# WHY conditional: only the Plasma 6.7/6.8 front end links Qt Virtual Keyboard; Plasma 6.9's rebuilt keyboard has none,
+# so the library is required only while plasma-keyboard is older than the 6.9 series (6.8.80). The automatic ELF
+# requirement is filtered for the same reason. Kirigami: the 6.9 suggestion row uses its theme colours.
+Requires: (qt6-qtvirtualkeyboard if plasma-keyboard < 1:6.8.80)
+Requires: kf6-kirigami
+%global __requires_exclude ^libQt6VirtualKeyboard\\.so.*$
+# RPM generates the other Qt/KF/libstdc++ ABI dependencies automatically from installed ELF.
 
 %description
 English (US/UK), Spanish, French and German swipe typing, current-word completions,

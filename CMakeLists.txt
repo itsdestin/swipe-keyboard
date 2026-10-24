@@ -27,6 +27,8 @@ enable_testing()
 find_package(GTest REQUIRED)
 add_subdirectory(engine)
 add_subdirectory(plugin)
+# Plasma 6.9's rebuilt keyboard: a second front end without Qt Virtual Keyboard or FUTO; the launcher picks one.
+add_subdirectory(frontend-plasma69)
 add_subdirectory(tools)
 add_subdirectory(integration)
 add_subdirectory(gaming/daemon)

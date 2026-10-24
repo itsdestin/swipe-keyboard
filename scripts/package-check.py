@@ -150,6 +150,9 @@ def check(root):
                 'models/hungry_jellyfish/metadata.json', 'models/FUTO-MODEL-LICENSE.md',
                 'dict/en_swipe.combined']
     required += ['integration/swipekb-profilecheck']
+    # Plasma 6.9's front end (frontend-plasma69) and its package generator.
+    required += ['integration/plasma69.py', 'qml/SwipeKeyboard69/qmldir', 'qml/SwipeKeyboard69/libswipekeyboard69.so',
+                 'qml/SwipeKeyboard69/libswipekeyboard69plugin.so']
     required += [f'language-packs/{language}.json' for language in ('es', 'fr', 'de')]
     for name in required:
         assert (base/name).is_file() and (base/name).stat().st_size, f'Missing/empty {name}'
@@ -192,7 +195,14 @@ def check(root):
             assert capability['nextWordCapable'] and capability['contextRankingCapable'], f'Context pack unavailable for {locale}'
         if locale.startswith('es-'):
             assert capability['packId'] == 'fineweb-es', f'{locale} must use the shared Spanish pack'
-    for library in [helper, config_probe, profile_probe, *(base/'qml/SwipeKeyboard').glob('*.so*')]:
+    for library in (base/'qml/SwipeKeyboard69').glob('*.so*'):
+        # WHY: the 6.9 front end must never need FUTO's engine, ExecuTorch or Qt Virtual Keyboard (owner decision 2026-10-23).
+        dynamic = subprocess.run(['readelf', '-d', str(library)], text=True, capture_output=True, check=True).stdout
+        forbidden = [line for line in dynamic.splitlines() if 'NEEDED' in line and
+                     re.search(r'libswipekb_engine|executorch|VirtualKeyboard', line)]
+        assert not forbidden, f'{library.name} needs legacy/FUTO libraries: {forbidden}'
+    for library in [helper, config_probe, profile_probe, *(base/'qml/SwipeKeyboard').glob('*.so*'),
+                    *(base/'qml/SwipeKeyboard69').glob('*.so*')]:
         check_native_machine(library)
         check_public_qt_abi(library)
         result = subprocess.run(['ldd', str(library)], text=True, capture_output=True, check=True)
