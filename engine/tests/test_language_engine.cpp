@@ -317,5 +317,11 @@ TEST(LanguageEngineEnglish, CleanSwipesOfCommonWordsLandInTopThree)
     }
     // Swipes carry no apostrophes; the dictionary's spelling is what comes out.
     EXPECT_TRUE(has(e.recognize(traceThrough("dont", keys), keys, {}, 3), "don't"));
+    // WHY exact first guesses: "I's", "wa's" and "year's" share these paths, and once won every tie (a check on the
+    // letters alone could not see it). The apostrophe spelling is still offered as the other spelling.
+    for (const std::string w : {"is", "in", "it", "was", "as", "were", "well", "years", "does", "students"})
+        EXPECT_EQ(e.recognize(traceThrough(w, keys), keys, {}, 3).front().word, w) << w;
+    EXPECT_EQ(e.recognize(traceThrough("dont", keys), keys, {}, 3).front().word, "don't");
+    EXPECT_EQ(e.otherSpellings("were").front(), "we're");
     EXPECT_EQ(e.complete("helo", 3).front().word, "hello");
 }

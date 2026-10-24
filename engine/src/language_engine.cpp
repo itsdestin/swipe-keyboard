@@ -200,9 +200,14 @@ struct LanguageEngine::Impl {
 
     std::vector<std::pair<std::string, int>> swipeWords() const
     {
+        // WHY one word per key: "is" and "I's", "were" and "we're" leave the same finger path, and the sentence model
+        // sees them as the same word, so as separate swipe words they tied and the apostrophe form won on alphabetical
+        // order ("i's", "wa's", "i'n"). The most frequent spelling is the swipe word; the others stay one tap away
+        // through otherSpellings(), as with the FUTO engine.
         std::vector<std::pair<std::string, int>> out;
-        out.reserve(entries.size());
-        for (const auto &e : entries) if (e.freq() > 0) out.push_back({e.text, e.freq()});
+        out.reserve(byKey.size());
+        for (const auto &[key, ids] : byKey)
+            if (const Entry *e = best(key)) out.push_back({e->text, e->freq()});
         return out;
     }
 
@@ -250,8 +255,13 @@ struct LanguageEngine::Impl {
         const auto it = byKey.find(key);
         if (it == byKey.end()) return nullptr;
         const Entry *b = nullptr;
-        for (uint32_t id : it->second)
-            if (entries[id].freq() > 0 && (!b || entries[id].freq() > b->freq())) b = &entries[id];
+        // WHY on a tie the plain spelling: it is the form the swipe (or the typed letters) actually spelled.
+        const auto plain = [&](const Entry &e) { return utf8(e.key) == QString::fromStdString(e.text).toLower().toStdString(); };
+        for (uint32_t id : it->second) {
+            const Entry &e = entries[id];
+            if (e.freq() <= 0) continue;
+            if (!b || e.freq() > b->freq() || (e.freq() == b->freq() && plain(e) && !plain(*b))) b = &e;
+        }
         return b;
     }
 
