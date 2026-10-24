@@ -25,7 +25,7 @@ import unicodedata
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 TRANSFORMATION = 'fineweb-counts-v1'
-PACK_VERSION = '4.0.0-language-files-2026-10-22-open-words'
+PACK_VERSION = '4.1.0-language-files-2026-10-23-apostrophes'
 # WHY one id for both sources: the dictionaries, word lists and n-gram files are built from web text AND Tatoeba sentences.
 CONTEXT_LICENSE_ID = 'ODC-By-1.0 AND CC-BY-2.0-FR'
 ALPHABETS = {

@@ -320,8 +320,13 @@ TEST(LanguageEngineEnglish, CleanSwipesOfCommonWordsLandInTopThree)
     EXPECT_TRUE(has(e.recognize(traceThrough("dont", keys), keys, {}, 3), "don't"));
     // WHY exact first guesses: "I's", "wa's" and "year's" share these paths, and once won every tie (a check on the
     // letters alone could not see it). The apostrophe spelling is still offered as the other spelling.
-    for (const std::string w : {"is", "in", "it", "was", "as", "were", "well", "years", "does", "students"})
+    for (const std::string w : {"is", "in", "it", "was", "as", "years", "does", "students"})
         EXPECT_EQ(e.recognize(traceThrough(w, keys), keys, {}, 3).front().word, w) << w;
+    // WHY with a sentence: with an apostrophe-aware pack, at the very start of a sentence "We're"/"We'll" are the
+    // likelier words (by design); mid-sentence the plain word must still come out.
+    for (const auto &[w, before] : std::vector<std::pair<std::string, std::vector<std::string>>>{
+             {"were", {"they"}}, {"well", {"as"}}, {"its", {"the", "dog", "wagged"}}})
+        EXPECT_EQ(e.recognize(traceThrough(w, keys), keys, before, 3).front().word, w) << w;
     EXPECT_EQ(e.recognize(traceThrough("dont", keys), keys, {}, 3).front().word, "don't");
     EXPECT_EQ(e.otherSpellings("were").front(), "we're");
     EXPECT_EQ(e.complete("helo", 3).front().word, "hello");

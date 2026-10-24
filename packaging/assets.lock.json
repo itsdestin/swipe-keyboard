@@ -19,8 +19,8 @@
   ],
   "tatoeba_license_notice_sha256": "32bbf7b725f098dd6c63a822684583dc7784b8a15ff929598ac10d7e13a6dce1",
   "language_files": {
-    "release": "language-files-2026-10-22-open-words",
-    "baseUrl": "https://github.com/itsdestin/swipe-keyboard/releases/download/language-files-2026-10-22-open-words/",
+    "release": "language-files-2026-10-23-apostrophes",
+    "baseUrl": "https://github.com/itsdestin/swipe-keyboard/releases/download/language-files-2026-10-23-apostrophes/",
     "odcTerms": {
       "path": "ODC-By-1.0.txt",
       "sha256": "b1c4de4bf91c95eec945ea7cbe0575fd52e7ee8fa430acb01d323d8214b1c482",
@@ -45,10 +45,10 @@
         "en",
         "en_*"
       ],
-      "modelSha256": "73c630f0e0392d0d482edf924a9cfbcb79ea1d06faf4f53ba3327cbfe4c5534d",
-      "modelBytes": 38317152,
-      "vocabSha256": "299d3bd07ccaeee13af66f028866ec887095bcb8a0efe6de3db3f7af6486cb80",
-      "vocabBytes": 4969373,
+      "modelSha256": "da00911fe36447de5be9a962589f330ba1276c0aaf97e6102bdbdf07f98342d0",
+      "modelBytes": 38719280,
+      "vocabSha256": "b25cb50266bcfefe0eabed7cb2048634aaab814f523349e983464a7705163b38",
+      "vocabBytes": 5329614,
       "contributorsSha256": "f866d5b34a34222dae4566f931cb5b50d09bf60e82c7d05225ba67b0a4dbd5be",
       "contributorsBytes": 61496
     },
@@ -58,10 +58,10 @@
         "es_ES",
         "es_MX"
       ],
-      "modelSha256": "03e9e02afb5adcb99ed76f71b08ed93e49015c086fbf9b7d72f29722fa8f34de",
-      "modelBytes": 23659248,
-      "vocabSha256": "a000399a14836cabb5bb1ebb843bbe8a446b6c3b167e9037b1a0fe9ad509a30d",
-      "vocabBytes": 2235016,
+      "modelSha256": "cc18256021a910f69ad8c6abfe834483f97e2049f960102bac72c7d9140d3665",
+      "modelBytes": 23658752,
+      "vocabSha256": "31aa828b1be0acc6857f279cdffedf7dd76b68dce26666f37577cf6ba55727ac",
+      "vocabBytes": 2235481,
       "contributorsSha256": "a8c992e017ec5de8c97643da8c35dde8aed556fee8c93e5b1385cefe208274f2",
       "contributorsBytes": 17587
     },
@@ -70,10 +70,10 @@
       "locales": [
         "fr_FR"
       ],
-      "modelSha256": "2eb075b3ccd646ce4b6aaf2883e1ff6cf1ef8804ea0796faed6130f8ba6bac35",
-      "modelBytes": 26234112,
-      "vocabSha256": "6197b01e2dc59bb0e460506487d50d580aceb64f08725818bc6fad108808e898",
-      "vocabBytes": 2240374,
+      "modelSha256": "1727d97aa16f80a262762e175d56965f8713e38bb6102c94cd5ca465581a8c69",
+      "modelBytes": 26265360,
+      "vocabSha256": "25fcf147fcd442dc0f2c3eea9a93eedc772be463b1367fb5a8a761ecbd65e561",
+      "vocabBytes": 2259640,
       "contributorsSha256": "500cfd2f8b0e639883d4e86555d3211b98b027ce6f29a56b8fea3422f5d2e891",
       "contributorsBytes": 17528
     },
@@ -82,10 +82,10 @@
       "locales": [
         "de_DE"
       ],
-      "modelSha256": "2d3fa528da3bdc6982f14fa7714b08db75330be804e00247dfa5382848b5119d",
-      "modelBytes": 30050088,
-      "vocabSha256": "d849b49efb05687551b8d57cee5253e031af285022e5f4eca2b36f450f121916",
-      "vocabBytes": 2520007,
+      "modelSha256": "5ef4ed982d7bca88437a653de37ab08727da5a3ac3265a56836c23e14096029a",
+      "modelBytes": 30049872,
+      "vocabSha256": "f33160150cdd243ef66efb83dd9952782bbcacc78d7fe90bd5bba937b505b554",
+      "vocabBytes": 2521087,
       "contributorsSha256": "2808ec41ba8114f604e16644f777f829408a83d6b2fc34203863f99f45d0a2a7",
       "contributorsBytes": 15157
     }
@@ -114,8 +114,8 @@
     }
   },
   "word_list_source": {
-    "url": "https://github.com/itsdestin/swipe-keyboard/releases/download/language-files-2026-10-22-open-words/SHA256SUMS",
-    "sha256": "bd5786013571301098ad46a288e8cbcbdb8991c1b609c4f225e41312c1b6de85"
+    "url": "https://github.com/itsdestin/swipe-keyboard/releases/download/language-files-2026-10-23-apostrophes/SHA256SUMS",
+    "sha256": "5cbb2e0aa46ab18bf05c3261ce42fd725f2f61e5fc0db852a918eb93fd2d0318"
   },
   "trained_models": {
     "release": "models-2026-10-23",

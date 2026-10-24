@@ -2,7 +2,7 @@
 
 English, Spanish, French and German each have a word-level trigram model (`<lang>.ngram`), a word list
 (`<lang>.vocab.tsv`) and a Tatoeba credit file (`<lang>-CONTRIBUTORS.txt`). They are **not stored in this repository**:
-they are published once as the GitHub release `language-files-2026-10-22-open-words` and every build downloads them by
+they are published once as the GitHub release `language-files-2026-10-23-apostrophes` and every build downloads them by
 SHA-256 (`language_files` and `multilingual_context_models` in `../assets.lock.json`; `scripts/fetch-assets.py`
 puts them in `assets/language-files/`, `scripts/dict/language_pack.py` copies them into `assets/language-packs/`,
 and the installer/packages ship that folder). A file that does not match its pin is refused at build time and again
