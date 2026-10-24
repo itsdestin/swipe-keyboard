@@ -76,7 +76,7 @@ qt_add_qml_module(swipekeyboard69
     # WHY interpreted QML: AOT-compiled QML ties the module to the exact Qt minor it was built with.
     NO_CACHEGEN
     OUTPUT_DIRECTORY ${SWIPEKB_QML_DIR}/SwipeKeyboard69
-    QML_FILES qml/SwipeLayer.qml qml/SuggestionStrip.qml
+    QML_FILES qml/SwipeLayer.qml qml/SuggestionStrip.qml qml/SwipeAttach.qml
     SOURCES src/swipehook.h src/swipehook.cpp)
 target_link_libraries(swipekeyboard69 PRIVATE Qt6::Quick Qt6::Qml swipekb69_open)
 target_include_directories(swipekeyboard69 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)

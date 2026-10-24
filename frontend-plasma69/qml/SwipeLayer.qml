@@ -45,7 +45,10 @@ Item {
     }
 
     function isLetterKey(item) {
-        return isTextKey(item) && typeof item.text === "string" && item.text.length === 1 && /\p{L}/u.test(item.text);
+        // WHY case, not a regular expression: QML's JavaScript has no Unicode property classes; every letter of
+        // the supported languages has an upper and a lower case, digits and punctuation do not.
+        return isTextKey(item) && typeof item.text === "string" && item.text.length === 1
+            && item.text.toLowerCase() !== item.text.toUpperCase();
     }
 
     function textKeys() {
@@ -107,7 +110,9 @@ Item {
             key.clicked.connect(function(k) { return function() { root.controller.keyClicked(k.key, k.text); }; }(key));
         }
     }
-    Component.onCompleted: Qt.callLater(hookKeys)
+    // WHY at once and again at each press: a key must be hooked before its first press reaches it (our handler sees
+    // the press first), and KDE may add keys later (pages, form-factor changes).
+    Component.onCompleted: hookKeys()
     Connections {
         target: root.layoutItem
         function onChildrenChanged() { Qt.callLater(root.hookKeys) }
@@ -139,6 +144,7 @@ Item {
         acceptedDevices: PointerDevice.TouchScreen | PointerDevice.Mouse | PointerDevice.Stylus
         onActiveChanged: {
             if (active) {
+                root.hookKeys();
                 var p = point.position;
                 var key = root.keyAt(p.x, p.y);
                 root.stop();
@@ -211,17 +217,19 @@ Item {
         model: root.claimed
         delegate: MultiPointTouchArea {
             required property Item modelData
-            readonly property point origin: root.mapFromItem(modelData, 0, 0)
+            readonly property point origin: modelData ? root.mapFromItem(modelData, 0, 0) : Qt.point(0, 0)
             x: origin.x
             y: origin.y
-            width: modelData.width
-            height: modelData.height
+            width: modelData ? modelData.width : 0
+            height: modelData ? modelData.height : 0
             z: 2
             mouseEnabled: true
             maximumTouchPoints: 1
-            onPressed: modelData.pressedVisual = true
-            onCanceled: modelData.pressedVisual = false
+            onPressed: if (modelData) modelData.pressedVisual = true
+            onCanceled: if (modelData) modelData.pressedVisual = false
             onReleased: {
+                if (!modelData)
+                    return;
                 modelData.pressedVisual = false;
                 root.controller.claimedKey(modelData.key, modelData.text);
             }

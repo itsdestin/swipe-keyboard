@@ -65,8 +65,7 @@ public Q_SLOTS:
 
 private:
     void undecorate();
-    QPointer<QQuickItem> m_keyboard, m_loader, m_item, m_strip, m_layer;
+    QPointer<QQuickItem> m_keyboard, m_loader, m_item, m_column, m_strip, m_layer, m_watchedPages;
     QPointer<QObject> m_editor, m_controller;
     QStringList m_packages;
-    qreal m_originalFactor = 1;
 };

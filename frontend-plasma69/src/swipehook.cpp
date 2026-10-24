@@ -52,7 +52,6 @@ QStringList ourPackagesFromEnvironment()
     return qEnvironmentVariable("SWIPEKB_PLASMA69_PACKAGES").split(QLatin1Char(','), Qt::SkipEmptyParts);
 }
 
-constexpr qreal kStripWeight = 60; // KDE rows weigh 100: the row is 60% of a key row (prototype measurement)
 } // namespace
 
 SwipeHook::SwipeHook(QObject *parent)
@@ -226,10 +225,8 @@ void KeyboardAttachment::undecorate()
 {
     delete m_strip;
     delete m_layer;
-    if (m_item) {
-        m_item->setProperty("panelHeightFactor", m_originalFactor);
-    }
     m_item = nullptr;
+    m_column = nullptr;
 }
 
 void KeyboardAttachment::decorate()
@@ -237,7 +234,19 @@ void KeyboardAttachment::decorate()
     auto *item = m_loader ? qobject_cast<QQuickItem *>(m_loader->property("item").value<QObject *>()) : nullptr;
     const QString packageId = m_keyboard ? m_keyboard->property("packageId").toString() : QString();
     const bool ours = item && m_controller && m_packages.contains(packageId);
-    if (item == m_item && m_strip && ours) {
+    // The column our row goes into: the layout itself (KeyboardLayout), or the page a KeyboardLayoutLoader shows
+    // (KDE's symbol pages are Loaders with two pages).
+    QQuickItem *column = item;
+    if (item && item->metaObject()->indexOfProperty("panelHeightFactor") < 0) {
+        column = qobject_cast<QQuickItem *>(item->property("item").value<QObject *>());
+        if (item != m_watchedPages) {
+            m_watchedPages = item;
+            if (item->metaObject()->indexOfSignal("itemChanged()") >= 0) {
+                connect(item, SIGNAL(itemChanged()), this, SLOT(decorate()), Qt::QueuedConnection);
+            }
+        }
+    }
+    if (item == m_item && column == m_column && m_strip && m_layer && ours) {
         return;
     }
     undecorate();
@@ -245,8 +254,8 @@ void KeyboardAttachment::decorate()
         return; // WHY: a language we did not generate (Russian, Greek...) stays exactly KDE's
     }
     QQmlEngine *engine = qmlEngine(m_keyboard);
-    if (!engine || item->metaObject()->indexOfProperty("panelHeightFactor") < 0) {
-        qCWarning(lcHook69) << "Swipe Keyboard: layout without panelHeightFactor; leaving it stock";
+    if (!engine || !column || column->metaObject()->indexOfProperty("panelHeightFactor") < 0) {
+        qCWarning(lcHook69) << "Swipe Keyboard: no KeyboardLayout column in this layout; leaving it stock";
         return;
     }
     QQmlComponent stripComponent(engine);
@@ -266,30 +275,21 @@ void KeyboardAttachment::decorate()
         delete layer;
         return;
     }
-    // Row 0 of the layout's column, with the panel made taller by the same share so the keys keep their height.
-    qreal rows = 0;
-    const auto children = item->childItems();
-    for (QQuickItem *child : children) {
-        const QVariant weight = child->property("heightWeight");
-        if (child->isVisible() && weight.isValid()) {
-            rows += weight.toReal();
-        }
-    }
-    if (rows <= 0) {
-        rows = 400;
-    }
-    m_originalFactor = item->property("panelHeightFactor").toReal();
-    strip->setParent(item);
-    strip->setParentItem(item);
+    // Row 0 of the layout's column. WHY the panel keeps KDE's height (no panelHeightFactor change): symbol pages are
+    // Loaders whose height factor cannot be raised, so a taller letters page would make the keyboard jump at every
+    // "?123". The row takes its share from the key rows on every page instead.
+    const auto children = column->childItems();
+    strip->setParent(column);
+    strip->setParentItem(column);
     if (!children.isEmpty()) {
         strip->stackBefore(children.first());
     }
-    item->setProperty("panelHeightFactor", m_originalFactor * (rows + kStripWeight) / rows);
     // The layer covers the keys (it is the Loader's child, so KDE's layout never treats it as a row).
     layer->setParent(m_loader);
     layer->setParentItem(m_loader);
     layer->setZ(10);
     m_item = item;
+    m_column = column;
     m_strip = strip;
     m_layer = layer;
 }
