@@ -224,6 +224,14 @@ Cold dependency work is cached, never the keyboard itself. Rules, enforced by
 
 ### Fast path and the merge guarantee
 
+- **Documentation only** (card #200, a few minutes): a pull request whose every changed file is Markdown or under
+  `docs/`. `prepare` lists the changed files (`git diff` against the pull request's base) and
+  `scripts/release.py mode --changed` decides; no package job runs, the host-independent packaging suites and a
+  live README link check run, and the gate passes as `Keyboard CI` only when `prepare` succeeded and every package
+  job was skipped. Anything else (tests, scripts, workflows, packaging recipes, `LICENSES/`, which ships inside
+  every package, or code), an unreadable list, `main` and tags: the full matrix. `main` always builds, because a
+  release tag reuses its packages.
+
 - **Fast path** (Arch only, about 12-15 minutes): draft pull requests, and manual dispatch on a branch
   unless `full: true` is chosen. Arch runs the whole native test suite and checks the same package
   bytes against both the older and the current library set.
