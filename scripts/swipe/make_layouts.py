@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 """Writes approximate letter-area layouts for other languages next to qwerty.tsv (same format as keys.tsv).
 
 These are stand-ins for tests and synthetic training until the real per-language key rectangles are taken from the

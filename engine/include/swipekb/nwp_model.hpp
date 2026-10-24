@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+//
+// SPDX-License-Identifier: LGPL-2.1-only OR LGPL-3.0-only OR LicenseRef-KDE-Accepted-LGPL
+
 // swipekb next-word neural model (NWP LM): a one-layer LSTM with a projection and tied word vectors, the size
 // class of Google's published Gboard next-word models (arXiv 2305.18465). Plain C++ - no ML runtime.
 //

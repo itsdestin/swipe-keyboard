@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 # stage-test-install.sh — turn a staged build (DESTDIR-style tree) into a throw-away Arch package for a first real
 # test install, and roll back to the package that was installed before. Nothing here runs by itself: every command is
 # an explicit sub-command, and only `install` / `rollback` touch the system (through sudo pacman).
@@ -82,5 +87,5 @@ status)
     pacman -Q swipe-keyboard
     pacman -Ql swipe-keyboard | grep -E "nwp.bin|swipe-model.bin" || echo "(no trained models in the installed copy)"
     ;;
-*) sed -n 2,22p "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+*) sed -n 7,23p "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
 esac

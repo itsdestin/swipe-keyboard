@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 # bench/score.sh — the swipe scoreboard. Replays a fixed slice of REAL human swipes (a public MIT-licensed test split,
 # never trained on) through the keyboard's own engine (build/tools/swipekb-bench, swipekb::LanguageEngine) and records
 # first-guess % and top-3 % in bench/history.tsv.

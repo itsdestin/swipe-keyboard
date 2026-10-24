@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+//
+// SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 // swipekb-gamingd wire protocol, version 1. Pure parsing and validation: no sockets, no models, so every
 // rule here is unit-tested without starting the daemon (tests/gaming/test_protocol.cpp).
 //

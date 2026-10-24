@@ -1,4 +1,9 @@
 #!/usr/bin/env bats
+
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 # bench/score.sh: reads swipekb-bench's summary, records it, and (--check) refuses scores below the best so far.
 # Uses a fake swipekb-bench so these tests need no models.
 setup() {

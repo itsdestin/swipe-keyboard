@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 """Word counting and the corpus-built dictionaries (card #170 Phase 1): tiny inputs, no corpus needed."""
 import bz2
 import importlib.util

@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 """Rules for the dependency-only CI caches (read policy, keys, validated Flatpak stage cache).
 
 WHY a script: the rules decide whether a release-grade build may reuse earlier bytes,

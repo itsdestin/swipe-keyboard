@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 """Fixed next-word test sets for one language, for tools/swipekb-nextword-eval (card #170).
 
 Three sets, 2000 sentences each by default, chosen with a fixed seed so every model is scored on the same text:

@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 """The go-between for typing (plan Sections 3, 7.4 and 8): page -> helper -> engine -> Steam's own text call -> page.
 
 The page layer reports a finished swipe (or a tap on a suggestion, or "keyboard closed") through the `__swipekb` binding.

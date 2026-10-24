@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 """gaming/setup/switch-watch.sh against a throwaway HOME with stand-in desktop tools.
 
 WHY: the keyboard helper cannot see Steam's folder, so this host-side script is the only thing that notices the

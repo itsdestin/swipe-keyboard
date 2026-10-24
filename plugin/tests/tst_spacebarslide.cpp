@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+//
+// SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 // Spacebar slide: dragging sideways on Space moves the text cursor one character per step; a tap still types a space.
 // WHY a real MultiPointTouchArea + real input events: the slide is decided by what SwipeCapture.qml does with the
 // touch area's own signals, for a finger AND for a mouse, so both are driven through a real window.

@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 # bench/scoreboard.sh — one table for every typing measure, every language (card #170 roadmap, Phase 0.4).
 # Next word, completion after 1 and 3 letters (through the keyboard's own predictor code), the same against
 # Gboard's recorded answers (bench/gboard/reference), speed and pack size; English swipe when the swipe bench

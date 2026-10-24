@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 """Generate the selectable es/fr/de packs (and English's next-word files) from the checksum-pinned language files.
 
 Data only: no package code, network, tokenizer, personal words or model training. The swipe dictionaries, n-gram

@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 # install.sh — build swipe-keyboard, run its tests, and install it where Plasma Keyboard loads it:
 #   ~/.local/share/swipe-keyboard/{qml/SwipeKeyboard, dict, language-packs, lm}. touch-profile's layout + wrapper pick it up
 #   (their hook does nothing when this folder is missing), then the on-screen keyboard is restarted.

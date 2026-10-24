@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: BSD-3-Clause
+
 find_package(Qt6 6.8 REQUIRED COMPONENTS Core Gui Qml Quick VirtualKeyboard Test)
 # WHY KWindowSystem: WindowBlur asks KWin to blur behind the keyboard (KWindowEffects), the same call Plasma's
 # panels use. It ships with Plasma, so it is always there wherever Plasma Keyboard runs.

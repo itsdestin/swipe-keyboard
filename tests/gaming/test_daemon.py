@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 """End-to-end tests for swipekb-gamingd (Gaming Mode milestone M2).
 
 Each test starts the real daemon binary on a private socket and talks the real wire protocol (gaming/daemon/

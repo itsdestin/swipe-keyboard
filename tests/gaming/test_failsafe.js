@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+//
+// SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 // Failure injection for the page layer (plan M9). A model of Steam's keyboard (fake_keyboard.js) is changed the way Valve could
 // change the real one, and each time the same two things must hold: Steam's keyboard behaves EXACTLY as it does with no layer
 // at all (compared event for event, not just letter for letter), and the layer says what it saw. Run through

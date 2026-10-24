@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: BSD-3-Clause
+
 # WHY Qt Core only: shared Unicode normalization/casing without a GUI/runtime keyboard dependency.
 find_package(Qt6 6.8 REQUIRED COMPONENTS Core)
 add_library(swipekb_engine SHARED src/normalize.cpp src/context.cpp src/ngram.cpp src/spelling.cpp src/ngram_predictor.cpp src/nwp_model.cpp src/nwp_predictor.cpp src/prediction.cpp)

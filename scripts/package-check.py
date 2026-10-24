@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 """Validate an unpacked native package/DESTDIR, without starting the keyboard."""
 import argparse
 import json
@@ -152,7 +157,11 @@ def check(root):
     for name in ['usr/bin/swipe-keyboard', 'usr/share/applications/swipe-keyboard.desktop',
                  'usr/share/licenses/swipe-keyboard/LICENSE', 'usr/share/licenses/swipe-keyboard/NOTICE',
                  'usr/share/licenses/swipe-keyboard/assets.lock.json',
-                 'usr/share/licenses/swipe-keyboard/TATOEBA-CC-BY-2.0-FR.txt']:
+                 'usr/share/licenses/swipe-keyboard/TATOEBA-CC-BY-2.0-FR.txt',
+                 # WHY: KDE's licence choices for the code (plugin GPL, engine LGPL) must ship as full texts.
+                 *(f'usr/share/licenses/swipe-keyboard/LICENSES/{name}.txt' for name in (
+                     'GPL-2.0-only', 'GPL-3.0-only', 'LicenseRef-KDE-Accepted-GPL', 'LGPL-2.1-only', 'LGPL-3.0-only',
+                     'LicenseRef-KDE-Accepted-LGPL', 'Apache-2.0', 'ODC-By-1.0', 'CC-BY-4.0', 'CC0-1.0'))]:
         assert (root/name).is_file(), f'Missing {name}'
     lock = json.loads((root/'usr/share/licenses/swipe-keyboard/assets.lock.json').read_text())
     # WHY: the package carries only the project's own engine; an old models/ folder must never come back.

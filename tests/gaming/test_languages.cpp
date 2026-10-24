@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+//
+// SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 // Unit tests for the daemon's language choice (gaming/daemon/languages.hpp), no sockets or models: which Steam
 // layouts we serve, which languages the user enabled, and whether a key table can carry a language.
 #include <gtest/gtest.h>

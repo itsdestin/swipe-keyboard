@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+//
+// SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 // Gesture arbiter for Steam's on-screen keyboard (plan Section 7, milestone M4).
 //
 // WHAT IT DOES, in plain words. Steam's keyboard types the key under your finger when you LIFT it. To also

@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 """Pick the blend weights (lambda, beta) of a language's neural model on sentences the scoreboard never uses.
 
   tune.py EVAL MODEL.ngram VOCAB.tsv NWP.bin TESTSETS_DIR LANG [--skip 1000] [--limit 300]

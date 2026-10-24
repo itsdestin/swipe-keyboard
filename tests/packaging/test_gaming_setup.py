@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 """Run gaming/setup/install.sh and uninstall.sh against a throwaway HOME with stand-in `flatpak` and `systemctl`.
 
 WHY stand-ins and a PATH that holds nothing else: the scripts must be provable without touching this computer's

@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 """swipekb-helper: Gaming Mode go-between (plan Sections 3, 6, 9). Standard library only.
 
 M3 scope: find Steam's pages, check them against the shared contract, install the page layer frame (M4 adds the

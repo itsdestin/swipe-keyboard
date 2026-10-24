@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+//
+// SPDX-License-Identifier: LGPL-2.1-only OR LGPL-3.0-only OR LicenseRef-KDE-Accepted-LGPL
+
 // The next-word neural model (card #170): the C++ runner must reproduce PyTorch's numbers for the same weights
 // (tests/data/nwp-tiny*.{nwp.bin,expected}, written by scripts/lm/nwp/make-fixture.py), must refuse damaged
 // files, and the hybrid predictor must blend, complete, reuse its sentence state and fall back as designed.

@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 """Word lists counted from openly licensed text (no wordfreq), card #170 Phase 1.
 
 Input: the counts files written by scripts/lm/count-words.py (FineWeb / FineWeb-2, ODC-By 1.0, plus Tatoeba

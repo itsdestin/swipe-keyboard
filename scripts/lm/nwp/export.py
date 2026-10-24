@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 """Write a trained checkpoint as the keyboard's model file (LANG.nwp.bin, format "SWKBNWP1").
 
   export.py CKPT LM_VOCAB.TXT OUT.nwp.bin [--f32]

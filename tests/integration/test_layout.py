@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 """Language hooks preserve each stock layout and fail closed transactionally on drift."""
 import importlib.util
 from pathlib import Path
@@ -6,6 +10,7 @@ import unittest
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
+# REUSE-IgnoreStart (a stock layout's header, as test data: not this file's licence)
 STOCK = '''// SPDX-License-Identifier: GPL-3.0-only
 import QtQuick
 import QtQuick.VirtualKeyboard
@@ -15,6 +20,7 @@ KeyboardLayout {
     SpaceKey {}
 }
 '''
+# REUSE-IgnoreEnd
 
 
 def load_module(name):
@@ -38,7 +44,9 @@ class LayoutTests(unittest.TestCase):
         self.assertIn('createInputMethod()', result)
         self.assertIn('SwipeCapture', result)
         self.assertIn('id: swipeLayout', result)
+        # REUSE-IgnoreStart
         self.assertTrue(result.startswith('// SPDX-License-Identifier: GPL-3.0-only'))
+        # REUSE-IgnoreEnd
 
     def test_refuses_unknown_or_already_customised_layout(self):
         for source in ('Item {}', STOCK.replace('SpaceKey {}', ''),

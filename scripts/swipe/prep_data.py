@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 """Turn swipe .jsonl files into one compact .npz the trainer reads (python -I prep_data.py ...).
 
 Each swipe: {"word", "canvas_width", "canvas_height", "data":[{"t","x","y"},...]} (x,y in 0..1 of the letter area).

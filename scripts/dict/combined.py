@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 """Shared helpers for reading and writing AOSP `.combined` dictionaries (the keyboard's dictionary format).
 
 WHY a tiny shared module: every candidate-dictionary script reads and writes the same text format, and the

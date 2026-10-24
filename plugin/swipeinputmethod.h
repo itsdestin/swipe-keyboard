@@ -1,3 +1,9 @@
+/*
+ * SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+ *
+ * SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+ */
+
 // SwipeInputMethod — Plasma Keyboard's input method while swipe-keyboard is installed. Taps pass through
 // untouched (keyEvent returns false, so Qt's normal handling types them). SwipeCapture.qml calls
 // finishSwipe() with a finished path; the best guess is typed and the others go to the guess bar.

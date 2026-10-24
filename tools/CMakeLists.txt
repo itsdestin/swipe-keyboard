@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: BSD-3-Clause
+
 # swipekb-replay: re-runs recorded swipes (plugin/swiperecorder.h writes them) through the engine offline,
 # so recognition settings can be compared on the owner's real swipes without touching the live keyboard.
 # WHY Qt Core: it already reads the recorder's JSON, and the plugin needs Qt anyway, so no new dependency.

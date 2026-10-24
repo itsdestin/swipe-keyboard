@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+//
+// SPDX-License-Identifier: LGPL-2.1-only OR LGPL-3.0-only OR LicenseRef-KDE-Accepted-LGPL
+
 // Tests for swipekb::LanguageEngine: the one class the keyboard and the Gaming Mode daemon use for a language.
 // Most cases build a tiny `.combined` dictionary, so they need no downloaded files. The swipe cases run on geometry
 // alone (no model file) and, when SWIPEKB_ASSETS points at a full asset tree, also with the real English files.

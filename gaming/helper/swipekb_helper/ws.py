@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 """Minimal WebSocket client (RFC 6455) for Steam's debug port. Standard library only.
 
 WHY hand-written: the KDE runtime's Python has no aiohttp (plan M0 #13). Only what Chrome DevTools needs:

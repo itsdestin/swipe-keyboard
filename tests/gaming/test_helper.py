@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 """Tests for swipekb-helper, the Gaming Mode go-between (plan M3).
 
 Everything runs on the host against a fake Steam debug port (fake_cdp.py) whose pages run the helper's real

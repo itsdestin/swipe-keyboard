@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+//
+// SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 // swipekb-personal-eval: does learning from a person's own writing make the suggestions better?
 //
 // A rough personal test (roadmap Phase 2, checkpoint 2). Tatoeba names the contributor of every sentence, so a

@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 """Failure injection for the helper (plan Section 14, M9): every way Steam can stop matching, and what the helper does.
 
 Synthetic Steam only (fake_cdp.py); no Valve code. Each test ends on the same three facts: the layer is OUT of the page,

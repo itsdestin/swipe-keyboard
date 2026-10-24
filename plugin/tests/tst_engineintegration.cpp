@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+//
+// SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 // The swipe engine inside the keyboard plugin (swipekb::LanguageEngine, the only swipe engine).
 // WHY these cases: each guards one promise made to the owner: the pinned model is used, never "no swipe" when the
 // model file is missing or damaged, never a crash on a broken swipe, and sensitive fields stay untouched.

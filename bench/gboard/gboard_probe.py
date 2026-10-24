@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 # Black-box Gboard next-word / completion probe on an Android emulator (card #170 comparison).
 # Puts "context + first k letters" into a text field, reads Gboard's 3 suggestions from the screen.
 #   gboard_probe.py LANG SENTENCES OUT.tsv [--count N] [--serial emulator-5554]

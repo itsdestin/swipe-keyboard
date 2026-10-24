@@ -1,3 +1,9 @@
+/*
+ * SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+ *
+ * SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+ */
+
 // WordSwap — "tap an existing word, see alternatives, swap it" (card #187). Pure text rules: finding the word
 // under the cursor, spotting a real cursor move (a tap) versus the keyboard's own typing, building and
 // ordering the alternatives, and the small memory of recent swipes. No Qt Virtual Keyboard types here, so it

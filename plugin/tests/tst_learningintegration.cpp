@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+//
+// SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 // Learning inside the real input method: what is learned, from where, and what the person can take back.
 // Uses the same fake field as the next-word integration tests; no real app or compositor.
 #include <QtTest>

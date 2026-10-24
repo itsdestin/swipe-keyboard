@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 """Test for tools/swipe-stats with a synthetic recording. Run: python3 -I tools/tests/test_swipe_stats.py"""
 import importlib.machinery
 import importlib.util

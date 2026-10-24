@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 """Build one language's next-word n-gram pack from FineWeb-2 web text (card #170).
 
   build-fineweb2-model.py LANG DICTIONARY OUTDIR NGRAM-BUILDER --parquet FILE... [--max-words N]

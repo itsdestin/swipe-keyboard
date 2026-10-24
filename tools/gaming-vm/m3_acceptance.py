@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 """M3 acceptance rig. Runs INSIDE the SteamOS Gaming Mode guest as the plain user (plan Section 14, M3).
 
 Deploy: the repo's gaming/helper, gaming/contract and this file go to ~/m3/ in the guest (same relative layout).
