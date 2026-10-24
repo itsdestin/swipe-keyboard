@@ -79,11 +79,18 @@ def broken_readme_links(text, tag, open_url=urllib.request.urlopen):
     return broken
 
 
-if __name__ == '__main__':
-    publish()
-    # WHY after publishing: the release stands either way; a red run here means the README sends people to a
-    # missing file and must be fixed at once.
+def check_links():
     broken = broken_readme_links(Path('README.md').read_text(), 'v' + release.version(release.load_contract()))
     if broken:
         raise SystemExit('README download links that do not work:\n  ' + '\n  '.join(broken))
     print('Every README download link for this release works')
+
+
+if __name__ == '__main__':
+    import sys
+    # `check-links` alone: documentation-only pull requests check the README against the published release.
+    if sys.argv[1:] != ['check-links']:
+        publish()
+    # WHY after publishing: the release stands either way; a red run here means the README sends people to a
+    # missing file and must be fixed at once.
+    check_links()

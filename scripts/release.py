@@ -21,16 +21,35 @@ FAST_PRODUCERS = ('prepare', 'arch')
 FAST_TARGETS = ('source', 'arch')
 
 
-def run_mode(env):
-    """'fast' only for a draft pull request or a branch dispatch that did not ask for full.
+def is_doc(path):
+    """Words only: Markdown anywhere, or anything under docs/ (no build, package or test reads docs/ code).
 
-    Doubt always means 'full': tags, main, ready pull requests and unknown events.
+    WHY not LICENSES/: those texts are installed into every package (cmake/Install.cmake), so changing one
+    changes the shipped bytes and must build.
+    """
+    return path.endswith('.md') or path.startswith('docs/')
+
+
+def docs_only(paths):
+    paths = [p for p in paths if p]
+    return bool(paths) and all(is_doc(p) for p in paths)
+
+
+def run_mode(env, changed=None):
+    """'docs' for a pull request that changes only documentation (card #200), 'fast' only for a draft pull
+    request or a branch dispatch that did not ask for full.
+
+    Doubt always means 'full': tags, main, ready pull requests and unknown events. An unknown list of changed
+    files (None) is never 'docs'.
     """
     ref = env.get('GITHUB_REF', '')
     event = env.get('GITHUB_EVENT_NAME', '')
     if ref.startswith('refs/tags/') or ref == 'refs/heads/main':
         return 'full'
     if event == 'pull_request':
+        # WHY pull requests only: main's run is what a release tag reuses, so main always builds.
+        if changed is not None and docs_only(changed):
+            return 'docs'
         return 'fast' if env.get('PR_DRAFT') == 'true' else 'full'
     if event == 'workflow_dispatch':
         return 'full' if env.get('FULL_INPUT') == 'true' else 'fast'
@@ -277,13 +296,15 @@ def main():
     parser.add_argument('--evidence-only', action='store_true',
                         help='Non-release runs: trust each producer\'s recorded hashes; never allowed on tags')
     parser.add_argument('--statuses', help='GitHub needs JSON, supplied by the workflow, not an artifact')
+    parser.add_argument('--changed', type=Path, help='mode: file listing the paths a pull request changes, one per line')
     args = parser.parse_args()
     contract = load_contract()
     if args.command == 'version':
         print(version(contract))
     elif args.command == 'mode':
         import os
-        print(run_mode(os.environ))
+        changed = args.changed.read_text().splitlines() if args.changed and args.changed.is_file() else None
+        print(run_mode(os.environ, changed))
     elif args.command == 'readme':
         text, previous = update_readme(README.read_text(), contract)
         README.write_text(text)
@@ -301,11 +322,26 @@ def main():
     elif args.command == 'gate':
         import os
         mode = run_mode(os.environ)
+        # WHY trusted only for pull requests: prepare decided 'docs' from the changed files; the gate cannot see
+        # them, and a tag or main run is always full whatever prepare said.
+        ref = os.environ.get('GITHUB_REF', '')
+        if (os.environ.get('PREPARED_MODE') == 'docs' and os.environ.get('GITHUB_EVENT_NAME') == 'pull_request'
+                and not ref.startswith('refs/tags/') and ref != 'refs/heads/main'):
+            mode = 'docs'
         if args.evidence_only and os.environ.get('GITHUB_REF', 'refs/tags/unknown').startswith('refs/tags/'):
             # WHY: a tag (or an unknown ref) publishes bytes, so the gate must hash the real bytes.
             raise ValueError('Evidence-only gate is refused for tag or unknown refs; tags verify actual bytes')
         if mode == 'fast' and os.environ.get('GITHUB_REF', '').startswith('refs/tags/'):
             raise ValueError('A tag run cannot be fast')
+        if mode == 'docs':
+            # WHY no evidence: a documentation-only pull request builds no package. prepare (which ran the
+            # documentation checks) must have succeeded and every package job must have been skipped.
+            statuses = parse_json(args.statuses)
+            if set(statuses) != set(PRODUCERS) or statuses['prepare'].get('result') != 'success' or any(
+                    statuses[job].get('result') != 'skipped' for job in PRODUCERS if job != 'prepare'):
+                raise ValueError('Documentation-only run: prepare must succeed and every package job be skipped')
+            print('Verified documentation-only pull request (no package built): ' + args.sha)
+            return
         targets = list(contract['targets']) if mode == 'full' else list(FAST_TARGETS)
         # Explicit target evidence names; do not infer support from what happened to download.
         if {p.name for p in args.evidence.iterdir()} != {t + '.json' for t in targets}:

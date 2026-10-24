@@ -503,3 +503,54 @@ class ReadmeTests(unittest.TestCase):
             release.update_readme(text, self.CONTRACT)
         with self.assertRaises(ValueError):
             release.update_readme('no links', self.CONTRACT)
+
+
+class DocsModeTests(unittest.TestCase):
+    """A pull request that changes only documentation builds no package (card #200); anything else still does."""
+    PR = {'GITHUB_EVENT_NAME': 'pull_request', 'GITHUB_REF': 'refs/pull/12/merge', 'PR_DRAFT': 'false'}
+
+    def test_markdown_and_docs_folder_only_is_docs(self):
+        for changed in (['README.md'], ['README.md', 'docs/install-details.md', 'docs/images/swipe-typing.png'],
+                        ['packaging/language-models/README.md', 'CHANGELOG.md']):
+            with self.subTest(changed=changed):
+                self.assertEqual(release.run_mode(self.PR, changed), 'docs')
+        self.assertEqual(release.run_mode(dict(self.PR, PR_DRAFT='true'), ['README.md']), 'docs')
+
+    def test_any_other_file_means_the_full_matrix(self):
+        # WHY each: tests and scripts decide what CI proves, LICENSES/ ships inside every package.
+        for other in ('tests/packaging/test_release_workflow.py', 'scripts/release.py', '.github/workflows/packages.yml',
+                      'packaging/arch/PKGBUILD', 'LICENSES/MIT.txt', 'CMakeLists.txt', 'plugin/wordswap.cpp', 'README'):
+            with self.subTest(other=other):
+                self.assertEqual(release.run_mode(self.PR, ['README.md', other]), 'full')
+
+    def test_unknown_or_empty_change_list_and_main_or_tags_are_never_docs(self):
+        self.assertEqual(release.run_mode(self.PR, None), 'full')
+        self.assertEqual(release.run_mode(self.PR, []), 'full')
+        self.assertEqual(release.run_mode(self.PR, ['']), 'full')
+        self.assertEqual(release.run_mode({'GITHUB_EVENT_NAME': 'push', 'GITHUB_REF': 'refs/heads/main'}, ['README.md']), 'full')
+        self.assertEqual(release.run_mode({'GITHUB_EVENT_NAME': 'push', 'GITHUB_REF': 'refs/tags/v0.5.0-1'}, ['README.md']), 'full')
+
+    def gate(self, statuses, **env):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp)/'evidence'
+            evidence.mkdir()
+            return subprocess.run([sys.executable, str(ROOT/'scripts/release.py'), 'gate', '--sha', 'a'*40,
+                                   '--evidence', str(evidence), '--directory', tmp, '--statuses', json.dumps(statuses),
+                                   '--evidence-only'],
+                                  env=clean_env(**{**self.PR, 'PREPARED_MODE': 'docs', **env}), capture_output=True, text=True)
+
+    def statuses(self, **over):
+        out = {job: {'result': 'success' if job == 'prepare' else 'skipped'} for job in release.PRODUCERS}
+        out.update({job: {'result': result} for job, result in over.items()})
+        return out
+
+    def test_docs_gate_passes_only_with_prepare_green_and_no_package_job_run(self):
+        self.assertEqual(self.gate(self.statuses()).returncode, 0)
+        for job, result in (('prepare', 'failure'), ('prepare', 'skipped'), ('arch', 'success'), ('flatpak', 'failure')):
+            with self.subTest(job=job, result=result):
+                self.assertNotEqual(self.gate(self.statuses(**{job: result})).returncode, 0)
+
+    def test_docs_claim_on_main_or_a_tag_is_ignored(self):
+        for ref in ('refs/heads/main', 'refs/tags/v0.5.0-1'):
+            with self.subTest(ref=ref):
+                self.assertNotEqual(self.gate(self.statuses(), GITHUB_EVENT_NAME='push', GITHUB_REF=ref).returncode, 0)

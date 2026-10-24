@@ -72,17 +72,34 @@ jobs:
         # WHY (owner decision 2026-10-24): main already built and tested these exact bytes; rebuilding cold cost
         # ~25 minutes per release. Empty output = no usable main run, so everything builds cold as before.
         run: echo "run=$(python3 scripts/ci-reuse.py find)" >> "$GITHUB_OUTPUT"
-      - name: Choose fast path or full matrix
+      - name: List the files a pull request changes
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        # WHY only the base commit, no history: comparing two commits' files needs nothing else. Any failure
+        # leaves no list, which means the full matrix.
+        run: |
+          git fetch --no-tags --depth=1 origin "$BASE_SHA" && git diff --name-only "$BASE_SHA" "$GITHUB_SHA" > "$RUNNER_TEMP/changed.txt" || rm -f "$RUNNER_TEMP/changed.txt"
+          cat "$RUNNER_TEMP/changed.txt" 2>/dev/null || true
+      - name: Choose documentation-only, fast path or full matrix
         id: mode
         env:
           PR_DRAFT: ${{ github.event.pull_request.draft }}
           FULL_INPUT: ${{ inputs.full }}
         run: |
-          # WHY: fast = Arch only, for drafts and plain branch dispatch. Tags, main, ready pull requests
-          # and `full: true` run everything; unknown situations also run everything.
-          echo "mode=$(python3 scripts/release.py mode)" >> "$GITHUB_OUTPUT"
+          # WHY: docs = a pull request changing only Markdown or docs/ (card #200): no package is built, so the
+          # wait is minutes, not ~35. fast = Arch only, for drafts and plain branch dispatch. Tags, main, ready
+          # pull requests and `full: true` run everything; unknown situations also run everything.
+          echo "mode=$(python3 scripts/release.py mode --changed "$RUNNER_TEMP/changed.txt")" >> "$GITHUB_OUTPUT"
+      - name: Documentation checks (documentation-only pull requests)
+        if: ${{ steps.mode.outputs.mode == 'docs' }}
+        run: |
+          # README download links name the current release, every release-notes page exists, licence and
+          # wording guards; the whole packaging suite takes ~10 seconds.
+          python3 -m unittest discover -s tests/packaging -v
+          python3 scripts/ci-publish.py check-links
       - name: Prepare pinned complete source once
-        if: ${{ steps.reuse.outputs.run == '' }}
+        if: ${{ steps.reuse.outputs.run == '' && steps.mode.outputs.mode != 'docs' }}
         run: |
           until [ -e /tmp/space-freed ]; do sleep 2; done
           python3 scripts/ci-source.py prepared
@@ -91,7 +108,7 @@ jobs:
           cp "prepared/swipe-keyboard-$version.tar.gz" release/
           python3 scripts/release.py record --target source --sha "$GITHUB_SHA"
       - name: Test release boundary and complete source fixtures
-        if: ${{ steps.reuse.outputs.run == '' }}
+        if: ${{ steps.reuse.outputs.run == '' && steps.mode.outputs.mode != 'docs' }}
         run: |
           mkdir source-tests
           tar -xzf "release/swipe-keyboard-${{ steps.version.outputs.version }}.tar.gz" -C source-tests
@@ -102,7 +119,7 @@ jobs:
           python3 -m unittest discover -s tests/packaging -p test_release_workflow.py -v
           python3 -m unittest discover -s tests/packaging -p test_release_steamos.py -v
       - uses: actions/upload-artifact@v4
-        if: ${{ steps.reuse.outputs.run == '' }}
+        if: ${{ steps.reuse.outputs.run == '' && steps.mode.outputs.mode != 'docs' }}
         with:
           name: prepared
           path: prepared/
@@ -110,7 +127,7 @@ jobs:
           retention-days: 7
           compression-level: 0
       - uses: actions/upload-artifact@v4
-        if: ${{ steps.reuse.outputs.run == '' }}
+        if: ${{ steps.reuse.outputs.run == '' && steps.mode.outputs.mode != 'docs' }}
         with:
           name: source-files
           path: release/
@@ -118,7 +135,7 @@ jobs:
           retention-days: 7
           compression-level: 0
       - uses: actions/upload-artifact@v4
-        if: ${{ steps.reuse.outputs.run == '' }}
+        if: ${{ steps.reuse.outputs.run == '' && steps.mode.outputs.mode != 'docs' }}
         with:
           name: source-evidence
           path: evidence/
@@ -127,8 +144,8 @@ jobs:
           compression-level: 0
   arch:
     needs: prepare
-    # WHY: a tag reusing main's run builds nothing (card #200).
-    if: ${{ needs.prepare.outputs.reuse_run == '' }}
+    # WHY: a tag reusing main's run, and a documentation-only pull request, build nothing (card #200).
+    if: ${{ needs.prepare.outputs.reuse_run == '' && needs.prepare.outputs.mode != 'docs' }}
     runs-on: ubuntu-24.04
     container: archlinux:latest
     env:
@@ -869,7 +886,7 @@ jobs:
           merge-multiple: true
           path: release
       - uses: actions/download-artifact@v4
-        if: ${{ needs.prepare.outputs.reuse_run == '' }}
+        if: ${{ needs.prepare.outputs.reuse_run == '' && needs.prepare.outputs.mode != 'docs' }}
         with:
           pattern: '*-evidence'
           merge-multiple: true
@@ -899,6 +916,7 @@ jobs:
           PR_DRAFT: ${{ github.event.pull_request.draft }}
           FULL_INPUT: ${{ inputs.full }}
           REUSE_RUN: ${{ needs.prepare.outputs.reuse_run }}
+          PREPARED_MODE: ${{ needs.prepare.outputs.mode }}
           PREPARE_RESULT: ${{ needs.prepare.result }}
           GH_TOKEN: ${{ github.token }}
         run: |

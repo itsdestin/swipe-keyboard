@@ -51,8 +51,9 @@ class WorkflowTests(unittest.TestCase):
             self.assertIn('--target ' + name, producer)
             self.assertNotIn('continue-on-error', producer)
             if name in ('arch',):
-                # WHY changed (card #200): Arch runs in every mode, except a tag reusing main's run for its commit.
-                self.assertIn("    if: ${{ needs.prepare.outputs.reuse_run == '' }}", producer)
+                # WHY changed (card #200): Arch runs in every mode, except a tag reusing main's run for its commit
+                # and a documentation-only pull request.
+                self.assertIn("    if: ${{ needs.prepare.outputs.reuse_run == '' && needs.prepare.outputs.mode != 'docs' }}", producer)
             else:
                 # WHY changed from "no job-level if": these three are optional only in the fast path,
                 # and the gate requires them to be 'skipped' there and 'success' everywhere else.
@@ -241,6 +242,21 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(self.workflow.count('actions: read'), 2)
         self.assertIn('actions: read', prepare)
         self.assertIn('actions: read', gate)
+
+    def test_documentation_only_pull_requests_build_nothing_but_still_check_the_words(self):
+        # Card #200: a README-only pull request waited ~35 minutes for packages it does not change.
+        prepare, gate = self.jobs['prepare'], self.jobs['keyboard-ci']
+        self.assertLess(prepare.index('git diff --name-only "$BASE_SHA" "$GITHUB_SHA"'), prepare.index('scripts/release.py mode --changed'))
+        self.assertIn("if: ${{ github.event_name == 'pull_request' }}", prepare.split('List the files a pull request changes', 1)[1].split('run:', 1)[0])
+        docs = prepare.split('Documentation checks', 1)[1].split('- name:', 1)[0]
+        self.assertIn("if: ${{ steps.mode.outputs.mode == 'docs' }}", docs)
+        self.assertIn('unittest discover -s tests/packaging', docs)
+        self.assertIn('scripts/ci-publish.py check-links', docs)
+        # Nothing is prepared or uploaded, and Arch (which runs in every other mode) is skipped.
+        self.assertEqual(prepare.count("if: ${{ steps.reuse.outputs.run == '' && steps.mode.outputs.mode != 'docs' }}"), 5)
+        self.assertIn("    if: ${{ needs.prepare.outputs.reuse_run == '' && needs.prepare.outputs.mode != 'docs' }}", self.jobs['arch'])
+        # The gate learns the mode from prepare; release.py accepts it only on pull requests.
+        self.assertIn('PREPARED_MODE: ${{ needs.prepare.outputs.mode }}', gate)
 
     def test_only_pull_requests_cancel_superseded_runs(self):
         self.assertIn("cancel-in-progress: ${{ github.event_name == 'pull_request' }}", self.workflow)
