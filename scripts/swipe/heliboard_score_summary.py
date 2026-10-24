@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
 """Add up swipekb-language-bench outputs for HeliBoard test chunks (python -I heliboard_score_summary.py <dir with *-test-NN.out>).
 
 Prints, per language and per layout type: cases, evaluated, first guess / top 3 case-insensitive (the bench's lookupTop1/3,

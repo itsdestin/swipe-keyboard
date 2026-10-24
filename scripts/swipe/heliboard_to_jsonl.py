@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
 """Convert the public HeliBoard Gesture Data Project into swipe TEST sets (python -I heliboard_to_jsonl.py ...).
 
 LICENCE: the data is CC BY-SA 4.0 and is used here ONLY to test/evaluate. Never train on it, and never commit the
