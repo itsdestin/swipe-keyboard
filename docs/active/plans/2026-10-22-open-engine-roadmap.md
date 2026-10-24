@@ -259,6 +259,22 @@ FUTO notice; apply KDE's licenses with REUSE headers (`reuse lint` clean); data 
 
 **Checkpoint 4:** no FUTO file or dependency anywhere; full scoreboard green; card #179 done.
 
+## Release plan: 0.5.0 (decided by Destin 2026-10-23)
+
+All of this work ships together as **0.5.0**, released once everything is complete, tested and verified; the
+publish is a separate, later step (owner's call). Until then:
+
+- `feature/apostrophe-aware` carries the version as 0.5.0 (`packaging/release-targets.json`, PKGBUILD, spec,
+  README links, `docs/releases/v0.5.0-1.md` draft, CHANGELOG "0.5.0 (unreleased)"). It merges `main` at 0.4.1-1
+  (automatic signed updates, Gaming Mode on stable Steam) so 0.5.0 includes them.
+- Test builds on the owner's laptop are numbered **0.5.0-0.x** (first: 0.5.0-0.1), below the real 0.5.0-1, so the
+  release installs as a clean upgrade over them. Undo goes to the saved 0.4.0-1.1 test build.
+- In it: our own swipe engine (no FUTO), the Plasma 6.9 front end, licensing "MIT where possible" (shared language
+  and session rules MIT too), the apostrophe-aware language files (`language-files-2026-10-23-apostrophes`,
+  published 2026-10-23), the capitals lists, texting words, learning (off by default), tap-to-swap.
+- Before release: real Plasma 6.9 check (KDE Linux VM now, 6.9 beta from 2027-01-19), the release checks in
+  `docs/releasing.md`, and the README "not released yet" note removed.
+
 ## Not now (revisit only if numbers ask)
 
 Small neural (~5M) next-word model if n-gram files plateau below goal after Phases 1–2; newer Gboard

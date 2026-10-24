@@ -4,7 +4,7 @@
 
 # Local build candidate only; no install hooks and no publication.
 pkgname=swipe-keyboard
-pkgver=0.4.0
+pkgver=0.5.0
 pkgrel=1
 pkgdesc='English, Spanish, French and German swipe typing, completions and next-word suggestions for Plasma Keyboard'
 arch=('x86_64')
@@ -20,7 +20,7 @@ license=('MIT' 'GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL'
 # WHY no upper bound and no hard qt6-virtualkeyboard: one package serves Plasma 6.7/6.8 (Qt Virtual Keyboard front end,
 # whose plasma-keyboard already requires that library) and Plasma 6.9 (front end on KDE's rebuilt keyboard, which has no
 # Qt Virtual Keyboard). The launcher picks the matching one. Kirigami: the 6.9 suggestion row uses its theme colours.
-depends=('python' 'systemd' 'plasma-keyboard>=6.7' 'qt6-declarative' 'kirigami' 'kwindowsystem' 'kconfig' 'qt6-tools')
+depends=('python' 'systemd' 'gnupg' 'pacman' 'plasma-keyboard>=6.7' 'qt6-declarative' 'kirigami' 'kwindowsystem' 'kconfig' 'qt6-tools')
 optdepends=('qt6-virtualkeyboard: needed by the Plasma 6.7/6.8 front end (plasma-keyboard 6.7/6.8 already installs it)')
 # Kirigami supplies the QML accent-colour probe exercised by native plugin tests.
 makedepends=('cmake' 'ninja' 'gcc' 'kirigami' 'gtest')
@@ -49,6 +49,10 @@ check() {
 package() {
   cd "$srcdir/swipe-keyboard-$pkgver"
   DESTDIR="$pkgdir" cmake --install build
+  # WHY a packaged link instead of an install hook: automatic updates are on from install, and removing the package
+  # removes the link. "sudo swipe-keyboard updates off" turns them off.
+  install -d "$pkgdir/usr/lib/systemd/system/timers.target.wants"
+  ln -s ../swipe-keyboard-update.timer "$pkgdir/usr/lib/systemd/system/timers.target.wants/swipe-keyboard-update.timer"
   python scripts/package-check.py "$pkgdir"
   _add_native_dependencies
 }

@@ -3,7 +3,7 @@
 ## Supported required set
 
 `packaging/release-targets.json` is the authoritative version/release number and exact
-required file list. Current release: **0.4.0-1** (tag **v0.4.0-1**).
+required file list. Next release: **0.5.0-1** (tag **v0.5.0-1**, unreleased; current published release v0.4.1-1).
 It requires Arch/CachyOS x86_64, Fedora **44** x86_64, Fedora **44 aarch64**
 for Linux ARM64 Plasma Mobile, SteamOS **Desktop** x86_64 Flatpak, complete
 corresponding source, one shared Fedora source RPM, Flatpak build inputs,
@@ -91,10 +91,13 @@ Dependency-only speed caches exist (see "Dependency caches" below); release tags
   is installed: the Arch and Fedora jobs). Both use synthetic swipes unless the developer-only recorded corpus is present.
   The "no network" proof has two parts: a network-namespace test that is skipped (with its reason printed) where
   `unshare -rn` is not allowed, and a socket check that runs everywhere.
-- `flatpak-repo`: publishes the hosted, signed Flatpak update repository (design and the owner's
-  one-time setup: plan, "Hosted Flatpak update repository"). It runs only for a release tag, after
-  `publish`, and only when the repository variable `FLATPAK_REPO_PUBLISH` is `true`; otherwise it is
-  skipped. It is not a release producer and is not part of the verified release set.
+- Update site (plan `docs/active/plans/2026-10-23-auto-updates.md`): after the release is published, the
+  owner-approved `publish` job builds the signed update website from the same verified files
+  (`scripts/update_site.py`: Flatpak repository, dnf metadata, Arch `latest.json`), checks it with each
+  platform's own tool, and `update-site` deploys it to GitHub Pages. Every step is skipped unless the
+  repository variable `FLATPAK_REPO_PUBLISH` is `true`. The signing key (`FLATPAK_REPO_GPG_KEY`) is read
+  only behind the release approval and must be the key committed in `packaging/updates/`, which every
+  installed keyboard trusts. Not a release producer and not part of the verified release set.
 
 Flatpak preparation generates an **external** `manifest.json`, replaces the source
 archive hash after archive creation, and materializes pinned upstream archives and

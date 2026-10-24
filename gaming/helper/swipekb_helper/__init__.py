@@ -10,4 +10,4 @@ whatever goes wrong, Steam's own keyboard keeps working because we only ever add
 """
 # WHY a version string in the page: lets a newer helper replace an older stub, and lets a restarted helper
 # see "already installed" and leave it alone (no double install).
-LAYER_VERSION = '0.6.0'
+LAYER_VERSION = '0.6.1'

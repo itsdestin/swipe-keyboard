@@ -32,7 +32,18 @@ TOOLS = ['bash', 'sh', 'sed', 'grep', 'sha256sum', 'readlink', 'date', 'mkdir', 
 FLATPAK = '''#!/bin/sh
 printf 'flatpak %s\\n' "$*" >> "$FAKE_LOG"
 case "$1" in
-  info) grep -qx "$3" "$FAKE_APPS" 2>/dev/null; exit $? ;;
+  info) for id; do :; done
+        grep -qx "$id" "$FAKE_APPS" 2>/dev/null || exit 1
+        # WHY: install.sh reads the app's origin remote to point it at the update site.
+        case "$*" in *--show-origin*) echo "$(echo "$id" | tr -d '.' | tr 'A-Z' 'a-z')-origin";; esac
+        # WHY a commit per app: auto-update.sh compares commits before and after to know whether anything changed.
+        case "$*" in *--show-commit*) cat "$FAKE_APPS.$id" 2>/dev/null || echo old;; esac
+        exit 0 ;;
+  # WHY: real Flatpak says "not found" for a remote that does not exist (seen on SteamOS 3.8 for the helper's origin).
+  remote-modify) [ "$LC_ALL" = C ] || { echo 'fake: remote-modify must run with LC_ALL=C' >&2; exit 9; }
+       case "$*" in *gaminghelper-origin*) [ -n "$FAKE_LOST_ORIGIN" ] && { echo 'error: Remote "gaminghelper-origin" not found in the user installation' >&2; exit 1; };; esac ;;
+  update) [ "$FAKE_FAIL" = update ] && exit 1
+          if [ -n "$FAKE_NEW" ]; then for id; do case "$id" in org.*) echo new > "$FAKE_APPS.$id";; esac; done; fi ;;
   install) [ "$FAKE_FAIL" = install ] && { echo 'fake: install failed' >&2; exit 1; }
            case "$*" in *GamingHelper*|*gaming-helper*) id=org.itsdestin.SwipeKeyboard.GamingHelper;; *) id=org.itsdestin.SwipeKeyboard;; esac
            # WHY: the real Flatpak refuses to install a bundle whose exact version is already here (seen on SteamOS in M8).
@@ -68,6 +79,14 @@ printf 'sudo %s\\n' "$*" >> "$FAKE_LOG"
 [ "$1" = -v ] && exit 0
 FAKE_ROOT=1 exec "$@"
 '''
+
+
+UPDATE_UNITS = ['swipekb-update.service', 'swipekb-update.timer']
+
+
+def gaming_units(f):
+    """The Gaming Mode unit files present (the automatic-update timer is not Gaming Mode: it is on for the Desktop keyboard too)."""
+    return sorted(p.name for p in f.units.iterdir() if p.name not in UPDATE_UNITS) if f.units.exists() else []
 
 
 class Fixture:
@@ -114,6 +133,8 @@ class Fixture:
         shutil.copy2(SETUP / 'install.sh', self.bundle)
         shutil.copy2(SETUP / 'uninstall.sh', self.bundle)
         shutil.copy2(SETUP / 'switch-watch.sh', self.bundle)
+        shutil.copy2(SETUP / 'auto-update.sh', self.bundle)
+        shutil.copy2(ROOT / 'packaging/updates/update-key.gpg', self.bundle)
         shutil.copytree(SETUP / 'units', self.bundle / 'units')
         (self.bundle / 'VERSION').write_text(version + '\n')
         (self.bundle / f'swipe-keyboard-{version}-x86_64.flatpak').write_bytes(b'main bundle ' + version.encode())
@@ -133,6 +154,7 @@ class Fixture:
     def run(self, script, *args, stdin='y\n', fail=None, shims=True, extra=None):
         env = {'SWIPEKB_SYSTEM_UNIT_DIR': str(self.sysdir), 'SWIPEKB_PROC_NET': str(self.proc), **(extra or {}), 'HOME': str(self.home), 'PATH': (str(self.shims) + ':' if shims else '') + str(self.tools),
                'LANG': 'C', 'FAKE_LOG': str(self.log), 'FAKE_APPS': str(self.apps), 'FAKE_FAIL': fail or ''}
+        env.update(extra or {})
         return subprocess.run(['bash', str(self.bundle / script), *args], input=stdin, env=env,
                               capture_output=True, text=True, timeout=60)
 
@@ -173,7 +195,7 @@ class InstallTests(unittest.TestCase):
         f = Fixture(self)
         out = f.run('install.sh', '--dry-run', stdin='').stdout
         for phrase in ('developer switch', 'other devices', '8081', 'has not approved this', 'Subscriber Agreement',
-                       'administrator password', 'Second question', 'Block other devices', 'Leave it open', 'Nothing is sent to the internet', 'Gaming Mode', 'uninstall.sh',
+                       'administrator password', 'Second question', 'Block other devices', 'Leave it open', 'The keyboard itself never uses the internet', 'automatic updates', 'Gaming Mode', 'uninstall.sh',
                        'restart Steam'):
             self.assertIn(phrase, out)
 
@@ -202,7 +224,8 @@ class InstallTests(unittest.TestCase):
         self.assertEqual(record['version'], '0.3.1-1')
         self.assertEqual(record['created_markers'], [str(f.steam / MARKER)])
         self.assertEqual(record['existing_markers'], [])
-        self.assertEqual(sorted(record['created_units']), ['swipekb-engine.service', 'swipekb-helper.service', 'swipekb-switch-watch.service', 'swipekb-switch-watch.timer'])
+        self.assertEqual(sorted(record['created_units']), sorted(['swipekb-engine.service', 'swipekb-helper.service', 'swipekb-switch-watch.service', 'swipekb-switch-watch.timer'] + UPDATE_UNITS))
+        self.assertEqual(record['auto_update'], 'yes')
         self.assertEqual(record['installed_flatpaks'], [MAIN_ID, HELPER_ID])
         calls = f.calls()
         installs = [c for c in calls if c.startswith('flatpak install')]
@@ -421,9 +444,12 @@ class ChoiceTests(unittest.TestCase):
                 result = f.run('install.sh', *args, stdin=stdin)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertFalse((f.steam / MARKER).exists())
-                self.assertFalse(f.units.exists())
+                self.assertEqual(gaming_units(f), [])
                 self.assertEqual(sys_files(f), [])
-                self.assertEqual([c for c in f.calls() if c.startswith(('sudo', 'root-', 'systemctl'))], [])
+                self.assertEqual([c for c in f.calls() if c.startswith(('sudo', 'root-'))], [])
+                # WHY only these: automatic updates are on for the Desktop keyboard too, and need nothing else.
+                self.assertEqual([c for c in f.calls() if c.startswith('systemctl')],
+                                 ['systemctl --user daemon-reload', 'systemctl --user enable --now swipekb-update.timer'])
                 installs = [c for c in f.calls() if c.startswith('flatpak install')]
                 self.assertEqual(len(installs), 1)
                 self.assertIn('swipe-keyboard-0.3.1-1', installs[0])
@@ -501,7 +527,7 @@ class ChoiceTests(unittest.TestCase):
         self.assertIn('NOT closed', result.stderr)
         self.assertIn('passwd', result.stderr)
         self.assertFalse((f.steam / MARKER).exists())
-        self.assertFalse(f.units.exists())
+        self.assertEqual(gaming_units(f), [])
         self.assertEqual(sys_files(f), [])
         self.assertEqual([c for c in f.calls() if c.startswith('flatpak install')], [c for c in f.calls() if c.startswith('flatpak install') and 'gaming-helper' not in c])
         self.assertEqual(f.record()['installed_flatpaks'], [MAIN_ID])   # the Desktop keyboard still installed
@@ -580,7 +606,8 @@ class ChoiceTests(unittest.TestCase):
         result = f.run('install.sh', '--desktop-only')
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertFalse((f.steam / MARKER).exists())           # we made it, so it goes
-        self.assertFalse(f.units.exists() and any(f.units.iterdir()))
+        self.assertEqual(gaming_units(f), [])
+        self.assertTrue((f.units / 'swipekb-update.timer').is_file())   # turning Gaming Mode off keeps automatic updates
         self.assertEqual(sys_files(f), [])
         self.assertTrue(door_open(f))                          # the block we added is gone again
         removed = [c for c in f.calls() if c.startswith('flatpak uninstall')]
@@ -723,7 +750,7 @@ class UninstallTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(f.snapshot(), before)
         calls = f.calls()
-        self.assertIn('systemctl --user disable --now swipekb-engine.service swipekb-helper.service swipekb-switch-watch.service swipekb-switch-watch.timer', calls)
+        self.assertIn('systemctl --user disable --now swipekb-engine.service swipekb-helper.service swipekb-switch-watch.service swipekb-switch-watch.timer swipekb-update.service swipekb-update.timer', calls)
         self.assertIn('systemctl --user daemon-reload', calls)
         self.assertEqual([c for c in calls if c.startswith('flatpak uninstall')], [])
         self.assertIn('flatpak uninstall --user', result.stdout)  # printed as a hint, not run
@@ -882,6 +909,83 @@ class ReviewFixTests(unittest.TestCase):
         (state / 'retry.json').write_text('{}')
         f.run('install.sh', '--gaming', '--dry-run', stdin='')
         self.assertTrue((state / 'retry.json').exists())
+
+
+
+class AutoUpdateTests(unittest.TestCase):
+    """Automatic updates on the Deck (plan: docs/active/plans/2026-10-23-auto-updates.md)."""
+
+    def test_on_by_default_it_points_both_apps_at_the_signed_site_and_starts_the_daily_timer(self):
+        f = Fixture(self)
+        self.assertEqual(f.run('install.sh', '--gaming', '--leave-open', '--yes').returncode, 0)
+        calls = f.calls()
+        for origin in ('orgitsdestinswipekeyboard-origin', 'orgitsdestinswipekeyboardgaminghelper-origin'):
+            self.assertIn(f'flatpak remote-modify --user --url=https://itsdestin.github.io/swipe-keyboard/repo/ --gpg-verify '
+                          f'--gpg-import={f.bundle}/update-key.gpg {origin}', calls)
+        self.assertIn('systemctl --user enable --now swipekb-update.timer', calls)
+        service = (f.units / 'swipekb-update.service').read_text()
+        self.assertIn(f'ExecStart={f.home}/.local/share/swipe-keyboard-gaming/auto-update.sh', service)
+        self.assertNotIn('@', service)
+        self.assertTrue((f.home / '.local/share/swipe-keyboard-gaming/auto-update.sh').stat().st_mode & 0o111)
+
+    def test_an_origin_flatpak_already_dropped_is_recreated_with_the_key(self):
+        # WHY: seen on SteamOS: right after the helper bundle was installed its origin remote no longer existed.
+        f = Fixture(self)
+        self.assertEqual(f.run('install.sh', '--gaming', '--leave-open', '--yes', extra={'FAKE_LOST_ORIGIN': '1'}).returncode, 0)
+        self.assertIn(f'flatpak remote-add --user --no-enumerate --gpg-import={f.bundle}/update-key.gpg '
+                      'orgitsdestinswipekeyboardgaminghelper-origin https://itsdestin.github.io/swipe-keyboard/repo/', f.calls())
+        # The main app's origin still exists, so it is modified, never re-added (re-adding fails: "already exists").
+        self.assertFalse([c for c in f.calls() if c.startswith('flatpak remote-add') and 'orgitsdestinswipekeyboard-origin' in c])
+
+    def test_no_auto_update_adds_nothing_and_is_remembered(self):
+        f = Fixture(self)
+        self.assertEqual(f.run('install.sh', '--no-auto-update', '--yes').returncode, 0)
+        self.assertFalse((f.units / 'swipekb-update.timer').exists())
+        self.assertEqual([c for c in f.calls() if 'remote-modify' in c or 'swipekb-update' in c], [])
+        self.assertEqual(f.record()['auto_update'], 'no')
+        f.log.write_text('')
+        self.assertEqual(f.run('install.sh', '--yes').returncode, 0)      # a plain re-run keeps your "no"
+        self.assertFalse((f.units / 'swipekb-update.timer').exists())
+        self.assertEqual(f.record()['auto_update'], 'no')
+
+    def test_turning_it_off_later_removes_only_the_update_timer(self):
+        f = Fixture(self)
+        f.run('install.sh', '--gaming', '--leave-open', '--yes')
+        f.log.write_text('')
+        self.assertEqual(f.run('install.sh', '--no-auto-update', '--yes').returncode, 0)
+        self.assertFalse((f.units / 'swipekb-update.timer').exists())
+        self.assertFalse((f.home / '.local/share/swipe-keyboard-gaming/auto-update.sh').exists())
+        self.assertEqual(gaming_units(f), ['swipekb-engine.service', 'swipekb-helper.service',
+                                           'swipekb-switch-watch.service', 'swipekb-switch-watch.timer'])
+        self.assertNotIn('swipekb-update.service', f.record()['created_units'])
+        self.assertIn('systemctl --user disable --now swipekb-update.timer', f.calls())
+
+    def run_update(self, f, **extra):
+        script = f.home / '.local/share/swipe-keyboard-gaming/auto-update.sh'
+        env = {'HOME': str(f.home), 'PATH': f'{f.shims}:{f.tools}', 'FAKE_LOG': str(f.log), 'FAKE_APPS': str(f.apps), **extra}
+        return subprocess.run(['bash', str(script)], env=env, capture_output=True, text=True, timeout=60)
+
+    def test_the_daily_job_updates_only_our_apps_and_restarts_gaming_services_after_a_change(self):
+        f = Fixture(self)
+        f.run('install.sh', '--gaming', '--leave-open', '--yes')
+        f.log.write_text('')
+        self.assertEqual(self.run_update(f).returncode, 0)                 # nothing new: no restart
+        self.assertEqual(f.calls(), [c for c in f.calls() if c.startswith('flatpak ')])
+        self.assertIn(f'flatpak update --user --noninteractive -y {MAIN_ID}', f.calls())
+        self.assertIn(f'flatpak update --user --noninteractive -y {HELPER_ID}', f.calls())
+        f.log.write_text('')
+        result = self.run_update(f, FAKE_NEW='1')
+        self.assertEqual(result.returncode, 0)
+        self.assertIn('was updated', result.stdout)
+        self.assertIn('systemctl --user try-restart swipekb-engine.service swipekb-helper.service', f.calls())
+
+    def test_a_failed_update_check_changes_nothing_and_reports_failure(self):
+        f = Fixture(self)
+        f.run('install.sh', '--yes')
+        f.log.write_text('')
+        result = self.run_update(f, FAKE_FAIL='update')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual([c for c in f.calls() if c.startswith('systemctl')], [])
 
 
 if __name__ == '__main__':

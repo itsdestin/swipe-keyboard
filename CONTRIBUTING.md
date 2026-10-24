@@ -4,7 +4,7 @@ Swipe Keyboard adds local swipe recognition to Plasma Keyboard. Contributions to
 
 ## Scope
 
-See the [current release scope](docs/releases/v0.4.0-1.md) and [release procedure](docs/releasing.md). Required packages are Arch/CachyOS x86_64, Fedora 44 x86_64, Fedora 44 ARM64/aarch64 for Plasma Mobile, and Steam Deck Desktop Mode Flatpak, plus the SteamOS download for Gaming Mode. ARM must pass its own build/load and Mobile input checks; x86 tests are not ARM evidence. Gaming Mode is a preview tested only on a virtual Deck until the physical-Deck pass, and physical-phone performance and musl/other phone distributions require separate evidence. New Plasma/Qt versions, distributions and architectures need build/load and real-input checks before being advertised.
+See the [current release scope](docs/releases/v0.5.0-1.md) and [release procedure](docs/releasing.md). Required packages are Arch/CachyOS x86_64, Fedora 44 x86_64, Fedora 44 ARM64/aarch64 for Plasma Mobile, and Steam Deck Desktop Mode Flatpak, plus the SteamOS download for Gaming Mode. ARM must pass its own build/load and Mobile input checks; x86 tests are not ARM evidence. Gaming Mode is a preview tested only on a virtual Deck until the physical-Deck pass, and physical-phone performance and musl/other phone distributions require separate evidence. New Plasma/Qt versions, distributions and architectures need build/load and real-input checks before being advertised.
 
 Keep recognition (`engine/`), Qt integration (`plugin/`), per-user activation (`integration/`) and distribution packaging (`packaging/`) separate. Do not add desktop layouts, tablet-mode policy or theme dependencies to the keyboard installer.
 

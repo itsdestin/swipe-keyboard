@@ -19,8 +19,11 @@ import tarfile
 
 ROOT = Path(__file__).resolve().parents[1]
 SETUP = ROOT / 'gaming/setup'
-SCRIPTS = ('install.sh', 'uninstall.sh', 'switch-watch.sh')
-UNITS = ('swipekb-engine.service', 'swipekb-helper.service', 'swipekb-switch-watch.service', 'swipekb-switch-watch.timer')
+SCRIPTS = ('install.sh', 'uninstall.sh', 'switch-watch.sh', 'auto-update.sh')
+UNITS = ('swipekb-engine.service', 'swipekb-helper.service', 'swipekb-switch-watch.service', 'swipekb-switch-watch.timer',
+         'swipekb-update.service', 'swipekb-update.timer')
+# WHY the public update key is in the download: install.sh gives it to Flatpak so updates not signed with it are refused.
+UPDATE_KEY = ROOT / 'packaging/updates/update-key.gpg'
 
 
 def archive_name(version):
@@ -41,7 +44,7 @@ def sha256(data):
 
 def expected_files(version):
     main, helper = bundle_names(version)
-    return {*SCRIPTS, 'VERSION', 'SHA256SUMS', *('units/' + u for u in UNITS), main, helper}
+    return {*SCRIPTS, 'VERSION', 'SHA256SUMS', 'update-key.gpg', *('units/' + u for u in UNITS), main, helper}
 
 
 def assemble(main_bundle, helper_bundle, version, out_dir, setup_dir=SETUP):
@@ -51,6 +54,8 @@ def assemble(main_bundle, helper_bundle, version, out_dir, setup_dir=SETUP):
         'install.sh': ((setup_dir / 'install.sh').read_bytes(), 0o755),
         'uninstall.sh': ((setup_dir / 'uninstall.sh').read_bytes(), 0o755),
         'switch-watch.sh': ((setup_dir / 'switch-watch.sh').read_bytes(), 0o755),
+        'auto-update.sh': ((setup_dir / 'auto-update.sh').read_bytes(), 0o755),
+        'update-key.gpg': (UPDATE_KEY.read_bytes(), 0o644),
         'VERSION': ((version + '\n').encode(), 0o644),
         main_name: (Path(main_bundle).read_bytes(), 0o644),
         helper_name: (Path(helper_bundle).read_bytes(), 0o644),
@@ -120,6 +125,9 @@ def verify(archive, version, setup_dir=SETUP):
     for name in (*SCRIPTS, *('units/' + u for u in UNITS)):
         if contents[f'{top}/{name}'] != (setup_dir / name).read_bytes():
             raise ValueError(name + ' differs from the committed gaming/setup file')
+    # WHY the key too: a different key in the download would let someone else's signed updates in.
+    if contents[f'{top}/update-key.gpg'] != UPDATE_KEY.read_bytes():
+        raise ValueError('update-key.gpg differs from the committed update key')
     main, helper = bundle_names(version)
     return {'main_sha256': sha256(contents[f'{top}/{main}']), 'helper_sha256': sha256(contents[f'{top}/{helper}'])}
 

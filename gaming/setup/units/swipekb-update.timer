@@ -1,0 +1,18 @@
+# swipekb-gaming-managed
+# swipekb-gaming-version: @VERSION@
+# swipekb-gaming-unit-revision: 2
+# WHY the lines above: see swipekb-switch-watch.service.
+[Unit]
+Description=Swipe Keyboard: look for a newer keyboard once a day
+
+[Timer]
+# WHY a calendar time, not "1 day after the last run": a run skipped while updates were off never counts as a
+# run, so a since-last-run timer would stop for good after "off then on". Persistent catches up a missed day.
+OnCalendar=daily
+OnBootSec=15min
+# WHY spread out: every Deck must not ask the update site at the same minute.
+RandomizedDelaySec=4h
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -1,6 +1,10 @@
 # Changes
 
-## Unreleased
+## 0.5.0 (unreleased)
+
+- Swipes pick "were" or "we're", "its" or "it's", "well" or "we'll" from the sentence (language files `language-files-2026-10-23-apostrophes`, which keep apostrophes); rare junk spellings ("I's" for "is") never win. Fixes 0.4.0-era test builds that typed "i's", "wa's", "i'n".
+- "I", "I'm", names, places, days and months are shown with their capital in English, Spanish and French swipes, completions, other spellings, tap-to-swap and next-word suggestions (built-in lists in `packaging/capitals`); ordinary words stay lower case, including ones web text often capitalises inside names ("banco", "hall"). German is unchanged.
+- The shared language and session rules are MIT, so the Gaming Mode daemon and the tools are MIT as built.
 
 - New trained models, downloaded by checksum from the `models-2026-10-23` release (models trained and released by Destin Moss via youcoded.ai, 2026): a small neural next-word model per language (`LANG.nwp.bin`, English/Spanish/French/German, ODC-By 1.0 AND CC BY 2.0 FR) that improves next-word suggestions together with the n-gram files, and our own swipe model (`swipe-model.bin`, MIT; trained on FUTO's MIT swipe data and synthetic swipes), used only when the `own-engine` file exists. Each file is checked against `assets.lock.json`: a missing or altered next-word model only turns that model off (n-gram suggestions as before), a missing or altered swipe model leaves the own engine on geometry only. FUTO's engine, models and notices are unchanged.
 
@@ -16,6 +20,11 @@
 - Word lists and the Spanish, French, German and English swipe dictionaries are now counted from FineWeb/FineWeb-2 text (ODC-By 1.0) and Tatoeba sentences (CC BY 2.0 FR) instead of wordfreq; the English dictionary keeps the AOSP list (Apache-2.0). No share-alike (CC BY-SA) licence applies any more. On our tests no typing measure got worse by more than 0.1 point; French completions improved by up to 2 points and the lists now spell German nouns, names and French elisions as written.
 - Next-word suggestions, completions and swipe ranking for English, Spanish, French and German now come from open language files (FineWeb web text under ODC-By 1.0 plus Tatoeba sentences under CC BY 2.0 France), downloaded by checksum at build time from the `language-files-2026-10-22` release. They are larger (about 24 to 38 MB each) and noticeably better than the old Tatoeba-only packs.
 - English uses its n-gram instead of FUTO's neural context model when the English files are installed and verified; otherwise it keeps FUTO's model. A missing or damaged Spanish, French or German file now turns off only that language's suggestions instead of the whole language.
+
+## v0.4.1-1
+
+- Gaming Mode works with Steam's stable client (0.4.0 attached only with the beta client): the keyboard page is accepted after it proves it is Steam's own origin; calls from any other document are ignored. Tested on SteamOS 3.9.5.
+- Automatic updates on every platform, once a day, accepting only updates signed with the project key: Flatpak on the Steam Deck (set up by `install.sh`, now the Deck install path), the package's own signed dnf repository on Fedora, and a signed index plus `pacman -U` of that one package on Arch. Off switches: `bash install.sh --no-auto-update`, `sudo swipe-keyboard updates off`. 0.4.0 and older need 0.4.1 installed once by hand.
 
 ## v0.4.0-1
 

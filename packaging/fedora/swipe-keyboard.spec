@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: MIT
 
 Name: swipe-keyboard
-Version: 0.4.0
+Version: 0.5.0
 Release: 1%{?dist}
 Summary: English, Spanish, French and German swipe typing, completions and next-word suggestions for Plasma Keyboard
 # WHY these licences (owner decision 2026-10-23: MIT where possible; each data file keeps its own, see REUSE.toml):
@@ -24,7 +24,7 @@ BuildRequires: kf6-kwindowsystem-devel, kf6-kconfig-devel, kf6-kirigami, gtest-d
 BuildRequires: plasma-keyboard
 # Real KConfigWatcher regression uses only dbus-run-session's private bus and busctl.
 BuildRequires: dbus-daemon, systemd
-Requires: python3, systemd, qt6-qtbase, qt6-qttools, kf6-kconfig
+Requires: python3, systemd, dnf, qt6-qtbase, qt6-qttools, kf6-kconfig
 # Fedora's plasma-keyboard has epoch 1, so the lower bound needs the 1: prefix to mean 6.7.
 # WHY no upper bound: a Plasma 6.9 upgrade must never be blocked by this package. On 6.9+ the launcher
 # (integration/setup.py) sees the newer keyboard and starts the plain KDE keyboard instead.
@@ -54,7 +54,7 @@ KWin settings. See the setup guide for tested KDE/Qt baselines and quality limit
 
 %build
 scripts/fetch-assets.sh
-%cmake -G Ninja -DSWIPEKB_PACKAGE_VERSION=%{version}-%{release}
+%cmake -G Ninja -DSWIPEKB_PACKAGE_VERSION=%{version}-%{release} -DSWIPEKB_DNF_REPO=ON
 %cmake_build
 
 %check
@@ -64,10 +64,18 @@ python3 -m unittest discover -s tests/integration -v
 
 %install
 %cmake_install
+# WHY a packaged link instead of an install scriptlet running "systemctl enable": updates are on from install,
+# and removing the package removes the link. "sudo swipe-keyboard updates off" turns them off.
+mkdir -p %{buildroot}%{_unitdir}/timers.target.wants
+ln -s ../swipe-keyboard-update.timer %{buildroot}%{_unitdir}/timers.target.wants/swipe-keyboard-update.timer
 python3 scripts/package-check.py %{buildroot}
 
 %files
 %{_bindir}/swipe-keyboard
 %{_datadir}/applications/swipe-keyboard.desktop
 %{_datadir}/swipe-keyboard/
+%{_unitdir}/swipe-keyboard-update.service
+%{_unitdir}/swipe-keyboard-update.timer
+%{_unitdir}/timers.target.wants/swipe-keyboard-update.timer
+%config(noreplace) %{_sysconfdir}/yum.repos.d/swipe-keyboard.repo
 %license %{_datadir}/licenses/swipe-keyboard/

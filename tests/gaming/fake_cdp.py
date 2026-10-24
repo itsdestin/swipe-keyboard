@@ -96,7 +96,7 @@ def read_http_request(sock):
 # ---- one fake page --------------------------------------------------------------------------------------
 
 class Page:
-    def __init__(self, target_id, steam):
+    def __init__(self, target_id, steam, origin=None):
         self.id = target_id
         self.proc = subprocess.Popen(['node', PAGE_JS], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
         self.lock = threading.Lock()
@@ -109,7 +109,8 @@ class Page:
         # evaluation (a blocked-eval/CSP page). refuse: CDP methods answered with an error object instead of a result.
         self.eval_filter = None
         self.refuse = set()
-        self._rpc({'op': 'init', 'steam': steam})
+        self.origin = origin or 'https://steamloopback.host'
+        self._rpc({'op': 'init', 'steam': steam, 'origin': origin})
         threading.Thread(target=self._drain, daemon=True).start()
 
     def _drain(self):
@@ -223,13 +224,13 @@ class FakeSteam:
         self.targets = {}
 
     # -- targets
-    def add_target(self, title, ttype='page', steam=None, announce=True, url=None):
+    def add_target(self, title, ttype='page', steam=None, announce=True, url=None, origin=None):
         with self.lock:
             self.next_id += 1
             tid = 'T%04d%s' % (self.next_id, os.urandom(4).hex().upper())
             info = {'targetId': tid, 'type': ttype, 'title': title,
                     'url': url or 'https://steamloopback.host/index.html', 'attached': False}
-            self.targets[tid] = {'info': info, 'page': Page(tid, steam)}
+            self.targets[tid] = {'info': info, 'page': Page(tid, steam, origin)}
         if announce:
             self.broadcast('Target.targetCreated', {'targetInfo': dict(info)})
         return tid
@@ -377,6 +378,11 @@ class FakeSteam:
                     page._rpc({'op': 'binding', 'name': p['name']})
                     page.bindings[p['name']] = (session, send)
                     page.binding_sessions = getattr(page, 'binding_sessions', 0) + 1
+                    send({'id': m['id'], 'result': {}})
+                elif meth == 'Runtime.enable':
+                    # WHY: like Chrome, name the page's existing document first, so the helper knows which calls are Steam's.
+                    send({'method': 'Runtime.executionContextCreated', 'params': {'context': {
+                        'id': 1, 'origin': page.origin, 'name': '', 'auxData': {'isDefault': True, 'type': 'default', 'frameId': 'F'}}}})
                     send({'id': m['id'], 'result': {}})
                 else:
                     send({'id': m['id'], 'result': {}})

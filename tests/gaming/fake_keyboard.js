@@ -156,6 +156,8 @@ function build(opts) {
   const doc = new FakeDocument();
   const win = new FakeWindow();
   doc.win = win; win.document = doc; win.top = win; win.window = win; win.innerWidth = 1280; win.innerHeight = 800;
+  // WHY: the installed frame starts only on Steam's own origin (stable-Steam fix, 2026-10-23); this page stands in for Steam's.
+  win.location = { origin: (opts && opts.origin) || 'https://steamloopback.host' };
   const root = doc.body;
   const kb = new FakeElement('div', doc); root.append(kb);
   // M6/M7: Steam draws its keys inside a role=grid element whose class list holds "Layout_<its own layout name>" (found in the VM:

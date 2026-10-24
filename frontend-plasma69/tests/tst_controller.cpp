@@ -177,6 +177,21 @@ private Q_SLOTS:
         QCOMPARE(m_editor->m_text, QStringLiteral("say"));
     }
 
+    // WHY: the built-in capitals list (owner decision 2026-10-23) reaches the 6.9 front end too: names and days keep
+    // their capital mid-sentence, ordinary words stay lower case.
+    void namesKeepTheirCapital()
+    {
+        m_editor->setField(QStringLiteral("we went to "));
+        swipe(QStringLiteral("paris"));
+        QCOMPARE(m_editor->m_text, QStringLiteral("we went to Paris"));
+        m_editor->setField(QStringLiteral("in the "));
+        swipe(QStringLiteral("hall"));
+        QCOMPARE(m_editor->m_text, QStringLiteral("in the hall"));
+        m_editor->setField(QStringLiteral("see you on "));
+        type(QStringLiteral("mond"));
+        QVERIFY(waitForBar([](const QStringList &bar) { return bar.contains(QStringLiteral("Monday")); }));
+    }
+
     void completionAppearsAndApplies()
     {
         type(QStringLiteral("hel"));
