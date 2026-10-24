@@ -21,7 +21,8 @@ class WorkflowTests(unittest.TestCase):
         import json
         contract = json.loads((ROOT/'packaging/release-targets.json').read_text())
         tag = f"v{contract['version']}-{contract['release']}"
-        guide = (ROOT/'README.md').read_text()
+        # WHY steam-deck.md too: the Flatpak-only download is fine print and lives there, not in the README.
+        guide = (ROOT/'README.md').read_text() + (ROOT/'docs/steam-deck.md').read_text()
         # WHY: a complete upload is not enough if instructions still send Arch
         # or ARM users to an old release or omit their package altogether.
         for name, target in contract['targets'].items():

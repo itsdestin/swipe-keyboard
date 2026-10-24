@@ -1,6 +1,6 @@
 # Flatpak (Steam Deck Desktop Mode)
 
-This folder builds the Steam Deck app `org.itsdestin.SwipeKeyboard`. For installing and using it, see the [main README](../../README.md#steam-deck--desktop-mode); this page is for people building or reviewing the package.
+This folder builds the Steam Deck app `org.itsdestin.SwipeKeyboard`. For installing and using it, see the [main README](../../README.md#steam-deck); this page is for people building or reviewing the package.
 
 ## What it is
 
