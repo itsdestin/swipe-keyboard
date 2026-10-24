@@ -210,6 +210,11 @@ def main(argv=None):
     args = parser.parse_args(argv)
     try:
         if args.action == 'status':
+            # WHY ask the package manager first: a copy pacman or dnf did not install (KDE Linux's system extension,
+            # a developer build) is never updated, whatever the setting says.
+            if manager() is None:
+                print('This copy of Swipe Keyboard was not installed by pacman or dnf; it is not updated automatically.')
+                return 0
             print('Automatic updates are ' + ('off.' if OFF_FLAG.exists() else 'on (checked once a day).'))
             return 0
         if args.action in ('on', 'off'):

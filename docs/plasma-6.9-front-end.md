@@ -118,10 +118,18 @@ owner's desktop, package 0.5.0-0.1, driven over SSH:
   (`effectiveSnapshot`) and the words it typed in the sentence (`m_ownWords`); test
   `appThatReportsLateGetsOneSpaceAndTheSentence` (FakeEditor `m_lagging`). Also: one tapped capital ("H") made
   completions all-caps ("HOW"); now two capitals are needed (shared `typedwordsession.h`).
+- **Second run 2026-10-24** (0.5.0-0.2): Firefox "they were here" (one space each, "were" kept); KWrite "H" →
+  "How / He / H"; picked "He", swiped "was" ("as"/"saw" offered), a tapped letter after it starts a new word;
+  tap-to-swap on "was" → "saw / as / has" → "saw"; spacebar slide moves the cursor, types no space; `?123` page
+  keeps the panel height and a drag there is a plain tap; Spanish (es_ES mobile layout, enabled via
+  `plasmakeyboardrc` `enabledKeyboardLayoutIds=…/desktop-qwerty,org.kde.plasma.keyboard.es_ES/mobile-qwerty`)
+  swipes "hola gracias"; the lock-screen password field: no trail, no word, empty row. Updater on KDE Linux (no
+  pacman/dnf): `updates status` now says it is not updated automatically (it claimed "on"), the check and the
+  daily service finish successfully doing nothing.
 - Still open in late-reporting apps (Firefox): picking a swiped word's alternative or whole-word Backspace right
   after a swipe is refused (the word is not yet in the reported text, and we never delete text we cannot see), and
-  next-word suggestions need the app's confirmation, so they may not appear. Not re-checked on the VM after the fix
-  (the desktop went offline); spacebar slide, tap-to-swap, Spanish, `?123` page and password field not yet tried.
+  next-word suggestions need the app's confirmation, so they may not appear. Alternatives, next-word suggestions and
+  learning in Firefox, and German/French on the VM, are not yet tried.
 - Test builds made on the laptop are marked x86-64-v4 (CachyOS znver4 system files), so they refuse to run on the
   desktop's Zen 3; strip `.note.gnu.property` for VM use. Release packages (CI, stock Arch) are unaffected.
 
