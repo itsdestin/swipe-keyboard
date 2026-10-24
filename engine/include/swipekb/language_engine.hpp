@@ -40,6 +40,22 @@ struct LanguageEngineSetup {
     std::string swipeModel;        // optional swipe network file ("SKNN"); "" or unusable = geometry only
 };
 
+// How the guesses after the first one are chosen (recognize()). WHY its own knobs: the first guess is what the
+// finger path and the sentence say most strongly; the others are only worth showing when they are words the person
+// could have meant. Without these, the next-closest finger paths came out as rare names, stretched words and rare
+// words ("you" -> "youuuuu", "tou"; "way" -> "waaaay", "watt"). Defaults tuned on 2,235 recorded English swipes
+// from sessions never trained on, tuned on or scored with (2026-10-24): shown alternatives that are rare,
+// stretched or rare names fell from 43.7% to 5.5%; the right word in the top 3 went 93.38% -> 92.80% (those
+// recordings are word prompts, rich in rare words and names); the first guess is unchanged by construction.
+struct AlternativeParams {
+    int pool = 16;              // the swipe engine's best N words considered for the places after the first
+    float sentenceWeight = 1.f; // extra weight on the sentence/frequency prior when ordering those places
+    int minFrequency = 80;      // dictionary frequency (0..255) below which a word is never an alternative
+    int nameMinFrequency = 100; // the same for words the dictionary writes with a capital (names), except German
+    float margin = 1e9f;        // an alternative may score at most this far (nats) below the first guess (off)
+    bool dropStretched = true;  // drop words with one letter three times in a row ("youuuuu") as alternatives
+};
+
 class LanguageEngine {
 public:
     LanguageEngine();
@@ -90,6 +106,10 @@ public:
     // Words shown with a capital letter (Capitals). Lower case stays the rule for every other word. Ignored in
     // German, which keeps the dictionary's own capitals; nullptr = all lower case (as before).
     void setCapitals(std::shared_ptr<const Capitals> capitals);
+    // Replaces the alternative-guess rules (see AlternativeParams); for measurement tools.
+    void setAlternativeParams(const AlternativeParams &params);
+    // The dictionary frequency (0..255) of this spelling (learned and texting words included); 0 = unknown.
+    int frequency(const std::string &word) const;
 
 private:
     struct Impl;

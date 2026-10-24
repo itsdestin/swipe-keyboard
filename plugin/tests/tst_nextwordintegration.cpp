@@ -435,8 +435,9 @@ private slots:
         f.tapAt(4);
         QVERIFY(!f.bar().isEmpty());
     }
-    void unbridgedNativeModeNeverOffersAlternatives() {
-        // WHY: under owned-history the keyboard may read only words it committed itself; the feature stays off.
+    void unbridgedNativeModeNeverOffersAlternativesForTextItDidNotType() {
+        // WHY: under owned-history the keyboard may read only words it committed itself, so text already in the
+        // field (or typed some other way) never gets alternatives.
         if (qEnvironmentVariable("SWIPEKB_TEST_PROFILE_ASSETS").isEmpty()) QSKIP("English assets required");
         SwapFixture f; const QString text = QStringLiteral("we can sea you today ");
         QVERIFY(f.init(text, text.size(), {}, "en_US", nullptr, true)); QTRY_VERIFY(f.ic->inputItem() == f.edit.get());
@@ -448,6 +449,56 @@ private slots:
         f.tapAt(9);
         QVERIFY(f.bar().isEmpty());
         f.choose(0); QCOMPARE(f.edit->text, text);
+    }
+    void unbridgedNativeModeOffersAlternativesForItsOwnSwipedWord() {
+        // WHY (Destin, stock Plasma): tapping back into a word the keyboard swiped must offer that swipe's other
+        // guesses even though the field is not readable; text that was already there stays untouched and unoffered.
+        if (qEnvironmentVariable("SWIPEKB_TEST_PROFILE_ASSETS").isEmpty()) QSKIP("English assets required");
+        SwapFixture f; QVERIFY(f.init("we say ", 7, {}, "en_US", nullptr, true)); QTRY_VERIFY(f.ic->inputItem() == f.edit.get());
+        f.method->keyEvent(Qt::Key_Shift, QString(), Qt::NoModifier);
+        QVERIFY(f.method->diagnostics().value("predictionContextSource").toString() == QStringLiteral("keyboard-owned-history"));
+        QGuiApplication::inputMethod()->update(Qt::ImQueryAll); f.method->update();
+        QVariantList keys, points; const QStringList rows{"qwertyuiop", "asdfghjkl", "zxcvbnm"};
+        for (int r = 0; r < rows.size(); ++r) for (int c = 0; c < rows[r].size(); ++c)
+            keys << QVariantMap{{"letter", QString(rows[r][c])}, {"x", c * 100}, {"y", r * 100}, {"w", 100}, {"h", 100}};
+        QPointF previous;
+        for (auto letter : QStringLiteral("hello")) {
+            QPointF center;
+            for (const auto &v : keys) { auto k = v.toMap(); if (k["letter"].toString() == QString(letter)) center = {k["x"].toDouble() + 50, k["y"].toDouble() + 50}; }
+            if (points.isEmpty()) points << QVariantMap{{"x", center.x()}, {"y", center.y()}, {"t", 0}};
+            else for (int step = 1; step <= 8; ++step) { auto p = previous + (center - previous) * (step / 8.0); points << QVariantMap{{"x", p.x()}, {"y", p.y()}, {"t", points.size() * 16}}; }
+            previous = center;
+        }
+        const int generation = f.method->beginSwipe(); QVERIFY(generation >= 0);
+        f.method->finishSwipe(points, keys, generation);
+        QGuiApplication::inputMethod()->update(Qt::ImQueryAll); f.method->update();
+        const QString typed = f.edit->text.mid(7).trimmed(); QVERIFY(typed.size() >= 2);
+        const auto swipeGuesses = f.bar();
+        QVERIFY(!swipeGuesses.isEmpty());
+        QTest::qWait(400);
+        f.tapAt(7 + typed.size() / 2);                // into the swiped word
+        const auto shown = f.bar();
+        QVERIFY2(!shown.isEmpty(), "no alternatives for the keyboard's own word");
+        for (const auto &guess : swipeGuesses) QVERIFY2(shown.contains(guess), qPrintable(guess + " not in " + shown.join(",")));
+        f.tapAt(1);                                   // "we" was already in the field: never offered
+        QVERIFY(f.bar().isEmpty());
+        f.tapAt(7 + typed.size() / 2);
+        const QString pick = f.bar().first();
+        f.choose(0);
+        QCOMPARE(f.edit->text.left(7), QStringLiteral("we say "));   // nothing before it touched
+        QVERIFY2(f.edit->text.mid(7).startsWith(pick), qPrintable(f.edit->text));
+        QTest::qWait(400);
+        f.tapAt(7 + 1);
+        QVERIFY2(!f.bar().isEmpty(), "the swapped-in word is the keyboard's own too");
+        f.tapAt(f.edit->text.size());
+        // Someone else edits the field: the keyboard no longer vouches for any word in it.
+        QTest::qWait(400);
+        // WHY after the word: the text before it is unchanged, so only the outside-edit rule can refuse it.
+        f.edit->text += QStringLiteral("there"); f.edit->cursor = f.edit->text.size();
+        QGuiApplication::inputMethod()->update(Qt::ImQueryAll); f.method->update();
+        QTest::qWait(400);
+        f.tapAt(7 + 1);
+        QVERIFY(f.bar().isEmpty());
     }
     void sentenceAwareRankingUsesTheWordsBeforeTheTappedWord() {
         // WHY: with an n-gram pack the worker reorders the dictionary's neighbours by the words before the tapped word.

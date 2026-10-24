@@ -120,12 +120,46 @@ private slots:
         QCOMPARE(m.candidatesFor("EDITED " + before.mid(7), "go"), (QStringList{"go", "so"})); // far-away edit tolerated
         QVERIFY(m.candidatesFor(before + "x", "go").isEmpty());
     }
+    void ownWordsAreFoundByComparingNotReading() {
+        // Tap-to-swap in stock Plasma fields offers only the keyboard's own words (card #187).
+        RecentSwipes m;
+        m.remember("I can ", "see", {"see", "sea"}, {"i", "can"});
+        m.remember("I can see ", "it", {}, {"i", "can", "see"});   // typed key by key: no swipe guesses
+        const QString text = "I can see it now";
+        for (int cursor : {6, 7, 9}) {
+            const auto o = m.ownedAt(text, cursor);
+            QVERIFY2(o.has_value(), qPrintable(QString::number(cursor)));
+            QCOMPARE(o->span, (WordSpan{6, 3, "see"}));
+            QCOMPARE(o->candidates, (QStringList{"see", "sea"}));
+            QCOMPARE(o->context, (QStringList{"i", "can"}));
+        }
+        QCOMPARE(m.ownedAt(text, 11)->span, (WordSpan{10, 2, "it"}));
+        QVERIFY(m.ownedAt(text, 11)->candidates.isEmpty());
+        QVERIFY(!m.ownedAt(text, 14).has_value());              // "now" was not typed by the keyboard
+        QVERIFY(!m.ownedAt(text, 2).has_value());               // nor "can"
+        QVERIFY(!m.ownedAt("I can seed it", 8).has_value());    // never part of a longer word
+        QVERIFY(!m.ownedAt("We can see it", 9).has_value());    // same word, different text before it
+        QVERIFY(!m.ownedAt(text, -1).has_value());
+        QVERIFY(!m.ownedAt(text, 99).has_value());
+    }
+    void anOutsideEditIsToldApartFromOwnTyping() {
+        CursorMoveTracker t;
+        t.observe("hello", 5, 0);
+        QVERIFY(!t.outsideEdit());
+        t.ownEdit(100);
+        t.observe("hello ", 6, 120);                            // our own key's echo
+        QVERIFY(!t.outsideEdit());
+        t.observe("hello there", 11, 2000);                     // nobody on this keyboard typed that
+        QVERIFY(t.outsideEdit());
+        t.observe("hello there", 3, 2100);                      // a tap: text unchanged
+        QVERIFY(!t.outsideEdit());
+    }
     void memoryIsBounded() {
         RecentSwipes m;
-        for (int i = 0; i < 20; ++i) m.remember(QString("t%1 ").arg(i), "w", {"w", "x"});
+        for (int i = 0; i < 40; ++i) m.remember(QString("t%1 ").arg(i), "w", {"w", "x"});
         QCOMPARE(m.size(), RecentSwipes::kMax);
         QVERIFY(m.candidatesFor("t0 ", "w").isEmpty());
-        QVERIFY(!m.candidatesFor("t19 ", "w").isEmpty());
+        QVERIFY(!m.candidatesFor("t39 ", "w").isEmpty());
         m.clear();
         QCOMPARE(m.size(), 0);
     }

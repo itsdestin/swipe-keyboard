@@ -251,6 +251,14 @@ bool SwipeInputMethod::keyEvent(Qt::Key key, const QString &text, Qt::KeyboardMo
         // WHY backspace conservatively drops sentence history, but an exact-echo
         // confirmed owned unfinished token remains valid input when Space finalizes it.
         if(!unfinished.isEmpty() && predictionPolicy().source==PredictionPolicySource::OwnedHistory) {
+            // WHY remembered here: in stock Plasma fields tap-to-swap may only offer words this keyboard typed, and
+            // this word's letters were all confirmed as its own typing (the typed-word session).
+            if (tapSwapAllowed(previous) && previous.cursor>=unfinished.size()
+                && previous.text.left(previous.cursor).endsWith(unfinished)) {
+                auto context=m_ownedHistory.context();
+                if (!context.isEmpty() && context.last()==unfinished.toLower()) context.removeLast();
+                m_recentSwipes.remember(previous.text.left(previous.cursor-unfinished.size()), unfinished, {}, context);
+            }
             m_ownedHistory.word(previous,previous,predictionPolicy(),m_profiles.snapshot().epoch,unfinished,true);
             m_ownedHistory.observe(previous,predictionPolicy(),m_profiles.snapshot().epoch);
         }
@@ -439,13 +447,18 @@ void SwipeInputMethod::selectionListItemSelected(Type type, int index)
         QPointer<SwipeInputMethod> self(this);
         const bool safe=safePredictionContext();
         if (!self || !ic || ic!=inputContext()) return;
-        if (!safe || predictionPolicy().source!=PredictionPolicySource::RawBridge) { reset(); return; }
         const auto editor=predictionEditor();
+        if (!safe || !tapSwapAllowed(editor)) { reset(); return; }
         const auto pressed=m_swapPress; m_swapPress.clear();
         const QString oldWord=m_swap.word(); const int oldStart=m_swap.start();
+        const auto owned=m_recentSwipes.ownedAt(editor.text, editor.cursor);
         const auto plan=m_swap.take(index,pressed,editor.text,editor.cursor);
         if (plan.isEmpty()) { qCInfo(lcSwipe)<<"swap tap refused: press"<<!pressed.isEmpty()<<"index"<<index; clearWordSwap(); refreshGuessBar(); return; }
         m_recentSwipes.forget(editor.text.left(oldStart), oldWord);
+        // WHY remembered again: the swapped-in word is the keyboard's own too, so tapping it again still works
+        // (in stock Plasma fields that is the only way it can be offered again).
+        if (owned && owned->span.start==oldStart)
+            m_recentSwipes.remember(editor.text.left(oldStart), plan.text, owned->candidates, owned->context);
         QPointer<QObject> item(ic->inputItem()); const int generation=m_generation;
         m_predictionWorker.invalidate();
         m_outcome.abandon(); m_lastRecordedSwipeTs=0; clearAfterSwipe();
@@ -813,11 +826,11 @@ void SwipeInputMethod::finishSwipe(const QVariantList &points, const QVariantLis
         m_afterSwipeCursorBefore = cursorBefore;
         m_afterSwipeCursorAfter = cursorBefore + static_cast<int>(plan.text.size());
         // Remember this swipe's guesses so tapping the word later can offer them (memory only, see wordswap.h).
-        // WHY only where tap-to-swap may read text: the same field gate as prediction, raw-policy bridge only.
-        if (predictionPolicy().source==PredictionPolicySource::RawBridge
-            && NextWordSession::allowed(predictionEditor(), predictionPolicy()))
+        // WHY the same field gate as prediction: readable (bridge) fields, and stock Plasma fields where the word is
+        // remembered as the keyboard's own (tap-to-swap then only ever offers words it typed itself).
+        if (tapSwapAllowed(predictionEditor()))
             m_recentSwipes.remember(before + (plan.text.startsWith(QLatin1Char(' ')) ? QStringLiteral(" ") : QString()),
-                                    plan.text.trimmed(), candidates);
+                                    plan.text.trimmed(), candidates, contextWords);
     }
     const int barGeneration = m_generation;
     QPointer<QObject> barItem(ic->inputItem());
@@ -1169,14 +1182,17 @@ void SwipeInputMethod::clearWordSwap()
 
 void SwipeInputMethod::observeWordSwap(const EditorSnapshot &editor)
 {
-    // Tap-to-swap (card #187). WHY raw-policy bridge only: under owned-history the keyboard may inspect only
-    // words it committed itself and cannot attest the rest of the field, so the feature stays off there.
+    // Tap-to-swap (card #187). Under owned-history (stock Plasma) the keyboard may inspect only words it committed
+    // itself and cannot attest the rest of the field, so there it offers alternatives for its own words only.
     const auto policy = predictionPolicy();
-    if (policy.source != PredictionPolicySource::RawBridge || !NextWordSession::allowed(editor, policy) || !isReady()) {
+    if (!tapSwapAllowed(editor) || !isReady()) {
         m_moves.clear(); clearWordSwap(); return;
     }
     QPointer<SwipeInputMethod> self(this);
     const bool tapped = m_moves.observe(editor.text, editor.cursor);
+    const bool ownedOnly = policy.source == PredictionPolicySource::OwnedHistory;
+    // WHY: in stock Plasma fields the remembered words are trusted only while nobody else edits the field.
+    if (ownedOnly && m_moves.outsideEdit()) m_recentSwipes.clear();
     if (m_swap.active() && !m_swap.stillValid(editor.text, editor.cursor)) {
         clearWordSwap();
         if (!self) return;
@@ -1189,7 +1205,11 @@ void SwipeInputMethod::observeWordSwap(const EditorSnapshot &editor)
         if (!self) return;
     }
     if (m_session.isActive() || !m_typedWord.token().isEmpty()) return;
-    const auto span = WordSwap::wordAt(editor.text, editor.cursor);
+    // WHY two ways to find the word: a readable field may offer any word; a stock Plasma field only the keyboard's
+    // own words, found by comparing what it remembers with the text (no word is read out of the field).
+    const auto owned = m_recentSwipes.ownedAt(editor.text, editor.cursor);
+    const auto span = ownedOnly ? (owned ? std::optional<WordSpan>(owned->span) : std::nullopt)
+                                : WordSwap::wordAt(editor.text, editor.cursor);
     if (!span) { clearWordSwap(); return; }
     if (m_swap.active() && m_swap.start() == span->start && m_swap.word() == span->word) return;
     const auto snapshot = m_profiles.snapshot();
@@ -1209,7 +1229,8 @@ void SwipeInputMethod::observeWordSwap(const EditorSnapshot &editor)
     // WHY boost 0: only drops forgotten words and taught words that are no longer wanted; the order stays as is.
     neighbours = personalize(neighbours, QString(), QString(), false, 12, 0.0);
     neighbours = swipekb::rankRegionalCandidates(neighbours, snapshot.requestedLocale, 12);
-    const auto swiped = m_recentSwipes.candidatesFor(editor.text.left(span->start), span->word);
+    const auto swiped = owned && owned->span == *span ? owned->candidates
+                                                      : m_recentSwipes.candidatesFor(editor.text.left(span->start), span->word);
     if (!m_swap.begin(editor.text, editor.cursor, swiped, neighbours)) { clearWordSwap(); return; }
     m_swapPress.clear();
     ++m_swapStamp.requestId;
@@ -1220,11 +1241,25 @@ void SwipeInputMethod::observeWordSwap(const EditorSnapshot &editor)
     if (!predictionCapable() || !snapshot.assets.value(QStringLiteral("contextModel")).compatibility.endsWith(QStringLiteral(":context-ngram-v1"))) return;
     const auto model = snapshot.assets.value(QStringLiteral("contextModel"));
     const auto vocab = snapshot.assets.value(QStringLiteral("contextVocab"));
-    PredictionJob job{m_swapStamp, model.path, vocab.path, swipekb::textContextWords(editor.text.left(span->start).right(4096)),
+    // WHY the remembered words in stock Plasma fields: there the sentence is known only from the keyboard's own words.
+    const QStringList sentence = ownedOnly ? (owned ? owned->context : QStringList())
+                                           : swipekb::textContextWords(editor.text.left(span->start).right(4096));
+    PredictionJob job{m_swapStamp, model.path, vocab.path, sentence,
         model.sha256 + vocab.sha256, span->word.left(1).toLower()};
     job.alternatives = true; job.topK = 64;
     applyNeuralNextWord(job);
     m_predictionWorker.submit(job);
+}
+
+bool SwipeInputMethod::tapSwapAllowed(const EditorSnapshot &editor) const
+{
+    // Tap-to-swap (card #187) follows the prediction field rules: a readable bridge field, or a stock Plasma field
+    // whose policy comes from this very field (there only the keyboard's own words are offered).
+    const auto policy = predictionPolicy();
+    if (!NextWordSession::allowed(editor, policy)) return false;
+    if (policy.source == PredictionPolicySource::RawBridge) return true;
+    auto *ic = inputContext();
+    return policy.source == PredictionPolicySource::OwnedHistory && ic && ic->inputItem() && m_policySource == ic->inputItem();
 }
 
 void SwipeInputMethod::requestContextCompletion(const EditorSnapshot &editor)

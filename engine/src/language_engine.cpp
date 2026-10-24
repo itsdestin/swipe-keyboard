@@ -73,6 +73,18 @@ std::u32string keyOf(const QString &w)
     return out;
 }
 
+// One letter three or more times in a row ("youuuuu", "waaaay"): a stretched spelling, never a likely alternative.
+bool stretched(const std::string &w)
+{
+    int run = 1;
+    const auto u = QString::fromStdString(w).toLower().toUcs4();
+    for (qsizetype i = 1; i < u.size(); ++i) {
+        run = u[i] == u[i - 1] ? run + 1 : 1;
+        if (run >= 3) return true;
+    }
+    return false;
+}
+
 std::string utf8(const std::u32string &s) { return QString::fromUcs4(s.data(), qsizetype(s.size())).toStdString(); }
 
 } // namespace
@@ -85,6 +97,7 @@ struct LanguageEngine::Impl {
         int lift = 0;            // texting-word frequency (only raises)
         int learned = -1;        // learned frequency, overrides; -1 = none
         bool offensive = false;
+        bool capitalised = false; // the dictionary's most frequent form starts with a capital (names, places)
         int freq() const { return learned >= 0 ? learned : std::max(base, lift); }
     };
 
@@ -109,6 +122,7 @@ struct LanguageEngine::Impl {
     std::vector<SwipeKey> keys;     // geometry currently set on the engine
     std::string bestShape;
 
+    AlternativeParams alt;
     std::shared_ptr<const Capitals> capitals;
     QString displayForm(const QString &w) const
     {
@@ -161,7 +175,7 @@ struct LanguageEngine::Impl {
         if (!notAWord) {
             const int f = std::clamp(freq, 0, 255);
             // WHY the most frequent capitalisation is shown ("The" vs "the" collapse to one word).
-            if (f > e.base) { e.base = f; e.text = displayForm(word).toStdString(); }
+            if (f > e.base) { e.base = f; e.text = displayForm(word).toStdString(); e.capitalised = word.front().isUpper(); }
         }
         e.offensive |= offensive;
     }
@@ -370,11 +384,38 @@ std::vector<Candidate> LanguageEngine::recognize(const std::vector<TracePoint> &
         }
         std::vector<Candidate> out;
         float bestCtc = -1e30f;
-        for (const auto &c : d_->engine.decode(pts, H / W, topK)) {
+        const auto found = d_->engine.decode(pts, H / W, std::max(topK, d_->alt.pool));
+        for (const auto &c : found) {
+            const std::string &w = d_->engine.lexicon().text(c.word);
+            if (!w.empty() && c.ctc > bestCtc) { bestCtc = c.ctc; d_->bestShape = w; }
+        }
+        // WHY the first guess as found: it is the best finger-path-plus-sentence match. The places after it are
+        // re-chosen (see AlternativeParams): a word only belongs there if the person could plausibly have meant it.
+        const AlternativeParams &p = d_->alt;
+        std::vector<std::pair<float, Candidate>> others;
+        float firstScore = 0;
+        for (const auto &c : found) {
             const std::string &w = d_->engine.lexicon().text(c.word);
             if (w.empty()) continue;
-            out.push_back({w, c.score});
-            if (c.ctc > bestCtc) { bestCtc = c.ctc; d_->bestShape = w; }
+            if (out.empty()) { out.push_back({w, c.score}); firstScore = c.score; continue; }
+            if (c.score < firstScore - p.margin) continue;
+            const auto it = d_->byIdentity.find(QString::fromStdString(w).toLower().toStdString());
+            const Impl::Entry *e = it == d_->byIdentity.end() ? nullptr : &d_->entries[it->second];
+            // WHY learned and texting words are never filtered: the person (or the texting list) vouches for them.
+            const bool vouched = e && (e->learned >= 0 || e->lift > 0);
+            const int f = e ? e->freq() : 0;
+            if (!vouched) {
+                if (f < p.minFrequency) continue;
+                if (e && e->capitalised && !d_->keepCase && f < p.nameMinFrequency) continue;
+                if (p.dropStretched && stretched(w)) continue;
+            }
+            const float prior = d_->prior ? (*d_->prior)(c.word) : d_->engine.params.freqWeight * float(f);
+            others.push_back({c.score + p.sentenceWeight * prior, {w, c.score}});
+        }
+        std::stable_sort(others.begin(), others.end(), [](const auto &a, const auto &b) { return a.first > b.first; });
+        for (const auto &[rank, c] : others) {
+            if (int(out.size()) >= topK) break;
+            out.push_back(c);
         }
         return out;
     } catch (...) {
@@ -479,6 +520,15 @@ void LanguageEngine::setLearnedWords(const std::vector<std::pair<std::string, in
 void LanguageEngine::liftWords(const std::vector<std::pair<std::string, int>> &words)
 {
     if (d_->ok) d_->addRuntime(words, false);
+}
+
+void LanguageEngine::setAlternativeParams(const AlternativeParams &params) { d_->alt = params; }
+
+int LanguageEngine::frequency(const std::string &word) const
+{
+    if (!d_->ok) return 0;
+    const auto it = d_->byIdentity.find(nfc(word).toLower().toStdString());
+    return it == d_->byIdentity.end() ? 0 : d_->entries[it->second].freq();
 }
 
 void LanguageEngine::setCapitals(std::shared_ptr<const Capitals> capitals)

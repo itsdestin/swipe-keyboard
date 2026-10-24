@@ -83,10 +83,14 @@ bool CursorMoveTracker::observe(const QString &text, int cursor, qint64 now)
     const size_t h = qHash(text);
     const qsizetype n = text.size();
     const bool sameText = m_have && h == m_hash && n == m_size;
+    // WHY expire first: an own edit that settled long ago must not swallow a later, unrelated change of the text
+    // (that change is someone else's edit, see outsideEdit()).
+    if (m_pending && (m_changed ? now - m_since >= kSettleMs : now - m_since >= kGiveUpMs)) m_pending = false;
     if (m_pending) {
         if (m_have && !sameText) { m_changed = true; m_since = now; }
         if (m_changed ? now - m_since >= kSettleMs : now - m_since >= kGiveUpMs) m_pending = false;
     }
+    m_outside = m_have && !sameText && !m_pending;
     const bool moved = m_have && sameText && cursor != m_cursor && !m_pending;
     m_have = true; m_hash = h; m_size = n; m_cursor = cursor;
     return moved;
@@ -94,7 +98,7 @@ bool CursorMoveTracker::observe(const QString &text, int cursor, qint64 now)
 
 void CursorMoveTracker::clear()
 {
-    m_have = m_pending = m_changed = false;
+    m_have = m_pending = m_changed = m_outside = false;
     m_hash = 0; m_size = 0; m_cursor = -1;
 }
 
@@ -104,11 +108,12 @@ bool RecentSwipes::anchored(const Item &it, const QString &before)
     return before.right(it.tail.size()) == it.tail && (!it.whole || before.size() == it.tail.size());
 }
 
-void RecentSwipes::remember(const QString &textBeforeWord, const QString &word, const QStringList &candidates)
+void RecentSwipes::remember(const QString &textBeforeWord, const QString &word, const QStringList &candidates,
+                            const QStringList &context)
 {
-    if (word.isEmpty() || candidates.isEmpty()) return;
+    if (word.isEmpty()) return;
     forget(textBeforeWord, word);
-    m_items.push_back({textBeforeWord.right(kTail), textBeforeWord.size() <= kTail, word, candidates});
+    m_items.push_back({textBeforeWord.right(kTail), textBeforeWord.size() <= kTail, word, candidates, context});
     while (int(m_items.size()) > kMax) m_items.pop_front();
 }
 
@@ -117,6 +122,24 @@ QStringList RecentSwipes::candidatesFor(const QString &textBeforeWord, const QSt
     for (auto it = m_items.rbegin(); it != m_items.rend(); ++it)
         if (it->word == word && anchored(*it, textBeforeWord)) return it->candidates;
     return {};
+}
+
+std::optional<RecentSwipes::Owned> RecentSwipes::ownedAt(const QString &text, int cursor) const
+{
+    if (cursor < 0 || cursor > text.size()) return std::nullopt;
+    const auto letter = [](QChar c) { return c.isLetterOrNumber() || c.isMark(); };
+    for (auto it = m_items.rbegin(); it != m_items.rend(); ++it) {
+        const int n = int(it->word.size());
+        for (int start = std::max(0, cursor - n); start <= cursor && start + n <= text.size(); ++start) {
+            // WHY whole-word comparisons only: "see" must not match inside "seed", nor "can" inside "scan".
+            if (QStringView(text).mid(start, n) != it->word) continue;
+            if (start > 0 && letter(text.at(start - 1))) continue;
+            if (start + n < text.size() && letter(text.at(start + n))) continue;
+            if (!anchored(*it, text.left(start))) continue;
+            return Owned{{start, n, it->word}, it->candidates, it->context};
+        }
+    }
+    return std::nullopt;
 }
 
 void RecentSwipes::forget(const QString &textBeforeWord, const QString &word)

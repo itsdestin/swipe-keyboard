@@ -500,9 +500,11 @@ void SwipeController::finishSwipe(const QVariantList &points, const QVariantList
         m_afterSwipe = true;
         m_afterSwipeCursorBefore = cursorBefore;
         m_afterSwipeCursorAfter = cursorBefore + int(plan.text.size());
-        // Remember this swipe's guesses so tapping the word later offers them (memory only; readable fields only).
-        if (pol.source == PredictionPolicySource::RawBridge && NextWordSession::allowed(editorSnapshot(), policy())) {
-            m_recentSwipes.remember(before + (plan.text.startsWith(QLatin1Char(' ')) ? QStringLiteral(" ") : QString()), plan.text.trimmed(), candidates);
+        // Remember this swipe's guesses so tapping the word later offers them (memory only). WHY also in owned-history
+        // fields: there tap-to-swap offers only the keyboard's own words, and this is one.
+        if (tapSwapAllowed(editorSnapshot())) {
+            m_recentSwipes.remember(before + (plan.text.startsWith(QLatin1Char(' ')) ? QStringLiteral(" ") : QString()), plan.text.trimmed(), candidates,
+                                    contextWords);
         }
     }
     refreshBar();
@@ -569,6 +571,15 @@ void SwipeController::keyPressed(int key, const QString &rawText)
             // WHY at keyClicked: a press on Space may turn into a cursor slide, which types no space.
             m_press.finishedWord = unfinished;
             if (pol.source == PredictionPolicySource::OwnedHistory) {
+                // WHY remembered: in owned-history fields tap-to-swap may offer only words this keyboard typed, and
+                // this word's letters were all confirmed as its own typing (the typed-word session).
+                if (tapSwapAllowed(previous) && previous.cursor >= unfinished.size() && previous.text.left(previous.cursor).endsWith(unfinished)) {
+                    auto context = m_ownedHistory.context();
+                    if (!context.isEmpty() && context.last() == unfinished.toLower()) {
+                        context.removeLast();
+                    }
+                    m_recentSwipes.remember(previous.text.left(previous.cursor - unfinished.size()), unfinished, {}, context);
+                }
                 m_ownedHistory.word(previous, previous, pol, m_epoch, unfinished, true);
                 m_ownedHistory.observe(previous, pol, m_epoch);
             }
@@ -818,14 +829,20 @@ void SwipeController::observePredictionEcho()
 
 void SwipeController::observeWordSwap(const EditorSnapshot &editor)
 {
-    // Tap-to-swap. WHY readable fields only: under the stock rule the keyboard may inspect only its own words.
+    // Tap-to-swap. Under the owned-history rule the keyboard may inspect only its own words, so there it offers
+    // alternatives for words it typed itself and nothing else.
     const auto pol = policy();
-    if (pol.source != PredictionPolicySource::RawBridge || !NextWordSession::allowed(editor, pol) || !ready()) {
+    if (!tapSwapAllowed(editor) || !ready()) {
         m_moves.clear();
         clearWordSwap();
         return;
     }
     const bool tapped = m_moves.observe(editor.text, editor.cursor);
+    const bool ownedOnly = pol.source == PredictionPolicySource::OwnedHistory;
+    // WHY: in owned-history fields the remembered words are trusted only while nobody else edits the field.
+    if (ownedOnly && m_moves.outsideEdit()) {
+        m_recentSwipes.clear();
+    }
     if (m_swap.active() && !m_swap.stillValid(editor.text, editor.cursor)) {
         clearWordSwap();
     }
@@ -838,7 +855,10 @@ void SwipeController::observeWordSwap(const EditorSnapshot &editor)
     if (m_session.isActive() || !m_typedWord.token().isEmpty()) {
         return;
     }
-    const auto span = WordSwap::wordAt(editor.text, editor.cursor);
+    // WHY two ways to find the word: a readable field may offer any word; an owned-history field only the keyboard's
+    // own words, found by comparing what it remembers with the text (no word is read out of the field).
+    const auto owned = m_recentSwipes.ownedAt(editor.text, editor.cursor);
+    const auto span = ownedOnly ? (owned ? std::optional<WordSpan>(owned->span) : std::nullopt) : WordSwap::wordAt(editor.text, editor.cursor);
     if (!span) {
         clearWordSwap();
         return;
@@ -865,7 +885,7 @@ void SwipeController::observeWordSwap(const EditorSnapshot &editor)
     }
     neighbours = personalize(neighbours, QString(), QString(), false, 12, 0.0);
     neighbours = swipekb::rankRegionalCandidates(neighbours, m_profile.requestedLocale, 12);
-    const auto swiped = m_recentSwipes.candidatesFor(editor.text.left(span->start), span->word);
+    const auto swiped = owned && owned->span == *span ? owned->candidates : m_recentSwipes.candidatesFor(editor.text.left(span->start), span->word);
     if (!m_swap.begin(editor.text, editor.cursor, swiped, neighbours)) {
         clearWordSwap();
         return;
@@ -877,10 +897,21 @@ void SwipeController::observeWordSwap(const EditorSnapshot &editor)
     if (!predictionCapable()) {
         return;
     }
-    auto j = job(m_swapStamp, swipekb::textContextWords(editor.text.left(span->start).right(4096)), span->word.left(1).toLower());
+    // WHY the remembered words in owned-history fields: there the sentence is known only from the keyboard's own words.
+    const QStringList sentence = ownedOnly ? (owned ? owned->context : QStringList()) : swipekb::textContextWords(editor.text.left(span->start).right(4096));
+    auto j = job(m_swapStamp, sentence, span->word.left(1).toLower());
     j.alternatives = true;
     j.topK = 64;
     m_worker.submit(j);
+}
+
+bool SwipeController::tapSwapAllowed(const EditorSnapshot &editor) const
+{
+    // Tap-to-swap follows the prediction field rules: readable fields offer any word, owned-history fields only the
+    // keyboard's own words (observeWordSwap()).
+    const auto pol = policy();
+    return NextWordSession::allowed(editor, pol)
+        && (pol.source == PredictionPolicySource::RawBridge || pol.source == PredictionPolicySource::OwnedHistory);
 }
 
 void SwipeController::requestContextCompletion(const EditorSnapshot &editor)
@@ -1117,15 +1148,16 @@ void SwipeController::selectCandidate(int index)
     }
     if (m_swap.active() && !m_session.isActive()) {
         // Tap-to-swap: replaces exactly the tapped word, adds no space, moves nothing else.
-        if (!safePredictionContext() || pol.source != PredictionPolicySource::RawBridge) {
+        const auto editor = editorSnapshot();
+        if (!safePredictionContext() || !tapSwapAllowed(editor)) {
             reset();
             return;
         }
-        const auto editor = editorSnapshot();
         const auto pressed = m_swapPress;
         m_swapPress.clear();
         const QString oldWord = m_swap.word();
         const int oldStart = m_swap.start();
+        const auto owned = m_recentSwipes.ownedAt(editor.text, editor.cursor);
         const auto plan = m_swap.take(index, pressed, editor.text, editor.cursor);
         if (plan.isEmpty()) {
             clearWordSwap();
@@ -1133,6 +1165,10 @@ void SwipeController::selectCandidate(int index)
             return;
         }
         m_recentSwipes.forget(editor.text.left(oldStart), oldWord);
+        // WHY remembered again: the swapped-in word is the keyboard's own too, so tapping it again still works.
+        if (owned && owned->span.start == oldStart) {
+            m_recentSwipes.remember(editor.text.left(oldStart), plan.text, owned->candidates, owned->context);
+        }
         m_worker.invalidate();
         clearAfterSwipe();
         apply(plan);

@@ -134,6 +134,7 @@ private:
     void hintsChanged();
     void observePredictionEcho();
     void observeWordSwap(const EditorSnapshot &editor);
+    bool tapSwapAllowed(const EditorSnapshot &editor) const;
     void requestContextCompletion(const EditorSnapshot &editor);
     void refreshTypedSuggestions(const EditorSnapshot &editor);
     void invalidatePredictions();

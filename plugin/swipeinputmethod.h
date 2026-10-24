@@ -136,6 +136,7 @@ private:
     QStringList barCandidates() const;
     // Tap-to-swap (card #187): tapping an existing word shows alternatives; nothing swaps by itself.
     void observeWordSwap(const EditorSnapshot &editor);
+    bool tapSwapAllowed(const EditorSnapshot &editor) const;
     void clearWordSwap();
     WordSwapSession m_swap;
     CursorMoveTracker m_moves;

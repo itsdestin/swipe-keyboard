@@ -288,10 +288,37 @@ private Q_SLOTS:
 
     void tapToSwapNeedsAnAppThatAllowsCorrection()
     {
-        // WHY: without the app's completion/correction hints the keyboard may not read the field (stock rule).
+        // WHY: without the app's completion/correction hints the keyboard may not read the field (stock rule), so
+        // text it did not type itself never gets alternatives.
         m_editor->setHints(Qt::ImhNoPredictiveText);
         m_editor->setField(QStringLiteral("the cat sat"));
         QTest::qWait(300);
+        m_editor->moveCursor(5);
+        QTest::qWait(300);
+        QVERIFY(m_controller->candidates().isEmpty());
+    }
+
+    void tapToSwapOffersTheKeyboardsOwnWordsInUnreadableFields()
+    {
+        // WHY (Destin): tapping back into a word the keyboard itself typed must offer alternatives even where the
+        // field may not be read; an outside edit ends that.
+        m_editor->setHints(Qt::ImhNoPredictiveText);
+        m_editor->setField(QStringLiteral("we "));
+        QTest::qWait(300);
+        swipe(QStringLiteral("hello"));
+        const QString text = m_editor->m_text;
+        QVERIFY2(text.startsWith(QStringLiteral("we ")) && text.size() > 5, qPrintable(text));
+        QTest::qWait(400); // our own edit settles
+        m_editor->moveCursor(5); // inside the swiped word
+        QVERIFY2(waitForBar([](const QStringList &bar) {
+                     return !bar.isEmpty();
+                 }),
+                 "no alternatives for the keyboard's own word");
+        m_editor->moveCursor(1); // "we" was already there: never offered
+        QTest::qWait(300);
+        QVERIFY(m_controller->candidates().isEmpty());
+        m_editor->setField(text + QStringLiteral("there")); // someone else types after it
+        QTest::qWait(400);
         m_editor->moveCursor(5);
         QTest::qWait(300);
         QVERIFY(m_controller->candidates().isEmpty());

@@ -54,10 +54,12 @@ public:
     // separate notifications in either order, so the cursor can "move" right after the text changed. The edit
     // counts as settled 250 ms after its text arrived (or 1 s after it was made if the text never did).
     bool observe(const QString &text, int cursor, qint64 now = nowMs());
+    // True when the last observe() saw the text change with no own edit settling: someone else edited the field.
+    bool outsideEdit() const { return m_outside; }
     void clear();
     static constexpr qint64 kSettleMs = 250, kGiveUpMs = 1000;
 private:
-    bool m_have = false, m_pending = false, m_changed = false;
+    bool m_have = false, m_pending = false, m_changed = false, m_outside = false;
     size_t m_hash = 0;
     qsizetype m_size = 0;
     int m_cursor = -1;
@@ -68,16 +70,24 @@ private:
 // Bounded; never written to disk.
 class RecentSwipes {
 public:
-    static constexpr int kMax = 8;
-    // `textBeforeWord` = everything before the word when it was typed (incl. its auto-space).
-    void remember(const QString &textBeforeWord, const QString &word, const QStringList &candidates);
+    // WHY 24: enough for a sentence or two of the person's own words, still bounded and memory-only.
+    static constexpr int kMax = 24;
+    // `textBeforeWord` = everything before the word when it was typed (incl. its auto-space). `candidates` may be
+    // empty (a word typed key by key); `context` = the sentence's earlier words as the keyboard knew them then.
+    void remember(const QString &textBeforeWord, const QString &word, const QStringList &candidates,
+                  const QStringList &context = {});
+    // A word this keyboard typed that the cursor is inside of or next to. WHY a separate lookup: in fields where
+    // the keyboard may inspect only its own words, it never reads a word out of the text; it only checks whether
+    // one of its own remembered words still sits, unchanged, at the cursor.
+    struct Owned { WordSpan span; QStringList candidates, context; };
+    std::optional<Owned> ownedAt(const QString &text, int cursor) const;
     // Candidates of the swipe that typed `word` at this spot, or empty when the text around it changed.
     QStringList candidatesFor(const QString &textBeforeWord, const QString &word) const;
     void forget(const QString &textBeforeWord, const QString &word);
     void clear() { m_items.clear(); }
     int size() const { return int(m_items.size()); }
 private:
-    struct Item { QString tail; bool whole; QString word; QStringList candidates; };
+    struct Item { QString tail; bool whole; QString word; QStringList candidates, context; };
     static constexpr int kTail = 32;
     static bool anchored(const Item &, const QString &before);
     std::deque<Item> m_items;
