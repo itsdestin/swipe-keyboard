@@ -20,7 +20,7 @@ pinned source, and verified models/dictionary/licenses, **not** mutable host bui
 objects, virtualenvs or symlinks to them. The private D1 report identifies that
 archive and its per-file hash inventory. It is not checked into Git. Preserve
 that exact archive to reproduce this candidate; a source edit requires a new
-archive digest. All external archive/wheel inputs have SHA-256 pins.
+archive digest. All external archive inputs have SHA-256 pins.
 
 With the archive, manifest, `build.py`, and `runtime-lock.json` together inside
 `~/platform-168-flatpak/bundle` in the builder:
@@ -31,11 +31,8 @@ python3 bundle/build.py build --repo repo
 flatpak build-bundle repo org.itsdestin.SwipeKeyboard.flatpak org.itsdestin.SwipeKeyboard master --runtime-repo=https://flathub.org/repo/flathub.flatpakrepo
 ```
 
-The build uses four jobs (one flat bound on the 4-CPU hosted runner), `/app`, Python 3.13-specific hash-locked dependencies,
-and rebuilds ExecuTorch/engine/plugin/helpers against SDK Qt 6.10.3/glibc 2.42.
-The 3.14 native build path remains unchanged by default. Only hash-verified
-`torchgen` Python/templates are extracted from the existing torch wheel; torch
-and CPython 3.14 native extensions are never installed into the SDK environment.
+The build uses four jobs (one flat bound on the 4-CPU hosted runner) and `/app`, and rebuilds the
+engine/plugin/helpers against SDK Qt 6.10.3/glibc 2.42. No Python packages are installed into the SDK.
 The Qt Virtual Keyboard source is **6.10.3**, matching the observed SDK Qt patch
 version, rather than blindly reusing the upstream precedent's 6.10.2 archive.
 Backend/libplasma are stable 6.7.5 peeled commits, not branch/nightly references.

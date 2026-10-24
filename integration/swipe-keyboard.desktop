@@ -1,5 +1,5 @@
 [Desktop Entry]
-Name=Swipe Keyboard (Powered by FUTO Swipe)
+Name=Swipe Keyboard
 Comment=English swipe typing for Plasma Keyboard
 Exec=swipe-keyboard launch
 Type=Application

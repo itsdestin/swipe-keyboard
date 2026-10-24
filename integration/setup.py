@@ -22,10 +22,8 @@ REQUIRED_ASSETS = (
     'integration/swipekb-preflight', 'integration/swipekb-config',
     'qml/SwipeKeyboard/qmldir', 'qml/SwipeKeyboard/libswipekeyboardplugin.so',
     'qml/SwipeKeyboard/libswipekeyboard.so', 'qml/SwipeKeyboard/libswipekb_engine.so',
-    'models/honorable_sturgeon/model_fp32.pte', 'models/honorable_sturgeon/metadata.json',
-    'models/magic_macaw/model_fp32.pte', 'models/magic_macaw/metadata.json',
-    'models/hungry_jellyfish/context_lm.pte', 'models/hungry_jellyfish/metadata.json',
-    'models/hungry_jellyfish/vocab.txt', 'models/FUTO-MODEL-LICENSE.md',
+    # WHY only the dictionary among the data files: English swipes from it alone; the swipe model and the next-word
+    # files are optional (geometry-only swiping, no suggestions) and are verified by the plugin itself.
     'dict/en_swipe.combined',
 )
 UNSET = '__SWIPEKB_UNSET__'
@@ -468,7 +466,7 @@ def confirm_activation(controller, assume_yes=False, always_available=False):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Standalone swipe typing — Powered by FUTO Swipe')
+    parser = argparse.ArgumentParser(description='Standalone swipe typing')
     parser.add_argument('action', choices=('check', 'enable', 'disable', 'launch', 'learning'))
     parser.add_argument('learning_action', nargs='?', choices=('on', 'off', 'forget', 'status'),
                         help='with `learning`: turn learning from your typing on or off, erase it, or show its status')

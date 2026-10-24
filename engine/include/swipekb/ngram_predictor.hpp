@@ -1,8 +1,8 @@
 // Next-word suggestions from a language's n-gram pack (context.ngram + vocab.tsv): the Spanish, French and
 // German path of swipekb::Predictor.
 //
-// WHY its own file with no FUTO types: the offline scorer (tools/swipekb-nextword-eval) must rank words with
-// exactly the code the keyboard runs, and must build without FUTO's library (card #179 removes it).
+// WHY its own file: the offline scorer (tools/swipekb-nextword-eval) must rank words with exactly the code the
+// keyboard runs, from a handful of sources.
 #pragma once
 
 #include <string>

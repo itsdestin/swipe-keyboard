@@ -4,7 +4,7 @@
 // decoder needs only the key positions and the word list. Method (published ideas: SHARK2 location channel,
 // dynamic time warping): compare the finger path with each candidate word's path through its key centres by banded
 // DTW (touches inside a key's core cost nothing), add a "every letter was visited" term and a frequency prior.
-// Measured on real English swipes: ~82% first guess / ~90% top 3. Written without reference to FUTO code.
+// Measured on real English swipes: ~82% first guess / ~90% top 3. Written for this project from its design doc, without reference to other swipe engines' code.
 #pragma once
 
 #include <vector>

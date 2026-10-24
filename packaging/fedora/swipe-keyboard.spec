@@ -2,15 +2,16 @@ Name: swipe-keyboard
 Version: 0.4.0
 Release: 1%{?dist}
 Summary: English, Spanish, French and German swipe typing, completions and next-word suggestions for Plasma Keyboard
-# WHY SPDX lists CC-BY-2.0 (Generic), not the Tatoeba France port: retain its
-# jurisdiction-specific terms under a custom LicenseRef and install its notice.
-# WHY MIT: our swipe model is trained on FUTO's MIT-licensed swipe data (models: Destin Moss via youcoded.ai, 2026).
-# WHY ODC-By-1.0: the next-word files are also built from FineWeb web text (Open Data Commons Attribution).
-License: GPL-3.0-or-later AND Apache-2.0 AND ODC-By-1.0 AND LicenseRef-FUTO-Model-Weights-1.0 AND MIT AND LicenseRef-Tatoeba-CC-BY-2.0-FR
+# WHY these licences (KDE's licensing policy for the code; each data file keeps its own, see REUSE.toml): plugin and
+# tools GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL; engine library LGPL-2.1-only OR LGPL-3.0-only OR
+# LicenseRef-KDE-Accepted-LGPL; AOSP word list Apache-2.0; FineWeb text ODC-By-1.0; the swipe model MIT (trained on
+# MIT-licensed swipe data; models: Destin Moss via youcoded.ai, 2026); swear-word list CC-BY-4.0; texting words CC0-1.0.
+# SPDX lists CC-BY-2.0 (Generic), not the Tatoeba France port: its terms are a custom LicenseRef with its notice.
+License: (GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL) AND (LGPL-2.1-only OR LGPL-3.0-only OR LicenseRef-KDE-Accepted-LGPL) AND Apache-2.0 AND ODC-By-1.0 AND MIT AND CC-BY-4.0 AND CC0-1.0 AND LicenseRef-Tatoeba-CC-BY-2.0-FR
 URL: https://github.com/itsdestin/swipe-keyboard
 Source0: %{name}-%{version}.tar.gz
 ExclusiveArch: x86_64 aarch64
-BuildRequires: gcc-c++, binutils, cmake >= 3.29, ninja-build, make, git, curl, python3, python3-pip
+BuildRequires: gcc-c++, binutils, cmake >= 3.29, ninja-build, python3
 BuildRequires: qt6-qtbase-devel >= 6.8, qt6-qtdeclarative-devel, qt6-qtvirtualkeyboard-devel
 # Kirigami's QML module is required by the native accent-colour test.
 BuildRequires: kf6-kwindowsystem-devel, kf6-kconfig-devel, kf6-kirigami, gtest-devel
@@ -27,7 +28,7 @@ Requires: plasma-keyboard >= 1:6.7
 
 %description
 English (US/UK), Spanish, French and German swipe typing, current-word completions,
-and next-word suggestions for Plasma Keyboard, powered by FUTO Swipe. Spanish
+and next-word suggestions for Plasma Keyboard, with its own open swipe engine. Spanish
 Spain and Mexico share one next-word model; the next-word models (built from open web text
 and Tatoeba sentences) are compact, general baselines, not region-specific Spanish training or a Gboard
 parity claim. On stock Plasma, the next-word model uses confirmed words typed by
@@ -42,8 +43,7 @@ KWin settings. See the setup guide for tested KDE/Qt baselines and quality limit
 
 %build
 scripts/fetch-assets.sh
-scripts/build-futo.sh
-%cmake -G Ninja -DUSE_MARCH_NATIVE=OFF -DSWIPEKB_PACKAGE_VERSION=%{version}-%{release}
+%cmake -G Ninja -DSWIPEKB_PACKAGE_VERSION=%{version}-%{release}
 %cmake_build
 
 %check

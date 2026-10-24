@@ -42,7 +42,7 @@ def main():
     parser.add_argument('build_directory', type=Path)
     parser.add_argument('--repo', type=Path, required=True)
     parser.add_argument('--ci-manifest', type=Path, help='Explicit hosted CI entry; default lab guard is unchanged')
-    parser.add_argument('--ccache', action='store_true', help='Persist ExecuTorch compiler results (trusted CI only)')
+    parser.add_argument('--ccache', action='store_true', help='Persist compiler results (trusted CI only)')
     parser.add_argument('--dependencies-only', action='store_true', help='Stop before the keyboard module')
     args = parser.parse_args()
     if args.ci_manifest:

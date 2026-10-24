@@ -3,7 +3,8 @@
 // WHY this shape: the standard published design for gesture typing is a small neural encoder that gives, for each
 // moment of the swipe, the probability of each letter (trained with CTC, Graves et al. 2006), followed by a
 // lexicon search (swipe_beam.hpp). Keys are given as positions, not as a fixed alphabet, so one network serves
-// any layout. Written without reference to FUTO code; trained only on openly licensed swipes (scripts/swipe/).
+// any layout. Written for this project without reference to other swipe engines' code;
+// trained only on openly licensed swipes (scripts/swipe/).
 //
 // Model file ("SKNN" v1, little endian) is produced by scripts/swipe/swipelib.py:export_model; its layout is read
 // in swipe_net.cpp. Input building must match scripts/swipe/swipelib.py:trace_to_input exactly (tested).

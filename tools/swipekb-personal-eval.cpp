@@ -9,7 +9,7 @@
 // these sentences were never seen by the n-gram files (the "test tenth"). Without that the baseline would already
 // know the answers.
 // WHY the real code: the learning is swipekb::PersonalModel, the predictions are swipekb::NgramPredictor and the
-// re-ranking is PersonalModel::rerank(), exactly what the keyboard runs (no FUTO library involved).
+// re-ranking is PersonalModel::rerank(), exactly what the keyboard runs.
 // WHY the learned model stays frozen while testing: it is the harder, more honest reading (a keyboard that kept
 // learning would score higher).
 //

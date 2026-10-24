@@ -99,37 +99,6 @@
           "dest": "source-licenses/plasma-keyboard",
           "url": "https://invent.kde.org/plasma/plasma-keyboard/-/archive/e54f5a9d95de54c0147911de009dc12b2d711757/plasma-keyboard-e54f5a9d95de54c0147911de009dc12b2d711757.tar.gz",
           "sha256": "30c6770d68d7a2a3e0a34e843679a8c8b515142e05f49fb61049d76ad0375b4c"
-        },
-        {
-          "type": "file",
-          "dest": "wheelcache",
-          "url": "https://files.pythonhosted.org/packages/de/f0/c81e05b613866b76d2d1066490adf1a3dbc4ee9d9c839961c3fc8a6997af/pip-26.0.1-py3-none-any.whl",
-          "sha256": "bdb1b08f4274833d62c1aa29e20907365a2ceb950410df15fc9521bad440122b"
-        },
-        {
-          "type": "file",
-          "dest": "wheelcache",
-          "url": "https://files.pythonhosted.org/packages/a7/c2/7ecd2aec927262ff2898d371f44ccb15884b6172407326e9388df07f9642/cmake-4.2.3-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
-          "sha256": "8e91b381aaea3c47110583dccc52f4562333d1accdbb806939f953c16e74ec0a"
-        },
-        {
-          "type": "file",
-          "dest": "wheelcache",
-          "url": "https://files.pythonhosted.org/packages/74/27/e5b8f34d02d9995b80abcef563ea1f8b56d20134d8f4e5e81733b1feceb2/pyyaml-6.0.3-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
-          "sha256": "0f29edc409a6392443abf94b9cf89ce99889a1dd5376d94316ae5145dfedd5d6"
-        },
-        {
-          "type": "file",
-          "dest": "wheelcache",
-          "url": "https://files.pythonhosted.org/packages/18/67/36e9267722cc04a6b9f15c7f3441c2363321a3ea07da7ae0c0707beb2a9c/typing_extensions-4.15.0-py3-none-any.whl",
-          "sha256": "f0fa19c6845758ab08074a0cfa8b7aecb71c999ca73d62883bc25cc018c4e548"
-        },
-        {
-          "type": "file",
-          "dest": "wheelcache",
-          "dest-filename": "torch-2.10.0+cpu-cp314-cp314-manylinux_2_28_x86_64.whl",
-          "url": "https://download-r2.pytorch.org/whl/cpu/torch-2.10.0%2Bcpu-cp314-cp314-manylinux_2_28_x86_64.whl",
-          "sha256": "aada8afc068add586464b2a55adb7cc9091eec55caf5320447204741cb6a0604"
         }
       ]
     }

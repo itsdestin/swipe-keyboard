@@ -4,7 +4,7 @@
 // words are ever extended, so the search is cheap and can never output a non-word; a word prior (dictionary
 // frequency, or a sentence-context language model) is added when a word is finished, and a cheap optimistic
 // "best word below this prefix" bonus keeps likely words alive while the beam is pruned.
-// Written without reference to FUTO code.
+// Written for this project from its design doc, without reference to other swipe engines' code.
 #pragma once
 
 #include <cstdint>

@@ -3,7 +3,7 @@
 //
 // WHY one entry point: the keyboard plugin should not know which parts are present. Swiping must never break, so a
 // missing/damaged model, or a search that finds nothing, silently falls back to the geometry-only decoder.
-// Written without reference to FUTO code.
+// Written for this project from its design doc, without reference to other swipe engines' code.
 #pragma once
 
 #include <functional>

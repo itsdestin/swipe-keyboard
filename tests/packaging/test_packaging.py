@@ -37,7 +37,7 @@ class Packaging(unittest.TestCase):
                 if language=='en':
                     continue  # English has no manifest
                 model=f'{language}.ngram';vocab=f'{language}.vocab.tsv';credits=f'{language}-CONTRIBUTORS.txt'
-                manifest={'schema':2,'language':language,'contextFormat':'swk-ngram-v2',
+                manifest={'schema':3,'compatibility':'swipekb-open-v1','language':language,'contextFormat':'swk-ngram-v2',
                     'contextLicense':{'id':'ODC-By-1.0 AND CC-BY-2.0-FR','sourceUrl':shared['baseUrl']+model,
                         'termsPath':'TATOEBA-CC-BY-2.0-FR.txt','termsSha256':sha(terms),
                         'webTermsSha256':shared['odcTerms']['sha256'],'noticeSha256':shared['notice']['sha256'],
@@ -74,16 +74,16 @@ class Packaging(unittest.TestCase):
         lock=copy.deepcopy(json.loads((ROOT/'packaging/assets.lock.json').read_text()))
         models=lock['trained_models']
         with tempfile.TemporaryDirectory() as tmp:
-            root=pathlib.Path(tmp);base=root/'usr/share/swipe-keyboard';(base/'language-packs').mkdir(parents=True);(base/'models').mkdir()
+            root=pathlib.Path(tmp);base=root/'usr/share/swipe-keyboard';(base/'language-packs').mkdir(parents=True)
             licences=root/'usr/share/licenses/swipe-keyboard';licences.mkdir(parents=True)
             for language,pin in models['nextWord'].items():
                 data=b'nwp-'+language.encode();(base/'language-packs'/pin['path']).write_bytes(data);pin['sha256']=sha(data);pin['bytes']=len(data)
-            data=b'swipe';(base/'models/swipe-model.bin').write_bytes(data);models['swipe'].update(sha256=sha(data),bytes=len(data))
+            data=b'swipe';(base/'language-packs/swipe-model.bin').write_bytes(data);models['swipe'].update(sha256=sha(data),bytes=len(data))
             for key in ('notice','swipeDataTerms'):
                 data=key.encode();(licences/models[key]['path']).write_bytes(data);models[key]['sha256']=sha(data)
             checker.check_trained_models(root,lock)
             # Each kind of damage is caught: a next-word model, the swipe model, a notice, and a missing file.
-            for path,bad in ((base/'language-packs/de.nwp.bin',b'nwp-xx'),(base/'models/swipe-model.bin',b'swipe!'),(licences/'MODELS-NOTICE.md',b'changed')):
+            for path,bad in ((base/'language-packs/de.nwp.bin',b'nwp-xx'),(base/'language-packs/swipe-model.bin',b'swipe!'),(licences/'MODELS-NOTICE.md',b'changed')):
                 good=path.read_bytes();path.write_bytes(bad)
                 with self.assertRaises(AssertionError,msg=str(path)):
                     checker.check_trained_models(root,lock)
@@ -116,7 +116,7 @@ class Packaging(unittest.TestCase):
         self.assertIn('custom:TATOEBA-CC-BY-2.0-FR.txt',texts[0])
         self.assertTrue((ROOT/'packaging/language-models/TATOEBA-CC-BY-2.0-FR.txt').is_file())
 
-    def test_source_archive_retains_tracked_executorch_build_inputs(self):
+    def test_source_archive_holds_tracked_files_only(self):
         import shutil
         import tarfile
         with tempfile.TemporaryDirectory() as tmp:
@@ -126,11 +126,9 @@ class Packaging(unittest.TestCase):
             (fixture/'packaging').mkdir()
             shutil.copy2(ROOT/'scripts/package-source.sh', fixture/'scripts/package-source.sh')
             shutil.copy2(ROOT/'packaging/release-targets.json', fixture/'packaging/release-targets.json')
-            tracked = 'third_party/swipe-library/third_party/executorch/build/build_variables.bzl'
-            generated = ('build/generated.o', 'third_party/swipe-library/build/generated.o',
-                         'third_party/swipe-library/third_party/executorch/cmake-out-host/generated.a')
-            shim_tracked = 'third_party/swipe-library/third_party/executorch/shim_et/xplat/executorch/build/build_variables.bzl'
-            for name in (tracked, shim_tracked, *generated):
+            tracked = 'engine/src/tracked.cpp'
+            generated = ('build/generated.o', 'build-x/generated.o')
+            for name in (tracked, *generated):
                 target = fixture/name
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_text('fixture')
@@ -147,7 +145,6 @@ class Packaging(unittest.TestCase):
             prefix = 'swipe-keyboard-0.4.0/'
             self.assertNotIn(prefix + 'personal-secret.txt', names)
             self.assertIn(prefix + tracked, names)
-            self.assertIn(prefix + shim_tracked, names)
             for name in generated:
                 self.assertNotIn(prefix + name, names)
 
@@ -181,6 +178,11 @@ class Packaging(unittest.TestCase):
         # package metadata therefore uses an explicit custom ref and installs its exact notice.
         self.assertIn('LicenseRef-Tatoeba-CC-BY-2.0-FR',fedora)
         self.assertIn('custom:TATOEBA-CC-BY-2.0-FR.txt',arch)
+        # KDE's licensing policy for the code (GPL for the plugin, LGPL for the engine library).
+        for recipe in (arch, fedora):
+            self.assertIn('GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL',recipe)
+            self.assertIn('LGPL-2.1-only OR LGPL-3.0-only OR LicenseRef-KDE-Accepted-LGPL',recipe)
+            self.assertNotIn('GPL-3.0-or-later',recipe)
         self.assertIn('TATOEBA-CC-BY-2.0-FR.txt',notice)
         self.assertIn('an unavailable or corrupt pack never falls back to English',notice)
         self.assertIn('raw application completion preference',notice)
@@ -194,7 +196,7 @@ class Packaging(unittest.TestCase):
             module.mkdir(parents=True)
             for name in ('qmldir', 'SwipeCapture.qml', 'libswipekeyboard.so', 'libswipekeyboardplugin.so', 'libswipekb_engine.so'):
                 (module / name).write_text('fixture')
-            for name in ('models/honorable_sturgeon/model_fp32.pte', 'models/magic_macaw/model_fp32.pte', 'models/hungry_jellyfish/context_lm.pte', 'models/hungry_jellyfish/vocab.txt', 'models/FUTO-MODEL-LICENSE.md', 'dict/en_swipe.combined', 'language-packs/es.json', 'language-packs/fr.json', 'language-packs/de.json', 'licenses/NOTICE'):
+            for name in ('dict/en_swipe.combined', 'language-packs/swipe-model.bin', 'language-packs/es.json', 'language-packs/fr.json', 'language-packs/de.json', 'licenses/NOTICE'):
                 target = assets / name
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_text('fixture')
@@ -212,11 +214,12 @@ include("{ROOT}/cmake/Install.cmake")
             subprocess.run(['cmake', '-S', str(source), '-B', str(p/'build'), '-DCMAKE_INSTALL_PREFIX=/usr'], check=True, capture_output=True)
             subprocess.run(['cmake', '--install', str(p/'build'), '--prefix', str(p/'stage/usr')], check=True, capture_output=True)
             stage = p/'stage/usr'
-            for name in ('bin/swipe-keyboard', 'share/applications/swipe-keyboard.desktop', 'share/swipe-keyboard/integration/setup.py', 'share/swipe-keyboard/integration/layout.py', 'share/swipe-keyboard/qml/SwipeKeyboard/libswipekb_engine.so', 'share/swipe-keyboard/models/honorable_sturgeon/model_fp32.pte', 'share/swipe-keyboard/dict/en_swipe.combined', 'share/licenses/swipe-keyboard/LICENSE', 'share/licenses/swipe-keyboard/TATOEBA-CC-BY-2.0-FR.txt'):
+            for name in ('bin/swipe-keyboard', 'share/applications/swipe-keyboard.desktop', 'share/swipe-keyboard/integration/setup.py', 'share/swipe-keyboard/integration/layout.py', 'share/swipe-keyboard/qml/SwipeKeyboard/libswipekb_engine.so', 'share/swipe-keyboard/language-packs/swipe-model.bin', 'share/swipe-keyboard/dict/en_swipe.combined', 'share/licenses/swipe-keyboard/LICENSE', 'share/licenses/swipe-keyboard/TATOEBA-CC-BY-2.0-FR.txt'):
                 self.assertTrue((stage/name).is_file(), name)
             for language in ('es', 'fr', 'de'):
                 self.assertTrue((stage/f'share/swipe-keyboard/language-packs/{language}.json').is_file())
             self.assertFalse((stage/'share/swipe-keyboard/eval').exists())
+            self.assertFalse((stage/'share/swipe-keyboard/models').exists())
             self.assertEqual((stage/'share/swipe-keyboard/runtime.json').read_text(), '{"qt": "6.10", "package": "0.4.0-1"}\n')
             self.assertTrue((stage/'bin/swipe-keyboard').stat().st_mode & 0o111)
             self.assertTrue((stage/'share/swipe-keyboard/qml/SwipeKeyboard/libswipekb_engine.so').stat().st_mode & 0o111,
@@ -233,9 +236,8 @@ include("{ROOT}/cmake/Install.cmake")
             (fixture/'integration').mkdir(parents=True, exist_ok=True)
             shutil.copy2(ROOT/'scripts/learning-choice.sh', fixture/'scripts/learning-choice.sh')
             shutil.copy2(ROOT/'integration/learning.py', fixture/'integration/learning.py')
-            for directory in ('scripts/lm', 'assets/models', 'assets/dict', 'assets/language-packs', 'build/qml', 'bin', 'third_party/swipe-library/third_party/executorch/cmake-out-host'):
+            for directory in ('scripts/lm', 'assets/dict', 'assets/language-packs', 'build/qml', 'bin'):
                 (fixture/directory).mkdir(parents=True, exist_ok=True)
-            (fixture/'third_party/swipe-library/third_party/executorch/cmake-out-host/libexecutorch.a').write_text('fixture')
             for command, text in {
                 'scripts/fetch-assets.sh': 'echo fetch >> "$LOG"',
                 'scripts/lm/build-lm.sh': 'echo ngram >> "$LOG"',
@@ -292,10 +294,10 @@ include("{ROOT}/cmake/Install.cmake")
             self.assertFalse(target.with_name('cached.part').exists())
 
     def test_portable_default(self):
-        cmake = (ROOT/'CMakeLists.txt').read_text()
-        self.assertIn('set(USE_MARCH_NATIVE OFF', cmake)
-        script = (ROOT/'scripts/build-futo.sh').read_text()
-        self.assertIn('-DUSE_MARCH_NATIVE=OFF', script)
+        # WHY: distributable binaries must never carry host-specific instructions.
+        for path in ('CMakeLists.txt', 'engine/CMakeLists.txt', 'plugin/CMakeLists.txt', 'packaging/arch/PKGBUILD',
+                     'packaging/fedora/swipe-keyboard.spec', 'packaging/flatpak/build-swipe.sh'):
+            self.assertNotIn('march=native', (ROOT/path).read_text(), path)
 
     def test_config_probe_is_part_of_native_build_install_and_elf_checks(self):
         self.assertIn('add_subdirectory(integration)', (ROOT/'CMakeLists.txt').read_text())

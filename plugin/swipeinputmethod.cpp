@@ -1225,8 +1225,8 @@ void SwipeInputMethod::requestContextCompletion(const EditorSnapshot &editor)
 {
     // Dictionary completions are already showing; this re-ranks them by the sentence so far, on the worker
     // thread, and replaces them when the answer arrives (a few milliseconds later).
-    // WHY n-gram packs only: FUTO's neural model (English fallback) cannot complete a word, so English
-    // completion works only when the English n-gram pack is installed; otherwise it stays exactly as it was.
+    // WHY n-gram packs only: without the language's pack there is no sentence model, and dictionary completion
+    // stays exactly as it was.
     if (!predictionCapable() ||
         !m_profiles.snapshot().assets.value(QStringLiteral("contextModel")).compatibility.endsWith(QStringLiteral(":context-ngram-v1"))) return;
     const auto token=m_typedWord.token();

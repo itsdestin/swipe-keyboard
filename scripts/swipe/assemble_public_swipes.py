@@ -1,6 +1,7 @@
-"""Turn the FUTO public swipe collections (MIT data) into clean training/validation jsonl groups.
+"""Turn the public swipe.futo.org collections (MIT-licensed data, see FUTO-SWIPE-DATA-LICENSE.txt) into clean
+training/validation jsonl groups.
 
-  python -I assemble_futo.py DATA_DIR OUT_DIR holdout-final.json holdout-val.json
+  python -I assemble_public_swipes.py DATA_DIR OUT_DIR holdout-final.json holdout-val.json
 
 What it does, per record:
   * drops two-finger swipes and swipes with a 'distance' above 150 (the collections use 100001+ as an invalid marker;

@@ -1,4 +1,4 @@
-"""Shared helpers for reading and writing AOSP `.combined` dictionaries (the format FUTO's engine loads).
+"""Shared helpers for reading and writing AOSP `.combined` dictionaries (the keyboard's dictionary format).
 
 WHY a tiny shared module: every candidate-dictionary script reads and writes the same text format, and the
 engine silently skips lines it cannot parse, so one careful writer is safer than several copies.

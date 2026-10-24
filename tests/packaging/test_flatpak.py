@@ -16,25 +16,6 @@ class FlatpakContractTests(unittest.TestCase):
     def manifest(self):
         return json.loads((BUNDLE / 'org.itsdestin.SwipeKeyboard.json').read_text())
 
-    def test_sdk_profile_rejects_wrong_interpreter_before_fetch(self):
-        spec = importlib.util.spec_from_file_location('sdkdeps', ROOT / 'scripts/provision-build-deps.py')
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        with tempfile.TemporaryDirectory() as directory, mock.patch.object(module, 'fetch') as fetch:
-            with mock.patch.object(module.sys, 'version_info', (3, 14)):
-                with self.assertRaisesRegex(RuntimeError, '3.13'):
-                    module.provision('futo', Path(directory) / 'venv', Path(directory) / 'cache', profile='kde-6.10')
-            fetch.assert_not_called()
-
-    def test_sdk_profile_has_only_matching_native_wheels(self):
-        lock = json.loads((ROOT / 'requirements/kde-6.10/wheels.lock.json').read_text())
-        self.assertEqual(lock['python'], [3, 13])
-        self.assertEqual(lock['machine'], 'x86_64')
-        for name in lock['groups']['futo']:
-            filename = lock['wheels'][name]['filename']
-            self.assertNotIn('cp314', filename)
-        self.assertIn('cp313-cp313', lock['wheels']['pyyaml']['filename'])
-
     def builder_command(self, **options):
         spec = importlib.util.spec_from_file_location('flatpak_build', BUNDLE / 'build.py')
         module = importlib.util.module_from_spec(spec)
@@ -55,11 +36,9 @@ class FlatpakContractTests(unittest.TestCase):
         self.assertFalse([a for a in deps if a.startswith('--repo')])
 
     def test_ccache_is_enabled_only_when_a_persistent_store_is_supplied(self):
-        # WHY changed from "ExecuTorch only": the approved scope now includes the engine and product
-        # objects on non-release runs. Release builds get no CCACHE_DIR, so none of this activates.
+        # WHY: the cache covers the keyboard's own objects on non-release runs. Release builds get no CCACHE_DIR, so none of this activates.
         script = (BUNDLE / 'build-swipe.sh').read_text()
         guard = script.index('if [ -n "${CCACHE_DIR:-}" ]; then')
-        self.assertLess(guard, script.index('make -C third_party/swipe-library host'))
         self.assertLess(guard, script.index('cmake -S . -B build-flatpak'))
         self.assertIn('CMAKE_CXX_COMPILER_LAUNCHER=ccache', script)
         self.assertNotIn('CCACHE_DISABLE', script)
@@ -79,7 +58,6 @@ class FlatpakContractTests(unittest.TestCase):
         self.assertEqual(manifest['build-options']['env']['MAKEFLAGS'], '-j4')
         script = (BUNDLE / 'build-swipe.sh').read_text()
         self.assertIn('CMAKE_BUILD_PARALLEL_LEVEL=4', script)
-        self.assertIn('JOBS=4', script)
         self.assertNotIn('-j2', script)
         self.assertNotIn('JOBS=2', script)
         self.assertIn('--jobs=4', ' '.join(self.builder_command()))
