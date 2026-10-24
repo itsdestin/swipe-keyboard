@@ -173,6 +173,21 @@ class LanguageDictionary(unittest.TestCase):
         rows = [('der', 50000, 9000, 'der'), ('haus', 4000, 3000, 'Haus')]
         self.assertEqual(self.build('de', rows), self.build('de', rows))
 
+    def test_dropped_words_are_left_out_without_letting_a_later_word_in(self):
+        # WHY: a drop file is made from one list; the next counted word ("chat") was never checked against it.
+        rows = [('amour', 900, 800, 'amour'), ('ammor', 800, 700, 'Ammor'), ('chat', 700, 600, 'chat')]
+        text = self.build('fr', rows, maximum=2, drop=frozenset({'Ammor'}))
+        self.assertIn(' word=amour,', text)
+        self.assertNotIn('Ammor', text)
+        self.assertNotIn('chat', text)
+
+    def test_drop_file_reads_the_first_column_and_skips_comments(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp)/'fr.txt'
+            path.write_text('# made by swipekb-shadow-words\nAmmor\tamour\nd’ESET\tdésert\n\n', encoding='utf-8')
+            self.assertEqual(corpus.read_drop(str(path)), {'Ammor', 'd’ESET'})
+        self.assertEqual(corpus.read_drop(None), frozenset())
+
 
 class EnglishDictionary(unittest.TestCase):
     AOSP = ("dictionary=main:en_us,locale=en_US,description=x,date=1,version=54\n"
