@@ -152,6 +152,40 @@ private slots:
         QVERIFY(lmOnly != plain.predict(context, 3));
     }
 
+    // WHY: an n-gram pack with apostrophes next to a letters-only neural model. Two spellings of one neural word
+    // ("but" and a made-up "bu't"; the neural model ranks "but" first after "to it the is") must each get a share of
+    // its score by the n-gram's odds (here 9 to 1 for "bu't"), so the neural opinion counts for both spellings.
+    void apostropheSpellingsShareTheirNeuralWord()
+    {
+        QTemporaryDir dir;
+        QStringList all = words();
+        all << QStringLiteral("bu't");
+        std::sort(all.begin(), all.end());   // sorted, like the pack builder writes them
+        QByteArray vocab;
+        NgramModelData d;
+        d.uni_lp = {-2.f, -99.f, -1.5f};
+        d.uni_bo = {0.f, 0.f, 0.f};
+        for (const auto &w : all) {
+            vocab += w.toUtf8() + "\t100\t" + w.toUtf8() + "\n";
+            d.words.push_back(w.toStdString());
+            d.uni_lp.push_back(w == QStringLiteral("bu't") ? -1.f : w == QStringLiteral("but") ? -1.954f : -2.f);
+            d.uni_bo.push_back(0.f);
+        }
+        QVERIFY(writeAll(dir.path() + "/xx.vocab.tsv", vocab));
+        QVERIFY(NgramLM::write((dir.path() + "/xx.ngram").toStdString(), d));
+        QVERIFY(QFile::copy(kData + "/nwp-tiny.nwp.bin", dir.path() + "/xx.nwp.bin"));
+        NwpPredictor p;
+        QVERIFY(p.load((dir.path() + "/xx.ngram").toStdString(), (dir.path() + "/xx.vocab.tsv").toStdString()));
+        QVERIFY(p.hasLm());
+        p.setBlend(1.f, -100.f);   // the neural opinion alone; a word it lacks sinks to the bottom
+        const auto got = p.predict({"to", "it", "the", "is"}, 31);
+        const auto at = [&](const char *w) { return std::find(got.begin(), got.end(), std::string(w)) - got.begin(); };
+        QCOMPARE(long(got.size()), 31L);
+        QCOMPARE(at("bu't"), 0L);              // 90% of the neural model's favourite
+        QVERIFY(at("but") > 1);                // 10%: well down...
+        QVERIFY(at("but") + 1 < 31);           // ...but not treated as a word the neural model lacks
+    }
+
     void completionOnlyOffersMatchingWords()
     {
         QTemporaryDir dir;

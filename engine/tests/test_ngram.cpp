@@ -155,3 +155,44 @@ TEST(NgramFile, WriteRejectsInconsistentData)
     d.tri_lp = {-1.f};
     EXPECT_FALSE(NgramLM::write(tempPath("bad2.ngram"), d));
 }
+
+TEST(NgramApostrophes, FormKeepsInnerApostrophesOnly)
+{
+    EXPECT_EQ(NgramLM::apostropheForm("We’re"), "we're");   // curly written straight
+    EXPECT_EQ(NgramLM::apostropheForm("don't,"), "don't");
+    EXPECT_EQ(NgramLM::apostropheForm("'tis"), "tis");
+    EXPECT_EQ(NgramLM::apostropheForm("states'"), "states");
+    EXPECT_EQ(NgramLM::apostropheForm("l’homme"), "l'homme");
+    EXPECT_EQ(NgramLM::apostropheForm("well-known"), "wellknown");
+}
+
+// WHY: a pack built with --keep-apostrophes is told apart by its word list alone, so older packs load unchanged and
+// keep matching letters only, while the new ones keep "were" and "we're" apart.
+TEST(NgramApostrophes, DetectedFromTheWordListAndMatchedByForm)
+{
+    NgramModelData d;
+    d.words = {"don't", "we're", "were", "yes", "they"};   // 3..7
+    d.uni_lp = {-2.f, -99.f, -1.5f, -1.f, -1.6f, -1.2f, -1.3f, -1.4f};
+    d.uni_bo = std::vector<float>(8, 0.f);
+    d.bi_keys = {NgramLM::key(6, 4), NgramLM::key(7, 5)};   // "yes we're", "they were" (sorted by key)
+    d.bi_lp = {-0.1f, -0.1f};
+    d.bi_bo = {0.f, 0.f};
+    const auto path = tempPath("apostrophes.ngram");
+    ASSERT_TRUE(NgramLM::write(path, d));
+    NgramLM lm;
+    ASSERT_TRUE(lm.load(path));
+    EXPECT_TRUE(lm.apostrophes());
+    EXPECT_EQ(lm.form("We’re"), "we're");
+    EXPECT_EQ(lm.id("we're"), 4u);
+    EXPECT_EQ(lm.id("were"), 5u);
+    EXPECT_EQ(lm.id("dont"), 3u);    // typed without the apostrophe, the model has no "dont": its "don't"
+    EXPECT_EQ(lm.id("zzz"), NgramLM::kUnk);
+    EXPECT_GT(lm.logProb(lm.context({"yes"}), 4), lm.logProb(lm.context({"yes"}), 5));
+    EXPECT_GT(lm.logProb(lm.context({"They"}), 5), lm.logProb(lm.context({"They"}), 4));
+
+    NgramLM plain;
+    ASSERT_TRUE(NgramLM::write(path, tinyModel()));
+    ASSERT_TRUE(plain.load(path));
+    EXPECT_FALSE(plain.apostrophes());
+    EXPECT_EQ(plain.form("I'm"), "im");
+}

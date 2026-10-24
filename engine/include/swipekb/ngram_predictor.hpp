@@ -42,8 +42,9 @@ public:
     };
     Ranked rank(const std::vector<std::string> &context, size_t want, const std::string &prefix = {}) const;
     float score(const NgramLM::Context &state, uint32_t vocabIndex) const;
-    // Letters-only lower-case form of a vocabulary word (what the models spell words as).
+    // Letters-only lower-case form of a vocabulary word (what typed letters are matched against).
     const std::string &alphaOf(uint32_t vocabIndex) const { return alpha_[vocabIndex]; }
+    const NgramLM &model() const { return ngram_; }
 
 private:
     NgramLM ngram_;

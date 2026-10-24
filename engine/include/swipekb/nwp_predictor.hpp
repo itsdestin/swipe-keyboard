@@ -51,6 +51,11 @@ private:
     float lambda_ = 0.5f, oovBonus_ = 0.f;
     std::vector<int32_t> tokenToIndex_;    // neural token -> keyboard vocabulary index, -1 when the keyboard lacks it
     std::vector<uint32_t> indexToToken_;   // keyboard vocabulary index -> neural token (kUnk when the model lacks it)
+    // Further keyboard words sharing a neural token (n-gram pack with apostrophes, neural model without: "were" and
+    // "we're" are one neural word). -1 ends the chain that starts at tokenToIndex_.
+    std::vector<int32_t> nextSameToken_;
+    bool lmApostrophes_ = false;           // the neural model's words have apostrophes (same form as the n-gram)
+    std::string lmForm(const std::string &word) const;
     // Sentence state after reading cachedSeq_, and the next-word log-probabilities it gives.
     mutable std::vector<uint32_t> cachedSeq_;
     mutable NwpModel::State state_;

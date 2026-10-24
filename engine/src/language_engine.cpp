@@ -35,6 +35,10 @@ constexpr float kDoubleLetter = 0.25f, kSwapped = 0.75f;
 // guess bar would fill with words the person did not start.
 constexpr size_t kCorrectFrom = 3;
 constexpr size_t kMaxLetters = 48;
+// WHY 80 frequency points: the same closeness that decides which other spellings are offered (spelling.cpp), so a
+// spelling that can win a swipe is exactly one that is also offered as the alternative ("we're" for "were"), and
+// rare junk sharing a common word's path ("I's" for "is", 121 points apart) never can.
+constexpr int kSpellingWithin = 80;
 
 QString nfc(const std::string &s) { return QString::fromStdString(s).normalized(QString::NormalizationForm_C); }
 
@@ -200,14 +204,30 @@ struct LanguageEngine::Impl {
 
     std::vector<std::pair<std::string, int>> swipeWords() const
     {
-        // WHY one word per key: "is" and "I's", "were" and "we're" leave the same finger path, and the sentence model
-        // sees them as the same word, so as separate swipe words they tied and the apostrophe form won on alphabetical
-        // order ("i's", "wa's", "i'n"). The most frequent spelling is the swipe word; the others stay one tap away
-        // through otherSpellings(), as with the FUTO engine.
+        // WHY one word per key unless the sentence model can tell spellings apart: "is" and "I's", "were" and "we're"
+        // leave the same finger path. A letters-only model scores them as one word, so as separate swipe words they
+        // tied and the apostrophe form won on alphabetical order ("i's", "wa's", "i'n"); then the most frequent
+        // spelling is the swipe word and the others stay one tap away through otherSpellings(). A model with
+        // apostrophes scores each spelling from the sentence ("we were" / "we're going"), so close spellings all
+        // stay swipe words and the context picks. (A handicap for the rarer spelling, tried on 3,000 held-out Tatoeba
+        // sentences per language, only lowered the right-first-time rate: the sentence model's choice is better.)
+        const bool distinct = lmLoaded && lm.apostrophes();
         std::vector<std::pair<std::string, int>> out;
         out.reserve(byKey.size());
-        for (const auto &[key, ids] : byKey)
-            if (const Entry *e = best(key)) out.push_back({e->text, e->freq()});
+        for (const auto &[key, ids] : byKey) {
+            const Entry *top = best(key);
+            if (!top) continue;
+            out.push_back({top->text, top->freq()});
+            if (!distinct) continue;
+            // WHY also a different model word: "e-mail"/"email" differ only by a hyphen, which the model drops too, so
+            // they would tie again.
+            const std::string topForm = lm.form(top->text);
+            for (uint32_t id : ids) {
+                const Entry &e = entries[id];
+                if (&e != top && e.freq() > 0 && e.freq() >= top->freq() - kSpellingWithin && lm.form(e.text) != topForm)
+                    out.push_back({e.text, e.freq()});
+            }
+        }
         return out;
     }
 
@@ -334,9 +354,9 @@ std::vector<Candidate> LanguageEngine::recognize(const std::vector<TracePoint> &
             pts.push_back({(p.x - x0) / W, (p.y - y0) / H, double(p.t_ms)});
         }
         if (d_->prior) {
-            // WHY alphaForm: the n-gram file stores lower-case letters-only words.
+            // WHY the model's own form: the n-gram file stores lower-case words, letters only or with apostrophes.
             std::vector<std::string> previous;
-            for (const auto &w : context) { const auto a = NgramLM::alphaForm(w); if (!a.empty()) previous.push_back(a); }
+            for (const auto &w : context) { const auto a = d_->lm.form(w); if (!a.empty()) previous.push_back(a); }
             d_->prior->setContext(previous);
             NgramWordPrior *pr = d_->prior.get();
             d_->engine.setPrior([pr](uint32_t w) { return (*pr)(w); }, d_->prior->hints());

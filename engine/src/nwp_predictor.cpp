@@ -30,15 +30,22 @@ bool NwpPredictor::load(const std::string &ngramModel, const std::string &vocab,
     // WHY a failed neural load is not an error: the pack still works as before (n-gram only).
     if (path.empty() || !lm_.load(path)) return true;
     const auto &words = ngram_.vocabulary();
+    lmApostrophes_ = false;
+    for (uint32_t t = 3; t < lm_.vocabSize() && !lmApostrophes_; ++t) lmApostrophes_ = lm_.word(t).find('\'') != std::string::npos;
     tokenToIndex_.assign(lm_.vocabSize(), -1);
     indexToToken_.assign(words.size(), NwpModel::kUnk);
+    nextSameToken_.assign(words.size(), -1);
+    std::vector<int32_t> lastOfToken(lm_.vocabSize(), -1);
     size_t shared = 0;
     for (uint32_t i = 0; i < words.size(); ++i) {
-        const uint32_t t = lm_.token(ngram_.alphaOf(i));
-        if (t == NwpModel::kUnk || tokenToIndex_[t] >= 0) continue;
-        tokenToIndex_[t] = int32_t(i);
+        const uint32_t t = lm_.token(lmApostrophes_ ? ngram_.model().form(words[i]) : ngram_.alphaOf(i));
+        if (t == NwpModel::kUnk) continue;
+        // WHY every word of the token, not only the first: with an apostrophe n-gram and a letters-only neural model,
+        // "were" and "we're" both take the neural score of "were", split between them by the n-gram (predict()).
         indexToToken_[i] = t;
-        ++shared;
+        if (tokenToIndex_[t] < 0) { tokenToIndex_[t] = int32_t(i); ++shared; }
+        else nextSameToken_[size_t(lastOfToken[t])] = int32_t(i);
+        lastOfToken[t] = int32_t(i);
     }
     // WHY a floor on overlap: a model built for another language/word list would only add noise.
     if (shared * 2 < size_t(lm_.vocabSize())) return true;
@@ -46,6 +53,12 @@ bool NwpPredictor::load(const std::string &ngramModel, const std::string &vocab,
     cachedSeq_.clear(); state_ = lm_.start(); logpValid_ = false;
     useLm_ = true;
     return true;
+}
+
+std::string NwpPredictor::lmForm(const std::string &word) const
+{
+    // WHY: a neural model with apostrophes reads "we're" as written; a letters-only one as "were".
+    return lmApostrophes_ ? NgramLM::apostropheForm(word) : NgramLM::alphaForm(word);
 }
 
 std::vector<std::string> NwpPredictor::predict(const std::vector<std::string> &context, int topK,
@@ -60,8 +73,8 @@ std::vector<std::string> NwpPredictor::predict(const std::vector<std::string> &c
     std::vector<uint32_t> seq;
     if (bounded.size() < 20) seq.push_back(NwpModel::kBos);
     for (const auto &word : bounded) {
-        const auto alpha = NgramLM::alphaForm(QString::fromUtf8(word.data(), int(word.size())).toLower().toUtf8().toStdString());
-        if (!alpha.empty()) seq.push_back(lm_.token(alpha));
+        const auto form = lmForm(word);
+        if (!form.empty()) seq.push_back(lm_.token(form));
     }
     // WHY reuse: while a word is typed, and as a sentence grows by one word, only the new tokens are read.
     const bool extends = cachedSeq_.size() <= seq.size() && std::equal(cachedSeq_.begin(), cachedSeq_.end(), seq.begin());
@@ -83,7 +96,7 @@ std::vector<std::string> NwpPredictor::predict(const std::vector<std::string> &c
     for (uint32_t t = 3; t < lm_.vocabSize(); ++t) {
         if (lmTop.size() == kCandidates && logp_[t] <= lmTop.front().first) continue;
         if (tokenToIndex_[t] < 0) continue;
-        if (!typed.empty() && lm_.word(t).compare(0, typed.size(), typed) != 0) continue;
+        if (!typed.empty() && ngram_.alphaOf(uint32_t(tokenToIndex_[t])).compare(0, typed.size(), typed) != 0) continue;
         if (lmTop.size() == kCandidates) { std::pop_heap(lmTop.begin(), lmTop.end(), worse); lmTop.pop_back(); }
         lmTop.emplace_back(logp_[t], t);
         std::push_heap(lmTop.begin(), lmTop.end(), worse);
@@ -97,11 +110,20 @@ std::vector<std::string> NwpPredictor::predict(const std::vector<std::string> &c
         if (!seen.insert(index).second) return;
         const float n = ngram_.score(ng.state, index);
         const uint32_t t = indexToToken_[index];
+        float neural = t >= 3 ? logp_[t] / kLog10 : 0.f;
+        if (t >= 3 && (tokenToIndex_[t] != int32_t(index) || nextSameToken_[index] >= 0)) {
+            // Several words share this neural word: each gets its share by the n-gram's odds in this context
+            // (log10 of its probability over the group's total), so the shares add up to the neural score.
+            float total = 0;
+            for (int32_t j = tokenToIndex_[t]; j >= 0; j = nextSameToken_[size_t(j)]) total += std::pow(10.f, ngram_.score(ng.state, uint32_t(j)));
+            if (total > 0) neural += n - std::log10(total);
+        }
         // Words the neural model knows: blend both opinions. Others: the n-gram alone (plus a tuned offset).
-        blended.emplace_back(t >= 3 ? lambda_ * (logp_[t] / kLog10) + (1.f - lambda_) * n : n + oovBonus_, index);
+        blended.emplace_back(t >= 3 ? lambda_ * neural + (1.f - lambda_) * n : n + oovBonus_, index);
     };
     for (const auto &[score, index] : ng.top) add(index);
-    for (size_t k = 0; k < keep; ++k) add(uint32_t(tokenToIndex_[lmTop[k].second]));
+    for (size_t k = 0; k < keep; ++k)
+        for (int32_t j = tokenToIndex_[lmTop[k].second]; j >= 0; j = nextSameToken_[size_t(j)]) add(uint32_t(j));
     const auto &words = ngram_.vocabulary();
     std::sort(blended.begin(), blended.end(), [&](const auto &a, const auto &b) {
         return a.first == b.first ? words[a.second] < words[b.second] : a.first > b.first;

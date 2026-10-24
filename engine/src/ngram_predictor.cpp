@@ -75,7 +75,8 @@ bool NgramPredictor::load(const std::string &model, const std::string &vocab)
     wordIds_.reserve(vocabulary_.size()); alpha_.reserve(vocabulary_.size());
     for (size_t i = 0; i < vocabulary_.size(); ++i) {
         alpha_.push_back(NgramLM::alphaForm(vocabulary_[i]));
-        wordIds_.push_back(ngram_.id(alpha_.back()));
+        // WHY the model's form: in a pack with apostrophes "were" and "we're" are different model words.
+        wordIds_.push_back(ngram_.apostrophes() ? ngram_.id(ngram_.form(vocabulary_[i])) : ngram_.id(alpha_.back()));
     }
     byUnigram_.clear(); unknownBySpelling_.clear(); indicesOfId_.clear();
     for (uint32_t i = 0; i < vocabulary_.size(); ++i) {

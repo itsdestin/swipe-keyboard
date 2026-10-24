@@ -11,7 +11,7 @@ namespace swipekb {
 
 NgramWordPrior::NgramWordPrior(const NgramLM &lm, const SwipeLexicon &lex) : lm_(lm), lex_(lex) {
     ids_.resize(lex.wordCount());
-    for (uint32_t w = 0; w < lex.wordCount(); ++w) ids_[w] = lm.id(NgramLM::alphaForm(lex.text(w)));
+    for (uint32_t w = 0; w < lex.wordCount(); ++w) ids_[w] = lm.id(lm.form(lex.text(w)));
     ctx_ = lm.context({});
     // Lexicon words grouped by model number (compressed rows), so the context's favoured words map back quickly.
     uint32_t maxId = 0;
@@ -31,7 +31,7 @@ float NgramWordPrior::operator()(uint32_t w) const {
     const uint32_t id = ids_[w];
     // Known word: its model number gives the exact score. Unknown word: the model's own fallback from frequency.
     const float lg10 = id != NgramLM::kUnk ? (unigramOnly ? lm_.unigramLogProb(id) : lm_.logProb(ctx_, id))
-                                           : lm_.logProb(ctx_, NgramLM::alphaForm(lex_.text(w)), float(lex_.freq(w)));
+                                           : lm_.logProb(ctx_, lm_.form(lex_.text(w)), float(lex_.freq(w)));
     return lmWeight * kLn10 * lg10 + freqWeight * lex_.freq(w);
 }
 

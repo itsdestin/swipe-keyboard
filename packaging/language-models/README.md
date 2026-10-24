@@ -57,7 +57,12 @@ of the release (the pins still decide what is accepted).
 
 `scripts/lm/build-fineweb2-model.py` builds a language's n-gram from FineWeb text plus Tatoeba (sentences weighted 30x;
 word pairs kept when seen 20+ times, triples 40+), `scripts/lm/tatoeba-credits.py` writes the credit files, and
-`scripts/lm/make-vocab.py` the word lists. After publishing a new release, update `language_files.baseUrl` and the hashes
+`scripts/lm/make-vocab.py` the word lists. With `--keep-apostrophes` a pack keeps "were"/"we're", "its"/"it's" and
+"lune"/"l'une" as different words, so the sentence chooses between them; the keyboard recognises such a pack by the
+apostrophes in its word list (`NgramLM::apostrophes()`), and letters-only packs keep working unchanged. Measured on
+held-out sentences (`tools/swipekb-sentence-check`), 2026-10-23: English swipes of those words right first time
+78.0 -> 87.7 %, French 86.3 -> 91.1 %; every other score within noise. The published 2026-10-22 packs are letters-only.
+After publishing a new release, update `language_files.baseUrl` and the hashes
 in `../assets.lock.json` (every hash and byte size is checked by `tests/packaging`). The earlier small Tatoeba-only packs
 (`scripts/lm/build-tatoeba-model.py`) were replaced by these files and are no longer shipped.
 

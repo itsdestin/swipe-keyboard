@@ -16,6 +16,7 @@
 #include <tuple>
 
 #include "swipekb/language_engine.hpp"
+#include "swipekb/ngram.hpp"
 
 using namespace swipekb;
 
@@ -324,4 +325,33 @@ TEST(LanguageEngineEnglish, CleanSwipesOfCommonWordsLandInTopThree)
     EXPECT_EQ(e.recognize(traceThrough("dont", keys), keys, {}, 3).front().word, "don't");
     EXPECT_EQ(e.otherSpellings("were").front(), "we're");
     EXPECT_EQ(e.complete("helo", 3).front().word, "hello");
+}
+
+// WHY: with a pack that keeps apostrophes, the sentence decides between spellings of one finger path ("yes, we're" /
+// "they were"), while junk far rarer than the common word ("I's" for "is") still never wins.
+TEST(LanguageEngineEnglish, ApostrophePackLetsTheSentenceChooseTheSpelling)
+{
+    if (!haveEnglish()) GTEST_SKIP() << "set SWIPEKB_ASSETS to a fetched asset tree";
+    NgramModelData d;
+    d.words = {"i's", "is", "it's", "its", "they", "we're", "were", "yes"};   // 3..10, sorted like the pack builder
+    d.uni_lp = {-2.f, -99.f, -1.5f, -3.f, -1.3f, -1.4f, -1.6f, -1.5f, -1.4f, -1.6f, -1.6f};
+    d.uni_bo = std::vector<float>(11, 0.f);
+    // "they were", "yes I's" (made likely on purpose: "I's" is 121 points rarer than "is" in the dictionary, so it
+    // must not be a swipe word at all), "yes we're".
+    d.bi_keys = {NgramLM::key(7, 9), NgramLM::key(10, 3), NgramLM::key(10, 8)};
+    d.bi_lp = {-0.1f, -0.05f, -0.1f};
+    d.bi_bo = {0.f, 0.f, 0.f};
+    d.calib_a = -6.f;
+    d.calib_b = 0.01f;
+    QTemporaryDir dir;
+    auto s = english();
+    s.ngram = dir.filePath("en.ngram").toStdString();
+    ASSERT_TRUE(NgramLM::write(s.ngram, d));
+    if (s.swipeModel.empty()) GTEST_SKIP() << "the swipe model is not in SWIPEKB_ASSETS";
+    LanguageEngine e;
+    ASSERT_TRUE(e.init(s));
+    const auto keys = qwertyRects(0, 0, 1);
+    EXPECT_EQ(e.recognize(traceThrough("were", keys), keys, {"yes"}, 3).front().word, "we're");
+    EXPECT_EQ(e.recognize(traceThrough("were", keys), keys, {"they"}, 3).front().word, "were");
+    EXPECT_EQ(e.recognize(traceThrough("is", keys), keys, {"yes"}, 3).front().word, "is");
 }

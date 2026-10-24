@@ -8,7 +8,7 @@
 //
 // Usage:
 //   swipekb-bench --dict LANG.combined (--layout keys.tsv | --layouts-dir DIR) [--model swipe-model.bin]
-//                 [--ngram LANG.ngram] [--context] [--language en] [--limit N] [--match ascii|lookup|exact] swipes.jsonl
+//                 [--ngram LANG.ngram] [--context] [--language en] [--limit N] [--match ascii|lookup|exact] [--list] swipes.jsonl
 // Swipes: one JSON object per line with "word", "data" [{x,y,t}] in 0..1 of the letter area, "canvas_width",
 // "canvas_height" and (with --layouts-dir) "layout"; "sentence" + "word_idx" give the previous words (--context).
 // Layouts: "letter<TAB>cx<TAB>cy<TAB>half_w<TAB>half_h" (scripts/swipe/layouts/qwerty.tsv).
@@ -81,7 +81,7 @@ int main(int argc, char **argv)
 {
     LanguageEngineSetup setup;
     std::string layout, layoutsDir, input, match = "ascii";
-    bool useContext = false;
+    bool useContext = false, list = false;
     size_t limit = 0;
     for (int i = 1; i < argc; ++i) {
         const std::string a = argv[i];
@@ -96,6 +96,7 @@ int main(int argc, char **argv)
         else if (a == "--layout") layout = val();
         else if (a == "--layouts-dir") layoutsDir = val();
         else if (a == "--context") useContext = true;
+        else if (a == "--list") list = true;
         else if (a == "--limit") limit = size_t(std::atoll(val().c_str()));
         else if (a == "--match") match = val();
         else if (a[0] != '-') input = a;
@@ -153,6 +154,8 @@ int main(int argc, char **argv)
         const bool known = engine.hasWord(s.word);
         top1 += h1; top3 += h3;
         if (known) { ++inDict; dict1 += h1; dict3 += h3; }
+        // WHY a per-swipe list: comparing two runs swipe by swipe shows which words a change won or lost.
+        if (list) std::printf("swipe\t%zu\t%s\t%s\n", n, s.word.c_str(), c.empty() ? "" : c[0].word.c_str());
     }
     auto pct = [](size_t a, size_t b) { return b ? 100.0 * double(a) / double(b) : 0.0; };
     std::printf("Results: %zu samples\n  top-1: %zu / %zu = %.2f%%\n  top-3: %zu / %zu = %.2f%%\n", n, top1, n, pct(top1, n), top3, n, pct(top3, n));

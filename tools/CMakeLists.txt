@@ -41,6 +41,9 @@ endif()
 # keyboard uses), so scores measure what ships (bench/score.sh).
 add_executable(swipekb-bench swipekb-bench.cpp)
 target_link_libraries(swipekb-bench PRIVATE swipekb_engine Qt6::Core)
+# swipekb-sentence-check: exact spelling (apostrophes count) of swipes and next-word suggestions in held-out sentences.
+add_executable(swipekb-sentence-check swipekb-sentence-check.cpp)
+target_link_libraries(swipekb-sentence-check PRIVATE swipekb_engine Qt6::Core)
 # The swipe engine's own scoring tool (network + search settings sweeps, per-board numbers).
 add_executable(swipekb-swipenet-bench swipekb-swipenet-bench.cpp)
 target_link_libraries(swipekb-swipenet-bench PRIVATE swipekb_engine Qt6::Core)

@@ -44,9 +44,16 @@ public:
     static uint64_t key(uint32_t v, uint32_t w) { return (uint64_t(v) << kIdBits) | w; }
     static uint64_t key(uint32_t u, uint32_t v, uint32_t w) { return (uint64_t(u) << (2 * kIdBits)) | key(v, w); }
 
-    // Lower case, letters only: the form a swipe spells (no apostrophes), and the form the model is built in.
+    // Lower case, letters only: the form a swipe spells (no apostrophes), and the form older models are built in.
     // ASCII is lower-cased; other letters are kept as they are (English dictionary).
     static std::string alphaForm(std::string_view word);
+    // Lower case, letters plus inner apostrophes (curly written straight): "We’re" -> "we're", "'tis" -> "tis".
+    static std::string apostropheForm(std::string_view word);
+    // The form THIS model's words are in: apostropheForm() for a model whose word list has apostrophes (built with
+    // scripts/lm/build-fineweb2-model.py --keep-apostrophes, so "were" and "we're" are different words), alphaForm()
+    // otherwise. WHY detected from the word list, not a new file version: older packs keep loading unchanged.
+    std::string form(std::string_view word) const { return apostrophes_ ? apostropheForm(word) : alphaForm(word); }
+    bool apostrophes() const { return apostrophes_; }
 
     NgramLM() = default;
     ~NgramLM();
@@ -59,8 +66,9 @@ public:
     int order() const { return n_tri_ ? 3 : 2; }
     size_t fileBytes() const { return size_; }
 
-    // Word number of a letters-only word; kUnk when the model doesn't list it.
-    uint32_t id(std::string_view alpha) const;
+    // Word number of a word in form(); kUnk when the model doesn't list it. In a model with apostrophes, a spelling
+    // without them that the model lacks ("dont") finds the model's most likely word with those letters ("don't").
+    uint32_t id(std::string_view word) const;
 
     // The previous words, prepared once per swipe so scoring each guess is a couple of small lookups.
     struct Context {
@@ -73,7 +81,7 @@ public:
     // `words` = swipekb::contextWords() output (oldest first, current sentence only); empty = sentence start.
     Context context(const std::vector<std::string> &words) const;
 
-    // log10 P(word | context). `alpha` must be letters-only (alphaForm). `dictFreq` = the dictionary's f score,
+    // log10 P(word | context). `alpha` must be in form(). `dictFreq` = the dictionary's f score,
     // only used if the model doesn't know the word.
     float logProb(const Context &c, std::string_view alpha, float dictFreq) const;
     float logProb(const Context &c, uint32_t w) const;
@@ -97,6 +105,8 @@ private:
     const uint32_t *bi_off_ = nullptr, *bi_w_ = nullptr, *bi_tri_ = nullptr, *tri_w_ = nullptr;
     const int16_t *bi_lp_ = nullptr, *bi_bo_ = nullptr, *tri_lp_ = nullptr;
     std::unordered_map<std::string_view, uint32_t> ids_;
+    bool apostrophes_ = false;
+    std::unordered_map<std::string, uint32_t> alias_;   // letters only -> most likely word with those letters
 };
 
 } // namespace swipekb

@@ -82,6 +82,21 @@ std::string NgramLM::alphaForm(std::string_view word)
     return alpha.toUtf8().toStdString();
 }
 
+std::string NgramLM::apostropheForm(std::string_view word)
+{
+    // WHY the same rule as the pack builder's apostrophe_key(): training text, typed context and dictionary words
+    // must meet in one spelling. Apostrophes are kept only between letters ("states'" -> "states").
+    const auto lower = QString::fromUtf8(word.data(), int(word.size())).toLower();
+    QString out;
+    out.reserve(lower.size());
+    for (const QChar c : lower) {
+        if (c.isLetter()) out.append(c);
+        else if ((c == QLatin1Char('\'') || c == QChar(0x2019)) && !out.isEmpty() && out.back() != QLatin1Char('\'')) out.append(QLatin1Char('\''));
+    }
+    while (out.endsWith(QLatin1Char('\''))) out.chop(1);
+    return out.toUtf8().toStdString();
+}
+
 NgramLM::~NgramLM() { unload(); }
 
 void NgramLM::unload()
@@ -95,6 +110,8 @@ void NgramLM::unload()
     calib_a_ = calib_b_ = 0;
     floor_ = -9;
     ids_.clear();
+    alias_.clear();
+    apostrophes_ = false;
 }
 
 bool NgramLM::load(const std::string &path)
@@ -172,13 +189,29 @@ bool NgramLM::load(const std::string &path)
         unload();
         return false;
     }
+    for (const auto &[word, id] : ids_) {
+        if (word.find('\'') == std::string_view::npos) continue;
+        apostrophes_ = true;
+        // WHY aliases: typed context is often written without the apostrophe ("dont", "im"), and callers that
+        // still pass letters-only words must keep finding the word, as with letters-only models.
+        std::string letters;
+        for (char c : word) if (c != '\'') letters.push_back(c);
+        if (ids_.count(letters)) continue;
+        auto [it, fresh] = alias_.emplace(letters, id);
+        if (!fresh && uni_lp_[id] > uni_lp_[it->second]) it->second = id;
+    }
     return true;
 }
 
-uint32_t NgramLM::id(std::string_view alpha) const
+uint32_t NgramLM::id(std::string_view word) const
 {
-    const auto it = ids_.find(alpha);
-    return it == ids_.end() ? kUnk : it->second;
+    const auto it = ids_.find(word);
+    if (it != ids_.end()) return it->second;
+    if (alias_.empty()) return kUnk;
+    std::string letters;
+    for (char c : word) if (c != '\'') letters.push_back(c);
+    const auto a = alias_.find(letters);
+    return a == alias_.end() ? kUnk : a->second;
 }
 
 NgramLM::Context NgramLM::context(const std::vector<std::string> &words) const
@@ -189,9 +222,9 @@ NgramLM::Context NgramLM::context(const std::vector<std::string> &words) const
     // WHY <s> for an empty context: the model knows which words start sentences ("The", "I", "This"), which
     // is the only hint the first word of a sentence has.
     if (!words.empty()) {
-        c.v = id(alphaForm(words.back()));
+        c.v = id(form(words.back()));
         c.has_u = true;
-        c.u = words.size() >= 2 ? id(alphaForm(words[words.size() - 2])) : kBos;
+        c.u = words.size() >= 2 ? id(form(words[words.size() - 2])) : kBos;
     }
     // Clamped so a damaged index can never point outside its table.
     auto span = [](uint32_t lo, uint32_t hi, uint64_t n) {
