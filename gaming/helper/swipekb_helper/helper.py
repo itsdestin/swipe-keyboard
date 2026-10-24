@@ -483,6 +483,12 @@ class Helper:
                     p.report = {}
                 self._page_events(pid, p)
             except cdp.CdpError as e:
+                # WHY ask first (found by the flaky ReloadGrace test, 2026-10-24): when Steam reloads its keyboard page, the
+                # old page can vanish in the middle of this check and the call errors. That is not Steam refusing anything;
+                # counting it would spend one of the few tries before Gaming Mode pauses itself. A gone page is just dropped.
+                if not self._still_listed(pid):
+                    self._detach(pid, remove=True)
+                    continue
                 # The page answered but would not run our script (blocked or broken): a Steam-side refusal, not a dropped link.
                 self._layer_trouble(pid, 'Steam refused to run the layer (%s)' % _short(e), now)
                 continue
@@ -593,6 +599,14 @@ class Helper:
                 return
         # WHY no success is recorded here (M9): an install that works is not yet a layer that stays. A page that accepts the layer
         # and drops it a second later would otherwise wipe the count every time and the helper would loop for ever.
+
+    def _still_listed(self, pid):
+        """Is this page still in Steam's own page list? An unreadable list answers yes, so a real failure is never hidden."""
+        try:
+            lst = cdp.http_json(self.cfg.port, '/json/list', timeout=self.cfg.call_timeout)
+        except (OSError, ValueError, cdp.CdpError):
+            return True
+        return any(t.get('id') == pid for t in lst)
 
     def _note_readiness(self, pid, verdict, now):
         """Start the 'still loading' clock when the page first reports not ready; stop it as soon as it answers."""

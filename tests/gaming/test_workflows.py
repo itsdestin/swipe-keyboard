@@ -37,6 +37,11 @@ class Workflows(unittest.TestCase):
 
     def test_canary_runs_its_own_tests_before_trusting_itself(self):
         self.assertLess(CANARY.index('unittest discover -s tests/gaming'), CANARY.index('canary.py run'))
+        # WHY: the canary never builds the daemon, so every test that needs it must be skipped by name, as in
+        # packages.yml. A first-letter glob let test_commit_e2e.py in and the canary failed its own tests daily.
+        self.assertNotIn("test_[!d]", CANARY)
+        for name in ('test_daemon.py', 'test_commit_e2e.py'):
+            self.assertIn(name, CANARY, f'{name} needs the built daemon and must be skipped by the canary')
 
     def test_channels_come_from_the_contract_not_the_workflow(self):
         for name in ('steam_client_ubuntu12', 'steamdeck_stable', 'publicbeta'):

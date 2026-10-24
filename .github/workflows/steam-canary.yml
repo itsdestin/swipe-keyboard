@@ -53,8 +53,18 @@ jobs:
         with:
           node-version: '22'
       - name: Canary's own tests (a canary that fails its own tests is not trusted)
-        # WHY the pattern: test_daemon.py needs the compiled daemon (it runs under CTest), so a bare discover errors here.
-        run: python3 -I -m unittest discover -s tests/gaming -p 'test_[!d]*.py' -v
+        # WHY a loop with two files named, the same as packages.yml's gaming-tests job: test_daemon.py and
+        # test_commit_e2e.py need the compiled daemon, which this job never builds (they run under CTest in the package
+        # builds). The old first-letter glob only skipped files starting with d, so test_commit_e2e.py failed every
+        # run and the canary never once trusted itself.
+        run: |
+          status=0
+          for file in tests/gaming/test_*.py; do
+            name=$(basename "$file")
+            case "$name" in test_daemon.py|test_commit_e2e.py) echo "skipped here (needs the built daemon, runs under CTest): $name"; continue;; esac
+            python3 -I -m unittest discover -s tests/gaming -p "$name" -v || status=1
+          done
+          exit $status
       - name: Load the ledger branch (empty ledger if it does not exist yet)
         run: |
           auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
