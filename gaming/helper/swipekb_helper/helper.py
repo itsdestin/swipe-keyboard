@@ -36,6 +36,9 @@ class PageSession:
         self.since = time.monotonic()   # when this copy of the layer went in; a layer that stays and answers is forgiven past failures
         self.lost = []                  # times the layer was found missing and put back (M9: a page that keeps removing it is a failure)
         self.report = {}                # what the layer said about itself at the last ping
+        # WHY (review, 2026-10-23): the binding exists in every document and frame of this page, so a call is only taken
+        # from a context the browser says is Steam's own top document. Filled from Runtime.executionContextCreated.
+        self.trusted_contexts = set()
 
 
 class Helper:
@@ -81,6 +84,9 @@ class Helper:
         # is replaced. kb_missing: Steam is up but has no page with the keyboard page's title. recheck: ask Steam's hidden page
         # again whether the text call is still there (periodically, and at once when a typing call fails).
         self.dead_pages = {}
+        # Pages titled like the keyboard that proved to be someone else's (target id -> listed url). WHY not a failure: any web
+        # page can open a window and give it that title; counting it would let a web page switch Gaming Mode swipe off.
+        self.foreign = {}
         self.kb_missing = False
         self.next_recheck = 0.0
         self._recheck_now = False
@@ -227,7 +233,7 @@ class Helper:
         # it; inside, it is a Steam page. Only the keyboard page may be accepted this way, and _attach then asks the page itself
         # for its origin (which no web page can fake) before anything is installed. The hidden SteamClient page stays strict.
         return [i for i, t in list(self.targets.items())
-                if t['type'] == 'page' and t['title'] == title and d
+                if t['type'] == 'page' and t['title'] == title and d and self.foreign.get(i) != t.get('url')
                 and (d.is_steam_url(t.get('url', '')) or (popup_ok and d.is_steam_popup_placeholder(t.get('url', ''))))]
 
     def _hidden_page(self):
@@ -365,10 +371,21 @@ class Helper:
             self._page_event(pid, p.cdp.events.pop(0))
 
     def _page_event(self, pid, ev):
-        # The only event we act on: the layer calling window.__swipekb(json). Everything else Steam's page says is ignored.
-        if ev.get('method') == 'Runtime.bindingCalled':
-            params = ev.get('params') or {}
-            if params.get('name') == '__swipekb':
+        # What we act on: the layer calling window.__swipekb(json), and the browser naming the documents in the page so we
+        # know which calls come from Steam's own top document. Everything else Steam's page says is ignored.
+        m, params = ev.get('method'), ev.get('params') or {}
+        p = self.pages.get(pid)
+        if m == 'Runtime.executionContextCreated' and p:
+            ctx = params.get('context') or {}
+            aux = ctx.get('auxData') or {}
+            if ctx.get('origin') == self.device.ui_origin and aux.get('isDefault') and aux.get('type', 'default') == 'default':
+                p.trusted_contexts.add(ctx.get('id'))
+        elif m == 'Runtime.executionContextDestroyed' and p:
+            p.trusted_contexts.discard(params.get('executionContextId'))
+        elif m == 'Runtime.executionContextsCleared' and p:
+            p.trusted_contexts.clear()
+        elif m == 'Runtime.bindingCalled' and params.get('name') == '__swipekb':
+            if p and params.get('executionContextId') in p.trusted_contexts:
                 self.bridge.submit(pid, params.get('payload'))
 
     # ---- typing: worker thread -> page ----------------------------------------------------------------
@@ -555,6 +572,12 @@ class Helper:
         for i in pending:
             try:
                 self._attach(i)
+            except _NotYet:
+                self.next_attempt = now + 1.0
+                continue
+            except _Foreign:
+                self.foreign[i] = (self.targets.get(i) or {}).get('url')
+                continue
             except cdp.CdpError as e:
                 # Steam answered and said no (blocked script, refused registration): that is a Steam-side refusal.
                 self.ledger.record_failure('Steam refused to run the layer (%s)' % _short(e), now, self.cfg.failure_spacing)
@@ -600,8 +623,10 @@ class Helper:
             # WHY first: the listed address may be Steam's about:blank placeholder, so the page's own origin decides. The browser
             # sets it; a web page cannot claim Steam's. Nothing (no binding, no script) is given to a page that fails this.
             origin = c.evaluate('location.origin')
+            if origin in (None, '', 'null'):
+                raise _NotYet()             # still loading: asked again shortly, not counted as Steam failing
             if origin != self.device.ui_origin:
-                raise cdp.CdpError('the keyboard page is not Steam\'s own (origin %s)' % _short(str(origin)))
+                raise _Foreign(origin)
             # WHY both: the registration brings the stub back at the start of every later document in this
             # page (UI reload) with no round trip; the evaluate puts it into the page that is open right now.
             # The registration lives only as long as this socket, so a dead helper leaves none behind.
@@ -718,6 +743,14 @@ def _boot_id():
         return Path('/proc/sys/kernel/random/boot_id').read_text().strip() or None
     except OSError:
         return None
+
+
+class _NotYet(Exception):
+    """The keyboard page has no document origin yet."""
+
+
+class _Foreign(Exception):
+    """A page titled like Steam's keyboard whose document is not Steam's."""
 
 
 def _short(e):

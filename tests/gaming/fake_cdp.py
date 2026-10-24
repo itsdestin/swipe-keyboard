@@ -105,6 +105,7 @@ class Page:
         # evaluation (a blocked-eval/CSP page). refuse: CDP methods answered with an error object instead of a result.
         self.eval_filter = None
         self.refuse = set()
+        self.origin = origin or 'https://steamloopback.host'
         self._rpc({'op': 'init', 'steam': steam, 'origin': origin})
         threading.Thread(target=self._drain, daemon=True).start()
 
@@ -373,6 +374,11 @@ class FakeSteam:
                     page._rpc({'op': 'binding', 'name': p['name']})
                     page.bindings[p['name']] = (session, send)
                     page.binding_sessions = getattr(page, 'binding_sessions', 0) + 1
+                    send({'id': m['id'], 'result': {}})
+                elif meth == 'Runtime.enable':
+                    # WHY: like Chrome, name the page's existing document first, so the helper knows which calls are Steam's.
+                    send({'method': 'Runtime.executionContextCreated', 'params': {'context': {
+                        'id': 1, 'origin': page.origin, 'name': '', 'auxData': {'isDefault': True, 'type': 'default', 'frameId': 'F'}}}})
                     send({'id': m['id'], 'result': {}})
                 else:
                     send({'id': m['id'], 'result': {}})
