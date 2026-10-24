@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 """CTC training of the swipe net. CPU for smoke tests, CUDA for the real run (python -I train.py ...).
 
   train.py --train dev.npz [--train synth.npz ...] --val devhold.npz --out run1 --epochs 40 --device cuda

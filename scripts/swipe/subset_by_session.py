@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 """Keep a deterministic fraction of whole sessions: python -I subset_by_session.py in.jsonl out.jsonl PERCENT [VAL_EVERY_N_SESSIONS_OUT]
 
 WHY whole sessions: swipes of one person are alike, so a size-matched subset must not cut people in half.

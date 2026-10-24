@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+//
+// SPDX-License-Identifier: LGPL-2.1-only OR LGPL-3.0-only OR LicenseRef-KDE-Accepted-LGPL
+
 // Geometric swipe decoder: the fallback used when no network file is installed (and a sanity check for tests).
 //
 // WHY keep it: swiping must never break because a model file is missing, damaged or from a newer version. This

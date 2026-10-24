@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 """Writes tests/data/swipe_net/: a tiny random network, one trace and what PyTorch computes for it.
 
 The C++ runner (engine/src/swipe_net.cpp) must reproduce these numbers (tests/features: tst_swipenet). Re-run only

@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 """Tests for the outside-door check (owner decision 2026-10-22, plan Section 9): the helper must keep the Gaming Mode
 layer off while Steam's debug port is reachable from other devices. Run:  python3 -I tests/gaming/test_exposure.py
 

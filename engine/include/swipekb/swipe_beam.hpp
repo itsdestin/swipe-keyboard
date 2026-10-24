@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+//
+// SPDX-License-Identifier: LGPL-2.1-only OR LGPL-3.0-only OR LicenseRef-KDE-Accepted-LGPL
+
 // Lexicon trie + CTC prefix beam search: turns the network's per-step key probabilities into ranked words.
 //
 // WHY a trie-constrained search (the published standard for CTC gesture typing): only prefixes of real dictionary

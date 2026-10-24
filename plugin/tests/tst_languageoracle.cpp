@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+//
+// SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 // ORACLE for the Gaming Mode daemon (plan milestone M7). It drives the REAL keyboard plugin (SwipeInputMethod)
 // through the repository's authored multilingual swipes (bench/languages/synthetic-centered-v1.json) and writes
 // the guess-bar words the plugin shows for each one. tests/gaming/test_daemon.py then asks the daemon the same

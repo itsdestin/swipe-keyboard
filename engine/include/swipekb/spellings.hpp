@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+//
+// SPDX-License-Identifier: LGPL-2.1-only OR LGPL-3.0-only OR LicenseRef-KDE-Accepted-LGPL
+
 // Spellings — the dictionary's real spellings of a swipe shape ("its" / "it's", "lets" / "let's").
 //
 // WHY: a swipe never carries apostrophes or hyphens, so one finger path can mean several dictionary words. The guess

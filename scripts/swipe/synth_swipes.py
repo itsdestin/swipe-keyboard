@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 """Our own synthetic swipe generator (training data for languages without real swipes, and extra English).
 
   python -I synth_swipes.py --words words.tsv --layout layouts/azerty.tsv --n 200000 --out synth-fr.jsonl

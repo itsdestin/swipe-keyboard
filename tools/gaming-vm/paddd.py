@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 """Guest-side fake Xbox-style gamepad for the Gaming Mode rig (runs as root in the guest; M6 tries the real Steam+X chord with it).
 
 One persistent uinput gamepad (Xbox 360 identifiers, so Steam's driver list has a name for it), driven over the unix socket /tmp/padd.sock,

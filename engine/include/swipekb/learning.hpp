@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+//
+// SPDX-License-Identifier: LGPL-2.1-only OR LGPL-3.0-only OR LicenseRef-KDE-Accepted-LGPL
+
 // PersonalModel — what the keyboard learns from the person's own typing (Phase 2 of the open-engine roadmap).
 //
 // It remembers three small things, all local and all per language:

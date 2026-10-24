@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 """Guest-side fake touchscreen for the Gaming Mode rig (adapted from the spike's touchd.py; runs as root in the guest).
 
 One persistent uinput multi-touch device, driven over the unix socket /tmp/touchd.sock (mode 666), one command per line,

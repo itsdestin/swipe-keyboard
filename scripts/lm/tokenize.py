@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 """tokenize.py VOCAB PARQUET OUTDIR [WORKERS] — turn one FineWeb parquet shard into word-number streams.
 
 Output: OUTDIR/part-NNN.u32, little-endian uint32 word numbers; 2 (</s>) ends every sentence. Numbers:

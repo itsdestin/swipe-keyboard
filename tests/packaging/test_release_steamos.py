@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 """The single SteamOS download (plan Section 15 question 2): both Flatpaks, install.sh, uninstall.sh, units, checksums.
 
 Covers scripts/steamos_bundle.py and how the release gate treats the new `steamos` target.

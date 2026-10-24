@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+//
+// SPDX-License-Identifier: LGPL-2.1-only OR LGPL-3.0-only OR LicenseRef-KDE-Accepted-LGPL
+
 // The runner must reproduce what PyTorch computes for the same weights and trace (fixture written by
 // scripts/swipe/make_fixture.py), in both weight formats, and must reject damaged files.
 #include <QFile>

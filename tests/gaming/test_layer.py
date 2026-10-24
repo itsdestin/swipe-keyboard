@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 """Runs the gesture-layer tests (tests/gaming/test_layer.js, plan M4) under Node so `unittest discover` sees them.
 A missing Node is a hard failure, not a skip: a green run must mean the layer really ran.
 The page frame is assembled by the helper's own code (Helper._stub) so the test runs exactly what Steam would get."""

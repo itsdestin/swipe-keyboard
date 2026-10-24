@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 """display-targets.py DATASET.json DICTIONARY.combined [--out FILE]
 
 Rewrites each case's `target` to the spelling the dictionary shows for that word (German nouns with their capital,

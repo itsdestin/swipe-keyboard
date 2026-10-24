@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 """Regenerate the tiny test model and PyTorch's answers for it (tests/data/nwp-tiny*.{nwp.bin,expected}).
 
   make-fixture.py OUTDIR      (needs torch; run from scripts/lm/nwp)

@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+//
+// SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 // Typing-session tests (plan M5): policy for password / unknown / plain boxes, the strip, the trail, the Private chip,
 // the Shift handling after a swiped word, and what the page remembers. Run through tests/gaming/test_layer.py, which
 // builds the frame with the helper's own code (so this runs exactly what Steam would be given).

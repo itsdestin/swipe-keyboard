@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 """Big word list from corpus counts: 'word<TAB>count<TAB>docs<TAB>display' -> 'display<TAB>freq' (freq 0..255).
 
   python -I words_from_counts.py es.wordcounts.tsv es-words.tsv 250000 > es-words-250k.tsv

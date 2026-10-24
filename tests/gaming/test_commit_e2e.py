@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 """M5 end-to-end on the host: the REAL engine daemon, the REAL helper, a fake Steam (fake_cdp.py). Page messages are canned (recorded bench
 swipes); everything between the binding and Steam's text call is the shipped code.
 

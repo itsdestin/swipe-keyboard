@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 # Build-time preparation only: checksum-pinned language files (dictionaries, n-gram models, word lists), the trained
 # models and es/fr/de packs, including license notices. Not an end-user install.
 # Optional evaluation data requires SWIPEKB_FETCH_DEVELOPER_EXTRAS=1.

@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+//
+// SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 // The on-disk side of learning: the on/off flag, where and how the store is written, resetting, damaged files.
 #include <QtTest>
 #include <QTemporaryDir>

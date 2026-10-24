@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 # tatoeba-credits.py LANG3 LANG3_sentences_detailed.tsv.bz2 OUT.txt
 # WHY: CC BY 2.0 FR asks that authors be credited; the web+Tatoeba builder does not write this list itself.
 # Tatoeba authors of the sentences a pack trained on (training tenths: id % 10 != 0), for CC BY 2.0 FR credit.

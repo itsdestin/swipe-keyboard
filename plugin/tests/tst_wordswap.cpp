@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+//
+// SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 // Pure rules behind "tap a word, see alternatives, swap it" (card #187): no keyboard, no Qt Virtual Keyboard.
 #include <QtTest>
 #include "wordswap.h"

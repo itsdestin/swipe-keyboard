@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+//
+// SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 // Scores the swipe engine on real swipes: first-guess / top-3 accuracy, per board, and milliseconds per swipe.
 //   swipekb-swipenet-bench --model model.bin --words words.tsv --layout keys.tsv swipes.jsonl [options]
 //   (no --model: geometric fallback only)    --layouts-dir DIR: per-swipe "layout" id -> DIR/<id>.tsv

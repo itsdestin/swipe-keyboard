@@ -1,0 +1,82 @@
+version = 1
+SPDX-PackageName = "swipe-keyboard"
+SPDX-PackageSupplier = "Destin Moss <https://youcoded.ai>"
+SPDX-PackageDownloadLocation = "https://github.com/itsdestin/swipe-keyboard"
+
+# Licensing follows KDE's policy (https://community.kde.org/Policies/Licensing_Policy). Source files carry their own
+# SPDX header: keyboard plugin, QML, tools, scripts and tests GPL-2.0-only OR GPL-3.0-only OR
+# LicenseRef-KDE-Accepted-GPL; the engine library (engine/) LGPL-2.1-only OR LGPL-3.0-only OR
+# LicenseRef-KDE-Accepted-LGPL; CMake files BSD-3-Clause. The files below cannot carry a header (data formats, pinned
+# notices, binaries) and are annotated here.
+
+# Documentation and images.
+[[annotations]]
+path = ["**.md", "docs/**", "LICENSE", "packaging/NOTICE"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 Destin Moss <https://youcoded.ai>"
+SPDX-License-Identifier = "CC-BY-SA-4.0"
+
+# Trivial or generated data: configuration, manifests, locks, layouts, benchmark logs, test fixtures.
+[[annotations]]
+path = [".gitignore", ".gitattributes", "**.json", "plugin/language-assets.qrc", "scripts/swipe/layouts/**",
+        "bench/history.tsv", "bench/scoreboard.tsv", "bench/nextword-es.tsv", "bench/languages/**.json",
+        "tests/data/**", "tests/gaming/fixtures/**", "docs/practice/**"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 Destin Moss <https://youcoded.ai>"
+SPDX-License-Identifier = "CC0-1.0"
+
+# The project's own texting-word lists (packaging/texting-words/README.md).
+[[annotations]]
+path = "packaging/texting-words/*.tsv"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 Destin Moss <https://youcoded.ai>"
+SPDX-License-Identifier = "CC0-1.0"
+
+# Swear-word lists: LDNOOBW (CC BY 4.0); English also AOSP LatinIME's offensive flags (Apache-2.0).
+[[annotations]]
+path = ["packaging/blocked-words/de.txt", "packaging/blocked-words/es.txt", "packaging/blocked-words/fr.txt"]
+precedence = "override"
+SPDX-FileCopyrightText = ["Shutterstock and contributors (List of Dirty, Naughty, Obscene, and Otherwise Bad Words)", "2026 Destin Moss <https://youcoded.ai>"]
+SPDX-License-Identifier = "CC-BY-4.0"
+
+[[annotations]]
+path = "packaging/blocked-words/en.txt"
+precedence = "override"
+SPDX-FileCopyrightText = ["Shutterstock and contributors (List of Dirty, Naughty, Obscene, and Otherwise Bad Words)", "The Android Open Source Project", "2026 Destin Moss <https://youcoded.ai>"]
+SPDX-License-Identifier = "CC-BY-4.0 AND Apache-2.0"
+
+# Copies of licence legal code that travel with the data they cover (Creative Commons dedicates its legal code to the
+# public domain).
+[[annotations]]
+path = "packaging/blocked-words/CC-BY-4.0.txt"
+precedence = "override"
+SPDX-FileCopyrightText = "Creative Commons Corporation"
+SPDX-License-Identifier = "CC0-1.0"
+
+# Pinned notice texts (their bytes are checked against assets.lock.json, so they cannot take a header).
+[[annotations]]
+path = ["packaging/language-models/TATOEBA-CC-BY-2.0-FR.txt", "packaging/language-models/LANGUAGE-FILES-2026-10-22-open-words-NOTICE.md"]
+precedence = "override"
+SPDX-FileCopyrightText = "2026 Destin Moss <https://youcoded.ai>"
+SPDX-License-Identifier = "CC0-1.0"
+
+# Gboard comparison answers: Common Voice sentences (CC0) ...
+[[annotations]]
+path = "bench/gboard/reference/*-everyday.tsv"
+precedence = "override"
+SPDX-FileCopyrightText = ["Mozilla Common Voice contributors", "2026 Destin Moss <https://youcoded.ai>"]
+SPDX-License-Identifier = "CC0-1.0"
+
+# ... and FineWeb-2 test pages (Open Data Commons Attribution License).
+[[annotations]]
+path = "bench/gboard/reference/*-web.tsv"
+precedence = "override"
+SPDX-FileCopyrightText = ["Hugging Face (FineWeb-2; derived from Common Crawl)", "2026 Destin Moss <https://youcoded.ai>"]
+SPDX-License-Identifier = "ODC-By-1.0"
+
+# Patch to KDE's plasma-keyboard: it changes files under KDE's standard licence, and so carries that licence.
+[[annotations]]
+path = "scripts/patches/plasma-prediction-policy.patch"
+precedence = "override"
+SPDX-FileCopyrightText = ["plasma-keyboard contributors (KDE)", "2026 Destin Moss <https://youcoded.ai>"]
+SPDX-License-Identifier = "GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL"

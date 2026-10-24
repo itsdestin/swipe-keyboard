@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: BSD-3-Clause
+
 cmake_minimum_required(VERSION 3.25)
 project(swipekb_features LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)

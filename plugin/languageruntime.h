@@ -1,3 +1,9 @@
+/*
+ * SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+ *
+ * SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+ */
+
 #pragma once
 // Turns a verified language profile into the engine's settings. WHY a file of its own: the on-screen keyboard
 // plugin and the Gaming Mode daemon must set the engine up in exactly the same way, or the same swipe would give

@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 # build-corpus-dictionaries.sh — the four swipe dictionaries, counted from openly licensed text (card #170, Phase 1).
 #   es/fr/de: the 100k most frequent words of FineWeb-2 + Tatoeba, junk-filtered (corpus_dictionary.py).
 #   en:       AOSP's US English list (Apache-2.0) kept exactly, plus FineWeb words AOSP lacks, up to 250k words.

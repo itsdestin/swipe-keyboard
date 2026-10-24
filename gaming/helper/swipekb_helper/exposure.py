@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 """Is the outside door to Steam's debug port closed? (owner decision 2026-10-22; plan Section 9)
 
 SteamOS can forward Steam's debug port to every network interface (port 8081). The installer closes that with

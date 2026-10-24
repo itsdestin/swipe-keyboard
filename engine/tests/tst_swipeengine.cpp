@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+//
+// SPDX-License-Identifier: LGPL-2.1-only OR LGPL-3.0-only OR LicenseRef-KDE-Accepted-LGPL
+
 // The engine as the keyboard will use it: loads pieces, copes with missing/damaged model files, and always answers.
 #include <QFile>
 #include <QTemporaryDir>

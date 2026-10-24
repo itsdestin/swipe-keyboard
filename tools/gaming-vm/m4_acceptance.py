@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 """M4 acceptance rig for the gesture arbiter. Runs INSIDE the SteamOS Gaming Mode guest as the plain user (plan Section 14, M4).
 
 Deploy with deploy-m4.sh (helper, layer, contract and this file go to ~/m4). Needs touchd.py running as root in the guest

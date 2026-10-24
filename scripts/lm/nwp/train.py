@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 """Train one language's next-word model (NWP LM, card #170): a one-layer LSTM with a projection, tied
 input/output word vectors - the size class of Google's published Gboard next-word models (arXiv 2305.18465).
 

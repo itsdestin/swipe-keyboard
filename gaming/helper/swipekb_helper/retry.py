@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 """Remembers failed contract checks per Steam build so the helper never loops against a changed Steam
 (plan Section 14, M9). Stored on disk so a restarted helper (systemd Restart=always) does not start over."""
 import json

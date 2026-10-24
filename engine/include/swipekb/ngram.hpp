@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+//
+// SPDX-License-Identifier: LGPL-2.1-only OR LGPL-3.0-only OR LicenseRef-KDE-Accepted-LGPL
+
 // swipekb n-gram language model — "how likely is this word after the previous one or two words".
 //
 // WHY word-pair and word-triple statistics from a large text collection (a 3-gram model, scripts/lm/): they are

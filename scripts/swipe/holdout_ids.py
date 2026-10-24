@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 """Collect (session, timestamp) keys and sessions of evaluation files so training data can be checked against them.
 
   python -I holdout_ids.py out.json file1.jsonl file2.jsonl ...      (reads only the 'session' and 'timestamp' fields)

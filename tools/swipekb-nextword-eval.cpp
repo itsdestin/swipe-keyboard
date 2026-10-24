@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+//
+// SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 // swipekb-nextword-eval: how often a language pack's next-word suggestions contain the word the writer
 // actually typed next. Replays plain sentences (one per line) word by word through the keyboard's own
 // n-gram prediction code (swipekb::NgramPredictor) and context rules (swipekb::contextWords).

@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 """Shared pieces of the swipe-net pipeline: layout, trace -> model input, labels, the network, model export.
 
 Written for this project without reference to other swipe engines' code. The C++ runner (engine/src/swipe_net.cpp, swipe_trace.cpp) must reproduce
