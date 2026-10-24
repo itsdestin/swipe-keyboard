@@ -1,10 +1,10 @@
 # Setup and recovery details
 
-For download links and short installation steps, see the [main page](../README.md#install). This page covers the Deck Flatpak, the Arch/CachyOS package and the Fedora x86_64 and ARM64 packages. It was written for v0.4.1-1 and updated for 0.5.0 (unreleased) where the two differ. [The r3 release notes](releases/v0.1.0-r3.md) describe the older, English-only native downloads.
+For download links and short installation steps, see the [main page](../README.md#install). This page covers the Deck Flatpak, the Arch/CachyOS package and the Fedora x86_64 and ARM64 packages. It was written for v0.4.1-1 and updated for v0.5.0-1 where the two differ. [The r3 release notes](releases/v0.1.0-r3.md) describe the older, English-only native downloads.
 
 ## Verify a download
 
-Download [SHA256SUMS](https://github.com/itsdestin/swipe-keyboard/releases/download/v0.4.1-1/SHA256SUMS) into the same folder as the package. Open a terminal there and run:
+Download [SHA256SUMS](https://github.com/itsdestin/swipe-keyboard/releases/download/v0.5.0-1/SHA256SUMS) into the same folder as the package. Open a terminal there and run:
 
 ```sh
 sha256sum --check --ignore-missing SHA256SUMS
@@ -155,6 +155,6 @@ Never send passwords, personal typing, learned words (the `learning` folder), re
 
 ## Source and licenses
 
-Use the complete corresponding-source archive attached to the [v0.4.1-1 release](https://github.com/itsdestin/swipe-keyboard/releases/tag/v0.4.1-1) for rebuilding. The repository has no submodules, so GitHub's automatic “Source code” downloads are complete as well. The Fedora `.src.rpm`, when supplied, is for rebuilding, not installation. See [CONTRIBUTING.md](../CONTRIBUTING.md).
+Use the complete corresponding-source archive attached to the [v0.5.0-1 release](https://github.com/itsdestin/swipe-keyboard/releases/tag/v0.5.0-1) for rebuilding. The repository has no submodules, so GitHub's automatic “Source code” downloads are complete as well. The Fedora `.src.rpm`, when supplied, is for rebuilding, not installation. See [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 Our own trained models (neural next-word `*.nwp.bin`, swipe `swipe-model.bin`; trained and released by Destin Moss via youcoded.ai, 2026) are downloaded by checksum with the other files; the next-word models carry ODC-By 1.0 AND CC BY 2.0 FR, the swipe model MIT (trained on FUTO's MIT swipe data, notice installed as `FUTO-SWIPE-DATA-LICENSE.txt`). A missing or changed file turns off just that model (swiping then works by key geometry alone). The keyboard and its engine are the project's own code: MIT, except the keyboard add-on layers that run inside GPL software (GPL-2.0-only OR GPL-3.0-only, KDE's standard; see the README's Licences section). The English dictionary keeps the AOSP word list (Apache-2.0); all dictionaries and word lists are otherwise counted from FineWeb/FineWeb-2 text (ODC-By 1.0) and Tatoeba sentences (CC BY 2.0 FR), so only attribution terms apply and no share-alike licence is involved. Preserve all supplied terms, attribution and source obligations. See [NOTICE](../packaging/NOTICE) and each pack's notices. Qt/KDE components retain their licenses. Nothing optional or evaluation-only is part of the release.

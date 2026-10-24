@@ -9,9 +9,6 @@ Swipe across the letters to type a word, or tap normally. It adds swipe typing, 
 
 **Test release v0.5.0-1**
 
-> **0.5.0 is not released yet** (this branch prepares it), so the download links below start working when it is.
-> The current release is [v0.4.1-1](https://github.com/itsdestin/swipe-keyboard/releases/tag/v0.4.1-1). Remove this note when publishing.
-
 Choose your platform: [Steam Deck](#steam-deck--desktop-mode) · [Gaming Mode (preview)](#steam-deck--gaming-mode-preview) · [Arch / CachyOS](#arch--cachyos) · [Fedora 44 / Plasma Mobile](#fedora-44--plasma-mobile)
 
 ## Install

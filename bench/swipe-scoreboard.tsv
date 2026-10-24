@@ -19,6 +19,14 @@ date	build	set	swipes	context	sentence_pack	match	first_pct	top3_pct	notes
 2026-10-24	0.5.0-0.5 (9d3caf5)	heliboard-es	4790	no	yes	lookup	75.95	84.74	tools/swipekb-language-bench, shipped profile; unchanged (only stretched spellings are dropped outside English)
 2026-10-24	0.5.0-0.5 (9d3caf5)	heliboard-fr	4999	no	yes	lookup	68.15	82.02	tools/swipekb-language-bench, shipped profile; unchanged (only stretched spellings are dropped outside English)
 2026-10-24	0.5.0-0.5 (9d3caf5)	heliboard-de	4980	no	yes	lookup	64.74	73.13	tools/swipekb-language-bench, shipped profile; unchanged (only stretched spellings are dropped outside English)
+2026-10-24	0.5.0-0.5 (9d3caf5)	bench-2000	2000	no	yes	letters	88.15	92.70	tools/swipekb-bench, qwerty.tsv layout; re-run 2026-10-24 for the 0.5.0 release
+2026-10-24	0.5.0-0.5 (9d3caf5)	bench-2000	2000	no	no	letters	89.20	93.10	tools/swipekb-bench, qwerty.tsv layout; re-run 2026-10-24 for the 0.5.0 release
+2026-10-24	0.5.0-0.5 (9d3caf5)	bench-2000-futo-scorable	1946	no	yes	letters	89.47	94.14	tools/swipekb-bench, qwerty.tsv layout; re-run 2026-10-24 for the 0.5.0 release
+2026-10-24	0.5.0-0.5 (9d3caf5)	bench-2000-futo-scorable	1946	no	no	letters	90.54	94.55	tools/swipekb-bench, qwerty.tsv layout; re-run 2026-10-24 for the 0.5.0 release
+2026-10-24	0.5.0-0.5 (9d3caf5)	test-extra-10000	10000	no	yes	letters	88.10	93.00	tools/swipekb-bench, qwerty.tsv layout; re-run 2026-10-24 for the 0.5.0 release
+2026-10-24	0.5.0-0.5 (9d3caf5)	test-extra-10000	10000	no	no	letters	89.25	93.25	tools/swipekb-bench, qwerty.tsv layout; re-run 2026-10-24 for the 0.5.0 release
+2026-10-24	0.5.0-0.5 (9d3caf5)	test-extra-10000-futo-scorable	9719	no	yes	letters	89.61	94.63	tools/swipekb-bench, qwerty.tsv layout; re-run 2026-10-24 for the 0.5.0 release
+2026-10-24	0.5.0-0.5 (9d3caf5)	test-extra-10000-futo-scorable	9719	no	no	letters	90.80	94.89	tools/swipekb-bench, qwerty.tsv layout; re-run 2026-10-24 for the 0.5.0 release
 2026-10-24	0.5.0-0.1 (6c4b0c3)	bench-2000	2000	yes	yes	letters	90.10	93.55	tools/swipekb-bench, qwerty.tsv layout
 2026-10-24	0.5.0-0.1 (6c4b0c3)	bench-2000	2000	no	yes	letters	88.15	93.15	tools/swipekb-bench, qwerty.tsv layout
 2026-10-24	0.5.0-0.1 (6c4b0c3)	bench-2000	2000	no	no	letters	89.20	93.65	tools/swipekb-bench, qwerty.tsv layout

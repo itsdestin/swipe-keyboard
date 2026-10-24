@@ -36,13 +36,13 @@ model-index:
       type: custom
     metrics:
     - type: accuracy
-      value: 95.02
+      value: 94.55
       name: right word in top 3
 ---
 
 # youcoded/swipe-typing ("T1"): swipe-typing decoder for English, Spanish, French and German
 
-> **Headline:** in the keyboard, on 1,946 real English swipes typed inside sentences, the first guess is right 91.47 % of the time against 93.32 % for FUTO's engine measured the same way: 1.85 points behind (top 3: 95.02 % against 96.56 %). No Gboard swipe comparison was made (Gboard swipe typing was not measured).
+> **Headline:** in the keyboard, on 1,946 real English swipes typed inside sentences, the first guess is right 91.47 % of the time against 93.32 % for FUTO's engine measured the same way: 1.85 points behind (top 3: 94.55 % against 96.56 %). No Gboard swipe comparison was made (Gboard swipe typing was not measured).
 
 A small neural network that turns the path of a finger across an on-screen keyboard into a ranked list of words, for the Swipe Keyboard: an open-source swipe-typing and word-prediction add-on for KDE Plasma's on-screen keyboard. One model serves all four languages and any layout, because the keys are given to it as positions.
 
@@ -57,7 +57,7 @@ Code, scripts and tests: https://github.com/itsdestin/swipe-keyboard. How every 
 - **What it is:** a small neural network (2.1 MB, about 529,000 numbers) that turns a finger path over a keyboard into ranked words, for English, Spanish, French and German. One file serves all four languages and any key layout.
 - **How to use it:** `swipe-model.bin`, read by `engine/src/swipe_net.cpp` (plain C++, no machine-learning library). Most integrators should call `swipekb::LanguageEngine` (`engine/include/swipekb/language_engine.hpp`), which adds the word list, sentence prior and geometric fallback. You supply the finger path, the key rectangles and a word list.
 - **Licence:** MIT. Trained on real swipes from FUTO's swipe.futo.org dataset (MIT; its licence text must travel with the model) plus our synthetic swipes. No FUTO code or model weights.
-- **How good it is:** English, in the keyboard with the earlier words of the sentence known, 1,946 real swipes: first guess right 91.47 % (previous FUTO engine 93.32 %), right word in the top 3 95.02 % (96.56 %). Real HeliBoard swipes with no sentence, with the shipped word lists: Spanish 75.9 %, French 68.2 %, German 64.7 % first guess (the FUTO keyboard of version 0.4.1: 77.7 %, 64.6 %, 69.7 %). No Gboard swipe comparison exists. Every figure: `bench/swipe-scoreboard.tsv`.
+- **How good it is:** English, in the keyboard with the earlier words of the sentence known, 1,946 real swipes: first guess right 91.47 % (previous FUTO engine 93.32 %), right word in the top 3 94.55 % (96.56 %). Real HeliBoard swipes with no sentence, with the shipped word lists: Spanish 75.9 %, French 68.2 %, German 64.7 % first guess (the FUTO keyboard of version 0.4.1: 77.7 %, 64.6 %, 69.7 %). No Gboard swipe comparison exists. Every figure: `bench/swipe-scoreboard.tsv`.
 - **Limits:** English is about 2 points behind the engine it replaced, Spanish 2 and German 5 (French is 3.6 ahead); a word missing from the word list can never be returned; non-English training data is partly synthetic.
 
 ## What it is, and what it is not
@@ -125,10 +125,10 @@ Through `swipekb::LanguageEngine` with the shipped dictionary, sentence pack (`e
 
 | Test set | Swipes | Previous words: first / top 3 | None: first / top 3 | No sentence pack: first / top 3 |
 |---|---|---|---|---|
-| bench-2000, all | 2,000 | 90.10 / 93.55 | 88.15 / 93.15 | 89.20 / 93.65 |
-| bench-2000, FUTO-scorable | 1,946 | 91.47 / 95.02 | 89.47 / 94.60 | 90.54 / 95.12 |
-| test-extra-10000, all | 10,000 | 90.45 / 93.82 | 88.10 / 93.22 | 89.25 / 93.47 |
-| test-extra-10000, FUTO-scorable | 9,719 | 92.03 / 95.47 | 89.61 / 94.87 | 90.80 / 95.12 |
+| bench-2000, all | 2,000 | 90.10 / 93.10 | 88.15 / 92.70 | 89.20 / 93.10 |
+| bench-2000, FUTO-scorable | 1,946 | 91.47 / 94.55 | 89.47 / 94.14 | 90.54 / 94.55 |
+| test-extra-10000, all | 10,000 | 90.45 / 93.57 | 88.10 / 93.00 | 89.25 / 93.25 |
+| test-extra-10000, FUTO-scorable | 9,719 | 92.03 / 95.21 | 89.61 / 94.63 | 90.80 / 94.89 |
 
 ### The model alone (its own benchmark tool and word list, 2026-10-23; not the shipped setup)
 
@@ -144,10 +144,10 @@ Through `swipekb::LanguageEngine` with the shipped dictionary, sentence pack (`e
 
 | Set | FUTO engine, first / top 3 | This model, first / top 3 | Same setting? |
 |---|---|---|---|
-| bench-2000, the 1,946 FUTO-scorable swipes, previous words given | 93.32 / 96.56 | 91.47 / 95.02 (in the keyboard, shipped files) | yes: same swipes, previous words given to both |
+| bench-2000, the 1,946 FUTO-scorable swipes, previous words given | 93.32 / 96.56 | 91.47 / 94.55 (in the keyboard, shipped files) | yes: same swipes, previous words given to both |
 | clean3000 | 92.5 / 96.3 (2,909 swipes FUTO's tool can score) | 93.13 / 97.37 (model alone, in-dictionary only, 97.5 % of the 3,000) | no |
 
-Plainly: like-for-like, the keyboard is **1.85 points behind FUTO on first guess and 1.54 behind on top 3** (91.47 vs 93.32; 95.02 vs 96.56). FUTO's 93.32 / 96.56 was measured with the previous words given and counts only 1,946 of the 2,000 swipes (its scorer skips one-letter targets), so it is not comparable with the "all 2,000" or "no previous words" rows. The stated target (match FUTO's 93.3 / 96.6) was **not reached**.
+Plainly: like-for-like, the keyboard is **1.85 points behind FUTO on first guess and 2.01 behind on top 3** (91.47 vs 93.32; 94.55 vs 96.56). FUTO's 93.32 / 96.56 was measured with the previous words given and counts only 1,946 of the 2,000 swipes (its scorer skips one-letter targets), so it is not comparable with the "all 2,000" or "no previous words" rows. The stated target (match FUTO's 93.3 / 96.6) was **not reached**.
 
 ### Other languages: real swipes from HeliBoard (test only)
 
@@ -155,7 +155,7 @@ HeliBoard gesture test sets: about 5,000 real swipes per language (no sentences)
 
 | Language | In the keyboard, shipped files (2026-10-24) | FUTO keyboard 0.4.1 (old packs) | Model alone, 260,000-word lists (2026-10-23) |
 |---|---|---|---|
-| English | 80.5 / 91.4 (4,576 qwerty swipes, words in the dictionary) | 84.5 / 93.4 | 82.1 / 91.5 (all 5,000) |
+| English | 80.5 / 89.1 (4,576 qwerty swipes, words in the dictionary) | 84.5 / 93.4 | 82.1 / 91.5 (all 5,000) |
 | Spanish | 75.9 / 84.7 (4,790) | 77.7 / 85.1 | 81.1 / 89.8 |
 | French | 68.2 / 82.0 (4,999) | 64.6 / 76.9 | 71.7 / 85.9 |
 | German | 64.7 / 73.1 (4,980) | 69.7 / 76.4 | 73.3 / 82.3 |

@@ -287,8 +287,8 @@ Each section lists the passages of one document that quote a number or a factual
 
 ## models/swipe-typing/README.md
 
-- Headline, "At a glance", the "In the keyboard" table, the like-for-like FUTO row, the HeliBoard "in the keyboard" and "FUTO keyboard 0.4.1" columns and the limitation figures (91.47 / 95.02, 89.47, 88.15, 90.10, 75.9, 68.2, 64.7, 80.5 and the coverage 90.3 / 92.2 / 80.0 %)
-  - source: bench/swipe-scoreboard.tsv rows dated 2026-10-24 (build 0.5.0-0.1, commit 6c4b0c3 on feature/apostrophe-aware; tools/swipekb-bench and tools/swipekb-language-bench with the shipped files) and the FUTO reference rows; the 1,946-swipe denominator of FUTO's 93.32 / 96.56 follows from bench/history.tsv 370d6f5 (1,816 / 1,946 = 93.3196 %; no whole number of the 2,000 gives it) and the skip rules of its scorer (tools/swipekb-bench.cpp at 370d6f5)
+- Headline, "At a glance", the "In the keyboard" table, the like-for-like FUTO row, the HeliBoard "in the keyboard" and "FUTO keyboard 0.4.1" columns and the limitation figures (91.47 / 94.55, 89.47, 88.15, 90.10, 75.9, 68.2, 64.7, 80.5 and the coverage 90.3 / 92.2 / 80.0 %)
+  - source: bench/swipe-scoreboard.tsv rows dated 2026-10-24 (first guesses and Spanish/French/German: build 0.5.0-0.1, commit 6c4b0c3; English top 3: build 0.5.0-0.5, commit 9d3caf5, which changed only the 2nd and 3rd guesses; both on feature/apostrophe-aware; tools/swipekb-bench and tools/swipekb-language-bench with the shipped files) and the FUTO reference rows; the 1,946-swipe denominator of FUTO's 93.32 / 96.56 follows from bench/history.tsv 370d6f5 (1,816 / 1,946 = 93.3196 %; no whole number of the 2,000 gives it) and the skip rules of its scorer (tools/swipekb-bench.cpp at 370d6f5)
 
 - **Status: an opt-in alternative engine.** In the keyboard it is used only when the user creates an `own-engine` file; FUTO's engine remains ...
   - source: docs/active/specs/2026-10-23-own-swipe-engine.md section 7; docs/active/plans/2026-10-22-open-engine-roadmap.md "Phase 3 final scoring"
@@ -316,7 +316,7 @@ Each section lists the passages of one document that quote a number or a factual
   - source: docs/active/specs/2026-10-23-own-swipe-engine.md section 6, "Final scoring of T1": bench-2000 90.40 / 94.95 all, 92.34 / 96.99 in-dictionary (1,958); test-extra-10000 90.77 / 94.97 all, 92.80 / 97.10 in-dictionary (9,781); clean3000 in-dictionary 93.13 / 97.37
 - (paragraph above)
   - source: FUTO bench-2000 93.32 / 96.56: spec section 6 "FUTO reference on bench-2000: 93.32 / 96.56" and bench/history.tsv row 370d6f5 '[recognizer] step 1: keyboard default' (93.3196 / 96.557). clean3000 FUTO 92.5 / 96.3: spec section 6 "The coordinator's FUTO figure on clean3000 is 92.5 / 96.3 over the 2,909 swipes it can score". ours: spec section 6 T1 final scoring
-- Plainly: like-for-like, the keyboard is **1.85 points behind FUTO on first guess and 1.54 behind on top 3** (91.47 vs 93.32; 95.02 vs 9...
+- Plainly: like-for-like, the keyboard is **1.85 points behind FUTO on first guess and 2.01 behind on top 3** (91.47 vs 93.32; 94.55 vs 9...
   - source: arithmetic on bench/swipe-scoreboard.tsv rows (bench-2000-futo-scorable, context yes)
 - (paragraph above)
   - source: spec section 6, T1 final scoring: "HeliBoard (test only, 260k lists; case-insensitive; all 5,000): en 82.1 / 91.5, es 81.1 / 89.8, fr 71.7 / 85.9, de 73.3 / 82.3". FUTO column: spec section 6 "Today's FUTO engine (old packs): en 84.5 / 93.4, es 77.7 / 85.1, fr 64.6 / 76.9, de 69.7 / 76.4 -- a different dictionary, so compare with care"

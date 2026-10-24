@@ -156,10 +156,10 @@ Every swipe figure below is a row of `bench/swipe-scoreboard.tsv`.
 
 | Set | Swipes | Previous words: first / top 3 | None: first / top 3 | No sentence pack | FUTO first / top 3 |
 |---|---|---|---|---|---|
-| bench-2000, all | 2,000 | 90.10 / 93.55 | 88.15 / 93.15 | 89.20 / 93.65 | not measured this way |
-| bench-2000, FUTO-scorable | 1,946 | 91.47 / 95.02 | 89.47 / 94.60 | 90.54 / 95.12 | 93.32 / 96.56 (previous words) |
-| test-extra-10000, all | 10,000 | 90.45 / 93.82 | 88.10 / 93.22 | 89.25 / 93.47 | not measured |
-| test-extra-10000, FUTO-scorable | 9,719 | 92.03 / 95.47 | 89.61 / 94.87 | 90.80 / 95.12 | not measured |
+| bench-2000, all | 2,000 | 90.10 / 93.10 | 88.15 / 92.70 | 89.20 / 93.10 | not measured this way |
+| bench-2000, FUTO-scorable | 1,946 | 91.47 / 94.55 | 89.47 / 94.14 | 90.54 / 94.55 | 93.32 / 96.56 (previous words) |
+| test-extra-10000, all | 10,000 | 90.45 / 93.57 | 88.10 / 93.00 | 89.25 / 93.25 | not measured |
+| test-extra-10000, FUTO-scorable | 9,719 | 92.03 / 95.21 | 89.61 / 94.63 | 90.80 / 94.89 | not measured |
 
 ### Swipe model alone (T1, `tools/swipekb-swipenet-bench`, frequency prior, its own word list, 2026-10-23)
 
@@ -177,7 +177,7 @@ This is the source of the "90.4 %" quoted before 2026-10-24; it is not what the 
 
 | Language | In the keyboard, shipped files (2026-10-24) | FUTO keyboard 0.4.1 (older packs) | Model alone, 260k word lists (2026-10-23) |
 |---|---|---|---|
-| English | 80.5 / 91.4 (4,576) | 84.5 / 93.4 (4,576) | 82.1 / 91.5 (5,000) |
+| English | 80.5 / 89.1 (4,576) | 84.5 / 93.4 (4,576) | 82.1 / 91.5 (5,000) |
 | Spanish | 75.9 / 84.7 (4,790) | 77.7 / 85.1 | 81.1 / 89.8 |
 | French | 68.2 / 82.0 (4,999) | 64.6 / 76.9 | 71.7 / 85.9 |
 | German | 64.7 / 73.1 (4,980) | 69.7 / 76.4 | 73.3 / 82.3 |
