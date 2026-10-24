@@ -47,6 +47,7 @@ struct LanguageEngineSetup {
 // from sessions never trained on, tuned on or scored with (2026-10-24): shown alternatives that are rare,
 // stretched or rare names fell from 43.7% to 5.5%; the right word in the top 3 went 93.38% -> 92.80% (those
 // recordings are word prompts, rich in rare words and names); the first guess is unchanged by construction.
+// Other languages keep only dropStretched (see init()): the frequency rules lowered their top 3.
 struct AlternativeParams {
     int pool = 16;              // the swipe engine's best N words considered for the places after the first
     float sentenceWeight = 1.f; // extra weight on the sentence/frequency prior when ordering those places

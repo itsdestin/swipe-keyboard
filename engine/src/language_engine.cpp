@@ -326,6 +326,10 @@ bool LanguageEngine::init(const LanguageEngineSetup &setup)
     try {
         d_->setup = setup;
         d_->keepCase = setup.language.rfind("de", 0) == 0;
+        // WHY English only for the frequency rules: measured on real HeliBoard swipes (2026-10-24), the rare-word
+        // cutoff and the extra sentence weight cost 2-5 points of "right word in the top 3" in Spanish, French and
+        // German (their word lists spread frequencies differently), while dropping stretched spellings cost nothing.
+        if (setup.language.rfind("en", 0) != 0) d_->alt = {16, 0.f, 0, 0, 1e9f, true};
         std::ifstream f(setup.dictionary, std::ios::binary);
         if (setup.dictionary.empty() || !f) return false;
         std::ostringstream text;
@@ -410,7 +414,11 @@ std::vector<Candidate> LanguageEngine::recognize(const std::vector<TracePoint> &
                 if (p.dropStretched && stretched(w)) continue;
             }
             const float prior = d_->prior ? (*d_->prior)(c.word) : d_->engine.params.freqWeight * float(f);
-            others.push_back({c.score + p.sentenceWeight * prior, {w, c.score}});
+            // WHY only with earlier words: measured (2026-10-24), the extra weight makes alternatives read like the
+            // sentence ("you" -> "your", "to"), but with no sentence it only favours common words over the rarer
+            // word that was swiped (HeliBoard English, no sentences: 87.96% -> 89.05% in the top 3 without it).
+            const float weight = context.empty() ? 0.f : p.sentenceWeight;
+            others.push_back({c.score + weight * prior, {w, c.score}});
         }
         std::stable_sort(others.begin(), others.end(), [](const auto &a, const auto &b) { return a.first > b.first; });
         for (const auto &[rank, c] : others) {

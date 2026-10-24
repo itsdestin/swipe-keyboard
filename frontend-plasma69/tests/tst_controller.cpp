@@ -317,7 +317,9 @@ private Q_SLOTS:
         m_editor->moveCursor(1); // "we" was already there: never offered
         QTest::qWait(300);
         QVERIFY(m_controller->candidates().isEmpty());
-        m_editor->setField(text + QStringLiteral("there")); // someone else types after it
+        // Someone else types a separate word after it (the swiped word stays intact, so only the rule that an
+        // outside edit forgets the keyboard's words can refuse it).
+        m_editor->setField(text + QStringLiteral(" there"));
         QTest::qWait(400);
         m_editor->moveCursor(5);
         QTest::qWait(300);

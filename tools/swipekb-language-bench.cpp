@@ -93,6 +93,9 @@ int main(int argc,char **argv)
     for(const auto &name:{"dataset","model-root","packs-root"}) parser.addOption(QCommandLineOption(name,name,"value"));
     // WHY inspect the existing beam without changing the default fixture or lexical matching policy.
     parser.addOption(QCommandLineOption("candidates","Bounded beam inspection (default evaluation unchanged)","count","10"));
+    // WHY: measures the guesses after the first with the rules from before they were re-chosen (AlternativeParams).
+    parser.addOption(QCommandLineOption("plain-alternatives","Guesses after the first in plain search order"));
+    parser.addOption(QCommandLineOption("alternatives","Rules for the guesses after the first: weight,minFreq,nameFreq,stretched(0|1)","rules"));
     parser.process(app);
     bool validCount=false;
     const int candidateCount=parser.value("candidates").toInt(&validCount);
@@ -136,6 +139,11 @@ int main(int argc,char **argv)
                     else {
                         runtime->engine->liftWords(swipekb::textingWordPairs(language));
                         runtime->engine->setCapitals(swipekb::capitalsFor(language));
+                        if(parser.isSet("plain-alternatives")) runtime->engine->setAlternativeParams({16,0.f,0,0,1e9f,false});
+                        if(parser.isSet("alternatives")) {
+                            const auto r=parser.value("alternatives").split(',');
+                            if(r.size()==4) runtime->engine->setAlternativeParams({16,r[0].toFloat(),r[1].toInt(),r[2].toInt(),1e9f,r[3]=="1"});
+                        }
                     }
                 }
                 runtimes[group]=runtime;
