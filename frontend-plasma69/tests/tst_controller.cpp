@@ -345,6 +345,37 @@ private Q_SLOTS:
         }
     }
 
+    void spacebarSlideMovesTheCursorAndEndsTheSwipe()
+    {
+        swipe(QStringLiteral("hello"));
+        QVERIFY(m_controller->undoArmed());
+        m_controller->slideCursor(-3);
+        QCOMPARE(m_editor->m_cursor, 2);
+        QCOMPARE(m_editor->m_text, QStringLiteral("hello")); // no space, no letter
+        QVERIFY(!m_controller->undoArmed()); // the swiped word's Backspace undo ends, like an arrow key
+        m_controller->slideCursor(+100); // a huge jump is capped at 30 characters
+        QCOMPARE(m_editor->sentKeys, 3 + 30);
+    }
+
+    void spaceLearnsOnlyWhenTheSpaceIsTyped()
+    {
+        // WHY: a press on Space that becomes a cursor slide types no space, so it must not finish (learn) the word.
+        QFile flag(m_data.filePath(QStringLiteral("learn-typing")));
+        QVERIFY(flag.open(QIODevice::WriteOnly));
+        flag.close();
+        make();
+        for (int i = 0; i < 2; ++i) {
+            type(QStringLiteral("quorbix"));
+            m_controller->keyPressed(Qt::Key_Space, QStringLiteral(" ")); // pressed ...
+            m_controller->slideCursor(-1);                                 // ... but it became a slide
+            m_editor->setField(QString());
+        }
+        type(QStringLiteral("quor"));
+        QTest::qWait(500);
+        QVERIFY2(!m_controller->candidates().contains(QStringLiteral("quorbix")), qPrintable(m_controller->candidates().join(QLatin1Char(','))));
+        QFile::remove(m_data.filePath(QStringLiteral("learn-typing")));
+    }
+
     void learningUsesTheSameStore()
     {
         QFile flag(m_data.filePath(QStringLiteral("learn-typing")));

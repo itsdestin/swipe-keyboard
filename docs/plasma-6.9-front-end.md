@@ -41,7 +41,8 @@ keyboard. The 6.9 path needs no FUTO file and no Qt Virtual Keyboard.
 
 Works: swipe typing (en, es, fr, de; QWERTY/AZERTY/QWERTZ, desktop variants), automatic spaces, capital from Shift,
 the swiped word's alternatives, whole-word Backspace, completion with one-letter corrections, next-word suggestions,
-tap-to-swap, texting words, the swear-word rule, learning (same `learn-typing` switch, same `learning/LANG.swklearn`
+tap-to-swap, the spacebar cursor slide (same feel as 0.4.0: half a key before it starts, one character per tenth of
+a key, up to 3x for a flick; a tap still types a space), texting words, the swear-word rule, learning (same `learn-typing` switch, same `learning/LANG.swklearn`
 store, same `swipe-keyboard learning` command), long-press removal of a learned word, language switching.
 
 Missing or different:
@@ -49,11 +50,20 @@ Missing or different:
   reporting its text; where it does not, alternatives are offered only while they can be proven safe, else dropped.
 - **Own suggestion row**, not KDE's (KDE's row only shows built-in composers' candidates); keyboard navigation does not
   reach it. It takes ~13% of the key height.
-- **Spacebar cursor slide** is not ported (KDE MR !69 adds its own; port after it settles to avoid doing it twice).
 - **Swipe recorder / outcome lines** (opt-in tuning data) are not written by this front end.
 - **Window blur** and the accent-colour trail probe are not ported (cosmetic).
 - Dvorak layouts: tap only (the language packs declare QWERTY/AZERTY/QWERTZ).
 - No settings page inside KDE's keyboard settings (the `swipe-keyboard` command stays).
+
+## Spacebar slide and KDE's own (MR !69)
+
+KDE MR !69 ("Add cursor moving functionality to space key", by Tadeáš Erban) has been open and untouched since
+2025-12-12 and was written for the old Qt Virtual Keyboard layouts (it swaps `SpaceKey` for a new
+`CursorMovingSpaceKey`). Our slide therefore ships now. `SwipeHook::kdeSlidesCursor()` stands ours down when KDE's
+Space key looks like it slides by itself: a type name containing `CursorMoving`, or any property with "cursor" in its
+name on the Space key (today's `SpaceKey` has neither). `SWIPEKB_SPACE_SLIDE=on|off` overrides the guess. When KDE
+merges a slide: check its Space key's type/properties against this rule (test `spaceSlideStepsAsideForKdesOwn`), and
+if KDE's feel is acceptable, drop ours.
 
 ## KDE internals we rely on (checked by tests)
 
@@ -89,7 +99,7 @@ ninja -C ~/.cache/swipe-keyboard-train/pk69/build-fe && ctest --test-dir ~/.cach
 from that tree (the application-only module is a stub; a fake Wayland backend applies byte-based edits like KWin +
 an app), then drives it with touches offscreen. A KDE rename fails `kdeInternalsWeRelyOnArePresent` with the missing
 names; a format change fails `ourPackageWinsAndAttaches` or the launcher test `test_unknown_package_format…`. Last
-green: master `030ce04` and MR !179 `8f03a5f` (2026-10-23), 16 end-to-end tests each. For the beta, also run the
+green: master `030ce04` and MR !179 `8f03a5f` (2026-10-23), 19 end-to-end tests each. For the beta, also run the
 launcher tests (`python3 -m unittest discover -s tests/integration`) after setting the beta's real `--version` string
 in `test_each_version_gets_the_matching_front_end` if it uses a new form.
 

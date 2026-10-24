@@ -92,6 +92,9 @@ public:
             m_text.remove(m_cursor - 1, 1);
             --m_cursor;
             Q_EMIT textChanged();
+        } else if (key == Qt::Key_Left || key == Qt::Key_Right) {
+            m_cursor = qBound(0, m_cursor + (key == Qt::Key_Left ? -1 : 1), int(m_text.size()));
+            Q_EMIT textChanged();
         } else if (!text.isEmpty()) {
             commit(text, 0, 0);
         }

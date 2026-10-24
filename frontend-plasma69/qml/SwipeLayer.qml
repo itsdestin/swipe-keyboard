@@ -16,6 +16,7 @@ import SwipeKeyboard69
 
 Item {
     id: root
+    objectName: "swipeLayer"
 
     required property QtObject controller
     required property Item layoutItem // the KeyboardLayout KDE is showing
@@ -28,6 +29,86 @@ Item {
     property real thresholdKeys: 0.5
     readonly property bool lettersPage: keyboard && keyboard.layoutType === "main"
     property color trailColor: "#3daee9"
+
+    // --- Spacebar slide: dragging sideways on Space moves the text cursor (same feel as the 6.7/6.8 front end) ----
+    // Distances are fractions of a letter key's width, speeds letter-key widths per second; values from 0.4.0
+    // (plugin/SwipeCapture.qml): a sloppy tap (under half a key) still types a space; then one character per tenth of a
+    // key when slow, up to 3x as far for the same travel when fast (touchpad-style speed-up).
+    property real spaceSlideStartKeys: 0.5
+    property real spaceSlideStepKeys: 0.1
+    property real spaceSlideSlowSpeed: 4
+    property real spaceSlideFastSpeed: 16
+    property real spaceSlideMaxGain: 3
+    // Test hook: when 0 or more, the clock (ms) the slide reads instead of the real one.
+    property real slideClockMs: -1
+    property Item spaceKey: null // the Space key under the finger, null when not on Space
+    property bool spaceSliding: false
+    property real spaceStartX: 0
+    property real spaceUnit: 0
+    property real spaceCarry: 0
+    property real spaceLastX: 0
+    property real spaceSpeed: 0
+    property var spaceSamples: []
+
+    function slideNow() {
+        return slideClockMs >= 0 ? slideClockMs : Date.now();
+    }
+
+    function beginSpaceSlide(key, x) {
+        var keys = letterKeys();
+        spaceKey = key;
+        spaceSliding = false;
+        spaceUnit = keys.length > 0 ? keys[0].w : Math.max(1, key.width / 7);
+        spaceStartX = x;
+        spaceLastX = x;
+        spaceCarry = 0;
+        spaceSpeed = 0;
+        spaceSamples = [{ t: slideNow(), x: x }];
+    }
+
+    // Finger speed over the last tenth of a second (moves arrive in uneven bursts, so one gap gives wild speeds).
+    function measureSpaceSpeed(x) {
+        var now = slideNow();
+        var kept = spaceSamples.filter(function (s) { return now - s.t <= 100; });
+        kept.push({ t: now, x: x });
+        spaceSamples = kept;
+        var span = now - kept[0].t;
+        if (kept.length < 2)
+            spaceSpeed = 0;
+        else if (span >= 20)
+            spaceSpeed = Math.abs(x - kept[0].x) / spaceUnit / (span / 1000);
+        return spaceSpeed;
+    }
+
+    function spaceGain(speed) {
+        var f = (speed - spaceSlideSlowSpeed) / (spaceSlideFastSpeed - spaceSlideSlowSpeed);
+        return 1 + Math.max(0, Math.min(1, f)) * (spaceSlideMaxGain - 1);
+    }
+
+    function updateSpaceSlide(x) {
+        var step = spaceUnit * spaceSlideStepKeys;
+        var gain = spaceGain(measureSpaceSpeed(x));
+        if (!spaceSliding) {
+            var travelled = x - spaceStartX;
+            if (Math.abs(travelled) <= spaceUnit * spaceSlideStartKeys)
+                return;
+            spaceSliding = true;
+            // WHY: Space forgets the press, so lifting the finger types no space (and key repeat stops).
+            SwipeHook.cancelKeyPress(spaceKey);
+            // Start one step past the threshold so the first character moves the moment the slide starts.
+            var past = Math.abs(travelled) - spaceUnit * spaceSlideStartKeys + step;
+            spaceCarry = travelled > 0 ? past : -past;
+        } else {
+            spaceCarry += (x - spaceLastX) * gain;
+        }
+        spaceLastX = x;
+        var steps = Math.trunc(spaceCarry / step);
+        if (steps === 0)
+            return;
+        spaceCarry = Math.abs(steps) > 30 ? 0 : spaceCarry - steps * step;
+        // Always the visual direction: dragging right moves the cursor right on screen.
+        controller.slideCursor(steps);
+    }
 
     property var points: []
     property var trailPoints: []
@@ -121,6 +202,8 @@ Item {
     // ---- swipe --------------------------------------------------------------------------------------------------
 
     function stop() {
+        spaceKey = null;
+        spaceSliding = false;
         swiping = false;
         startKey = null;
         points = [];
@@ -148,6 +231,10 @@ Item {
                 var p = point.position;
                 var key = root.keyAt(p.x, p.y);
                 root.stop();
+                if (key && key.key === Qt.Key_Space && !SwipeHook.kdeSlidesCursor(key)) {
+                    root.beginSpaceSlide(key, p.x);
+                    return;
+                }
                 // WHY these gates: no swipe on symbol pages, in password fields (the trail would draw the password),
                 // when a letter of the language has no key, or from a non-letter key.
                 if (!root.lettersPage || !root.controller.fieldAllowsSwipe || !root.isLetterKey(key))
@@ -170,6 +257,10 @@ Item {
             }
         }
         onPointChanged: {
+            if (active && root.spaceKey) {
+                root.updateSpaceSlide(point.position.x);
+                return;
+            }
             if (!active || !root.startKey)
                 return;
             var p = point.position;

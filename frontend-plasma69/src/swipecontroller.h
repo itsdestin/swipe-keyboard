@@ -88,6 +88,8 @@ public:
     Q_INVOKABLE void keyClicked(int key, const QString &text);
     // A key the layer took over while undoArmed/autoSpaceArmed. Always handles it (types it normally if no longer armed).
     Q_INVOKABLE void claimedKey(int key, const QString &text);
+    // Spacebar slide: moves the text cursor by `steps` characters (negative = left), like that many arrow keys.
+    Q_INVOKABLE void slideCursor(int steps);
 
     // --- suggestion row ---------------------------------------------------------------------------------------
     Q_INVOKABLE QString selectionToken() const;
@@ -113,6 +115,7 @@ private:
         int key = 0;
         QString text;
         EditorSnapshot before; // the field as it will be right before KDE types the key
+        QString finishedWord; // Space: the typed word it finishes, learned only once the space was really typed
     };
 
     void loadLanguage(const QString &locale);

@@ -27,6 +27,8 @@
 #include <QTest>
 #include <QTimer>
 
+#include <memory>
+
 class FakeBackend : public InputBackend
 {
     Q_OBJECT
@@ -105,6 +107,14 @@ public:
         } else if (key == Qt::Key_Space) {
             text.insert(cursor, ' ');
             ++cursor;
+        } else if (key == Qt::Key_Left && cursor > 0) {
+            do {
+                --cursor;
+            } while (cursor > 0 && (uchar(text.at(cursor)) & 0xC0) == 0x80);
+        } else if (key == Qt::Key_Right && cursor < uint32_t(text.size())) {
+            do {
+                ++cursor;
+            } while (cursor < uint32_t(text.size()) && (uchar(text.at(cursor)) & 0xC0) == 0x80);
         } else if (key == Qt::Key_Return || key == Qt::Key_Enter) {
             text.insert(cursor, '\n');
             ++cursor;
@@ -498,6 +508,94 @@ private Q_SLOTS:
         QTest::touchEvent(m_window, m_touch).release(0, centre(three));
         QTest::qWait(30);
         QCOMPARE(text(), QStringLiteral("1")); // a slide on symbols types one key, as stock does
+    }
+
+    QQuickItem *spaceKey() const
+    {
+        for (QQuickItem *item : items()) {
+            if (item->isVisible() && item->metaObject()->indexOfProperty("commitText") >= 0 && item->property("key").toInt() == Qt::Key_Space) {
+                return item;
+            }
+        }
+        return nullptr;
+    }
+
+    // Presses Space and slides `keys` letter-key widths sideways in `moves` steps, `msPerMove` apart on the layer's clock.
+    void slideOnSpace(double keys, int moves, int msPerMove)
+    {
+        QQuickItem *space = spaceKey();
+        QQuickItem *layer = named(QStringLiteral("swipeLayer"));
+        QVERIFY(space && layer);
+        const double unit = key(QStringLiteral("q"))->width();
+        const QPoint start = centre(space);
+        double clock = 1000;
+        layer->setProperty("slideClockMs", clock);
+        QTest::touchEvent(m_window, m_touch).press(0, start);
+        QTest::qWait(10);
+        for (int i = 1; i <= moves; ++i) {
+            clock += msPerMove;
+            layer->setProperty("slideClockMs", clock);
+            QTest::touchEvent(m_window, m_touch).move(0, start + QPoint(int(keys * unit * i / moves), 0));
+            QTest::qWait(5);
+        }
+        QTest::touchEvent(m_window, m_touch).release(0, start + QPoint(int(keys * unit), 0));
+        QTest::qWait(30);
+        layer->setProperty("slideClockMs", -1);
+    }
+
+    void spaceTapStillTypesSpace()
+    {
+        start(true);
+        WAIT_ATTACHED();
+        m_backend->setField(QStringLiteral("hello"));
+        tap(spaceKey());
+        QCOMPARE(text(), QStringLiteral("hello "));
+        // A wobble under half a key is still a tap.
+        slideOnSpace(0.3, 3, 40);
+        QCOMPARE(text(), QStringLiteral("hello  "));
+    }
+
+    void spaceSlideMovesTheCursorWithSpeedUp()
+    {
+        start(true);
+        WAIT_ATTACHED();
+        const QString line = QStringLiteral("the quick brown fox jumps over the lazy dog");
+        m_backend->setField(line);
+        slideOnSpace(-1.5, 15, 60); // slow: 1.5 keys in 0.9 s
+        QCOMPARE(text(), line); // no space typed
+        const int slow = int(line.size()) - int(m_backend->cursor);
+        QVERIFY2(slow >= 8 && slow <= 12, qPrintable(QString::number(slow))); // 0.5 key threshold, then 1 char per 0.1 key
+        m_backend->setField(line);
+        slideOnSpace(-1.5, 15, 4); // a flick: the same distance in 60 ms
+        const int fast = int(line.size()) - int(m_backend->cursor);
+        QVERIFY2(fast > slow + 5, qPrintable(QStringLiteral("slow %1 fast %2").arg(slow).arg(fast)));
+        QCOMPARE(text(), line);
+        m_backend->setField(line, 0);
+        slideOnSpace(1.0, 10, 60); // right moves right
+        QVERIFY(m_backend->cursor > 0);
+    }
+
+    void spaceSlideStepsAsideForKdesOwn()
+    {
+        // KDE's own slide (MR !69 or a successor) is recognised by its type or a cursor property on the Space key.
+        start(true);
+        WAIT_ATTACHED();
+        QObject *hook = m_engine->singletonInstance<QObject *>("SwipeKeyboard69", "SwipeHook");
+        bool kde = true;
+        QVERIFY(QMetaObject::invokeMethod(hook, "kdeSlidesCursor", Q_RETURN_ARG(bool, kde), Q_ARG(QObject *, spaceKey())));
+        QVERIFY(!kde); // today's KDE Space key has no slide
+        QQmlComponent fake(m_engine);
+        fake.setData("import QtQuick\nItem { property int key: Qt.Key_Space; property bool cursorMovementEnabled: true }", QUrl());
+        std::unique_ptr<QObject> theirs(fake.create());
+        QVERIFY(theirs);
+        QVERIFY(QMetaObject::invokeMethod(hook, "kdeSlidesCursor", Q_RETURN_ARG(bool, kde), Q_ARG(QObject *, theirs.get())));
+        QVERIFY(kde);
+        // Stepping aside: with ours off, a slide on Space is KDE's business (today: it types a space).
+        qputenv("SWIPEKB_SPACE_SLIDE", "off");
+        m_backend->setField(QStringLiteral("hello"));
+        slideOnSpace(-1.5, 15, 60);
+        qunsetenv("SWIPEKB_SPACE_SLIDE");
+        QCOMPARE(text(), QStringLiteral("hello "));
     }
 
     void kdeInternalsWeRelyOnArePresent()

@@ -37,6 +37,8 @@ public:
     Q_INVOKABLE QStringList missingInternals(QObject *anchor) const;
     // The swipe layer calls this once a finger has moved far enough: the key under it forgets the press (types nothing).
     Q_INVOKABLE void cancelKeyPress(QQuickItem *key) const;
+    // True when KDE's own Space key already moves the cursor (KDE MR !69 or a successor): our slide then steps aside.
+    Q_INVOKABLE bool kdeSlidesCursor(QObject *spaceKey) const;
     // Tests: the controller attached to the keyboard around `anchor`, or null.
     Q_INVOKABLE QObject *controllerFor(QObject *anchor) const;
 

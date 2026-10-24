@@ -497,7 +497,8 @@ void SwipeController::keyPressed(int key, const QString &rawText)
         m_typedWord.clear();
         if (!unfinished.isEmpty()) {
             // Learning: Space finishes a word typed on this keyboard (never pasted or preexisting text).
-            learnWord(unfinished, prevBeforeToken(previous, unfinished));
+            // WHY at keyClicked: a press on Space may turn into a cursor slide, which types no space.
+            m_press.finishedWord = unfinished;
             if (pol.source == PredictionPolicySource::OwnedHistory) {
                 m_ownedHistory.word(previous, previous, pol, m_epoch, unfinished, true);
                 m_ownedHistory.observe(previous, pol, m_epoch);
@@ -572,8 +573,27 @@ void SwipeController::keyClicked(int key, const QString &rawText)
         notifyState();
         return;
     }
+    if (key == Qt::Key_Space && !press.finishedWord.isEmpty()) {
+        learnWord(press.finishedWord, prevBeforeToken(press.before, press.finishedWord));
+    }
     // WHY look again now: a fast app has already echoed the key; a slow one will, and editorChanged() follows it.
     observePredictionEcho();
+}
+
+void SwipeController::slideCursor(int steps)
+{
+    if (!m_editor || steps == 0) {
+        return;
+    }
+    // WHY one arrow key per character through KDE's normal key path: it reaches every app the keyboard types into,
+    // and each one ends the swiped word's session and the word being completed, exactly as an arrow key does.
+    // A cap: a stalled UI thread can deliver one huge jump; never flood the app with arrow keys.
+    const int key = steps > 0 ? Qt::Key_Right : Qt::Key_Left;
+    for (int i = 0, count = qMin(qAbs(steps), 30); i < count; ++i) {
+        keyPressed(key, QString());
+        m_press = {};
+        m_editor->sendKey(key);
+    }
 }
 
 void SwipeController::claimedKey(int key, const QString &rawText)

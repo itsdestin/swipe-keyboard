@@ -7,6 +7,7 @@
 #include "swipecontroller.h"
 
 #include <QLoggingCategory>
+#include <QMetaProperty>
 #include <QQmlComponent>
 #include <QQuickItem>
 #include <QQuickWindow>
@@ -161,6 +162,37 @@ void SwipeHook::cancelKeyPress(QQuickItem *key) const
             area->ungrabMouse();
         }
     }
+}
+
+bool SwipeHook::kdeSlidesCursor(QObject *spaceKey) const
+{
+    if (!spaceKey) {
+        return false;
+    }
+    // WHY by name, not by version: KDE's MR !69 ("Add cursor moving functionality to space key", open since 2025,
+    // written for the old Qt Virtual Keyboard layouts) replaced SpaceKey with a CursorMovingSpaceKey type. Any port to
+    // the new core will most likely keep such a type name or add a cursor property to the key; today's SpaceKey has
+    // neither. Two slides on one key would move the cursor twice, so ours stands down. SWIPEKB_SPACE_SLIDE=on/off
+    // overrides the guess either way.
+    const QByteArray forced = qgetenv("SWIPEKB_SPACE_SLIDE");
+    if (forced == "on") {
+        return false;
+    }
+    if (forced == "off") {
+        return true;
+    }
+    for (const QMetaObject *meta = spaceKey->metaObject(); meta; meta = meta->superClass()) {
+        if (QByteArray(meta->className()).contains("CursorMoving")) {
+            return true;
+        }
+    }
+    const QMetaObject *meta = spaceKey->metaObject();
+    for (int i = 0; i < meta->propertyCount(); ++i) {
+        if (QByteArray(meta->property(i).name()).toLower().contains("cursor")) {
+            return true;
+        }
+    }
+    return false;
 }
 
 QObject *SwipeHook::controllerFor(QObject *anchor) const
