@@ -817,6 +817,18 @@ class ReloadGrace(Base):
         r.fake.eval(s, 'SteamClient = {Input: {ControllerKeyboardSendText: function(){}}}')
         wait_for(lambda: r.attr(b2) == LAYER_VERSION, what='install once the page is ready again', timeout=8)
 
+    def test_a_refusal_from_a_page_that_is_still_there_still_counts(self):
+        # WHY: the reload fix drops errors from pages that vanished mid-check; a page that is still listed and refuses our
+        # script must keep counting, or a real Steam change would never pause Gaming Mode.
+        r = self.rig()
+        b, s = r.steam_up()
+        h = r.helper()
+        h.start()
+        wait_for(lambda: r.attr(b) == LAYER_VERSION, what='first install')
+        r.fake.eval(b, 'window.__swipekbLayer.beat = function(){ throw new Error("blocked") }')
+        wait_for(lambda: h.ledger.failures >= 1, what='the refusal is counted', timeout=8)
+        self.assertIn('refused', h.ledger.detail)
+
     def test_a_pause_is_explained_honestly_and_says_how_to_try_again(self):
         r = self.rig()
         b, s = r.steam_up(sjs='nomethod')
