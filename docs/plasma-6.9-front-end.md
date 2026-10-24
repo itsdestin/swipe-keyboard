@@ -35,7 +35,9 @@ keyboard. The 6.9 path needs no FUTO file and no Qt Virtual Keyboard.
    FUTO-free `swipekb::LanguageEngine` and `resolveProfile()`. Edits use UTF-8 byte offsets (input-method-v1).
    Field policy: password/hidden fields get nothing; e-mail, web-address, number, date fields no prediction or
    learning; an app that declares completion+correction (no `ImhNoPredictiveText`) may have its text read (sentence
-   context, tap-to-swap); otherwise only words this keyboard typed and saw echoed count (today's stock-Plasma rule).
+   context, tap-to-swap on any word); otherwise only words this keyboard typed and saw echoed count (today's
+   stock-Plasma rule): tap-to-swap then offers alternatives only for those words, and forgets them after any edit
+   the keyboard did not make.
 
 ## What works, what is missing compared with 6.7/6.8
 
