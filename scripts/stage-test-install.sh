@@ -48,6 +48,12 @@ restart_keyboard() {
 case "${1:-}" in
 package)
     [ -d "$STAGE/usr/share/swipe-keyboard" ] || { echo "no staged tree at $STAGE (run the full build first)" >&2; exit 1; }
+    # WHY the same link as packaging/arch/PKGBUILD's package(): the real package has the daily update check on from
+    # install (0.4.1), and package-check requires it, so the test build behaves like the release it stands in for.
+    if [ -f "$STAGE/usr/lib/systemd/system/swipe-keyboard-update.timer" ]; then
+        mkdir -p "$STAGE/usr/lib/systemd/system/timers.target.wants"
+        ln -sfn ../swipe-keyboard-update.timer "$STAGE/usr/lib/systemd/system/timers.target.wants/swipe-keyboard-update.timer"
+    fi
     python3 "$ROOT/scripts/package-check.py" "$STAGE"
     rm -rf "$PKGDIR/build"; mkdir -p "$PKGDIR/build"
     # WHY the installed package's own dependency list: the staged binaries are built on this machine against the same
@@ -62,7 +68,9 @@ package)
         # WHY the same licence list as packaging/arch/PKGBUILD (MIT where possible, KDE's GPL choice for the keyboard
         # add-on layers, each data file its own).
         echo "license=('MIT' 'GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL' 'Apache-2.0' 'ODC-By-1.0' 'CC-BY-4.0' 'CC0-1.0' 'custom:TATOEBA-CC-BY-2.0-FR.txt')"
-        printf "depends=("; for d in $DEPENDS; do case "$d" in None|plasma-keyboard\<*) ;; *) printf "'%s' " "$d" ;; esac; done; echo ")"
+        # WHY gnupg and pacman added: the updater (0.4.1) checks signatures and installs with pacman; a test build copying an
+        # older package's list would otherwise miss them.
+        printf "depends=("; for d in $DEPENDS gnupg pacman; do case "$d" in None|plasma-keyboard\<*) ;; *) printf "'%s' " "$d" ;; esac; done; echo ")"
         echo "options=('!strip' '!debug')"
         echo "package() { cp -a '$STAGE/usr' \"\$pkgdir/usr\"; }"
     } > "$PKGDIR/build/PKGBUILD"
