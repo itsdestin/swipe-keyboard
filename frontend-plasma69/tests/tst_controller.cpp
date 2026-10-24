@@ -318,14 +318,19 @@ private Q_SLOTS:
 
     void replacementCountsUtf8Bytes()
     {
-        // WHY: input-method-v1 deletes bytes. "café " before the cursor is 6 bytes, not 5 characters.
-        m_editor->setField(QStringLiteral("café "));
-        swipe(QStringLiteral("hello"));
-        const auto alternatives = m_controller->candidates();
-        QVERIFY(!alternatives.isEmpty());
+        // WHY: input-method-v1 deletes BYTES. Swapping "café" (4 characters, 5 bytes) right after the person taps it must
+        // delete exactly its 5 bytes, not 4.
+        m_editor->setField(QStringLiteral("the café is"));
+        QTest::qWait(300);
+        m_editor->moveCursor(8); // right after "café"
+        QVERIFY(waitForBar([](const QStringList &bar) {
+            return !bar.isEmpty();
+        }));
+        const QString alternative = m_controller->candidates().first();
         m_controller->pressCandidate(m_controller->selectionToken());
         m_controller->selectCandidate(0);
-        QCOMPARE(m_editor->m_text, QStringLiteral("café ") + alternatives.first());
+        QCOMPARE(m_editor->m_text, QStringLiteral("the ") + alternative + QStringLiteral(" is"));
+        QVERIFY2(m_editor->log.last().endsWith(QStringLiteral(" -5 5")), qPrintable(m_editor->log.last()));
     }
 
     void hiddenTextAppsNeverDeleteBlind()

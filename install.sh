@@ -2,6 +2,9 @@
 # install.sh — build swipe-keyboard, run its tests, and install it where Plasma Keyboard loads it:
 #   ~/.local/share/swipe-keyboard/{qml/SwipeKeyboard, dict, language-packs, lm}. touch-profile's layout + wrapper pick it up
 #   (their hook does nothing when this folder is missing), then the on-screen keyboard is restarted.
+#   The copy also carries qml/SwipeKeyboard69, the front end for Plasma 6.9's rebuilt keyboard. On 6.9 it is started by
+#   the packaged launcher (`swipe-keyboard launch`, integration/plasma69.py), not by touch-profile's Qt Virtual
+#   Keyboard layouts; see docs/plasma-6.9-front-end.md.
 # Usage: ./install.sh              build + test + install + restart
 #        ./install.sh --no-restart  same, but leave the running keyboard alone (for testing, or installing
 #                                   without disturbing a keyboard you are typing on)
