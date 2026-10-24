@@ -549,7 +549,8 @@ point_at_update_site() { # point_at_update_site ID: let Flatpak update this app 
     # "flatpak remotes" (it is disabled until it has an address), while on SteamOS 3.8 the helper's origin was already
     # gone. Both seen in the VM, 2026-10-23. Only "not found" means it must be created.
     local log; log="$(mktemp)"
-    if flatpak remote-modify --user --url="$UPDATE_SITE" --gpg-verify --gpg-import="$HERE/update-key.gpg" "$origin" 2>"$log"; then
+    # WHY LC_ALL=C: the "not found" test below reads Flatpak's English message; a Deck set to another language must still match.
+    if LC_ALL=C flatpak remote-modify --user --url="$UPDATE_SITE" --gpg-verify --gpg-import="$HERE/update-key.gpg" "$origin" 2>"$log"; then
         :
     elif grep -qi 'not found' "$log"; then
         # Recreate it under the same name: "flatpak update" looks the app's origin up by that name. remote-add checks

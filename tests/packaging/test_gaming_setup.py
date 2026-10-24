@@ -36,7 +36,8 @@ case "$1" in
         case "$*" in *--show-commit*) cat "$FAKE_APPS.$id" 2>/dev/null || echo old;; esac
         exit 0 ;;
   # WHY: real Flatpak says "not found" for a remote that does not exist (seen on SteamOS 3.8 for the helper's origin).
-  remote-modify) case "$*" in *gaminghelper-origin*) [ -n "$FAKE_LOST_ORIGIN" ] && { echo 'error: Remote "gaminghelper-origin" not found in the user installation' >&2; exit 1; };; esac ;;
+  remote-modify) [ "$LC_ALL" = C ] || { echo 'fake: remote-modify must run with LC_ALL=C' >&2; exit 9; }
+       case "$*" in *gaminghelper-origin*) [ -n "$FAKE_LOST_ORIGIN" ] && { echo 'error: Remote "gaminghelper-origin" not found in the user installation' >&2; exit 1; };; esac ;;
   update) [ "$FAKE_FAIL" = update ] && exit 1
           if [ -n "$FAKE_NEW" ]; then for id; do case "$id" in org.*) echo new > "$FAKE_APPS.$id";; esac; done; fi ;;
   install) [ "$FAKE_FAIL" = install ] && { echo 'fake: install failed' >&2; exit 1; }
