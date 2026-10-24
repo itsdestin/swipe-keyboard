@@ -250,7 +250,8 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("if: ${{ github.event_name == 'pull_request' }}", prepare.split('List the files a pull request changes', 1)[1].split('run:', 1)[0])
         docs = prepare.split('Documentation checks', 1)[1].split('- name:', 1)[0]
         self.assertIn("if: ${{ steps.mode.outputs.mode == 'docs' }}", docs)
-        self.assertIn('unittest discover -s tests/packaging', docs)
+        for name in ('test_release.py', 'test_publish.py', 'test_release_workflow.py', 'test_release_steamos.py', 'test_licensing.py'):
+            self.assertIn(name, docs)
         self.assertIn('scripts/ci-publish.py check-links', docs)
         # Nothing is prepared or uploaded, and Arch (which runs in every other mode) is skipped.
         self.assertEqual(prepare.count("if: ${{ steps.reuse.outputs.run == '' && steps.mode.outputs.mode != 'docs' }}"), 5)

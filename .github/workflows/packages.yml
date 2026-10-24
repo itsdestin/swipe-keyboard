@@ -95,8 +95,10 @@ jobs:
         if: ${{ steps.mode.outputs.mode == 'docs' }}
         run: |
           # README download links name the current release, every release-notes page exists, licence and
-          # wording guards; the whole packaging suite takes ~10 seconds.
-          python3 -m unittest discover -s tests/packaging -v
+          # wording guards. Only the host-independent suites: this runner has no Qt/KF (seconds).
+          for name in test_release.py test_publish.py test_release_workflow.py test_release_steamos.py test_licensing.py; do
+            python3 -m unittest discover -s tests/packaging -p "$name" -v
+          done
           python3 scripts/ci-publish.py check-links
       - name: Prepare pinned complete source once
         if: ${{ steps.reuse.outputs.run == '' && steps.mode.outputs.mode != 'docs' }}
