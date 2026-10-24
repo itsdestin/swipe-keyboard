@@ -178,11 +178,10 @@ class Packaging(unittest.TestCase):
         # package metadata therefore uses an explicit custom ref and installs its exact notice.
         self.assertIn('LicenseRef-Tatoeba-CC-BY-2.0-FR',fedora)
         self.assertIn('custom:TATOEBA-CC-BY-2.0-FR.txt',arch)
-        # KDE's licensing policy for the code (GPL for the plugin, LGPL for the engine library).
+        # No other engine's model licence remains in the package metadata.
         for recipe in (arch, fedora):
-            self.assertIn('GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL',recipe)
-            self.assertIn('LGPL-2.1-only OR LGPL-3.0-only OR LicenseRef-KDE-Accepted-LGPL',recipe)
-            self.assertNotIn('GPL-3.0-or-later',recipe)
+            self.assertIn('GPL-3.0-or-later',recipe)
+            self.assertNotIn('Model-Weights',recipe)
         self.assertIn('TATOEBA-CC-BY-2.0-FR.txt',notice)
         self.assertIn('an unavailable or corrupt pack never falls back to English',notice)
         self.assertIn('raw application completion preference',notice)

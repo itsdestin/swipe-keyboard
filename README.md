@@ -190,4 +190,4 @@ If restoring the keyboard fails, removal stops. Follow the error or use the [rec
 
 For bug reports, include your system, app, keyboard version and steps using made-up text. **Do not send passwords, recordings or personal typing.**
 
-Swiping, completion and suggestions run on the project's own open engine. Code licences follow KDE's policy (GPL-2.0-only OR GPL-3.0-only for the keyboard, LGPL-2.1-only OR LGPL-3.0-only for the engine library; see `LICENSES/`). [Licenses and notices](packaging/NOTICE).
+Swiping, completion and suggestions run on the project's own open engine (GPL-3.0-or-later). [Licenses and notices](packaging/NOTICE).

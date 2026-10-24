@@ -5,14 +5,12 @@ pkgrel=1
 pkgdesc='English, Spanish, French and German swipe typing, completions and next-word suggestions for Plasma Keyboard'
 arch=('x86_64')
 url='https://github.com/itsdestin/swipe-keyboard'
-# WHY these licences (KDE's licensing policy for the code; each data file keeps its own, see REUSE.toml):
-# keyboard plugin and tools GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL; engine library
-# LGPL-2.1-only OR LGPL-3.0-only OR LicenseRef-KDE-Accepted-LGPL; AOSP word list Apache-2.0; FineWeb text ODC-By-1.0;
-# Tatoeba sentences CC BY 2.0 France (SPDX lists only the Generic port, so the France terms are a custom file installed
-# below); the swipe model MIT (trained on MIT-licensed swipe data; models trained and released by Destin Moss via
-# youcoded.ai, 2026); the swear-word list CC-BY-4.0; the texting-word lists CC0-1.0.
-license=('GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL' 'LGPL-2.1-only OR LGPL-3.0-only OR LicenseRef-KDE-Accepted-LGPL'
-         'Apache-2.0' 'ODC-By-1.0' 'MIT' 'CC-BY-4.0' 'CC0-1.0' 'custom:TATOEBA-CC-BY-2.0-FR.txt')
+# WHY these licences: the keyboard GPL-3.0-or-later; AOSP word list Apache-2.0; FineWeb text ODC-By-1.0; Tatoeba
+# sentences CC BY 2.0 France (SPDX lists only the Generic port, so the France terms are a custom file installed below);
+# the swipe model MIT (trained on MIT-licensed swipe data; models trained and released by Destin Moss via youcoded.ai,
+# 2026; the neural next-word models carry the n-gram files' ODC-By + CC BY 2.0 FR terms); the swear-word list
+# CC-BY-4.0; the texting-word lists CC0-1.0.
+license=('GPL-3.0-or-later' 'Apache-2.0' 'ODC-By-1.0' 'MIT' 'CC-BY-4.0' 'CC0-1.0' 'custom:TATOEBA-CC-BY-2.0-FR.txt')
 depends=('python' 'systemd' 'plasma-keyboard>=6.7' 'qt6-declarative' 'qt6-virtualkeyboard' 'kwindowsystem' 'kconfig' 'qt6-tools')
 # Kirigami supplies the QML accent-colour probe exercised by native plugin tests.
 makedepends=('cmake' 'ninja' 'gcc' 'kirigami' 'gtest')

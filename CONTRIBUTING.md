@@ -42,12 +42,3 @@ Include the smallest reproducer, expected behavior, package version, distributio
 Contributions beyond code are welcome: clean-install reports, other distro recipes, accessible interaction testing, language support, and documentation. A new language needs matching models/dictionary/layout tests; changing a locale label alone does not add recognition support.
 
 Before a release, complete `docs/release-acceptance.md`. Give Qt/KDE, dictionary, training-data and optional model projects credit and preserve their licence terms.
-
-## Licensing
-
-The project follows KDE's licensing policy and is REUSE-compliant (`reuse lint` must pass): keyboard plugin, QML, tools and
-scripts `GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL`; the engine library (`engine/`)
-`LGPL-2.1-only OR LGPL-3.0-only OR LicenseRef-KDE-Accepted-LGPL`; CMake files `BSD-3-Clause`; documentation and images
-`CC-BY-SA-4.0`; trivial data `CC0-1.0`; data files keep their own licences (see `REUSE.toml`). New source files start with
-an SPDX header, e.g. `SPDX-FileCopyrightText: 2026 Your Name <email>` and `SPDX-License-Identifier: ...`. Code copied
-from elsewhere keeps its original licence and attribution.

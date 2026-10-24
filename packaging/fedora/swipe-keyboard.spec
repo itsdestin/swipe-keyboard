@@ -2,12 +2,10 @@ Name: swipe-keyboard
 Version: 0.4.0
 Release: 1%{?dist}
 Summary: English, Spanish, French and German swipe typing, completions and next-word suggestions for Plasma Keyboard
-# WHY these licences (KDE's licensing policy for the code; each data file keeps its own, see REUSE.toml): plugin and
-# tools GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL; engine library LGPL-2.1-only OR LGPL-3.0-only OR
-# LicenseRef-KDE-Accepted-LGPL; AOSP word list Apache-2.0; FineWeb text ODC-By-1.0; the swipe model MIT (trained on
-# MIT-licensed swipe data; models: Destin Moss via youcoded.ai, 2026); swear-word list CC-BY-4.0; texting words CC0-1.0.
-# SPDX lists CC-BY-2.0 (Generic), not the Tatoeba France port: its terms are a custom LicenseRef with its notice.
-License: (GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL) AND (LGPL-2.1-only OR LGPL-3.0-only OR LicenseRef-KDE-Accepted-LGPL) AND Apache-2.0 AND ODC-By-1.0 AND MIT AND CC-BY-4.0 AND CC0-1.0 AND LicenseRef-Tatoeba-CC-BY-2.0-FR
+# WHY these licences: the keyboard GPL-3.0-or-later; AOSP word list Apache-2.0; FineWeb text ODC-By-1.0; the swipe
+# model MIT (trained on MIT-licensed swipe data; models: Destin Moss via youcoded.ai, 2026); swear-word list CC-BY-4.0;
+# texting words CC0-1.0. SPDX lists CC-BY-2.0 (Generic), not the Tatoeba France port: its terms are a custom LicenseRef.
+License: GPL-3.0-or-later AND Apache-2.0 AND ODC-By-1.0 AND MIT AND CC-BY-4.0 AND CC0-1.0 AND LicenseRef-Tatoeba-CC-BY-2.0-FR
 URL: https://github.com/itsdestin/swipe-keyboard
 Source0: %{name}-%{version}.tar.gz
 ExclusiveArch: x86_64 aarch64

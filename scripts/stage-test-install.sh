@@ -54,8 +54,8 @@ package)
         echo "pkgname=swipe-keyboard"; echo "pkgver=$VERSION"; echo "pkgrel=$REL"
         echo "pkgdesc='Swipe Keyboard test build (open engine + trained models)'"; echo "arch=('x86_64')"
         echo "url='https://github.com/itsdestin/swipe-keyboard'"
-        # WHY the same licence list as packaging/arch/PKGBUILD (KDE licences for the code, each data file its own).
-        echo "license=('GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL' 'LGPL-2.1-only OR LGPL-3.0-only OR LicenseRef-KDE-Accepted-LGPL' 'Apache-2.0' 'ODC-By-1.0' 'MIT' 'CC-BY-4.0' 'CC0-1.0' 'custom:TATOEBA-CC-BY-2.0-FR.txt')"
+        # WHY the same licence list as packaging/arch/PKGBUILD.
+        echo "license=('GPL-3.0-or-later' 'Apache-2.0' 'ODC-By-1.0' 'MIT' 'CC-BY-4.0' 'CC0-1.0' 'custom:TATOEBA-CC-BY-2.0-FR.txt')"
         printf "depends=("; for d in $DEPENDS; do case "$d" in None|plasma-keyboard\<*) ;; *) printf "'%s' " "$d" ;; esac; done; echo ")"
         echo "options=('!strip' '!debug')"
         echo "package() { cp -a '$STAGE/usr' \"\$pkgdir/usr\"; }"

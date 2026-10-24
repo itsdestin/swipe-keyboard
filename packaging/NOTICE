@@ -1,11 +1,7 @@
 Swipe Keyboard
 
-Keyboard source: https://github.com/itsdestin/swipe-keyboard. Copyright 2026 Destin Moss <https://youcoded.ai>.
-The keyboard plugin and its tools are licensed GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL, the
-engine library (libswipekb_engine: swipe recognition and prediction) LGPL-2.1-only OR LGPL-3.0-only OR
-LicenseRef-KDE-Accepted-LGPL, following KDE's licensing policy; the licence texts are in LICENSES/ of the source and
-in this licence folder. Every source file names its licence (SPDX header or REUSE.toml). Source revision and local
-modifications are recorded in SOURCE-PROVENANCE.txt in the corresponding source archive. The source archive is a
+Keyboard source: https://github.com/itsdestin/swipe-keyboard (GPL-3.0-or-later; see LICENSE). Copyright 2026 Destin
+Moss <https://youcoded.ai>. Source revision and local modifications are recorded in SOURCE-PROVENANCE.txt in the corresponding source archive. The source archive is a
 required companion to binary build artifacts; these recipes do not publish anything.
 
 The swipe engine (network runner, dictionary search, geometric decoder, sentence prior) is the project's own code.
