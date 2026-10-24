@@ -8,14 +8,17 @@
 // has never seen them, so they get a fixed score from their frequency while the common word's score depends on the
 // sentence; on a clean swipe the rare word then sometimes wins. Measured on French: 21 of the 5,000 most common
 // words lost their own perfect swipe at 150k words. This tool swipes each of the --common most frequent words through
-// its own key centres, exactly as the keyboard decodes (swipekb::LanguageEngine, sentence start), and lists every word
-// past --keep (the part of the list being added) that wins. It repeats with those words left out until nothing more
+// its own key centres, exactly as the keyboard decodes (swipekb::LanguageEngine, sentence start), plus --noisy swipes
+// whose points are moved by up to --noise key widths (fixed seed), and lists every word past --keep (the part of the
+// list being added) that wins the exact swipe or at least --min-wins of all of them. WHY the wobbly swipes: a thief's lead depends on the exact
+// line (measured: "Sivo" lost "suivi"'s centred swipe on the real French board but won it on a slightly different
+// one), and real fingers never pass through key centres. It repeats with those words left out until nothing more
 // steals, because removing one thief can uncover another. The words of the first --keep lines are never listed, so a
 // list built with this output left out can only differ from the old one in words that were not there before.
 //
 // Usage:
 //   swipekb-shadow-words --dict LANG.combined --layout keys.tsv --ngram LANG.ngram --model swipe-model.bin
-//       --language es [--keep 100000] [--common 20000] [--rounds 6] > shadows.txt
+//       --language es [--keep 100000] [--common 20000] [--rounds 6] [--noisy 4 --noise 0.2 --min-wins 2] > shadows.txt
 // Output: "word<TAB>common word it beat" per line, then a "# ..." summary line on stderr.
 // Used by scripts/dict/build-corpus-dictionaries.sh through corpus_dictionary.py --drop (scripts/dict/swipe-shadows/).
 
@@ -28,6 +31,7 @@
 #include <fstream>
 #include <iostream>
 #include <map>
+#include <random>
 #include <set>
 #include <sstream>
 #include <string>
@@ -74,8 +78,9 @@ const KeyRect *keyFor(char32_t c, const std::vector<KeyRect> &keys)
     return nullptr;
 }
 
-// A noise-free swipe through the centres of the word's keys, or empty when a letter has no key.
-std::vector<TracePoint> swipeOf(const QString &word, const std::vector<KeyRect> &keys)
+// A swipe through the centres of the word's keys, every point moved by up to `noise` key sizes (0 = exact), or empty
+// when a letter has no key.
+std::vector<TracePoint> swipeOf(const QString &word, const std::vector<KeyRect> &keys, float noise, std::mt19937 &rng)
 {
     std::vector<const KeyRect *> path;
     for (char32_t c : canon(word).toUcs4()) {
@@ -87,7 +92,8 @@ std::vector<TracePoint> swipeOf(const QString &word, const std::vector<KeyRect> 
     if (path.empty()) return {};
     std::vector<TracePoint> out;
     float t = 0;
-    auto centre = [](const KeyRect *k) { return std::pair{k->x + k->w / 2, k->y + k->h / 2}; };
+    std::uniform_real_distribution<float> jitter(-noise, noise);
+    auto centre = [&](const KeyRect *k) { return std::pair{k->x + k->w / 2 + jitter(rng) * k->w, k->y + k->h / 2 + jitter(rng) * k->h}; };
     if (path.size() == 1) {
         const auto [x, y] = centre(path[0]);
         for (int s = 0; s < 10; ++s, t += 8) out.push_back({x + s, y, t});
@@ -110,7 +116,8 @@ struct Line { std::string text, raw; };
 int main(int argc, char **argv)
 {
     std::string dict, layout, ngram, model, language;
-    size_t keep = 100000, common = 20000, rounds = 6;
+    size_t keep = 100000, common = 20000, rounds = 6, noisy = 0, minWins = 1;
+    float noise = 0.2f;
     for (int i = 1; i < argc; ++i) {
         const std::string a = argv[i];
         auto val = [&]() -> std::string {
@@ -125,6 +132,9 @@ int main(int argc, char **argv)
         else if (a == "--keep") keep = std::stoul(val());
         else if (a == "--common") common = std::stoul(val());
         else if (a == "--rounds") rounds = std::stoul(val());
+        else if (a == "--noisy") noisy = std::stoul(val());
+        else if (a == "--noise") noise = std::stof(val());
+        else if (a == "--min-wins") minWins = std::stoul(val());
         else { std::fprintf(stderr, "unknown option %s\n", a.c_str()); return 2; }
     }
     if (dict.empty() || layout.empty() || language.empty()) {
@@ -163,21 +173,32 @@ int main(int argc, char **argv)
         size_t added = 0;
         for (size_t i = 0; i < std::min(common, lines.size()); ++i) {
             const QString word = QString::fromStdString(lines[i].text);
-            const auto trace = swipeOf(word, keys);
-            if (trace.empty()) continue;
-            const auto got = engine.recognize(trace, keys, {}, 1);
-            if (got.empty()) continue;
-            const QString winner = canon(QString::fromStdString(got[0].word));
-            if (winner == canon(word)) continue;
-            const auto it = byCanon.find(winner);
-            if (it == byCanon.end()) continue;
-            // WHY only when every spelling of the winner is new: a word already in the first --keep lines is not
-            // something this list adds, so leaving it out would change what the keyboard does today.
-            bool allNew = true;
-            for (size_t j : it->second) allNew = allNew && j >= keep;
-            if (!allNew) continue;
-            for (size_t j : it->second)
-                if (dropped.insert(j).second) { found.push_back({lines[j].text, lines[i].text}); ++added; }
+            // WHY a seed per word and round-independent: the same list always gives the same drop file.
+            std::mt19937 rng(uint32_t(i) * 2654435761u + 1);
+            std::map<QString, size_t> wins;   // new words that beat `word`, and on how many of its swipes
+            QString cleanWinner;              // WHY kept apart: winning the exact swipe alone is always enough
+            for (size_t attempt = 0; attempt <= noisy; ++attempt) {
+                const auto trace = swipeOf(word, keys, attempt ? noise : 0.f, rng);
+                if (trace.empty()) break;
+                const auto got = engine.recognize(trace, keys, {}, 1);
+                if (got.empty()) continue;
+                const QString winner = canon(QString::fromStdString(got[0].word));
+                if (winner == canon(word)) continue;
+                const auto it = byCanon.find(winner);
+                if (it == byCanon.end()) continue;
+                // WHY only when every spelling of the winner is new: a word already in the first --keep lines is not
+                // something this list adds, so leaving it out would change what the keyboard does today.
+                bool allNew = true;
+                for (size_t j : it->second) allNew = allNew && j >= keep;
+                if (!allNew) continue;
+                ++wins[winner];
+                if (!attempt) cleanWinner = winner;
+            }
+            for (const auto &[winner, n] : wins) {
+                if (n < minWins && winner != cleanWinner) continue;
+                for (size_t j : byCanon[winner])
+                    if (dropped.insert(j).second) { found.push_back({lines[j].text, lines[i].text}); ++added; }
+            }
         }
         std::fprintf(stderr, "# round %zu: %zu more\n", round + 1, added);
         if (!added) break;
