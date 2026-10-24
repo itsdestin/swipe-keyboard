@@ -545,16 +545,22 @@ point_at_update_site() { # point_at_update_site ID: let Flatpak update this app 
     # Updates page) use the site, without downloading the app again.
     # WHY --gpg-verify: importing the key alone does NOT switch checking on; a bundle's origin remote starts with
     # signature checks off (found in review, 2026-10-23). With it, Flatpak refuses any update not signed with our key.
-    if flatpak remotes --user --columns=name | grep -qx "$origin"; then
-        flatpak remote-modify --user --url="$UPDATE_SITE" --gpg-verify --gpg-import="$HERE/update-key.gpg" "$origin" \
-            || echo "Could not point $id at the update site; it keeps working and can be updated by hand." >&2
-    else
-        # WHY: on SteamOS the helper's origin remote was already gone right after its bundle was installed (seen in the
-        # VM, 2026-10-23), so there is nothing to modify. Recreate it under the same name: "flatpak update" looks the
-        # app's origin up by that name. remote-add checks signatures by default; --no-enumerate keeps it out of listings.
+    # WHY modify first, without looking at the list: Flatpak 1.18 (SteamOS 3.9) hides a bundle's origin remote from
+    # "flatpak remotes" (it is disabled until it has an address), while on SteamOS 3.8 the helper's origin was already
+    # gone. Both seen in the VM, 2026-10-23. Only "not found" means it must be created.
+    local log; log="$(mktemp)"
+    if flatpak remote-modify --user --url="$UPDATE_SITE" --gpg-verify --gpg-import="$HERE/update-key.gpg" "$origin" 2>"$log"; then
+        :
+    elif grep -qi 'not found' "$log"; then
+        # Recreate it under the same name: "flatpak update" looks the app's origin up by that name. remote-add checks
+        # signatures by default; --no-enumerate keeps it out of listings.
         flatpak remote-add --user --no-enumerate --gpg-import="$HERE/update-key.gpg" "$origin" "$UPDATE_SITE" \
             || echo "Could not point $id at the update site; it keeps working and can be updated by hand." >&2
+    else
+        cat "$log" >&2
+        echo "Could not point $id at the update site; it keeps working and can be updated by hand." >&2
     fi
+    rm -f "$log"
 }
 
 auto_update_on() {
