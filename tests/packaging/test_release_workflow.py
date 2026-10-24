@@ -32,6 +32,9 @@ class WorkflowTests(unittest.TestCase):
             with self.subTest(target=name):
                 self.assertIn(f'https://github.com/itsdestin/swipe-keyboard/releases/download/{tag}/{installer}', guide)
         self.assertTrue((ROOT/'docs/releases'/f'{tag}.md').is_file())
+        # WHY (card #200): every download link must name this release; one left on an older version sends people
+        # to old files. `python3 scripts/release.py readme` moves them all after a version change.
+        self.assertEqual(set(re.findall(r'/releases/download/(v[^/]+)/', guide)), {tag})
 
     def test_real_producers_and_always_completion_gate(self):
         self.assertEqual(set(self.jobs), {'prepare', 'arch', 'fedora', 'fedora-arm64', 'flatpak', 'steamos-helper', 'steamos', 'keyboard-ci', 'gaming-tests', 'publish', 'update-site-check', 'update-site'})
@@ -49,11 +52,13 @@ class WorkflowTests(unittest.TestCase):
             self.assertIn('--target ' + name, producer)
             self.assertNotIn('continue-on-error', producer)
             if name in ('arch',):
-                self.assertNotRegex(producer, r'(?m)^    if:', name)
+                # WHY changed (card #200): Arch runs in every mode, except a tag reusing main's run for its commit
+                # and a documentation-only pull request.
+                self.assertIn("    if: ${{ needs.prepare.outputs.reuse_run == '' && needs.prepare.outputs.mode != 'docs' }}", producer)
             else:
                 # WHY changed from "no job-level if": these three are optional only in the fast path,
                 # and the gate requires them to be 'skipped' there and 'success' everywhere else.
-                self.assertIn("    if: ${{ needs.prepare.outputs.mode == 'full' }}", producer)
+                self.assertIn("    if: ${{ needs.prepare.outputs.mode == 'full' && needs.prepare.outputs.reuse_run == '' }}", producer)
 
     def test_arm_is_native_full_recipe_build_and_collision_free_upload(self):
         arm = self.jobs['fedora-arm64']
@@ -100,8 +105,12 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('environment: keyboard-release', self.jobs['publish'])
         self.assertIn("github.event_name == 'push'", self.jobs['publish'])
         self.assertIn("github.repository == 'itsdestin/swipe-keyboard'", self.jobs['publish'])
-        self.assertNotIn('run-id:', self.workflow)
-        self.assertNotIn('repository:', self.workflow)
+        # WHY changed (card #200, owner decision 2026-10-24): the only download from another run is the gate's, of
+        # the main run prepare chose for this exact commit, in this repository.
+        self.assertEqual(self.workflow.count('run-id:'), 2)
+        self.assertEqual(self.jobs['keyboard-ci'].count('run-id: ${{ needs.prepare.outputs.reuse_run }}'), 2)
+        self.assertEqual(self.workflow.count('repository: ${{ github.repository }}'), 2)
+        self.assertEqual(len(re.findall(r'(?m)^ +repository:', self.workflow)), 2)
         # WHY changed from "no actions/cache at all": approved dependency-only caches now exist.
         # The release guarantees are pinned in test_dependency_caches_are_trusted_and_never_touch_releases.
         self.assertNotIn('actions/cache@', self.workflow)
@@ -161,7 +170,7 @@ class WorkflowTests(unittest.TestCase):
 
     def test_dependency_caches_are_trusted_and_never_touch_releases(self):
         import json
-        # WHY: tag candidates must rebuild everything cold, and only trusted events may write.
+        # WHY: tag candidates never touch caches (they reuse main's tested files or rebuild cold), and only trusted events may write.
         for name in ('arch', 'fedora', 'fedora-arm64', 'flatpak'):
             job = self.jobs[name]
             self.assertIn('scripts/ci-cache.py policy', job, name)
@@ -218,9 +227,53 @@ class WorkflowTests(unittest.TestCase):
         # Publication is tag-only and tags are always full (run_mode), so the release set is unchanged.
         self.assertIn("startsWith(github.ref, 'refs/tags/v')", self.jobs['publish'])
 
+    def test_tags_reuse_main_only_for_the_same_commit_and_still_hash_every_byte(self):
+        # Card #200, owner decision 2026-10-24: a tag publishes main's already-tested files for its exact commit.
+        prepare, gate = self.jobs['prepare'], self.jobs['keyboard-ci']
+        self.assertIn("if: ${{ startsWith(github.ref, 'refs/tags/') }}", prepare.split('id: reuse', 1)[1].split('run:', 1)[0])
+        self.assertIn('scripts/ci-reuse.py find', prepare)
+        # The reuse lookup runs after the tag/version/ancestry checks, never before.
+        self.assertLess(prepare.index('git merge-base --is-ancestor'), prepare.index('scripts/ci-reuse.py find'))
+        # The gate swaps in the main run's producer results only on a tag whose own prepare succeeded, and the tag
+        # gate still hashes the actual bytes (no --evidence-only on tags).
+        self.assertIn('[[ "$GITHUB_REF" == refs/tags/* && "$PREPARE_RESULT" == success ]]', gate)
+        self.assertIn('scripts/ci-reuse.py statuses --run "$REUSE_RUN"', gate)
+        self.assertIn('if [[ "$GITHUB_REF" != refs/tags/* ]]; then flag=\'--evidence-only\'; fi', gate)
+        # Read access to runs is limited to the two jobs that need it.
+        self.assertEqual(self.workflow.count('actions: read'), 2)
+        self.assertIn('actions: read', prepare)
+        self.assertIn('actions: read', gate)
+
+    def test_documentation_only_pull_requests_build_nothing_but_still_check_the_words(self):
+        # Card #200: a README-only pull request waited ~35 minutes for packages it does not change.
+        prepare, gate = self.jobs['prepare'], self.jobs['keyboard-ci']
+        self.assertLess(prepare.index('git diff --name-only "$BASE_SHA" "$GITHUB_SHA"'), prepare.index('scripts/release.py mode --changed'))
+        self.assertIn("if: ${{ github.event_name == 'pull_request' }}", prepare.split('List the files a pull request changes', 1)[1].split('run:', 1)[0])
+        docs = prepare.split('Documentation checks', 1)[1].split('- name:', 1)[0]
+        self.assertIn("if: ${{ steps.mode.outputs.mode == 'docs' }}", docs)
+        for name in ('test_release.py', 'test_publish.py', 'test_release_workflow.py', 'test_release_steamos.py', 'test_licensing.py'):
+            self.assertIn(name, docs)
+        self.assertIn('scripts/ci-publish.py check-links', docs)
+        # Nothing is prepared or uploaded, and Arch (which runs in every other mode) is skipped.
+        self.assertEqual(prepare.count("if: ${{ steps.reuse.outputs.run == '' && steps.mode.outputs.mode != 'docs' }}"), 5)
+        self.assertIn("    if: ${{ needs.prepare.outputs.reuse_run == '' && needs.prepare.outputs.mode != 'docs' }}", self.jobs['arch'])
+        # The gate learns the mode from prepare; release.py accepts it only on pull requests.
+        self.assertIn('PREPARED_MODE: ${{ needs.prepare.outputs.mode }}', gate)
+
+    def test_only_pull_requests_cancel_superseded_runs(self):
+        self.assertIn("cancel-in-progress: ${{ github.event_name == 'pull_request' }}", self.workflow)
+
+    def test_prepare_frees_space_in_the_background_but_waits_before_using_it(self):
+        prepare = self.jobs['prepare']
+        self.assertIn("touch /tmp/space-freed' >/dev/null 2>&1 &", prepare)
+        self.assertLess(prepare.index('touch /tmp/space-freed'), prepare.index('actions/checkout@v4'))
+        self.assertLess(prepare.index('until [ -e /tmp/space-freed ]'), prepare.index('scripts/ci-source.py prepared'))
+
     def test_gate_hashes_real_bytes_on_tags_and_uses_evidence_elsewhere(self):
         gate = self.jobs['keyboard-ci']
-        self.assertEqual(gate.count("if: ${{ startsWith(github.ref, 'refs/tags/') }}"), 2)  # files download + verified-release upload
+        self.assertEqual(gate.count("if: ${{ startsWith(github.ref, 'refs/tags/') }}"), 1)  # verified-release upload
+        # Files download: this run's on a cold tag, the reused main run's otherwise (that one is only ever set on tags).
+        self.assertEqual(gate.count("if: ${{ startsWith(github.ref, 'refs/tags/') && needs.prepare.outputs.reuse_run == '' }}"), 1)
         self.assertIn('--evidence-only', gate)
         self.assertIn('refs/tags/*', gate)
         self.assertIn('PR_DRAFT', gate)
@@ -318,7 +371,7 @@ exit "$result"
         self.assertIn('steamos-evidence', steamos)
         for job in (helper, steamos):
             self.assertNotIn('continue-on-error', job)
-            self.assertIn("    if: ${{ needs.prepare.outputs.mode == 'full' }}", job)
+            self.assertIn("    if: ${{ needs.prepare.outputs.mode == 'full' && needs.prepare.outputs.reuse_run == '' }}", job)
         # The gate counts steamos as a producer; the helper is covered through it (a failed helper skips steamos).
         gate = self.jobs['keyboard-ci']
         self.assertNotIn('steamos-helper', gate)

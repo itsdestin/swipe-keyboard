@@ -18,6 +18,19 @@ hardware (virtual-machine results only; the README labels Gaming Mode a preview 
 physical-Deck pass, plan Milestone 11, is done).
 Never replace v0.2.0 assets.
 
+## Test builds and the once-per-release check (card #200)
+
+- **Test build for the owner:** `scripts/quick-test-build.sh`. Builds what changed, runs the test groups of the
+  parts that changed (engine, build files, scripts and data run all of them), stages the package, runs CI's
+  payload checks on the installed layout, builds the test package and prints the install command. Measured
+  2026-10-24: about 50 s when only words changed, 2.5 min for a keyboard change, 3 min from scratch. Benchmarks
+  only with `--bench`, after the package is handed over. Do not run every benchmark per test build.
+- **Before a release, once:** `scripts/full-verify.sh`. Every test, the Python suites, the 6.9 front end on both
+  KDE versions and the accuracy scoreboards with `--check`, one after another on a quiet machine.
+- **README download links:** after changing the version, `python3 scripts/release.py readme` moves every link,
+  file name and command; a test fails while any link names another version, and publishing checks that every
+  link works.
+
 ## One local check command
 
 From a clean checkout:
@@ -45,7 +58,8 @@ Required producer jobs are `prepare`, `arch`, `fedora`, `fedora-arm64`, `flatpak
 `keyboard-ci` (`Keyboard CI`) runs with `always()` and checks every producer result;
 failed, cancelled, missing and unexpectedly skipped producers fail the gate.
 Read-only credentials apply throughout PR/build/gate jobs. No `pull_request_target`,
-cross-run artifact promotion, optional platform bypass, or product build cache exists.
+optional platform bypass, or product build cache exists. The one cross-run download is a release tag reusing
+main's files for the same commit (below).
 Dependency-only speed caches exist (see "Dependency caches" below); release tags never use them.
 
 - `prepare`: clean pinned checkout, CPython 3.14, recipe
@@ -123,19 +137,26 @@ from uploaded claims. `verified-release` is the exact set to inspect/download.
    the owner's normal release procedure. Both source and final publication checks
    require that **exact tag SHA** to be reachable from `origin/main`; it need not
    remain the latest main commit while builds run.
-3. The tag runs **all producers again in the same workflow**. After `Keyboard CI`
-   passes, the `publish` job waits for approval of the protected **keyboard-release**
+3. The tag **reuses main's packages for that exact commit** (owner decision, 2026-10-24, card #200;
+   it replaced "the tag rebuilds every producer cold"). `prepare` (`scripts/ci-reuse.py find`) looks for the
+   push run on `main` of this workflow, in this repository, for the tag's exact SHA, with every producer
+   successful and its files not expired (7 days), and waits while that run is still going. The gate then
+   downloads that run's files and evidence, takes that run's producer results, and still hashes every byte
+   against the evidence. If no such run exists the tag builds everything cold, as before. What reuse gives
+   up: main's builds may restore dependency and compiler caches (below), which a cold tag build never did.
+   About 8 minutes instead of 36. Push `main` first; the tag can follow at once.
+   After `Keyboard CI` passes, the `publish` job waits for approval of the protected **keyboard-release**
    environment. Configure its required owner reviewer and disallow administrator
    bypass before using tag publication; a bare environment name alone is not protection.
    Download `verified-release` from this exact run, record required real-input checks
-   against its package hashes, and only then approve publication. An earlier PR build
-   is not evidence for newly rebuilt tag artifacts.
+   against its package hashes, and only then approve publication.
 4. Only `publish`, after that approval, receives `contents: write`, only on this
    repository's tag push. It verifies tag/version/SHA and every transferred byte again, creates a draft,
    uploads the manifest-derived exact file list, downloads and checks the remote
    asset set/hashes, and only then makes the release public as a **prerelease**,
    preserving the current test-release channel. Stable-channel promotion requires
    an explicit policy change, not an accidental omitted flag. No rebuild or clobber.
+   Then it checks that every README download link for the release answers; a broken one fails the run.
 5. A failure leaves a draft, not a partial public release. An existing draft or
    published release is refused on rerun; the owner must inspect/reconcile the draft
    explicitly before retrying. Existing published releases are never replaced.
@@ -185,7 +206,8 @@ acceptance or infer a physical pass from an offscreen InputPanel.
 Cold dependency work is cached, never the keyboard itself. Rules, enforced by
 `scripts/ci-cache.py` and `tests/packaging/test_ci_cache.py` / `test_release_workflow.py`:
 
-- **Release tags (`refs/tags/v*`) never read or write any cache** and rebuild everything cold.
+- **Release tags (`refs/tags/v*`) never read or write any cache.** They normally reuse main's packages for the
+  same commit (see "Corrective tag and publication"); only without such a run do they rebuild everything cold.
   Fork pull requests use none. Pull requests of this repository may read, never write.
   Only pushes and manual dispatch on a branch of `itsdestin/swipe-keyboard` write.
 - **Flatpak Qt/Plasma stages**: flatpak-builder's stage store, packed by a `--dependencies-only`
@@ -202,6 +224,14 @@ Cold dependency work is cached, never the keyboard itself. Rules, enforced by
 
 ### Fast path and the merge guarantee
 
+- **Documentation only** (card #200, a few minutes): a pull request whose every changed file is Markdown or under
+  `docs/`. `prepare` lists the changed files (`git diff` against the pull request's base) and
+  `scripts/release.py mode --changed` decides; no package job runs, the host-independent packaging suites and a
+  live README link check run, and the gate passes as `Keyboard CI` only when `prepare` succeeded and every package
+  job was skipped. Anything else (tests, scripts, workflows, packaging recipes, `LICENSES/`, which ships inside
+  every package, or code), an unreadable list, `main` and tags: the full matrix. `main` always builds, because a
+  release tag reuses its packages.
+
 - **Fast path** (Arch only, about 12-15 minutes): draft pull requests, and manual dispatch on a branch
   unless `full: true` is chosen. Arch runs the whole native test suite and checks the same package
   bytes against both the older and the current library set.
@@ -213,7 +243,9 @@ Cold dependency work is cached, never the keyboard itself. Rules, enforced by
   `Keyboard CI` only for full runs; a fast run reports as `Keyboard CI (fast path, not mergeable)`.
   Require `Keyboard CI` in branch protection. A draft cannot be merged on GitHub, and a ready pull
   request always gets a full run, so the required check only appears, and only passes, after all four
-  platforms built and passed. `main` re-runs the full matrix after every merge as a backstop.
+  platforms built and passed. `main` re-runs the full matrix after every merge as a backstop; that run's
+  packages are the ones a release tag publishes. A newer push to a pull request cancels its older run
+  (main and tags never cancel).
 - The gate still demands an exact outcome per producer: required ones `success`, fast-path-optional
   ones `skipped` (never failed, cancelled or missing); the fast-shaped result is rejected on tags.
 - **Gate bytes:** on tags the gate re-downloads the files and hashes the actual bytes, as before.

@@ -23,15 +23,26 @@ defaults:
     shell: bash
 concurrency:
   group: keyboard-${{ github.ref }}
-  cancel-in-progress: false
+  # WHY pull requests only (card #200): a new push to a pull request makes its older run pointless, and waiting
+  # behind it queued runs for hours. main and tags never cancel: each of their runs may become a release.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   prepare:
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      # Read-only: lets a tag run find and read main's run for the same commit.
+      actions: read
     outputs:
       version: ${{ steps.version.outputs.version }}
       package_version: ${{ steps.version.outputs.package_version }}
       mode: ${{ steps.mode.outputs.mode }}
+      reuse_run: ${{ steps.reuse.outputs.run }}
     steps:
+      - name: Free hosted-runner space in the background (never a host installation)
+        # WHY in the background (card #200): deleting these takes ~2 minutes; only the source preparation below
+        # needs the space (its 21 GiB floor), so checkout and the version checks run meanwhile.
+        run: nohup sudo sh -c 'rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL; touch /tmp/space-freed' >/dev/null 2>&1 &
       - uses: actions/checkout@v4
         with:
           # The complete Git history is not needed.
@@ -40,8 +51,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.14'
-      - name: Free hosted-runner space (never a host installation)
-        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
       - name: Check recipe versions and trusted tag ancestry
         id: version
         run: |
@@ -52,26 +61,56 @@ jobs:
             test "$GITHUB_REF_NAME" = "v$(python3 scripts/release.py version)"
             # Only root history is needed for ancestry.
             git fetch --unshallow --no-tags origin +refs/heads/main:refs/remotes/origin/main
-            # Build tags only from a source commit already on main. No cross-run artifact promotion.
+            # Build tags only from a source commit already on main.
             git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main
           fi
-      - name: Choose fast path or full matrix
+      - name: Tags reuse main's packages for this exact commit (card #200)
+        id: reuse
+        if: ${{ startsWith(github.ref, 'refs/tags/') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        # WHY (owner decision 2026-10-24): main already built and tested these exact bytes; rebuilding cold cost
+        # ~25 minutes per release. Empty output = no usable main run, so everything builds cold as before.
+        run: echo "run=$(python3 scripts/ci-reuse.py find)" >> "$GITHUB_OUTPUT"
+      - name: List the files a pull request changes
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        # WHY only the base commit, no history: comparing two commits' files needs nothing else. Any failure
+        # leaves no list, which means the full matrix.
+        run: |
+          git fetch --no-tags --depth=1 origin "$BASE_SHA" && git diff --name-only "$BASE_SHA" "$GITHUB_SHA" > "$RUNNER_TEMP/changed.txt" || rm -f "$RUNNER_TEMP/changed.txt"
+          cat "$RUNNER_TEMP/changed.txt" 2>/dev/null || true
+      - name: Choose documentation-only, fast path or full matrix
         id: mode
         env:
           PR_DRAFT: ${{ github.event.pull_request.draft }}
           FULL_INPUT: ${{ inputs.full }}
         run: |
-          # WHY: fast = Arch only, for drafts and plain branch dispatch. Tags, main, ready pull requests
-          # and `full: true` run everything; unknown situations also run everything.
-          echo "mode=$(python3 scripts/release.py mode)" >> "$GITHUB_OUTPUT"
-      - name: Prepare pinned complete source once
+          # WHY: docs = a pull request changing only Markdown or docs/ (card #200): no package is built, so the
+          # wait is minutes, not ~35. fast = Arch only, for drafts and plain branch dispatch. Tags, main, ready
+          # pull requests and `full: true` run everything; unknown situations also run everything.
+          echo "mode=$(python3 scripts/release.py mode --changed "$RUNNER_TEMP/changed.txt")" >> "$GITHUB_OUTPUT"
+      - name: Documentation checks (documentation-only pull requests)
+        if: ${{ steps.mode.outputs.mode == 'docs' }}
         run: |
+          # README download links name the current release, every release-notes page exists, licence and
+          # wording guards. Only the host-independent suites: this runner has no Qt/KF (seconds).
+          for name in test_release.py test_publish.py test_release_workflow.py test_release_steamos.py test_licensing.py; do
+            python3 -m unittest discover -s tests/packaging -p "$name" -v
+          done
+          python3 scripts/ci-publish.py check-links
+      - name: Prepare pinned complete source once
+        if: ${{ steps.reuse.outputs.run == '' && steps.mode.outputs.mode != 'docs' }}
+        run: |
+          until [ -e /tmp/space-freed ]; do sleep 2; done
           python3 scripts/ci-source.py prepared
           mkdir release evidence
           version=$(python3 -c 'import json; print(json.load(open("packaging/release-targets.json"))["version"])')
           cp "prepared/swipe-keyboard-$version.tar.gz" release/
           python3 scripts/release.py record --target source --sha "$GITHUB_SHA"
       - name: Test release boundary and complete source fixtures
+        if: ${{ steps.reuse.outputs.run == '' && steps.mode.outputs.mode != 'docs' }}
         run: |
           mkdir source-tests
           tar -xzf "release/swipe-keyboard-${{ steps.version.outputs.version }}.tar.gz" -C source-tests
@@ -82,6 +121,7 @@ jobs:
           python3 -m unittest discover -s tests/packaging -p test_release_workflow.py -v
           python3 -m unittest discover -s tests/packaging -p test_release_steamos.py -v
       - uses: actions/upload-artifact@v4
+        if: ${{ steps.reuse.outputs.run == '' && steps.mode.outputs.mode != 'docs' }}
         with:
           name: prepared
           path: prepared/
@@ -89,6 +129,7 @@ jobs:
           retention-days: 7
           compression-level: 0
       - uses: actions/upload-artifact@v4
+        if: ${{ steps.reuse.outputs.run == '' && steps.mode.outputs.mode != 'docs' }}
         with:
           name: source-files
           path: release/
@@ -96,6 +137,7 @@ jobs:
           retention-days: 7
           compression-level: 0
       - uses: actions/upload-artifact@v4
+        if: ${{ steps.reuse.outputs.run == '' && steps.mode.outputs.mode != 'docs' }}
         with:
           name: source-evidence
           path: evidence/
@@ -104,6 +146,8 @@ jobs:
           compression-level: 0
   arch:
     needs: prepare
+    # WHY: a tag reusing main's run, and a documentation-only pull request, build nothing (card #200).
+    if: ${{ needs.prepare.outputs.reuse_run == '' && needs.prepare.outputs.mode != 'docs' }}
     runs-on: ubuntu-24.04
     container: archlinux:latest
     env:
@@ -267,7 +311,7 @@ jobs:
   fedora:
     needs: prepare
     # WHY: optional in the fast path; the Keyboard CI gate requires these to be skipped there and successful otherwise.
-    if: ${{ needs.prepare.outputs.mode == 'full' }}
+    if: ${{ needs.prepare.outputs.mode == 'full' && needs.prepare.outputs.reuse_run == '' }}
     runs-on: ubuntu-24.04
     container: fedora:44
     env:
@@ -403,7 +447,7 @@ jobs:
   fedora-arm64:
     needs: prepare
     # WHY: optional in the fast path; the Keyboard CI gate requires these to be skipped there and successful otherwise.
-    if: ${{ needs.prepare.outputs.mode == 'full' }}
+    if: ${{ needs.prepare.outputs.mode == 'full' && needs.prepare.outputs.reuse_run == '' }}
     # Native hosted ARM, not cross-compilation or hours of local TCG compilation.
     runs-on: ubuntu-24.04-arm
     container: fedora:44
@@ -542,7 +586,7 @@ jobs:
   flatpak:
     needs: prepare
     # WHY: optional in the fast path; the Keyboard CI gate requires these to be skipped there and successful otherwise.
-    if: ${{ needs.prepare.outputs.mode == 'full' }}
+    if: ${{ needs.prepare.outputs.mode == 'full' && needs.prepare.outputs.reuse_run == '' }}
     runs-on: ubuntu-26.04
     env:
       PACKAGE_VERSION: ${{ needs.prepare.outputs.package_version }}
@@ -683,7 +727,7 @@ jobs:
     # WHY a separate job: the helper Flatpak does not depend on the main Flatpak, so it builds in parallel
     # with it; only the final assembly waits for both. Optional in the fast path like the other platforms.
     needs: prepare
-    if: ${{ needs.prepare.outputs.mode == 'full' }}
+    if: ${{ needs.prepare.outputs.mode == 'full' && needs.prepare.outputs.reuse_run == '' }}
     runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v4
@@ -735,7 +779,7 @@ jobs:
     # WHY its own producer: the single SteamOS download (both Flatpaks + install.sh + checksums, plan Section 15
     # question 2) is a required release file like every other target, so it is built, checked and gated here.
     needs: [prepare, flatpak, steamos-helper]
-    if: ${{ needs.prepare.outputs.mode == 'full' }}
+    if: ${{ needs.prepare.outputs.mode == 'full' && needs.prepare.outputs.reuse_run == '' }}
     runs-on: ubuntu-26.04
     env:
       PACKAGE_VERSION: ${{ needs.prepare.outputs.package_version }}
@@ -819,6 +863,10 @@ jobs:
     # "Keyboard CI" must mean the Gaming Mode tests passed too, in every mode (it runs on drafts as well).
     needs: [prepare, arch, fedora, fedora-arm64, flatpak, steamos, gaming-tests]
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      # Read-only: downloading a reused main run's files needs it (card #200).
+      actions: read
     steps:
       - uses: actions/checkout@v4
         with:
@@ -829,29 +877,60 @@ jobs:
           GAMING_RESULT: ${{ needs.gaming-tests.result }}
         run: |
           if [[ "$GAMING_RESULT" != success ]]; then echo "gaming-tests finished as: $GAMING_RESULT"; exit 1; fi
-      # No run-id/repository override: downloads belong only to this workflow run.
+      # Downloads come from this run, or, for a tag reusing main (card #200), only from the main run that
+      # prepare chose for this exact commit, in this repository.
       # WHY tags only: files are re-downloaded to hash the exact bytes that get published. Non-release
       # runs publish nothing, and every producer already recorded its own file hashes at creation.
       - uses: actions/download-artifact@v4
-        if: ${{ startsWith(github.ref, 'refs/tags/') }}
+        if: ${{ startsWith(github.ref, 'refs/tags/') && needs.prepare.outputs.reuse_run == '' }}
         with:
           pattern: '*-files'
           merge-multiple: true
           path: release
       - uses: actions/download-artifact@v4
+        if: ${{ needs.prepare.outputs.reuse_run == '' && needs.prepare.outputs.mode != 'docs' }}
         with:
           pattern: '*-evidence'
           merge-multiple: true
           path: evidence
+      - uses: actions/download-artifact@v4
+        if: ${{ needs.prepare.outputs.reuse_run != '' }}
+        with:
+          pattern: '*-files'
+          merge-multiple: true
+          path: release
+          run-id: ${{ needs.prepare.outputs.reuse_run }}
+          repository: ${{ github.repository }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@v4
+        if: ${{ needs.prepare.outputs.reuse_run != '' }}
+        with:
+          pattern: '*-evidence'
+          merge-multiple: true
+          path: evidence
+          run-id: ${{ needs.prepare.outputs.reuse_run }}
+          repository: ${{ github.repository }}
+          github-token: ${{ github.token }}
       - name: Reject any incomplete, stale or failed producer set
         if: ${{ always() }}
         env:
           PRODUCER_STATUSES: ${{ toJSON(needs) }}
           PR_DRAFT: ${{ github.event.pull_request.draft }}
           FULL_INPUT: ${{ inputs.full }}
+          REUSE_RUN: ${{ needs.prepare.outputs.reuse_run }}
+          PREPARED_MODE: ${{ needs.prepare.outputs.mode }}
+          PREPARE_RESULT: ${{ needs.prepare.result }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           # WHY removed: the producer check wants exactly the producer jobs; gaming-tests has its own step above.
           statuses=$(jq -c 'del(."gaming-tests")' <<< "$PRODUCER_STATUSES")
+          if [[ -n "$REUSE_RUN" ]]; then
+            # WHY: this run's producers were skipped on purpose; the results that count are those of the main run
+            # whose files are checked below. Only a tag whose own prepare succeeded may do this.
+            [[ "$GITHUB_REF" == refs/tags/* && "$PREPARE_RESULT" == success ]] || { echo "reuse outside a successful tag prepare" >&2; exit 1; }
+            statuses=$(python3 scripts/ci-reuse.py statuses --run "$REUSE_RUN")
+            echo "Gating the files of main run $REUSE_RUN for this exact commit"
+          fi
           flag=''
           # Tags always verify the real bytes (the script also refuses this flag on tags).
           if [[ "$GITHUB_REF" != refs/tags/* ]]; then flag='--evidence-only'; fi
