@@ -13,6 +13,8 @@ import unittest
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
+# WHY kept: the tests replace shutil.which, and a stand-in that called the replaced one would call itself forever.
+REAL_WHICH = shutil.which
 UPDATE = ROOT / 'integration/update.py'
 
 # Stand-in for pacman: answers -Q with the installed version and records every -U.
@@ -86,7 +88,7 @@ class ArchUpdater(unittest.TestCase):
             spec.loader.exec_module(module)
             with mock.patch.object(module.platform, 'machine', return_value='x86_64'), \
                  mock.patch.object(module.os, 'geteuid', return_value=0), \
-                 mock.patch.object(module.shutil, 'which', side_effect=lambda n: n == 'pacman' or shutil.which(n)):
+                 mock.patch.object(module.shutil, 'which', side_effect=lambda n: n == 'pacman' or REAL_WHICH(n)):
                 return module.main(list(args))
 
     def installs(self):
@@ -165,9 +167,12 @@ class ArchUpdater(unittest.TestCase):
             module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(module)
         failure = urllib.error.URLError(ssl.SSLCertVerificationError('certificate verify failed'))
-        with mock.patch.object(module.urllib.request, 'urlopen', side_effect=failure), \
+        # WHY the stand-in pacman stays on PATH: otherwise the result depends on whether this machine really has the
+        # keyboard installed (it passed on a developer laptop and recursed on CI).
+        with mock.patch.dict(os.environ, self.env), \
+             mock.patch.object(module.urllib.request, 'urlopen', side_effect=failure), \
              mock.patch.object(module.os, 'geteuid', return_value=0), \
-             mock.patch.object(module.shutil, 'which', side_effect=lambda n: n == 'pacman' or shutil.which(n)):
+             mock.patch.object(module, 'manager', return_value='pacman'):
             self.assertEqual(module.main(['check']), 1)
 
     def test_a_malformed_but_signed_index_is_refused_without_a_crash(self):
