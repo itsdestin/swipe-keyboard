@@ -50,7 +50,15 @@ Models trained and released by Destin Moss via youcoded.ai, 2026.
 
 Code, scripts and tests: https://github.com/itsdestin/swipe-keyboard. How every number below was measured: [methods page](../../methods.md) (published copy: https://github.com/itsdestin/swipe-keyboard/blob/main/docs/methods.md).
 
-**Status: an opt-in alternative engine.** In the keyboard it is used only when the user creates an `own-engine` file; FUTO's engine remains the default. On English it is **not yet as accurate** as FUTO's engine (see the numbers below).
+**Status: the keyboard's only swipe engine.** FUTO's engine is no longer part of the keyboard; every FUTO comparison below is a measurement against the engine it replaced. On English this model is **not yet as accurate** as that engine (numbers below). If the model file is missing or fails its checksum, the keyboard decodes by key geometry alone.
+
+## At a glance
+
+- **What it is:** a small neural network (2.1 MB, about 529,000 numbers) that turns a finger path over a keyboard into ranked words, for English, Spanish, French and German. One file serves all four languages and any key layout.
+- **How to use it:** `swipe-model.bin`, read by `engine/src/swipe_net.cpp` (plain C++, no machine-learning library). Most integrators should call `swipekb::LanguageEngine` (`engine/include/swipekb/language_engine.hpp`), which adds the word list, sentence prior and geometric fallback. You supply the finger path, the key rectangles and a word list.
+- **Licence:** MIT. Trained on real swipes from FUTO's swipe.futo.org dataset (MIT; its licence text must travel with the model) plus our synthetic swipes. No FUTO code or model weights.
+- **How good it is:** English, 2,000 real swipes: first guess right 90.40 % (previous FUTO engine 93.32 %); right word in the top 3 94.95 % (96.56 %). Spanish, French and German are measured on 5,000 real HeliBoard swipes each (72 to 81 % first guess); see "Other languages" for the caveats. No Gboard swipe comparison exists.
+- **Limits:** English is 1 to 3 points behind the engine it replaced; French and German are lower than English; a word missing from the word list can never be returned; non-English training data is partly synthetic.
 
 ## What it is, and what it is not
 
@@ -129,9 +137,9 @@ Plainly: on all swipes of bench-2000 the model is **2.9 points behind FUTO on fi
 
 ### Other languages: real swipes from HeliBoard (test only)
 
-HeliBoard gesture test sets: 5,000 real swipes per language, case-insensitive, accents kept, per-swipe real board geometry, 260,000-word lists. First guess / top 3, all 5,000 swipes. "FUTO engine today" used the older, smaller word packs, so the two columns do **not** use the same dictionary and are not like-for-like.
+HeliBoard gesture test sets: 5,000 real swipes per language, case-insensitive, accents kept, per-swipe real board geometry, 260,000-word lists. First guess / top 3, all 5,000 swipes. "FUTO's engine" used the older, smaller word packs, so the two columns do **not** use the same dictionary and are not like-for-like.
 
-| Language | This model (T1) | FUTO engine today (old packs) |
+| Language | This model (T1) | FUTO's engine (old packs; no longer used) |
 |---|---|---|
 | English | 82.1 / 91.5 | 84.5 / 93.4 |
 | Spanish | 81.1 / 89.8 | 77.7 / 85.1 |
@@ -153,7 +161,7 @@ First guess. The source calls these "val slices" of the collection; it does not 
 
 ### Synthetic Spanish, French and German (not human)
 
-The synthetic noisy sets (`bench/languages/synthetic-noisy-v1-*.json`, 400 words each) were scored with the **older FUTO-engine keyboard**, not with this model: Spanish 89.00 / 98.25, French 83.25 / 93.00, German 87.75 / 97.00 (first / top 3). We have **no synthetic-set score for T1 in the sources**. Synthetic English calibration: real 92.8 / 96.4 against synthetic 92.3 / 96.0. These sets only cover dictionary words and assume people swipe other languages like English.
+The synthetic noisy sets (`bench/languages/synthetic-noisy-v1-*.json`, 400 words each) were scored with the **earlier keyboard that used FUTO's engine**, not with this model: Spanish 89.00 / 98.25, French 83.25 / 93.00, German 87.75 / 97.00 (first / top 3). We have **no synthetic-set score for T1 in the sources**. Synthetic English calibration: real 92.8 / 96.4 against synthetic 92.3 / 96.0. These sets only cover dictionary words and assume people swipe other languages like English.
 
 ### Sentence-context prior (experiment)
 
@@ -168,7 +176,7 @@ Gboard's swipe typing was **not measured** (any version, learning on or off).
 - **English is about 1 to 3 points behind FUTO's engine** on single in-dictionary words and about 3 on all swipes; the target was not met. More real English data barely helped: six times more real English swipes moved the clean English numbers by +0.4 on one set and 0 on another, so we stopped (agreed stopping rule).
 - **French and German are lower than English** on HeliBoard (71.7 and 73.3 first guess vs 82.1). The sources do not isolate the cause. One measured factor is dictionary coverage of the targets (German 91.9 % even with the 260,000-word list; compounds are the likely reason, not verified). The spread between swipers on the same layout is also large (5 to 7 points).
 - **Accent twins** (Spanish que / qué, como / cómo; French ou / où) share one swipe path. The shape cannot decide between them; the sentence prior has to, and without previous words the choice is frequency only.
-- **Short words (3 letters or fewer)** were the other common miss when the older FUTO-engine keyboard was scored on synthetic Spanish, French and German swipes; we have not repeated that breakdown for T1.
+- **Short words (3 letters or fewer)** were the other common miss when the earlier keyboard (FUTO's engine) was scored on synthetic Spanish, French and German swipes; we have not repeated that breakdown for T1.
 - **Out-of-dictionary words are always misses.** About 2.5 % of English targets are not in the word list (bench-2000: 42 of 2,000).
 - **Spanish, French and German training is partly synthetic** (100,000 each) plus the real `swipe-5` slices. Only English has large real recordings. Real volunteers' swipes per language are still missing, so non-English numbers are less certain than English ones.
 - **Layout handling is approximate where we had no real key rectangles.** The AZERTY/QWERTZ/Spanish layouts used for synthetic training are approximations (`make_layouts.py`); the real keyboard supplies live rectangles at run time. Key pitch, not drawn key width, is the unit, because boards with gaps between keys were 20 % off otherwise.

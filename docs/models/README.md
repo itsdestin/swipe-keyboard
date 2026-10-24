@@ -1,19 +1,27 @@
 # Open models of the Swipe Keyboard
 
-Draft, not published. Models trained and released by Destin Moss via youcoded.ai, 2026.
+Models trained and released by Destin Moss via youcoded.ai, 2026.
 
-The Swipe Keyboard is an open-source swipe-typing and word-prediction add-on for KDE Plasma's on-screen keyboard: https://github.com/itsdestin/swipe-keyboard. These are the models it uses beside its word-list files. All run on the user's own computer with our own small C++ code; nothing is sent anywhere.
+Five small models, used by the [Swipe Keyboard](https://github.com/itsdestin/swipe-keyboard), an open-source swipe-typing and word-prediction add-on for KDE Plasma's on-screen keyboard (English, Spanish, French, German). They run on the user's own computer with the project's own C++ code. Nothing is sent anywhere.
 
-| Model | What it does | Size | Licence of the file | Card |
+| Model | What it does | Size | Licence | Card |
 |---|---|---|---|---|
-| `youcoded/next-word-english` | English next-word prediction (one-layer LSTM, int8); used together with the English n-gram pack | 4,657,632 bytes | ODC-By-1.0 AND CC-BY-2.0-FR | [next-word-english](next-word-english/README.md) |
-| `youcoded/next-word-spanish` | Spanish next-word prediction | 4,709,920 bytes | ODC-By-1.0 AND CC-BY-2.0-FR | [next-word-spanish](next-word-spanish/README.md) |
-| `youcoded/next-word-french` | French next-word prediction | 4,698,696 bytes | ODC-By-1.0 AND CC-BY-2.0-FR | [next-word-french](next-word-french/README.md) |
-| `youcoded/next-word-german` | German next-word prediction | 4,718,096 bytes | ODC-By-1.0 AND CC-BY-2.0-FR | [next-word-german](next-word-german/README.md) |
-| `youcoded/swipe-typing` ("T1") | Swipe decoding for English, Spanish, French and German from key positions (small CTC network, lexicon beam search, geometric cross-check and fallback); opt-in beside FUTO's engine | 2,115,260 bytes | MIT | [swipe-typing](swipe-typing/README.md) |
+| `youcoded/next-word-english` | Predicts the next English word; blended with the English n-gram file | 4.66 MB | ODC-By-1.0 AND CC-BY-2.0-FR | [card](next-word-english/README.md) |
+| `youcoded/next-word-spanish` | Same, Spanish | 4.71 MB | ODC-By-1.0 AND CC-BY-2.0-FR | [card](next-word-spanish/README.md) |
+| `youcoded/next-word-french` | Same, French | 4.70 MB | ODC-By-1.0 AND CC-BY-2.0-FR | [card](next-word-french/README.md) |
+| `youcoded/next-word-german` | Same, German | 4.72 MB | ODC-By-1.0 AND CC-BY-2.0-FR | [card](next-word-german/README.md) |
+| `youcoded/swipe-typing` ("T1") | Turns a finger path into ranked words, all four languages in one file | 2.12 MB | MIT | [card](swipe-typing/README.md) |
 
-How everything was measured, including a measurement error we found and retracted: [methods](../methods.md).
+## Using them
 
-Honest summary: the next-word models add up to about 9 points over the n-gram files alone on some measures and little on others, and, on the recorded queries, are ahead of Gboard 14.2 (the copy built into Google's Android 35 x86_64 emulator image, learning off, tested 2026-10-22) on every measure. Newer Gboard versions may differ, Gboard's behaviour with learning on was not measured, and the repository records no fuller Gboard build number than 14.2. The swipe model is about 3 points behind FUTO's engine on English first guess over all swipes and is ahead of FUTO's current packs on Spanish, French and German real swipes from HeliBoard, with a different dictionary. Details, caveats and sources are in the cards and the methods page.
+- **Files:** GitHub release `models-2026-10-23` (the models) and `language-files-2026-10-23-apostrophes` (word lists and n-gram files they are used with). Every file is pinned by SHA-256 in `packaging/assets.lock.json`.
+- **Code:** `engine/` (MIT). `swipekb::LanguageEngine` is the one class to start from; it takes a word list, an optional n-gram file and an optional swipe model, and falls back to simpler behaviour when a file is missing. See [`engine/README.md`](../../engine/README.md).
+- **Licences:** the next-word models need attribution to Hugging Face (FineWeb), Common Crawl terms and the Tatoeba contributors (CC BY 2.0 France); no share-alike. The swipe model needs the MIT text of FUTO's swipe data kept with it. Each card lists the exact credits.
 
-Credit line for all of them: **Models trained and released by Destin Moss via youcoded.ai, 2026.** Release assets: GitHub release `models-2026-10-23`; word lists and n-gram files: `language-files-2026-10-22-open-words`.
+## How good are they
+
+- **Next word, against Gboard:** on the recorded test queries, the next-word models plus their n-gram files were ahead of Gboard on every measure, by 3.9 to 19.6 points. The test: Gboard 14.2 (the copy built into Google's Android 35 x86_64 emulator image), learning off, tested 2026-10-22, 100 sentences per set. Newer Gboard versions and Gboard with learning on were not measured, so this is not a general claim about Gboard.
+- **Next word, against the n-gram files alone:** the models add up to about 9 points on some measures and under 1 point on others.
+- **Swipe:** on English the swipe model is about 3 points behind the FUTO engine it replaced (90.40 % against 93.32 % first guess, 2,000 real swipes). It is ahead of that engine's older word packs on Spanish, French and German real swipes (HeliBoard), with a different word list, so that is not like-for-like. Gboard swipe typing was not measured.
+
+How everything was measured, including a measurement error we found and retracted: [methods](../methods.md). Where each number comes from: [SOURCES.md](SOURCES.md).

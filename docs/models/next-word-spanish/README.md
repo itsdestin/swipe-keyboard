@@ -60,6 +60,14 @@ Models trained and released by Destin Moss via youcoded.ai, 2026.
 
 Code, scripts and tests: https://github.com/itsdestin/swipe-keyboard. How every number below was measured: [methods page](../../methods.md) (published copy: https://github.com/itsdestin/swipe-keyboard/blob/main/docs/methods.md).
 
+## At a glance
+
+- **What it is:** a small neural next-word predictor for Spanish (4.71 MB). It reads the sentence typed so far and scores likely next words. It runs on the user's own device inside the Swipe Keyboard; nothing is sent anywhere.
+- **How to use it:** the file is `es.nwp.bin`. Load it with `engine/src/nwp_model.cpp` (about 250 lines of C++, no machine-learning library) and blend it with the Spanish n-gram pack through `NwpPredictor` (`engine/include/swipekb/nwp_predictor.hpp`). It is not meant to be used alone. File layout: "File format" below.
+- **Licence:** ODC-By-1.0 AND CC-BY-2.0-FR. Attribution only, no share-alike. Keep the credits listed under "Licence of the model file". The code that reads it is MIT.
+- **How good it is:** see the Result above for the Gboard comparison, and "Evaluation" for every table. All test sets are small (300 sentences per set; 100 against Gboard), so differences under about 1 to 2 points are noise.
+- **Limits:** trained on web text and example sentences, not texting; vocabulary of about 24,000 words; reads only the current sentence. Full list under "Known limitations".
+
 ## What it is, and what it is not
 
 - It is a one-layer LSTM with a projection layer and tied word vectors: the same size class as the next-word models Google describes in its published paper on Gboard ([arXiv 2305.18465](https://arxiv.org/abs/2305.18465)). It is our own model, trained from scratch; no Google or FUTO weights or data were used.
@@ -145,7 +153,7 @@ Same n-gram pack in both columns (the published 2026-10-22 files); only the neur
 | Tatoeba held-out tenth | after 1 letter, top 2 | 56.02 | 58.58 | +2.56 |
 | Tatoeba held-out tenth | after 3 letters, top 2 | 73.77 | 77.24 | +3.47 |
 
-### Against the keyboard before the open files
+### Against the keyboard's earlier files (before 2026-10-22)
 
 "Before" means the keyboard as it shipped until 2026-10-22 (for Spanish, French and German a Tatoeba-only n-gram file; for English FUTO's neural next-word model). Measured on the same sentences with the same tool.
 
@@ -173,7 +181,7 @@ Points **ahead of** (+) or behind (-) Gboard's own suggestions on the exact quer
 | web (FineWeb-2) | 2 | +10.75 | +19.59 |
 | web (FineWeb-2) | 3 | +11.05 | +19.53 |
 
-How to read this: Gboard had its learning from the user turned off, so it shows Gboard's out-of-the-box model, not what it does after weeks of use. One Gboard version (14.2, from an Android 35 emulator image) was tested. With 100 sentences per set the noise is roughly +-2 points. The web set is partly home ground for our model. We make no claim about Gboard in general. We used none of Gboard's code or data. Newer Gboard versions may differ, and Gboard's behaviour with learning on was not measured. The repository records no fuller Gboard build number than 14.2. No broader claim about Gboard is made.
+How to read this: Gboard had its learning from the user turned off, so it shows Gboard's out-of-the-box model, not what it does after weeks of use. One Gboard version (14.2, from an Android 35 emulator image) was tested. With 100 sentences per set the noise is roughly +-2 points. The web set is partly home ground for our model. We make no claim about Gboard in general, and the repository records no fuller build number than 14.2. We used none of Gboard's code or data. Newer Gboard versions may differ, and Gboard's behaviour with learning on was not measured.
 
 ## Known limitations
 
@@ -213,7 +221,7 @@ Required credits when redistributing:
 - Tatoeba (tatoeba.org), CC BY 2.0 France. Keep the contributor list `es-CONTRIBUTORS.txt` and the notice `TATOEBA-CC-BY-2.0-FR.txt` with the model.
 - Keep the project's notices: `MODELS-NOTICE.md` (release `models-2026-10-23`) and `LANGUAGE-FILES-NOTICE.md`.
 
-The surrounding code is licensed separately (see the repository's `LICENSE` and `packaging/NOTICE`). If you want to publish this card on Hugging Face, the licence field above is `other` because the expression above is not one of Hugging Face's identifiers.
+The surrounding code is licensed separately (see the repository's `LICENSE` and `packaging/NOTICE`). (Hugging Face's licence field reads `other` because this expression is not one of its identifiers.)
 
 ## Credit
 

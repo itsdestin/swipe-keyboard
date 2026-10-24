@@ -1,6 +1,6 @@
 # How we measured everything
 
-Draft, not published. Every number is traced to a file in the repository in an HTML comment next to it. Where a number does not exist in our records, this page says "not measured" instead of estimating one.
+Every number is traced to a file in the repository in an HTML comment next to it. Where a number does not exist in our records, this page says "not measured" instead of estimating one.
 
 Models trained and released by Destin Moss via youcoded.ai, 2026. Project: https://github.com/itsdestin/swipe-keyboard. Model cards: [docs/models/](models/README.md).
 
@@ -78,7 +78,7 @@ We compare with Gboard only by using the app, as a user would. Full procedure: `
 
 ## How FUTO's engine was measured
 
-FUTO's swipe engine is shipped with the keyboard as the default and used as the reference for swipe accuracy. We run it through two paths:
+FUTO's swipe engine was the keyboard's engine before our own replaced it, and it is our reference for swipe accuracy. The keyboard no longer contains it; we measured it earlier, through two paths:
 
 1. FUTO's own `infer_jsonl` program on the bench-2000 slice (beam width 100, top 3). With the stock dictionary this gave 92.50 first guess / 95.43 top 3 on 2,000 swipes.
 2. Through our own recogniser harness with FUTO's models and our current dictionary: 93.32 first guess / 96.56 top 3 on bench-2000. This is the "FUTO 93.32 / 96.56" figure used in the model card.
@@ -124,8 +124,8 @@ What we changed: validation is now whole recording sessions held out of `dev.jso
 
 ## What we deliberately did not use
 
-- **FUTO code.** The own swipe engine (CTC network, lexicon beam search, geometric fallback) was written from published literature (Graves et al. 2006 on CTC; Alsharif et al. 2015 and follow-ups on gesture decoding; Kristensson and Zhai 2004; dynamic time warping), by a writer who had not read FUTO's source. Our authorship audit separately marks which older files of the repository are FUTO-derived (53 files, mostly glue for calling FUTO's engine) so they can be removed.
-- **FUTO model weights.** None are in our models. FUTO's engine is still the keyboard's default swipe engine for now and keeps its own licence and notice.
+- **FUTO code.** The own swipe engine (CTC network, lexicon beam search, geometric fallback) was written from published literature (Graves et al. 2006 on CTC; Alsharif et al. 2015 and follow-ups on gesture decoding; Kristensson and Zhai 2004; dynamic time warping), by a writer who had not read FUTO's source. The older files that called FUTO's engine have since been removed from the repository.
+- **FUTO model weights.** None are in our models, and FUTO's engine is no longer part of the keyboard. The only FUTO material used is its public swipe data (MIT), for training the swipe model; its licence text travels with the model.
 - **A Gboard study report.** Early in the project a static study of Gboard 18.5's app code was written. It was withdrawn at the owner's request on 2026-10-23 and removed from the current tree (it remains in older git history); nothing in our models, data or numbers depends on it. Gboard is compared only by using the app from the outside, as described above.
 - **HeliBoard data for training.** Its gesture data is CC BY-SA (share-alike); we use it for testing only.
 - **wordfreq.** Replaced by word lists counted from FineWeb / FineWeb-2 and Tatoeba (share-alike term removed).
@@ -158,7 +158,7 @@ The neural models add (against the n-gram files alone, commit a2041d8): between 
 
 ### Swipe, other languages (HeliBoard real swipes, test only, 5,000 each, first / top 3)
 
-| Language | Ours (T1, 260k word lists) | FUTO engine today (older, smaller packs; not like-for-like) |
+| Language | Ours (T1, 260k word lists) | FUTO's engine (older, smaller packs; no longer used; not like-for-like) |
 |---|---|---|
 | English | 82.1 / 91.5 | 84.5 / 93.4 |
 | Spanish | 81.1 / 89.8 | 77.7 / 85.1 |
@@ -169,7 +169,7 @@ The neural models add (against the n-gram files alone, commit a2041d8): between 
 
 - Gboard swipe accuracy; Gboard English next word with its learning on; any newer Gboard.
 - Real volunteer swipes for Spanish, French and German (HeliBoard's are real but from a different population; synthetic ones are model-made).
-- Our swipe model on the synthetic Spanish, French and German sets (those sets were scored only with the older FUTO-engine keyboard: es 89.00 / 98.25, fr 83.25 / 93.00, de 87.75 / 97.00).
+- Our swipe model on the synthetic Spanish, French and German sets (those sets were scored only with the earlier keyboard that used FUTO's engine: es 89.00 / 98.25, fr 83.25 / 93.00, de 87.75 / 97.00).
 - FUTO's English next-word model on completion after letters; FUTO against the HeliBoard sets with the new open word lists.
 - Validation perplexity and training curves of the next-word models.
 - Speed on ARM or Steam Deck hardware (no device available).
@@ -213,7 +213,7 @@ python -I scripts/swipe/holdout_ids.py holdout-final.json bench-2000.jsonl test-
 python -I scripts/swipe/assemble_futo.py DATA_DIR OUT_DIR holdout-final.json holdout-val.json
 build/tools/swipekb-swipenet-bench --model swipe-model.bin --words words.tsv --layout scripts/swipe/layouts/qwerty.tsv bench-2000.jsonl
 
-# Swipe: FUTO's engine on the same slice (needs the FUTO build)
+# Swipe: FUTO's engine on the same slice (historical: needs the old FUTO build, which the keyboard no longer contains)
 bench/score.sh --runner futo --label "FUTO reference"
 
 # Synthetic noisy swipes for es / fr / de
