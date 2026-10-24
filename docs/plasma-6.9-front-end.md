@@ -105,22 +105,41 @@ in `test_each_version_gets_the_matching_front_end` if it uses a new form.
 
 ## Real-device test (KWin + real plasma-keyboard)
 
-Not yet done: this machine runs Plasma 6.7.5 and the full plasma-keyboard app needs PlasmaQuick ≥ 6.7.90. Run it in a
-VM (never on the owner's working system); a VM disk needs ~25–40 GB, so put it on external storage.
+**First run 2026-10-24** on KDE Linux (Plasma 6.8.80 "6.9 Dev", plasma-keyboard 6.8.80, Qt 6.12) in a VM on the
+owner's desktop, package 0.5.0-0.1, driven over SSH:
 
-1. **Now:** KDE neon Unstable (Plasma git master, ordinary writable `/usr`) in QEMU/virt-manager. KDE Linux also runs
-   master but its `/usr` is read-only, so installing our package there needs a system extension; prefer neon.
-   **January:** the 6.9 beta in an Arch VM with the `kde-unstable` repository. Add `-device virtio-multitouch-pci`
-   (QEMU ≥ 8.1) for touch; the mouse also swipes.
-2. In the VM: build and install from this branch: on Arch `makepkg -si` in `packaging/arch` (after
-   `scripts/package-source.sh`); on neon `cmake -S . -B build -DCMAKE_INSTALL_PREFIX=/usr && cmake --build build &&
-   sudo cmake --install build` (after `scripts/fetch-assets.sh`).
-3. `swipe-keyboard check` must report `Front end: Plasma 6.9 keyboard core`; then `swipe-keyboard enable --yes`.
-4. In System Settings → Virtual Keyboard, choose "Swipe Keyboard"; open Kate or a browser text field.
-5. Check, in order: tap `q` types "Q"; swipe "hello" types "Hello" and the row shows alternatives; tap one → replaced;
-   Backspace right after a swipe erases the word; type "hel" → completions; Space → next words; tap into an earlier
-   word in Kate → alternatives → tap → swapped; a password field (a browser login form) → no trail, no row, plain taps; globe key → German → swipe "hallo"; ?123 page → no swipe,
-   same panel height; `journalctl --user -b | grep -i swipe` shows no warning.
-6. Break-checks on the device: `mv /usr/share/swipe-keyboard/qml/SwipeKeyboard69 /tmp/` → relaunch keyboard → KDE's
-   plain keyboard still types (log: "Swipe Keyboard is unavailable"); move it back. `swipe-keyboard disable` restores
-   the previous keyboard.
+- Works: `swipe-keyboard check` reports `Front end: Plasma 6.9 keyboard core`; `enable` switches KWin to our
+  launcher; KDE's keyboard starts with our layer and suggestion row; taps type; finger swipes type ("hello" →
+  alternatives "help", "he'll"); automatic spaces; "is" stays "is"; in KWrite "They were" (sentence start capital,
+  previous word used); learning is off by default.
+- Found and fixed (commit after 666e733): **Firefox reports each edit one step late** (after our commit it still
+  shows the old text). That gave double spaces between swiped words ("they  we're") and no sentence for the next
+  swipe (owned-words fields). The controller now remembers the states its own edits pass through
+  (`effectiveSnapshot`) and the words it typed in the sentence (`m_ownWords`); test
+  `appThatReportsLateGetsOneSpaceAndTheSentence` (FakeEditor `m_lagging`). Also: one tapped capital ("H") made
+  completions all-caps ("HOW"); now two capitals are needed (shared `typedwordsession.h`).
+- Still open in late-reporting apps (Firefox): picking a swiped word's alternative or whole-word Backspace right
+  after a swipe is refused (the word is not yet in the reported text, and we never delete text we cannot see), and
+  next-word suggestions need the app's confirmation, so they may not appear. Not re-checked on the VM after the fix
+  (the desktop went offline); spacebar slide, tap-to-swap, Spanish, `?123` page and password field not yet tried.
+- Test builds made on the laptop are marked x86-64-v4 (CachyOS znver4 system files), so they refuse to run on the
+  desktop's Zen 3; strip `.note.gnu.property` for VM use. Release packages (CI, stock Arch) are unaffected.
+
+### Installing into KDE Linux (read-only `/usr`)
+
+As a system extension: `bsdtar -xf <pkg> usr` into `/var/lib/extensions/swipe-keyboard/`, add
+`usr/lib/extension-release.d/extension-release.swipe-keyboard` with `ID=_any`, then `systemd-sysext merge`
+(after replacing a file: `unmerge` then `merge`; `refresh` does not notice in-place changes). It survives reboots.
+`swipe-keyboard enable --yes` from the graphical session's environment. Driving the VM: brain note
+`machines/desktop/kde-linux-vm.md` (virtual touchscreen via uinput; QEMU's own input commands do not reach the keys).
+
+### Other distributions
+
+Now: KDE neon Unstable (writable `/usr`): `cmake -S . -B build -DCMAKE_INSTALL_PREFIX=/usr && cmake --build build &&
+sudo cmake --install build` (after `scripts/fetch-assets.sh`). January: the 6.9 beta in an Arch VM with
+`kde-unstable` (`makepkg -si` in `packaging/arch` after `scripts/package-source.sh`). Checklist: tap `q` types "Q";
+swipe "hello"; tap an alternative; Backspace after a swipe erases the word; "hel" → completions; Space → next
+words; tap into an earlier word → alternatives; a password field → no trail, no row; globe → German → "hallo";
+`?123` → no swipe, same height; `journalctl --user -b | grep -i swipe` clean. Break-check: move
+`/usr/share/swipe-keyboard/qml/SwipeKeyboard69` away → KDE's plain keyboard still types; `swipe-keyboard disable`
+restores the previous keyboard.

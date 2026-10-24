@@ -120,6 +120,9 @@ private:
 
     void loadLanguage(const QString &locale);
     EditorSnapshot editorSnapshot() const;
+    EditorSnapshot effectiveSnapshot() const;
+    void expectOwnState(const EditorSnapshot &after);
+    void forgetOwnEdits();
     PredictionPolicy policy() const;
     bool safeContext() const;
     bool safePredictionContext() const;
@@ -177,6 +180,11 @@ private:
     int m_autoSpaceCursor = -1;
     bool m_afterSwipe = false;
     int m_afterSwipeCursorBefore = -1, m_afterSwipeCursorAfter = -1;
+    // The field states this keyboard's own recent edits pass through (oldest first, the last is where the text is
+    // going), and the words it typed in this sentence. WHY: some apps (Firefox on Plasma 6.9 dev) report each edit
+    // one step late; a report that is one of these states is "not caught up yet", anything else is a real edit.
+    QList<EditorSnapshot> m_ownStates;
+    QStringList m_ownWords;
     QString m_nextPrev, m_completionPrev;
     QStringList m_lastBar;
     bool m_lastUndo = false, m_lastAutoSpace = false, m_lastField = false;

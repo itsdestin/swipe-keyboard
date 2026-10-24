@@ -145,6 +145,26 @@ private Q_SLOTS:
         QVERIFY(!m_editor->m_upper);
     }
 
+    void appThatReportsLateGetsOneSpaceAndTheSentence()
+    {
+        // WHY (found on the real Plasma 6.9 dev desktop, 2026-10-24): Firefox reports each edit one step late. A swipe
+        // starts as a press on its first key, and right after a swipe that press types the new word's space; the
+        // swipe then still saw the old text, added a second space ("they  we're"), and lost the previous word, so
+        // "were" became "we're". Like Firefox, this field also does not let the keyboard read it (owned words only).
+        m_editor->m_lagging = true;
+        m_editor->setHints(Qt::ImhNoPredictiveText);
+        const auto swipeFromKey = [&](const QString &word) {
+            // What the real layer does: the finger lands on the first key (reported as a press), then travels.
+            QMetaObject::invokeMethod(m_controller, "keyPressed", Q_ARG(int, Qt::Key_A), Q_ARG(QString, word.left(1)));
+            swipe(word);
+        };
+        swipeFromKey(QStringLiteral("they"));
+        swipeFromKey(QStringLiteral("were"));
+        QCOMPARE(m_editor->m_text, QStringLiteral("they were"));
+        swipeFromKey(QStringLiteral("here"));
+        QCOMPARE(m_editor->m_text, QStringLiteral("they were here"));
+    }
+
     void tapTypesNormallyAndGetsSpaceAfterSwipe()
     {
         swipe(QStringLiteral("hello"));

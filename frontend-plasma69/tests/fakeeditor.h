@@ -17,6 +17,11 @@ public:
     int m_cursor = 0;
     Qt::InputMethodHints m_hints;
     bool m_upper = false, m_caps = false, m_hidden = false; // m_hidden: an app that never reports its text
+    // m_lagging: an app that reports one step late, as Firefox does on Plasma 6.9 dev (2026-10-24): after each edit
+    // it still shows the text from before that edit, and catches up only at the next edit.
+    bool m_lagging = false;
+    QString m_shownText;
+    int m_shownCursor = 0;
     QString m_locale = QStringLiteral("en_US");
     QStringList log;
     int sentKeys = 0;
@@ -27,11 +32,11 @@ public:
     }
     QString text() const override
     {
-        return m_hidden ? QString() : m_text;
+        return m_hidden ? QString() : m_lagging ? m_shownText : m_text;
     }
     int cursor() const override
     {
-        return m_hidden ? 0 : m_cursor;
+        return m_hidden ? 0 : m_lagging ? m_shownCursor : m_cursor;
     }
     int anchor() const override
     {
@@ -60,6 +65,22 @@ public:
     void commit(const QString &text, int from, int length) override
     {
         log << QStringLiteral("commit '%1' %2 %3").arg(text).arg(from).arg(length);
+        if (m_lagging) {
+            // WHY before the edit: the report that goes out now is the state before this edit (one step late).
+            const bool changed = m_shownText != m_text || m_shownCursor != m_cursor;
+            m_shownText = m_text;
+            m_shownCursor = m_cursor;
+            applyEdit(text, from, length);
+            if (changed) {
+                Q_EMIT textChanged();
+            }
+            return;
+        }
+        applyEdit(text, from, length);
+        Q_EMIT textChanged();
+    }
+    void applyEdit(const QString &text, int from, int length)
+    {
         QByteArray bytes = m_text.toUtf8();
         int cursorBytes = m_text.left(m_cursor).toUtf8().size();
         if (length) {
@@ -77,7 +98,6 @@ public:
         if (m_upper && !m_caps && !text.isEmpty()) {
             m_upper = false; // like KDE's composer after one capital
         }
-        Q_EMIT textChanged();
     }
     void releaseShift() override
     {

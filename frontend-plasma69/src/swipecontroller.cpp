@@ -273,9 +273,39 @@ bool SwipeController::safePredictionContext() const
     return safeContext() && !(m_editor->hints() & kDenyHints) && !m_editor->preedit() && NextWordSession::allowed(editorSnapshot(), policy());
 }
 
+EditorSnapshot SwipeController::effectiveSnapshot() const
+{
+    // WHY: while the app's report is still one of the states our own edits pass through, the text is really at the
+    // last of them (the app has not caught up yet). Used for spacing and our own words only; the echo checks that
+    // authorize reading the field or showing predictions still use exactly what the app reported.
+    const auto e = editorSnapshot();
+    return !m_ownStates.isEmpty() && m_ownStates.contains(e) ? m_ownStates.last() : e;
+}
+
+void SwipeController::expectOwnState(const EditorSnapshot &after)
+{
+    if (m_ownStates.isEmpty()) {
+        m_ownStates << editorSnapshot();
+    }
+    m_ownStates << after;
+    while (m_ownStates.size() > 4) {
+        m_ownStates.removeFirst();
+    }
+}
+
+void SwipeController::forgetOwnEdits()
+{
+    m_ownStates.clear();
+    m_ownWords.clear();
+}
+
 QString SwipeController::textBeforeCursor() const
 {
-    return m_editor ? m_editor->text().left(qMax(0, m_editor->cursor())) : QString();
+    if (!m_editor) {
+        return {};
+    }
+    const auto e = effectiveSnapshot();
+    return e.text.left(qMax(0, e.cursor));
 }
 
 CaseMode SwipeController::caseMode() const
@@ -312,6 +342,16 @@ bool SwipeController::apply(const CommitPlan &plan)
         from = start <= cursor ? -utf8Size(text.mid(start, cursor - start)) : utf8Size(text.mid(cursor, start - cursor));
         length = utf8Size(text.mid(start, plan.replaceLength));
     }
+    // Where the text will be once the app applies this edit (built on where it is really going, see effectiveSnapshot).
+    auto after = effectiveSnapshot();
+    const int at = after.cursor + plan.replaceFrom;
+    if (at >= 0 && at + plan.replaceLength <= after.text.size()) {
+        after.text.replace(at, plan.replaceLength, plan.text);
+        after.cursor = after.anchor = at + int(plan.text.size());
+        expectOwnState(after);
+    } else {
+        forgetOwnEdits();
+    }
     m_moves.ownEdit(); // WHY: our own typing is not the person tapping into a word (tap-to-swap)
     m_editor->commit(plan.text, from, length);
     return true;
@@ -335,6 +375,18 @@ PredictionJob SwipeController::job(const PredictionStamp &stamp, const QStringLi
 
 int SwipeController::beginSwipe()
 {
+    // WHY: the swipe began as a press on its first key, which we expected KDE to type; a swipe cancels that key.
+    if (m_press.valid && m_ownStates.size() > 1) {
+        auto typed = m_press.before;
+        if (m_press.text.size() == 1 && typed.cursor >= 0 && typed.cursor <= typed.text.size()) {
+            typed.text.insert(typed.cursor, m_press.text);
+            typed.cursor += 1;
+            typed.anchor = typed.cursor;
+            if (m_ownStates.last() == typed) {
+                m_ownStates.removeLast();
+            }
+        }
+    }
     clearWordSwap();
     invalidatePredictions();
     if (!ready() || !safeContext()) {
@@ -378,12 +430,22 @@ void SwipeController::finishSwipe(const QVariantList &points, const QVariantList
         }
     }
     const QString before = textBeforeCursor();
-    // WHY: under the stock rule only confirmed keyboard-owned words may rank the swipe, never the field's text.
-    const QStringList contextWords = pol.source == PredictionPolicySource::OwnedHistory ? m_ownedHistory.context() : swipekb::textContextWords(before);
+    // WHY: under the stock rule only keyboard-owned words may rank the swipe, never the field's text. When the app
+    // has not confirmed them yet (it reports late), the words this keyboard itself typed in this sentence stand in:
+    // they are our own output, and any real edit by someone else wipes them (editorChanged).
+    QStringList contextWords = pol.source == PredictionPolicySource::OwnedHistory ? m_ownedHistory.context() : swipekb::textContextWords(before);
+    if (pol.source == PredictionPolicySource::OwnedHistory && contextWords.isEmpty()) {
+        contextWords = m_ownWords;
+    }
     std::vector<std::string> context;
     for (const QString &w : contextWords) {
         context.push_back(w.toStdString());
     }
+    // WHY counts only: shows on a real device which context rule ran and whether the app reported any text, without
+    // ever logging what the person typed (enable with QT_LOGGING_RULES=swipekb.plasma69.info=true).
+    qCInfo(lcSwipe69) << "swipe context: source" << (pol.source == PredictionPolicySource::OwnedHistory ? "owned" : "field")
+                       << "field chars" << (m_editor ? m_editor->text().size() : -1) << "cursor" << (m_editor ? m_editor->cursor() : -1)
+                       << "words" << contextWords.size();
     QStringList candidates;
     for (const auto &c : m_engine->recognize(trace, rects, context, 30)) {
         if (!c.word.empty()) {
@@ -420,6 +482,10 @@ void SwipeController::finishSwipe(const QVariantList &points, const QVariantList
         }
         if (!self || gen != m_generation) {
             return;
+        }
+        m_ownWords << plan.text.trimmed().toLower(); // lower case, like the confirmed owned words
+        while (m_ownWords.size() > 20) {
+            m_ownWords.removeFirst();
         }
         // WHY by hand: KDE drops one-shot Shift only after keys it typed itself; a capitalized swipe uses it up too.
         if (mode == CaseMode::Capitalize) {
@@ -515,6 +581,10 @@ void SwipeController::keyPressed(int key, const QString &rawText)
         }
         clearSession();
         clearAfterSwipe();
+        if (!unfinished.isEmpty()) {
+            m_ownWords << unfinished.toLower();
+        }
+        expectOwnState(expected); // KDE types this space; a late report of the old text is not an edit
         m_ownedHistory.space(previous, expected, pol, m_epoch);
         m_nextWord.armExpectedEcho(expected, pol, m_epoch, predictionCapable(), previous);
         notifyState();
@@ -522,6 +592,18 @@ void SwipeController::keyPressed(int key, const QString &rawText)
     }
     if (key == Qt::Key_Backspace) {
         m_ownedHistory.clear();
+    }
+    // WHY: a letter, digit or mark KDE is about to type is our own edit; anything else (Backspace, Enter, arrows,
+    // sentence-ending punctuation) ends the run of own words the next swipe may use as its sentence.
+    if (text.size() == 1 && !QStringLiteral(".!?").contains(text) && key != Qt::Key_Backspace && key != Qt::Key_Return && key != Qt::Key_Enter
+        && previous.cursor >= 0 && previous.cursor <= previous.text.size()) {
+        auto typed = previous;
+        typed.text.insert(typed.cursor, text);
+        typed.cursor += 1;
+        typed.anchor = typed.cursor;
+        expectOwnState(typed);
+    } else {
+        forgetOwnEdits();
     }
     // Learning: a word ended by punctuation or Enter counts like one ended by Space.
     if (predictSafe && !m_typedWord.token().isEmpty()
@@ -650,6 +732,14 @@ void SwipeController::claimedKey(int key, const QString &rawText)
 void SwipeController::editorChanged()
 {
     QPointer<SwipeController> self(this);
+    if (!m_ownStates.isEmpty()) {
+        const auto e = editorSnapshot();
+        if (!m_ownStates.contains(e)) {
+            forgetOwnEdits(); // someone else edited the field (or moved the cursor): our record no longer holds
+        } else if (e == m_ownStates.last()) {
+            m_ownStates = {e}; // the app has caught up
+        }
+    }
     observePredictionEcho();
     if (!self) {
         return;
@@ -895,6 +985,7 @@ void SwipeController::stageOwnedCommit(const CommitPlan &plan, bool correction)
 
 void SwipeController::reset()
 {
+    forgetOwnEdits();
     m_autoSpaceCursor = -1;
     m_ownedHistory.clear();
     m_typedWord.clear();
@@ -1009,6 +1100,7 @@ void SwipeController::selectCandidate(int index)
             }
             stageOwnedCommit(plan, true);
             if (apply(plan)) {
+                m_ownWords << plan.text.trimmed().toLower();
                 m_autoSpaceCursor = plan.text.endsWith(QLatin1Char(' ')) ? previous.cursor + plan.replaceFrom + int(plan.text.size()) : -1;
                 learnWord(plan.text.trimmed(), prevForLearning);
                 if (!self) {
@@ -1081,6 +1173,7 @@ void SwipeController::selectCandidate(int index)
             stageOwnedCommit(plan);
             const QString prev = m_nextPrev;
             if (apply({plan.text, 0, 0})) {
+                m_ownWords << plan.text.trimmed().toLower();
                 if (caseMode() == CaseMode::Capitalize) {
                     m_editor->releaseShift();
                 }
@@ -1106,6 +1199,9 @@ void SwipeController::selectCandidate(int index)
     if (!plan.isEmpty()) {
         stageOwnedCommit(plan, true);
         if (apply(plan)) {
+            if (!m_ownWords.isEmpty()) {
+                m_ownWords.last() = plan.text.trimmed().toLower(); // the picked alternative replaces the swiped word
+            }
             retractLastLearn(); // the picked word is the one they meant; the first guess's count is taken back
             learnSwiped(plan.text.trimmed(), m_lastLearnPrev);
         } else {

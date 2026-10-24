@@ -48,7 +48,8 @@ public:
     void suggest(const QStringList &ranked) {
         if(m_token.isEmpty())return;
         QStringList words;for(auto word:ranked) {
-            if(m_token==m_token.toUpper())word=word.toUpper();
+            // WHY two letters: one capital is a sentence start or a name ("H" -> "How"), not typing in capitals.
+            if(m_token.size()>1&&m_token==m_token.toUpper())word=word.toUpper();
             else if(m_token.front().isUpper())word=word.left(1).toUpper()+word.mid(1);
             if(!words.contains(word,Qt::CaseInsensitive))words<<word;
             if(words.size()==3)break;
