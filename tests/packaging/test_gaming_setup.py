@@ -35,8 +35,9 @@ case "$1" in
         # WHY a commit per app: auto-update.sh compares commits before and after to know whether anything changed.
         case "$*" in *--show-commit*) cat "$FAKE_APPS.$id" 2>/dev/null || echo old;; esac
         exit 0 ;;
-  remotes) for id in $(cat "$FAKE_APPS"); do [ "$id" = org.itsdestin.SwipeKeyboard.GamingHelper ] && [ -n "$FAKE_LOST_ORIGIN" ] && continue
-             echo "$(echo "$id" | tr -d '.' | tr 'A-Z' 'a-z')-origin"; done ;;
+  # WHY: real Flatpak says "not found" for a remote that does not exist (seen on SteamOS 3.8 for the helper's origin).
+  remote-modify) [ "$LC_ALL" = C ] || { echo 'fake: remote-modify must run with LC_ALL=C' >&2; exit 9; }
+       case "$*" in *gaminghelper-origin*) [ -n "$FAKE_LOST_ORIGIN" ] && { echo 'error: Remote "gaminghelper-origin" not found in the user installation' >&2; exit 1; };; esac ;;
   update) [ "$FAKE_FAIL" = update ] && exit 1
           if [ -n "$FAKE_NEW" ]; then for id; do case "$id" in org.*) echo new > "$FAKE_APPS.$id";; esac; done; fi ;;
   install) [ "$FAKE_FAIL" = install ] && { echo 'fake: install failed' >&2; exit 1; }
@@ -929,6 +930,8 @@ class AutoUpdateTests(unittest.TestCase):
         self.assertEqual(f.run('install.sh', '--gaming', '--leave-open', '--yes', extra={'FAKE_LOST_ORIGIN': '1'}).returncode, 0)
         self.assertIn(f'flatpak remote-add --user --no-enumerate --gpg-import={f.bundle}/update-key.gpg '
                       'orgitsdestinswipekeyboardgaminghelper-origin https://itsdestin.github.io/swipe-keyboard/repo/', f.calls())
+        # The main app's origin still exists, so it is modified, never re-added (re-adding fails: "already exists").
+        self.assertFalse([c for c in f.calls() if c.startswith('flatpak remote-add') and 'orgitsdestinswipekeyboard-origin' in c])
 
     def test_no_auto_update_adds_nothing_and_is_remembered(self):
         f = Fixture(self)

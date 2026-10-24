@@ -7,6 +7,9 @@
   var w = window;
   // WHY top frame only: the script also runs in any iframe the page makes; the marker belongs to the page itself.
   if (w.top !== w) return;
+  // WHY: this script comes back at the start of every new document in the page. If the page ever showed anything other
+  // than Steam's own UI, the layer must not start there.
+  if (!w.location || w.location.origin !== CONFIG.ui_origin) return;
 
   var old = w.__swipekbLayer;
   if (old) {
