@@ -159,13 +159,16 @@ fi
 phase bench
 # WHY copies of the history files: the scoreboards append rows; a quick build must not edit tracked files.
 cp "$ROOT/bench/history.tsv" "$WORK/history.tsv"
-SWIPEKB_ASSETS="$ASSETS" SWIPEKB_BENCH="$WORK/tools/swipekb-bench" BENCH_HISTORY="$WORK/history.tsv" \
+SWIPEKB_ASSETS="$ASSETS" SWIPEKB_EVAL="${SWIPEKB_EVAL:-$ASSETS/eval}" SWIPEKB_BENCH="$WORK/tools/swipekb-bench" BENCH_HISTORY="$WORK/history.tsv" \
     nice -n 19 "$ROOT/bench/score.sh" --label "quick $VERSION-$rel" | tail -3
 langs=''
 for l in en es fr de; do printf '%s\n' "${changed[@]}" | grep -q "/$l[/_.]" && langs="$langs $l"; done
 if [ -n "$langs" ]; then
     cp "$ROOT/bench/scoreboard.tsv" "$WORK/scoreboard.tsv"
-    SWIPEKB_NEXTWORD_EVAL="$WORK/tools/swipekb-nextword-eval" SWIPEKB_PACKS="$ASSETS/language-packs" SCOREBOARD="$WORK/scoreboard.tsv" \
+    # The next-word scorer lives in the separate feature-test project.
+    nice -n 19 cmake -S "$ROOT/tests/features" -B "$WORK/features" -G Ninja -DCMAKE_BUILD_TYPE=Release >/dev/null
+    nice -n 19 ninja -C "$WORK/features" swipekb-nextword-eval | tail -1
+    SWIPEKB_NEXTWORD_EVAL="$WORK/features/swipekb-nextword-eval" SWIPEKB_PACKS="$ASSETS/language-packs" SCOREBOARD="$WORK/scoreboard.tsv" \
         nice -n 19 "$ROOT/bench/scoreboard.sh" --label "quick $VERSION-$rel" --langs "${langs# }" | tail -8
 fi
 phase ''

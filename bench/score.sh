@@ -10,7 +10,7 @@
 # Usage: bench/score.sh [--label TEXT] [--check]
 #   --check  exit 1 if either score is below the best earlier [engine] row with the same slice size — the design's
 #            rule that no change may lower the score.
-# Env: SWIPEKB_ASSETS (assets/), SWIPEKB_DICT (assets/dict/en_swipe.combined), SWIPEKB_MODEL (the pinned swipe model in
+# Env: SWIPEKB_ASSETS (assets/), SWIPEKB_EVAL (the real-swipe test data, default assets/eval), SWIPEKB_DICT (assets/dict/en_swipe.combined), SWIPEKB_MODEL (the pinned swipe model in
 #      assets/language-files/), SWIPEKB_LAYOUT (scripts/swipe/layouts/qwerty.tsv), BENCH_N (2000),
 #      BENCH_HISTORY (bench/history.tsv), SWIPEKB_BENCH (build/tools/swipekb-bench),
 #      SWIPEKB_BENCH_FLAGS (extra swipekb-bench flags, e.g. "--ngram FILE"; WHY: before/after and ablation rows without
@@ -35,8 +35,10 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-slice="$A/eval/bench-$N.jsonl"
-[ -s "$slice" ] || python3 -I "$ROOT/bench/make-slice.py" "$A/eval/test.jsonl" "$N" "$slice"
+# WHY SWIPEKB_EVAL: the real-swipe test data is a developer extra, often kept apart from the packaged assets.
+EVAL="${SWIPEKB_EVAL:-$A/eval}"
+slice="$EVAL/bench-$N.jsonl"
+[ -s "$slice" ] || python3 -I "$ROOT/bench/make-slice.py" "$EVAL/test.jsonl" "$N" "$slice"
 
 # shellcheck disable=SC2086  # WHY unquoted: SWIPEKB_BENCH_FLAGS holds several flags.
 out=$("$SWIPEKB_BENCH" --dict "$DICT" --model "$MODEL" --layout "$LAYOUT" ${SWIPEKB_BENCH_FLAGS:-} "$slice" 2>&1) || true
