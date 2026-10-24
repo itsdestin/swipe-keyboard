@@ -29,7 +29,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertTrue((ROOT/'docs/releases'/f'{tag}.md').is_file())
 
     def test_real_producers_and_always_completion_gate(self):
-        self.assertEqual(set(self.jobs), {'prepare', 'arch', 'fedora', 'fedora-arm64', 'flatpak', 'steamos-helper', 'steamos', 'keyboard-ci', 'gaming-tests', 'publish', 'flatpak-repo'})
+        self.assertEqual(set(self.jobs), {'prepare', 'arch', 'fedora', 'fedora-arm64', 'flatpak', 'steamos-helper', 'steamos', 'keyboard-ci', 'gaming-tests', 'publish', 'update-site-check', 'update-site'})
         gate = self.jobs['keyboard-ci']
         # WHY changed: the required check keeps the exact name "Keyboard CI" only for full runs; the
         # fast path reports under a different name and so can never satisfy the merge requirement.
@@ -88,11 +88,9 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('  workflow_dispatch:', self.workflow)
         self.assertNotIn('pull_request_target', self.workflow)
         self.assertNotIn('    paths:', self.workflow)
-        # WHY two: the release uploader and the update-repository publisher (the latter writes only the
-        # flatpak-repo branch and is gated off by default; see test_gaming_tests_and_update_repo_wiring).
-        self.assertEqual(self.workflow.count('contents: write'), 2)
+        # WHY one: only the release uploader writes to the repository; the update site goes to Pages.
+        self.assertEqual(self.workflow.count('contents: write'), 1)
         self.assertIn('contents: write', self.jobs['publish'])
-        self.assertIn('contents: write', self.jobs['flatpak-repo'])
         self.assertIn('needs: [keyboard-ci, gaming-tests]', self.jobs['publish'])
         self.assertIn('environment: keyboard-release', self.jobs['publish'])
         self.assertIn("github.event_name == 'push'", self.jobs['publish'])
@@ -125,14 +123,36 @@ class WorkflowTests(unittest.TestCase):
             self.assertIn('tests/gaming/' + name, cmake, f'{name} must be registered with CTest, which the package builds run')
         self.assertIn('add_test(NAME gaming_daemon', cmake)
         self.assertIn('add_test(NAME gaming_commit_e2e', cmake)
-        # The update repository can never run on a pull request, a branch or without the owner's switch.
-        repo = self.jobs['flatpak-repo']
-        self.assertIn("startsWith(github.ref, 'refs/tags/v')", repo)
-        self.assertIn("vars.FLATPAK_REPO_PUBLISH == 'true'", repo)
-        self.assertIn('needs: [publish]', repo)
-        self.assertIn('environment: keyboard-release', repo)
-        self.assertIn('secrets.FLATPAK_REPO_GPG_KEY', repo)
-        self.assertNotIn('pull_request', repo)
+        # The update site (plan 2026-10-23) is built inside the owner-approved publish job, so the signing key is only
+        # ever read behind that approval, and every site step waits for the owner's switch.
+        publish = self.jobs['publish']
+        self.assertIn('environment: keyboard-release', publish)
+        self.assertEqual(self.workflow.count('secrets.FLATPAK_REPO_GPG_KEY'), 1)
+        self.assertIn('secrets.FLATPAK_REPO_GPG_KEY', publish)
+        site_steps = publish[publish.index('scripts/ci-publish.py'):]
+        self.assertIn('scripts/update_site.py build', site_steps)
+        self.assertLess(publish.index('scripts/ci-publish.py'), publish.index('scripts/update_site.py build'))
+        steps = site_steps.split('      - ')[1:]
+        self.assertGreaterEqual(len(steps), 5)
+        for step in steps:
+            self.assertIn("if: ${{ vars.FLATPAK_REPO_PUBLISH == 'true' }}", step)
+        self.assertIn('scripts/update_site.py verify --site site --keyring packaging/updates/update-key.gpg', site_steps)
+        self.assertNotIn('--test-key', publish)
+        # The rehearsal runs the same build and checks on every full non-tag build, with a throwaway key and no secret.
+        rehearsal = self.jobs['update-site-check']
+        self.assertIn("needs.prepare.outputs.mode == 'full' && !startsWith(github.ref, 'refs/tags/')", rehearsal)
+        self.assertIn('--test-key', rehearsal)
+        self.assertIn('scripts/update_site.py verify', rehearsal)
+        self.assertNotIn('secrets.', rehearsal)
+        self.assertNotIn('upload-pages-artifact', rehearsal)
+        # Only the deploy job may write to Pages, and it never sees the key.
+        deploy = self.jobs['update-site']
+        self.assertIn("startsWith(github.ref, 'refs/tags/v')", deploy)
+        self.assertIn("vars.FLATPAK_REPO_PUBLISH == 'true'", deploy)
+        self.assertIn('needs: [publish]', deploy)
+        self.assertIn('pages: write', deploy)
+        self.assertNotIn('secrets.', deploy)
+        self.assertNotIn('pull_request', deploy)
 
     def test_dependency_caches_are_trusted_and_never_touch_releases(self):
         import json

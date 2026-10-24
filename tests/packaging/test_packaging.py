@@ -76,9 +76,9 @@ class Packaging(unittest.TestCase):
             output = pathlib.Path(tmp)/'dist'
             result = subprocess.run(['bash', str(fixture/'scripts/package-source.sh'), str(output)], text=True, capture_output=True)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            with tarfile.open(output/'swipe-keyboard-0.4.0.tar.gz') as archive:
+            with tarfile.open(output/'swipe-keyboard-0.4.1.tar.gz') as archive:
                 names = {name.replace('/./', '/') for name in archive.getnames()}
-            prefix = 'swipe-keyboard-0.4.0/'
+            prefix = 'swipe-keyboard-0.4.1/'
             self.assertNotIn(prefix + 'personal-secret.txt', names)
             self.assertIn(prefix + tracked, names)
             self.assertIn(prefix + shim_tracked, names)
@@ -151,7 +151,7 @@ include("{ROOT}/cmake/Install.cmake")
             for language in ('es', 'fr', 'de'):
                 self.assertTrue((stage/f'share/swipe-keyboard/language-packs/{language}.json').is_file())
             self.assertFalse((stage/'share/swipe-keyboard/eval').exists())
-            self.assertEqual((stage/'share/swipe-keyboard/runtime.json').read_text(), '{"qt": "6.10", "package": "0.4.0-1"}\n')
+            self.assertEqual((stage/'share/swipe-keyboard/runtime.json').read_text(), '{"qt": "6.10", "package": "0.4.1-1"}\n')
             self.assertTrue((stage/'bin/swipe-keyboard').stat().st_mode & 0o111)
             self.assertTrue((stage/'share/swipe-keyboard/qml/SwipeKeyboard/libswipekb_engine.so').stat().st_mode & 0o111,
                             'Native libraries must retain executable mode for RPM debug-info discovery')
@@ -332,10 +332,15 @@ printf '%s\\n' "${depends[@]}"
             binary = p/'bin'
             binary.mkdir()
             (binary/'python3').symlink_to(sys.executable)
+            # WHY install and ln: package() switches the automatic-update timer on with a packaged link.
+            for tool in ('install', 'ln'):
+                (binary/tool).symlink_to(shutil.which(tool))
             result = subprocess.run([shutil.which('bash'), '-c', command, 'test', str(ROOT/'packaging/arch/PKGBUILD'), str(p)],
                                     env={**os.environ, 'PATH': str(binary)}, text=True, capture_output=True)
             self.assertEqual(result.returncode, 0, result.stderr)
             dependencies = result.stdout.splitlines()
+            link = p/'pkg/usr/lib/systemd/system/timers.target.wants/swipe-keyboard-update.timer'
+            self.assertEqual(os.readlink(link), '../swipe-keyboard-update.timer')
             self.assertIn('qt6-base>=6.11', dependencies)
             self.assertIn('qt6-declarative>=6.11', dependencies)
             self.assertNotIn('qt6-declarative', dependencies)

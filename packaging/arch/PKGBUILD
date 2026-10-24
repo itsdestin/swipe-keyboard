@@ -1,6 +1,6 @@
 # Local build candidate only; no install hooks and no publication.
 pkgname=swipe-keyboard
-pkgver=0.4.0
+pkgver=0.4.1
 pkgrel=1
 pkgdesc='English, Spanish, French and German swipe typing, completions and next-word suggestions for Plasma Keyboard — Powered by FUTO Swipe'
 arch=('x86_64')
@@ -8,7 +8,7 @@ url='https://github.com/itsdestin/swipe-keyboard'
 # WHY SPDX lists only CC-BY-2.0 (Generic), not Tatoeba's France port: retain the
 # jurisdiction-specific terms with Arch's custom-file marker, installed below.
 license=('GPL-3.0-or-later' 'Apache-2.0' 'CC-BY-SA-4.0' 'LicenseRef-FUTO-Model-Weights-1.0' 'custom:TATOEBA-CC-BY-2.0-FR.txt')
-depends=('python' 'systemd' 'plasma-keyboard>=6.7' 'plasma-keyboard<6.9' 'qt6-declarative' 'qt6-virtualkeyboard' 'kwindowsystem' 'kconfig' 'qt6-tools')
+depends=('python' 'systemd' 'gnupg' 'pacman' 'plasma-keyboard>=6.7' 'plasma-keyboard<6.9' 'qt6-declarative' 'qt6-virtualkeyboard' 'kwindowsystem' 'kconfig' 'qt6-tools')
 # Kirigami supplies the QML accent-colour probe exercised by native plugin tests.
 makedepends=('cmake' 'ninja' 'gcc' 'git' 'make' 'python-pip' 'kirigami' 'gtest' 'curl')
 # Real KConfigWatcher regression needs a fresh private session, never the host bus.
@@ -37,6 +37,10 @@ check() {
 package() {
   cd "$srcdir/swipe-keyboard-$pkgver"
   DESTDIR="$pkgdir" cmake --install build
+  # WHY a packaged link instead of an install hook: automatic updates are on from install, and removing the package
+  # removes the link. "sudo swipe-keyboard updates off" turns them off.
+  install -d "$pkgdir/usr/lib/systemd/system/timers.target.wants"
+  ln -s ../swipe-keyboard-update.timer "$pkgdir/usr/lib/systemd/system/timers.target.wants/swipe-keyboard-update.timer"
   python scripts/package-check.py "$pkgdir"
   _add_native_dependencies
 }

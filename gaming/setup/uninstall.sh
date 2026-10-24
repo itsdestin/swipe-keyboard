@@ -20,7 +20,8 @@ PROXY_UNIT=steam-web-debug-portforward.service   # the forwarding service that s
 SYSTEM_UNIT_DIR="${SWIPEKB_SYSTEM_UNIT_DIR:-/etc/systemd/system}"
 DROPIN_DIR="$SYSTEM_UNIT_DIR/$SOCKET_UNIT.d"
 DROPIN="$DROPIN_DIR/swipekb-loopback-only.conf"
-UNITS=(swipekb-engine.service swipekb-helper.service swipekb-switch-watch.service swipekb-switch-watch.timer)
+UNITS=(swipekb-engine.service swipekb-helper.service swipekb-switch-watch.service swipekb-switch-watch.timer
+       swipekb-update.service swipekb-update.timer)
 MAIN_ID=org.itsdestin.SwipeKeyboard
 MARKER_NAME=.cef-enable-remote-debugging
 HELPER_ID=org.itsdestin.SwipeKeyboard.GamingHelper

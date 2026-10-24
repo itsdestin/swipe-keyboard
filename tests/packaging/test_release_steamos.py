@@ -24,7 +24,7 @@ def load(name, path):
 
 release = load('release', 'scripts/release.py')
 bundle = load('steamos_bundle', 'scripts/steamos_bundle.py')
-VERSION = '0.4.0-1'
+VERSION = '0.4.1-1'
 
 
 class SteamosBundleTests(unittest.TestCase):
@@ -64,12 +64,15 @@ class SteamosBundleTests(unittest.TestCase):
         top = f'swipe-keyboard-steamos-{VERSION}'
         self.assertEqual(set(names), {
             top, top + '/install.sh', top + '/uninstall.sh', top + '/VERSION', top + '/SHA256SUMS',
-            top + '/switch-watch.sh', top + '/units/swipekb-engine.service', top + '/units/swipekb-helper.service',
+            top + '/switch-watch.sh', top + '/auto-update.sh', top + '/update-key.gpg',
+            top + '/units/swipekb-update.service', top + '/units/swipekb-update.timer',
+            top + '/units/swipekb-engine.service', top + '/units/swipekb-helper.service',
             top + '/units/swipekb-switch-watch.service', top + '/units/swipekb-switch-watch.timer', top + '/units',
             top + f'/swipe-keyboard-{VERSION}-x86_64.flatpak',
             top + f'/swipe-keyboard-gaming-helper-{VERSION}-x86_64.flatpak'})
         self.assertTrue(names[top + '/install.sh'].mode & 0o111)
         self.assertTrue(names[top + '/uninstall.sh'].mode & 0o111)
+        self.assertTrue(names[top + '/auto-update.sh'].mode & 0o111)
 
     def test_embedded_main_bundle_is_the_given_file_byte_for_byte(self):
         result = bundle.verify(self.archive, VERSION)

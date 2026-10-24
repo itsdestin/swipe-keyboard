@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Validate an unpacked native package/DESTDIR, without starting the keyboard."""
 import argparse
+import os
 import json
 import hashlib
 import pathlib
@@ -116,6 +117,13 @@ def check(root):
     required += [f'language-packs/{language}.json' for language in ('es', 'fr', 'de')]
     for name in required:
         assert (base/name).is_file() and (base/name).stat().st_size, f'Missing/empty {name}'
+    # Automatic updates (plan 2026-10-23): updater, key, the timer and the packaged link that switches it on.
+    for name in ['usr/share/swipe-keyboard/integration/update.py', 'usr/share/swipe-keyboard/integration/update-key.gpg',
+                 'usr/share/swipe-keyboard/integration/update-key.asc',
+                 'usr/lib/systemd/system/swipe-keyboard-update.service', 'usr/lib/systemd/system/swipe-keyboard-update.timer']:
+        assert (root/name).is_file() and (root/name).stat().st_size, f'Missing automatic-update file {name}'
+    link = root/'usr/lib/systemd/system/timers.target.wants/swipe-keyboard-update.timer'
+    assert link.is_symlink() and os.readlink(link) == '../swipe-keyboard-update.timer', 'Automatic-update timer is not switched on'
     for name in ['usr/bin/swipe-keyboard', 'usr/share/applications/swipe-keyboard.desktop',
                  'usr/share/licenses/swipe-keyboard/LICENSE', 'usr/share/licenses/swipe-keyboard/NOTICE',
                  'usr/share/licenses/swipe-keyboard/assets.lock.json',

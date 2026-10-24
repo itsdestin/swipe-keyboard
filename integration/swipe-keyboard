@@ -1,3 +1,8 @@
 #!/bin/sh
 # WHY fixed system-owned location: activation must not execute code from a downloaded checkout.
+# WHY a separate entry point: updates run as root from a timer, setup must never run as root.
+if [ "${1:-}" = updates ]; then
+    shift
+    exec python3 -I /usr/share/swipe-keyboard/integration/update.py "$@"
+fi
 exec python3 /usr/share/swipe-keyboard/integration/setup.py "$@"

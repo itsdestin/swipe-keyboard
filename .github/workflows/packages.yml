@@ -894,91 +894,78 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: python3 scripts/ci-publish.py
-  flatpak-repo:
-    # WHY: the hosted, signed Flatpak update repository (plan "Hosted Flatpak update repository" section) so a Deck's
-    # normal Updates button can fetch a fixed keyboard. It NEVER runs on pull requests, branches or manual runs: only for
-    # a release tag, only after the release is published, and only once the owner has switched it on by creating the
-    # repository variable FLATPAK_REPO_PUBLISH=true (and the secret/key steps in the plan are done). Until then this job
-    # is skipped and nothing is created anywhere.
-    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && github.repository == 'itsdestin/swipe-keyboard' && vars.FLATPAK_REPO_PUBLISH == 'true' }}
-    needs: [publish]
-    runs-on: ubuntu-26.04
-    # WHY the same approval gate as the release itself: publishing to users' update channel is a release decision.
-    environment: keyboard-release
+      # The signed update website every installed keyboard checks once a day (plan:
+      # docs/active/plans/2026-10-23-auto-updates.md). WHY inside publish: it is published under the same owner approval
+      # as the release, and the signing key stays behind that approval. Skipped until the owner sets the repository
+      # variable FLATPAK_REPO_PUBLISH=true. If it fails, the release itself already stands; nothing half-published.
+      - name: Install the site tools
+        if: ${{ vars.FLATPAK_REPO_PUBLISH == 'true' }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak ostree gnupg createrepo-c
+      - name: Import the signing key (private key never leaves this job)
+        if: ${{ vars.FLATPAK_REPO_PUBLISH == 'true' }}
+        env:
+          # WHY via env, never spliced into script text: secrets must not be echoed or interpolated into commands.
+          GPG_PRIVATE_KEY: ${{ secrets.FLATPAK_REPO_GPG_KEY }}
+          GPG_KEY_ID: ${{ vars.FLATPAK_REPO_GPG_KEY_ID }}
+        run: |
+          test -n "$GPG_PRIVATE_KEY" && test -n "$GPG_KEY_ID" || { echo 'FLATPAK_REPO_GPG_KEY secret and FLATPAK_REPO_GPG_KEY_ID variable must both be set.' >&2; exit 1; }
+          printf '%s' "$GPG_PRIVATE_KEY" | gpg --batch --import
+      - name: Build the signed site from the exact released files
+        if: ${{ vars.FLATPAK_REPO_PUBLISH == 'true' }}
+        env:
+          GPG_KEY_ID: ${{ vars.FLATPAK_REPO_GPG_KEY_ID }}
+        run: python3 scripts/update_site.py build --release release --tag "$GITHUB_REF_NAME" --key-id "$GPG_KEY_ID" --out site
+      - name: Prove each platform's own tool accepts it, with the signature checked
+        if: ${{ vars.FLATPAK_REPO_PUBLISH == 'true' }}
+        env:
+          GPG_KEY_ID: ${{ vars.FLATPAK_REPO_GPG_KEY_ID }}
+        run: python3 scripts/update_site.py verify --site site --keyring packaging/updates/update-key.gpg --armored packaging/updates/update-key.asc --bundle "release/swipe-keyboard-$(python3 scripts/release.py version)-x86_64.flatpak" --key-id "$GPG_KEY_ID"
+      - uses: actions/upload-pages-artifact@v3
+        if: ${{ vars.FLATPAK_REPO_PUBLISH == 'true' }}
+        with:
+          path: site
+  update-site-check:
+    # WHY a rehearsal on every full build: the real site is only built for a release tag, so without this its first run
+    # would be the release itself. Same script, same checks, a throwaway key made here; the result is never published.
+    if: ${{ needs.prepare.outputs.mode == 'full' && !startsWith(github.ref, 'refs/tags/') }}
+    needs: [prepare, keyboard-ci]
+    runs-on: ubuntu-24.04
     permissions:
-      contents: write   # push the flatpak-repo branch only (GitHub Pages serves that branch once the owner enables it)
-    concurrency:
-      group: flatpak-repo
-      cancel-in-progress: false
-    env:
-      GH_TOKEN: ${{ github.token }}
-      REPO: ${{ github.repository }}
-      # WHY via env, never spliced into script text: secrets must not be echoed or interpolated into commands.
-      GPG_PRIVATE_KEY: ${{ secrets.FLATPAK_REPO_GPG_KEY }}
-      GPG_KEY_ID: ${{ vars.FLATPAK_REPO_GPG_KEY_ID }}
+      contents: read
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Install Flatpak tools
+      - name: Install the site tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y flatpak flatpak-builder ostree gnupg
+          sudo apt-get install -y flatpak ostree gnupg createrepo-c
       - uses: actions/download-artifact@v4
         with:
-          name: verified-release
+          pattern: '*-files'
+          merge-multiple: true
           path: release
-      - name: Import the signing key (private key never leaves this step)
+      - name: Build and check the site with a throwaway key
         run: |
-          test -n "$GPG_PRIVATE_KEY" && test -n "$GPG_KEY_ID" || { echo 'FLATPAK_REPO_GPG_KEY secret and FLATPAK_REPO_GPG_KEY_ID variable must both be set.' >&2; exit 1; }
-          printf '%s' "$GPG_PRIVATE_KEY" | gpg --batch --import
-          gpg --batch --export "$GPG_KEY_ID" > repo-public.gpg
-          test -s repo-public.gpg
-      - name: Load the existing repository branch (empty on first publish)
-        run: |
-          auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
-          echo "::add-mask::${auth#AUTHORIZATION: basic }"
-          mkdir "$RUNNER_TEMP/site"
-          cd "$RUNNER_TEMP/site"
-          git init -q -b flatpak-repo
-          git remote add origin "https://github.com/${REPO}.git"
-          if git -c http.extraheader="$auth" fetch -q --depth 1 origin flatpak-repo; then
-            git checkout -q -f FETCH_HEAD -B flatpak-repo
-          fi
-          test -d repo || ostree init --mode=archive-z2 --repo=repo
-      - name: Import both bundles, sign, and rebuild the repository index
-        run: |
-          version=$(python3 scripts/release.py version)
-          mkdir unpacked
-          tar -xzf "release/swipe-keyboard-$version-steamos-x86_64.tar.gz" -C unpacked
-          site="$RUNNER_TEMP/site"
-          for bundle in "release/swipe-keyboard-$version-x86_64.flatpak" unpacked/*/swipe-keyboard-gaming-helper-"$version"-x86_64.flatpak; do
-            flatpak build-import-bundle --gpg-sign="$GPG_KEY_ID" "$site/repo" "$bundle"
-          done
-          # WHY prune-depth 5: keeps the last five releases for rollback while the branch stays small.
-          flatpak build-update-repo --gpg-sign="$GPG_KEY_ID" --generate-static-deltas --prune --prune-depth=5 \
-            --title='Swipe Keyboard' "$site/repo"
-          key=$(base64 -w0 repo-public.gpg)
-          for app in "org.itsdestin.SwipeKeyboard:Swipe Keyboard" "org.itsdestin.SwipeKeyboard.GamingHelper:Swipe Keyboard Gaming Mode helper"; do
-            id=${app%%:*}; title=${app#*:}
-            printf '[Flatpak Ref]\nTitle=%s\nName=%s\nBranch=master\nIsRuntime=false\nUrl=https://itsdestin.github.io/swipe-keyboard/repo/\nSuggestRemoteName=swipe-keyboard\nGPGKey=%s\n' "$title" "$id" "$key" > "$site/$id.flatpakref"
-          done
-          printf '[Flatpak Repo]\nTitle=Swipe Keyboard\nUrl=https://itsdestin.github.io/swipe-keyboard/repo/\nGPGKey=%s\n' "$key" > "$site/swipe-keyboard.flatpakrepo"
-          touch "$site/.nojekyll"
-      - name: Prove a clean user can install from it with the signature checked
-        run: |
-          # WHY file:// and --gpg-import: the same signature check a Deck performs, with no network and no trust shortcuts.
-          flatpak remote-add --user --gpg-import=repo-public.gpg verify-repo "file://$RUNNER_TEMP/site/repo"
-          flatpak remote-ls --user verify-repo | tee remote-ls.txt
-          grep -q org.itsdestin.SwipeKeyboard.GamingHelper remote-ls.txt
-          grep -q 'org.itsdestin.SwipeKeyboard\b' remote-ls.txt
-      - name: Publish the repository branch
-        run: |
-          auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
-          echo "::add-mask::${auth#AUTHORIZATION: basic }"
-          cd "$RUNNER_TEMP/site"
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -A
-          git commit -q -m "flatpak-repo: $GITHUB_REF_NAME"
-          git -c http.extraheader="$auth" push origin flatpak-repo
+          gpg --batch --passphrase '' --quick-generate-key 'Swipe Keyboard CI rehearsal (throwaway)' ed25519 sign 1d
+          key=$(gpg --batch --with-colons --list-keys | awk -F: '/^fpr/{print $10; exit}')
+          gpg --batch --export "$key" > rehearsal.gpg
+          gpg --batch --armor --export "$key" > rehearsal.asc
+          python3 scripts/update_site.py build --release release --tag "v$(python3 scripts/release.py version)" --key-id "$key" --out site --test-key
+          python3 scripts/update_site.py verify --site site --keyring rehearsal.gpg --armored rehearsal.asc --bundle "release/swipe-keyboard-$(python3 scripts/release.py version)-x86_64.flatpak" --key-id "$key"
+  update-site:
+    # WHY a separate job: only this one may write to GitHub Pages, and it never sees the signing key.
+    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && github.repository == 'itsdestin/swipe-keyboard' && vars.FLATPAK_REPO_PUBLISH == 'true' }}
+    needs: [publish]
+    runs-on: ubuntu-26.04
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4
