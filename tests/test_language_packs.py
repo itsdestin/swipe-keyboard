@@ -108,8 +108,10 @@ class LanguagePacks(unittest.TestCase):
             self.assertEqual(manifest['schema'], 3)
             self.assertEqual(manifest['compatibility'], 'swipekb-open-v1')
             self.assertEqual(set(manifest['assets']), {'dictionary', 'contextModel', 'contextVocab'})
-            for gone in ('futoRevision', 'executorchRevision', 'modelRevision', 'encoderLicense'):
-                self.assertNotIn(gone, manifest)
+            # WHY an exact key set: a pack carries only what the open format defines (no other engine's pins).
+            self.assertEqual(set(manifest), {'schema', 'id', 'version', 'language', 'locales', 'layouts', 'modes', 'scripts',
+                                             'compatibility', 'textRulesVersion', 'transformationVersion', 'license',
+                                             'source', 'assets', 'contextFormat', 'contextLicense'})
             self.assertEqual(manifest['id'], 'fineweb-de')
             self.assertEqual(manifest['transformationVersion'], 'fineweb-counts-v1')
             self.assertEqual(manifest['source'], lock['word_list_source'])
@@ -119,7 +121,7 @@ class LanguagePacks(unittest.TestCase):
             for name in ('de.combined', 'de.ngram', 'de.vocab.tsv', 'de-CONTRIBUTORS.txt', 'ODC-By-1.0.txt',
                          'LANGUAGE-FILES-NOTICE.md', 'TATOEBA-CC-BY-2.0-FR.txt'):
                 self.assertTrue((out/name).is_file(), name)
-            for name in ('CC-BY-SA-4.0.txt', 'de-LICENSE.txt', 'encoder.pte', 'metadata.json'):
+            for name in ('CC-BY-SA-4.0.txt', 'de-LICENSE.txt', 'metadata.json'):
                 self.assertFalse((out/name).exists(), name)
             self.assertEqual(hashlib.sha256((out/'de.combined').read_bytes()).hexdigest(), lock['language_dictionaries']['de']['sha256'])
             context = lock['multilingual_context_models']['de']

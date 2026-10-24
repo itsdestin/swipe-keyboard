@@ -175,9 +175,9 @@ private slots:
         manifest["compatibility"] = "wrong"; QVERIFY(!resolve().capabilities.swipe); manifest = original;
         manifest.remove("license"); QVERIFY(!resolve().capabilities.swipe); manifest = original;
         // An unknown role (e.g. an old pack's swipe network) or an unpaired context file refuses the pack.
-        write("encoder.pte","old engine file");
+        write("encoder.bin","old engine file");
         auto assets = manifest["assets"].toObject();
-        assets["encoder"] = asset("encoder.pte","layout-agnostic"); manifest["assets"] = assets;
+        assets["encoder"] = asset("encoder.bin","layout-agnostic"); manifest["assets"] = assets;
         QVERIFY(!resolve().capabilities.swipe); manifest = original;
         assets = manifest["assets"].toObject(); assets["contextModel"] = asset("fr.combined","fr:context-ngram-v1");
         manifest["assets"] = assets; QVERIFY(!resolve().capabilities.swipe); manifest = original;

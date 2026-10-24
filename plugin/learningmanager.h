@@ -3,7 +3,7 @@
 // It owns one swipekb::PersonalModel per language and answers three questions: is learning switched on, where is
 // the file, and has the person asked to forget everything.
 //
-//   * ON/OFF is a plain file in the keyboard's data folder, the same pattern as `use-ngram` and `own-engine`:
+//   * ON/OFF is a plain file in the keyboard's data folder:
 //     `learn-typing` present = on. Off (or absent) means nothing is learned AND nothing learned is used.
 //   * The store is <data>/learning/<language>.swklearn, one small text file per language, written atomically
 //     (temp file + rename), a few seconds after the last change, readable only by the owner (0600, folder 0700).

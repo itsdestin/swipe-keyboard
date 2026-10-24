@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Switch "learn from my typing" on or off, and erase what was learned.
 
-The keyboard learns only while the file <data>/learn-typing exists (same pattern as use-ngram / own-engine).
+The keyboard learns only while the file <data>/learn-typing exists.
 What it learned lives in <data>/learning/ (one small private file per language). Nothing here talks to the keyboard
 directly: a running keyboard notices the flag within a second, and notices an erase through <data>/learning-reset.
 

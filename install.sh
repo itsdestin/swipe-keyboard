@@ -9,7 +9,6 @@
 # Learning from your typing (words, names, word pairs; local only) is asked here as a y/n question when a terminal is
 # attached; installs without one leave it off. Switch later with `python3 ~/.local/share/swipe-keyboard/learning.py
 # on|off|forget|status` (or just create/delete the file ~/.local/share/swipe-keyboard/learn-typing). SWIPEKB_LEARN_TYPING=yes|no skips the question.
-# The n-gram ranking (lm/) is off unless ~/.local/share/swipe-keyboard/use-ngram exists (then restart the keyboard).
 # The swipe engine reads language-packs/swipe-model.bin (pinned in assets.lock.json and fetched with the other files; a missing
 # or altered file means geometry-only swiping).
 set -euo pipefail

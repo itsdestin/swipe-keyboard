@@ -10,15 +10,14 @@ Keep recognition (`engine/`), Qt integration (`plugin/`), per-user activation (`
 
 ## Build and test
 
-Clone recursively so the pinned FUTO/ExecuTorch sources are present:
-
 ```sh
-git clone --recurse-submodules https://github.com/itsdestin/swipe-keyboard.git
+git clone https://github.com/itsdestin/swipe-keyboard.git
 cd swipe-keyboard
 python3 -m unittest discover -s tests/integration -v
 ```
 
-Use `--recurse-submodules`: GitHub's automatic source ZIP does not contain the upstream dependencies. Release downloads also include a complete recursive corresponding-source archive. Report bugs through [GitHub Issues](https://github.com/itsdestin/swipe-keyboard/issues); contributions to packaging, testing, documentation and language support are welcome.
+All code is in this repository (no submodules); data files (word lists, n-gram packs, trained models) are downloaded by
+checksum at build time (`scripts/fetch-assets.sh`). Release downloads also include a complete corresponding-source archive. Report bugs through [GitHub Issues](https://github.com/itsdestin/swipe-keyboard/issues); contributions to packaging, testing, documentation and language support are welcome.
 
 Native build requirements and commands are defined in the target package recipes and build workflow, rather than a separate unmaintained dependency list. Build in an isolated distro environment. Source builds download build-time dependencies; binary-package users should not need a compiler, training corpus or Python environment setup. Do not use `-march=native` for redistributed binaries.
 
@@ -42,4 +41,13 @@ Include the smallest reproducer, expected behavior, package version, distributio
 
 Contributions beyond code are welcome: clean-install reports, other distro recipes, accessible interaction testing, language support, and documentation. A new language needs matching models/dictionary/layout tests; changing a locale label alone does not add recognition support.
 
-Before a release, complete `docs/release-acceptance.md`. Give upstream FUTO, Qt/KDE, dictionary and optional model projects credit. Preserve their respective license terms; GPL code and FUTO model weights do not all share the same license.
+Before a release, complete `docs/release-acceptance.md`. Give Qt/KDE, dictionary, training-data and optional model projects credit and preserve their licence terms.
+
+## Licensing
+
+The project follows KDE's licensing policy and is REUSE-compliant (`reuse lint` must pass): keyboard plugin, QML, tools and
+scripts `GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL`; the engine library (`engine/`)
+`LGPL-2.1-only OR LGPL-3.0-only OR LicenseRef-KDE-Accepted-LGPL`; CMake files `BSD-3-Clause`; documentation and images
+`CC-BY-SA-4.0`; trivial data `CC0-1.0`; data files keep their own licences (see `REUSE.toml`). New source files start with
+an SPDX header, e.g. `SPDX-FileCopyrightText: 2026 Your Name <email>` and `SPDX-License-Identifier: ...`. Code copied
+from elsewhere keeps its original licence and attribution.

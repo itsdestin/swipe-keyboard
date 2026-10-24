@@ -15,7 +15,7 @@ No timing/quality realism is implied by these choices.
 
 Run a built `swipekb-language-bench --dataset <json> --model-root <verified English root>
 --packs-root <verified packs root>`. The program loads actual verified profiles and
-FUTO recognizers, with empty context, ten candidates and shared regional/text rules.
+recognizers, with empty context, ten candidates and shared regional/text rules.
 It emits per-case candidates and failures, dictionary identities, per-profile/layout
 counts, and process CPU recognition time (not wall time, not a latency budget).
 No runtime status is queried. Normal and lightweight CTest include deterministic
@@ -63,7 +63,7 @@ rejects a `synthetic-noisy-v1` case that claims it). The bench replays their exp
 `points` exactly like supplied ones; `traceKeys` is not allowed with them.
 
 How: `noisy-params-v1.json` holds a small noise model fitted on real English swipes
-(FUTO dataset, `dev.jsonl` only): where the finger lands and lifts relative to the key
+(the MIT-licensed swipe.futo.org dataset, `dev.jsonl` only): where the finger lands and lifts relative to the key
 centre, how far it misses keys in between, speed (slow at sharp turns and at lift-off),
 sample gaps and jitter. The same model is applied to the es/fr/de layouts, so it assumes
 people swipe other languages like English. Words are sampled (seed 1, 400 each, with

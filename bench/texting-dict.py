@@ -2,10 +2,10 @@
 
   python -I bench/texting-dict.py DICT.combined packaging/texting-words/en.tsv OUT.combined [OUT-words.tsv]
 
-WHY: the keyboard merges packaging/texting-words/LANG.tsv at start-up (Recognizer::liftWords: a word is only
+WHY: the keyboard merges packaging/texting-words/LANG.tsv at start-up (LanguageEngine::liftWords: a word is only
 RAISED, a "not a word" mark is lifted). The accuracy benches read a dictionary FILE, so this builds the same result
 as a file, to compare swipe accuracy before and after. OUT-words.tsv (optional) is the "word<TAB>freq" list of the
-own engine (the same acceptance rule as plugin/ownswipe.cpp: score above 0, not "nonword" / not_a_word).
+swipe engine (the same acceptance rule as engine/src/language_engine.cpp: score above 0, not "nonword" / not_a_word).
 Pass an empty list file name (-) to write the unchanged dictionary (the "before" side).
 """
 import re
