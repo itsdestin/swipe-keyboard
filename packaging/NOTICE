@@ -30,5 +30,7 @@ Trained models. Models trained and released by Destin Moss via youcoded.ai, 2026
 
 Word lists for the guess bar: the swear-word lists (packaging/blocked-words) are from the LDNOOBW list, CC BY 4.0 (with
 AOSP's offensive flags, Apache-2.0); the texting-word lists (packaging/texting-words) are the project's own, CC0 1.0.
+The capitals lists (packaging/capitals: which English, Spanish and French words are shown capitalised) are counted
+from FineWeb / FineWeb-2 web text (Hugging Face, derived from Common Crawl), ODC-By 1.0.
 
 Optional evaluation data is not included.

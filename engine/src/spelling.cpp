@@ -150,4 +150,39 @@ std::vector<std::string> Spellings::others(const std::string &word) const
     return out;
 }
 
+namespace {
+std::string capitalsKey(const std::string &w)
+{
+    return QString::fromStdString(w).normalized(QString::NormalizationForm_C).toLower().replace(QChar(0x2019), QLatin1Char('\'')).toStdString();
+}
+}
+
+std::shared_ptr<const Capitals> Capitals::fromTsv(const std::string &text)
+{
+    auto out = std::make_shared<Capitals>();
+    std::istringstream in(text);
+    for (std::string line; std::getline(in, line);) {
+        if (line.empty() || line[0] == '#') continue;
+        const size_t tab = line.find('\t');
+        if (tab == std::string::npos || tab == 0) continue;
+        const size_t end = line.find('\t', tab + 1);
+        const std::string word = line.substr(0, tab), form = line.substr(tab + 1, end == std::string::npos ? end : end - tab - 1);
+        // WHY: a form must be the same word ("paris" -> "Paris"), never a different one.
+        if (form.empty() || capitalsKey(form) != capitalsKey(word)) continue;
+        out->forms_[capitalsKey(word)] = QString::fromStdString(form).normalized(QString::NormalizationForm_C).toStdString();
+    }
+    // WHY nullptr for an empty list (German, an unknown language): callers then keep words exactly as they are.
+    return out->forms_.empty() ? nullptr : out;
+}
+
+std::string Capitals::apply(const std::string &word) const
+{
+    const QString w = QString::fromStdString(word).normalized(QString::NormalizationForm_C);
+    const auto it = forms_.find(capitalsKey(word));
+    if (it == forms_.end()) return w.toLower().toStdString();
+    QString form = QString::fromStdString(it->second);
+    if (w.contains(QChar(0x2019))) form.replace(QLatin1Char('\''), QChar(0x2019));   // French lists use ’
+    return form.toStdString();
+}
+
 } // namespace swipekb

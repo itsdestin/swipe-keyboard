@@ -303,6 +303,17 @@ private slots:
         QVERIFY(!s.isActive());
         QVERIFY(!s.cursorStillAfterWord(QStringLiteral("I said hello")));
     }
+    // WHY: with capitals shown ("iPhone", "YouTube"), Shift at a sentence start must not make "IPhone"; plain words
+    // and caps lock behave as before.
+    void capitalizeLeavesWordsWithInnerCapitalsAlone()
+    {
+        QCOMPARE(SwipeSession::applyCase("iPhone", CaseMode::Capitalize), QString("iPhone"));
+        QCOMPARE(SwipeSession::applyCase("YouTube", CaseMode::Capitalize), QString("YouTube"));
+        QCOMPARE(SwipeSession::applyCase("hello", CaseMode::Capitalize), QString("Hello"));
+        QCOMPARE(SwipeSession::applyCase("I", CaseMode::Capitalize), QString("I"));
+        QCOMPARE(SwipeSession::applyCase("iPhone", CaseMode::AllCaps), QString("IPHONE"));
+        QCOMPARE(SwipeSession::applyCase("Paris", CaseMode::AsIs), QString("Paris"));
+    }
 };
 
 QTEST_GUILESS_MAIN(TstSwipeSession)

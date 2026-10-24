@@ -5,6 +5,10 @@
  */
 
 #pragma once
+#include "swipekb/spellings.hpp"
+#include <map>
+#include <memory>
+#include <mutex>
 #include <QByteArray>
 #include <QString>
 #include <QStringList>
@@ -40,6 +44,21 @@ std::vector<TextingWord> parseTextingWords(const QByteArray &tsv, const QString 
 std::vector<TextingWord> textingWords(const QString &language);
 // The same list as the (word, strength) pairs the engines' word-insert functions take.
 std::vector<std::pair<std::string, int>> textingWordPairs(const QString &language);
+// The built-in list of words shown with a capital letter (packaging/capitals/LANG.tsv, for swipekb::Capitals::fromTsv)
+// for en, es and fr; empty for German (the dictionary keeps its own capitals) or any other language.
+QByteArray capitalsList(const QString &language);
+// capitalsList(language) as the engine's table, built once per language (nullptr for German and unknown languages).
+// WHY inline here: only programs that also link the engine (the keyboards, Gaming Mode, the tools) call it, so the
+// language-rules library itself needs no engine code.
+inline std::shared_ptr<const Capitals> capitalsFor(const QString &language)
+{
+    static std::mutex lock;
+    static std::map<QString, std::shared_ptr<const Capitals>> loaded;
+    std::lock_guard<std::mutex> guard(lock);
+    auto it = loaded.find(language);
+    if (it == loaded.end()) it = loaded.emplace(language, Capitals::fromTsv(capitalsList(language).toStdString())).first;
+    return it->second;
+}
 QStringList rankRegionalCandidates(const QStringList &words, const QString &locale, int limit,
                                    const QString &rawShape={});
 } // namespace swipekb

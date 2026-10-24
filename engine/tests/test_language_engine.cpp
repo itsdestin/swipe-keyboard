@@ -241,6 +241,35 @@ TEST(LanguageEngine, CompletionKeepsEachLanguagesDisplayForms)
     EXPECT_EQ(e.complete("par", 1).front().word, "paris");
 }
 
+// WHY: the capitals list (owner decision 2026-10-23) shows "I", "I'll", "Paris" with their capital in swipes,
+// completion, other spellings and tap-to-swap words, while a word the list leaves out ("Hall" is the dictionary's most
+// frequent form, but "the hall" is lower case) stays lower case. German ignores it and keeps its own capitals.
+TEST(LanguageEngine, CapitalsListGivesNamesAndITheirCapital)
+{
+    const auto caps = Capitals::fromTsv("i\tI\ni'll\tI'll\nparis\tParis\nhaus\tHAUS\n");
+    Dict d({{"I", 196, ""}, {"I'll", 164, ""}, {"ill", 120, ""}, {"Paris", 150, ""}, {"Hall", 134, ""}, {"hall", 133, ""},
+            {"halls", 100, ""}, {"hello", 120, ""}, {"park", 140, ""}});
+    LanguageEngine e;
+    ASSERT_TRUE(open(e, d));
+    EXPECT_EQ(e.complete("par", 3).front().word, "paris");   // without the list: all lower case, as before
+    e.setCapitals(caps);
+    EXPECT_TRUE(has(e.complete("par", 3), "Paris"));
+    EXPECT_EQ(e.complete("hal", 1).front().word, "hall");
+    EXPECT_EQ(e.displaySpelling("i"), "I");
+    EXPECT_EQ(e.otherSpellings("ill"), std::vector<std::string>{"I'll"});
+    EXPECT_TRUE(has(e.similar("hell", 12), "hall"));
+    const auto keys = qwertyRects(0, 0, 1);
+    EXPECT_TRUE(has(e.recognize(traceThrough("paris", keys), keys, {}, 3), "Paris"));
+    e.setCapitals(nullptr);
+    EXPECT_EQ(e.displaySpelling("paris"), "paris");
+
+    Dict de({{"Haus", 200, ""}, {"haus", 10, ""}}, "de");
+    LanguageEngine g;
+    ASSERT_TRUE(open(g, de, "de"));
+    g.setCapitals(caps);
+    EXPECT_EQ(g.displaySpelling("haus"), "Haus");
+}
+
 TEST(LanguageEngine, GeometryOnlySwipesFindCleanWordsAtAnySize)
 {
     Dict d(kEnglish);

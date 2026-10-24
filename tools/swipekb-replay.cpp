@@ -236,6 +236,7 @@ int main(int argc, char **argv)
     }
     // WHY the texting words, as the keyboard adds them (SwipeInputMethod::syncLearnedWords).
     r.liftWords(swipekb::textingWordPairs(QString::fromStdString(setup.language)));
+    r.setCapitals(swipekb::capitalsFor(QString::fromStdString(setup.language)));   // as the keyboard does
 
     // WHY "ranking"/"engine": a missing file silently falls back; the output must say which parts ran.
     std::printf("settings: engine=%s ranking=%s dict=%s\n", r.mode(), r.usingNgram() ? "ngram" : "frequency",

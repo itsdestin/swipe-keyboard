@@ -1087,6 +1087,8 @@ void SwipeInputMethod::applyNeuralNextWord(PredictionJob &job) const
 {
     // WHY from the snapshot: that role exists only when the file passed the lock's size + SHA-256 check. Without it the
     // worker loads the n-gram alone, even when an (unverified) .nwp.bin lies beside it.
+    // WHY here: every next-word, completion and tap-to-swap job passes through, so all show the same capitals.
+    job.capitals=swipekb::capitalsFor(m_wordsLanguage);
     const auto nwp=m_profiles.snapshot().assets.value(QStringLiteral("contextNwp"));
     if (nwp.path.isEmpty()) return;
     job.nwp=nwp.path;
@@ -1475,6 +1477,8 @@ void SwipeInputMethod::syncLearnedWords(bool force)
     // swipes and completions only; the next-word model is not retrained, and swear acronyms stay out of unprompted
     // suggestions.
     m_engine->liftWords(swipekb::textingWordPairs(m_wordsLanguage));
+    // WHY: "I", "Paris", "Monday" shown with their capital (English, Spanish, French; German keeps its own).
+    m_engine->setCapitals(swipekb::capitalsFor(m_wordsLanguage));
 }
 
 void SwipeInputMethod::refreshTypedSuggestions(const EditorSnapshot &editor)

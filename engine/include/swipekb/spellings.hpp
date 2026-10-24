@@ -6,10 +6,11 @@
 //
 // WHY: a swipe never carries apostrophes or hyphens, so one finger path can mean several dictionary words. The guess
 // bar offers the other spelling of the best guess (one tap to switch), and tap-to-swap lists it too.
-// Capital letters are never added ("I'm" comes out as "i'm") except in German, where noun capitals are part of the
-// spelling: the keyboard's own capitalization decides the rest.
+// Spellings are lower case except in German, where noun capitals are part of the spelling; Capitals (below) puts
+// back the capitals a word nearly always has ("I'm", "Paris") in the other languages.
 #pragma once
 
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -37,6 +38,26 @@ private:
     // letters-only, lower case -> real spellings, most frequent first (only where some spelling differs).
     std::unordered_map<std::string, std::vector<std::string>> byLetters_;
     std::unordered_map<std::string, std::string> otherKeys_;
+};
+
+// Capitals — which words are shown with a capital letter in English, Spanish and French (packaging/capitals/LANG.tsv:
+// "i\tI", "paris\tParis", "iphone\tiPhone"; counted from web text by scripts/lm/capitals.py).
+//
+// WHY a list of words nearly always capitalised, not the dictionary's most frequent form: web text capitalises many
+// ordinary words inside names ("Banco Santander", "Hall of Fame"), so "Banco" can be a word's most common form while
+// someone typing "el banco" wants lower case. Sentence-start and Shift capitals stay the keyboard's job.
+class Capitals {
+public:
+    // "word<TAB>Form[<TAB>...]" lines; '#' lines are comments. A Form whose letters differ from the word is skipped.
+    // nullptr when no line is usable (an empty list).
+    static std::shared_ptr<const Capitals> fromTsv(const std::string &text);
+    // The listed form of `word` ("i'm" or "I'M" -> "I'm"), otherwise `word` in lower case. Keeps the word's own
+    // apostrophe (' or ’).
+    std::string apply(const std::string &word) const;
+    size_t size() const { return forms_.size(); }
+
+private:
+    std::unordered_map<std::string, std::string> forms_;   // lower case, ' apostrophes -> form
 };
 
 } // namespace swipekb

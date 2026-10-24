@@ -17,6 +17,7 @@
 #include "languageprofile.h"
 #include "protocol.hpp"
 #include "swipekb/prediction.hpp"
+#include "swipekb/spellings.hpp"
 #include "swipekb/language_engine.hpp"
 
 namespace gamingd {
@@ -56,6 +57,8 @@ public:
     // The loaded models for a profile (loading them now if needed); nullptr if they cannot be loaded.
     swipekb::LanguageEngine *recognizer(const QString &locale, const QString &physicalLayout);
     swipekb::Predictor *predictor(const QString &locale, const QString &physicalLayout);
+    // The capitals list of that profile's language (nullptr for German or an unresolved profile).
+    std::shared_ptr<const swipekb::Capitals> capitals(const QString &locale, const QString &physicalLayout);
     // WHY called after each use too: loading takes seconds, and the idle clock must start when work FINISHES.
     void touch(const QString &locale, const QString &physicalLayout);
     bool recognizerLoaded() const;

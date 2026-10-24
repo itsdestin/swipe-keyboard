@@ -109,7 +109,12 @@ struct LanguageEngine::Impl {
     std::vector<SwipeKey> keys;     // geometry currently set on the engine
     std::string bestShape;
 
-    QString displayForm(const QString &w) const { return keepCase ? w : w.toLower(); }
+    std::shared_ptr<const Capitals> capitals;
+    QString displayForm(const QString &w) const
+    {
+        if (keepCase) return w;
+        return capitals ? QString::fromStdString(capitals->apply(w.toStdString())) : w.toLower();
+    }
 
     uint32_t entryFor(const QString &display)
     {
@@ -436,7 +441,11 @@ std::vector<Candidate> LanguageEngine::similar(const std::string &word, int topK
 
 std::vector<std::string> LanguageEngine::otherSpellings(const std::string &word) const
 {
-    return d_->ok ? d_->spellings.others(word) : std::vector<std::string>{};
+    if (!d_->ok) return {};
+    auto out = d_->spellings.others(word);
+    // WHY: Spellings are lower case outside German; "ill" -> "I'll", not "i'll".
+    for (auto &w : out) w = d_->displayForm(QString::fromStdString(w)).toStdString();
+    return out;
 }
 
 std::string LanguageEngine::displaySpelling(const std::string &word) const
@@ -470,6 +479,15 @@ void LanguageEngine::setLearnedWords(const std::vector<std::pair<std::string, in
 void LanguageEngine::liftWords(const std::vector<std::pair<std::string, int>> &words)
 {
     if (d_->ok) d_->addRuntime(words, false);
+}
+
+void LanguageEngine::setCapitals(std::shared_ptr<const Capitals> capitals)
+{
+    if (!d_->ok || d_->keepCase) return;
+    d_->capitals = std::move(capitals);
+    // WHY every word again: entries keep the form they are shown in, and the swipe word list is rebuilt from them.
+    for (auto &e : d_->entries) e.text = d_->displayForm(QString::fromStdString(e.text)).toStdString();
+    d_->swipeDirty = true;
 }
 
 } // namespace swipekb

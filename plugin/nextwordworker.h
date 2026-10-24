@@ -7,6 +7,8 @@
 #pragma once
 #include "nextwordsession.h"
 #include <QThread>
+#include <memory>
+#include "swipekb/spellings.hpp"
 #include <QMutex>
 #include <QWaitCondition>
 #include <functional>
@@ -28,6 +30,10 @@ struct PredictionJob {
     // The neural next-word file (LANG.nwp.bin) that the profile verified against the lock; empty = n-gram only.
     // WHY explicit: the engine must never pick up an unverified file that merely sits beside the n-gram.
     QString nwp;
+    // Words shown with a capital (swipekb::Capitals); nullptr = shown as the model spells them (German).
+    // WHY here: the next-word files spell a word the way web text most often does ("Banco", "Hall"); the same list
+    // as the swipe engine keeps ordinary words lower case and gives "I", "Paris" their capital.
+    std::shared_ptr<const swipekb::Capitals> capitals;
 };
 // Serial, thread-confined inference with one latest pending request. No GUI-side
 // inference lock or synchronous profile drain; a changed identity reloads on run().

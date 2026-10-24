@@ -126,6 +126,7 @@ swipekb::LanguageEngine *Engine::recognizer(const QString &locale, const QString
         // WHY the built-in texting words, as in the plugin (SwipeInputMethod::syncLearnedWords): the same swipe must
         // give the same words in both keyboards. The daemon never learns words, so there is no learned set.
         r->liftWords(swipekb::textingWordPairs(rt->profile.effectiveLanguage));
+        r->setCapitals(swipekb::capitalsFor(rt->profile.effectiveLanguage));   // same capitals as the keyboards
         rt->recognizer = std::move(r);
         logEvent("recognizer_loaded_ms", msSince(t));
     }
@@ -149,6 +150,12 @@ swipekb::Predictor *Engine::predictor(const QString &locale, const QString &phys
         logEvent("predictor_loaded_ms", msSince(t));
     }
     return rt->predictor.get();
+}
+
+std::shared_ptr<const swipekb::Capitals> Engine::capitals(const QString &locale, const QString &physical)
+{
+    auto *rt = runtime(locale, physical);
+    return rt ? swipekb::capitalsFor(rt->profile.effectiveLanguage) : nullptr;
 }
 
 void Engine::touch(const QString &locale, const QString &physical)
@@ -548,7 +555,9 @@ void Server::handle(Session &s, const QByteArray &body)
                     if (!pred) { fail(s, kErrModelUnavailable, false); return; }
                     // Words go in as typed (already composed Unicode): the plugin does the same, and the predictor
                     // lower-cases them itself, so no case handling is needed here.
-                    for (auto &w : pred->predict(a.value->words, 12)) words << QString::fromStdString(w);
+                    // WHY the capitals list: as in the keyboards' next-word bar ("I", "Paris"; "banco", not "Banco").
+                    const auto caps = engine_.capitals(locale, physical);
+                    for (auto &w : pred->predict(a.value->words, 12)) words << QString::fromStdString(caps ? caps->apply(w) : w);
                 }
                 // The plugin's regional ranking, then the number wanted (as for typed-word and next-word bars there).
                 for (const auto &w : swipekb::rankRegionalCandidates(words, locale, a.value->topK)) cands.push_back({w.toStdString(), 0.f});

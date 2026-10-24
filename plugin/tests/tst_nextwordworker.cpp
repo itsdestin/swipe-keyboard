@@ -91,6 +91,22 @@ private slots:
         QTRY_COMPARE_WITH_TIMEOUT(spy.size(), 1, 15000);
         QVERIFY(spy.at(0).at(1).toStringList().isEmpty());
     }
+    // WHY: the next-word files spell some words as web text does ("Banco", "Hall"); the capitals list must decide what
+    // the bar shows, as for a swipe ("I", "Paris"), and no list (German) leaves the words as they are.
+    void capitalsListDecidesHowWordsAreShown() {
+        NextWordWorker worker([](const PredictionJob &) { return QStringList{"i", "Hall", "paris", "Haus"}; });
+        QSignalSpy spy(&worker, &NextWordWorker::resultReady);
+        PredictionJob job{{1, 1, 1}, "a", "b", {"hello"}};
+        job.capitals = swipekb::Capitals::fromTsv("i\tI\nparis\tParis\n");
+        worker.submit(job);
+        QTRY_COMPARE_WITH_TIMEOUT(spy.size(), 1, 15000);
+        QCOMPARE(spy.at(0).at(1).toStringList(), QStringList({"I", "hall", "Paris", "haus"}));
+        job.stamp = {1, 1, 2};
+        job.capitals.reset();
+        worker.submit(job);
+        QTRY_COMPARE_WITH_TIMEOUT(spy.size(), 2, 15000);
+        QCOMPARE(spy.at(1).at(1).toStringList(), QStringList({"i", "Hall", "paris", "Haus"}));
+    }
 };
 QTEST_GUILESS_MAIN(NextWordWorkerTest)
 #include "tst_nextwordworker.moc"

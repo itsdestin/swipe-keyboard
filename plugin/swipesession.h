@@ -59,6 +59,9 @@ public:
     // right after it, so it is the first guess-bar choice. WHY: one swipe shape is both words; the shape
     // cannot tell them apart, so the other one must be one tap away. Nothing is dropped.
     static QStringList withOtherSpelling(const QStringList &candidates, const QString &otherSpelling);
+    // Shift / Caps Lock applied to a shown word (shared with next-word suggestions); a word with a capital inside
+    // ("iPhone") is left as written under Shift.
+    static QString applyCase(const QString &word, CaseMode mode);
 
     // Starts a new session from the engine's best-first guesses. Empty plan if there are none.
     CommitPlan commitSwipe(const QString &textBeforeCursor, const QStringList &candidates, CaseMode mode,
@@ -75,7 +78,6 @@ public:
     bool isActive() const { return m_current >= 0; }
 
 private:
-    static QString applyCase(const QString &word, CaseMode mode);
 
     QStringList m_candidates;
     int m_current = -1;

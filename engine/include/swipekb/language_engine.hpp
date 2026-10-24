@@ -22,6 +22,7 @@
 #include <utility>
 #include <vector>
 
+#include "swipekb/spellings.hpp"
 #include "swipekb/text.hpp"
 
 namespace swipekb {
@@ -80,6 +81,9 @@ public:
     // Built-in texting words (lol, wyd, jaja...): only RAISE a word. A word the dictionary has at this frequency or
     // higher keeps its own; a word it marks "not a word" comes in at this frequency. Same letters-only rule.
     void liftWords(const std::vector<std::pair<std::string, int>> &words);
+    // Words shown with a capital letter (Capitals). Lower case stays the rule for every other word. Ignored in
+    // German, which keeps the dictionary's own capitals; nullptr = all lower case (as before).
+    void setCapitals(std::shared_ptr<const Capitals> capitals);
 
 private:
     struct Impl;

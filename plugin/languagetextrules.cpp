@@ -101,6 +101,12 @@ std::vector<std::pair<std::string,int>> textingWordPairs(const QString &language
     for (const auto &w:textingWords(language)) out.emplace_back(w.word.toStdString(),w.strength);
     return out;
 }
+QByteArray capitalsList(const QString &language)
+{
+    if (language!=QLatin1String("en") && language!=QLatin1String("es") && language!=QLatin1String("fr")) return {};
+    QFile f(QStringLiteral(":/swipekb/capitals/%1.tsv").arg(language));
+    return f.open(QIODevice::ReadOnly) ? f.readAll() : QByteArray();
+}
 bool offeredUnprompted(const QString &word,const QString &language,const std::function<bool(const QString &)> &typedByPerson)
 {
     // WHY a per-language cache filled once: the lists are small built-in resources and this runs per suggestion.

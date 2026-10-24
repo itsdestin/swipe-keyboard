@@ -188,6 +188,8 @@ void SwipeController::loadLanguage(const QString &locale)
             m_engine = std::move(engine);
             // WHY at once: the built-in texting words (lol, wyd, jaja, mdr...) raise web-text counts, never lower them.
             m_engine->liftWords(swipekb::textingWordPairs(m_profile.effectiveLanguage));
+            // WHY: "I", "Paris", "Monday" shown with their capital (English, Spanish, French; German keeps its own).
+            m_engine->setCapitals(swipekb::capitalsFor(m_profile.effectiveLanguage));
         } else {
             m_profile.capabilities = {};
             m_profile.unavailableReason = QStringLiteral("Language engine initialization failed");
@@ -323,6 +325,7 @@ PredictionJob SwipeController::job(const PredictionStamp &stamp, const QStringLi
     // WHY the verified neural file only: an unverified .nwp.bin beside the n-gram is never picked up.
     PredictionJob j{stamp, model.path, vocab.path, context, model.sha256 + vocab.sha256 + nwp.sha256, prefix};
     j.nwp = nwp.path;
+    j.capitals = swipekb::capitalsFor(m_profile.effectiveLanguage);   // same capitals as the swipe engine
     return j;
 }
 

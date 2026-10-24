@@ -70,6 +70,19 @@ private slots:
             QVERIFY2(std::any_of(en.begin(), en.end(), [&](const auto &e) { return e.first == w; }), w);
         QVERIFY(textingWords("pt").empty());   // a language without a list gets none
     }
+    // WHY: the built-in capitals lists ship for en/es/fr only; German keeps its dictionary's capitals. Spot checks
+    // that names and "I" are listed and that ordinary words web text often capitalises inside names are not.
+    void capitalsListsShipForEnglishSpanishFrench() {
+        const auto en = QString::fromUtf8(capitalsList("en")), es = QString::fromUtf8(capitalsList("es")),
+                   fr = QString::fromUtf8(capitalsList("fr"));
+        for (const auto &line : {"\ni\tI\t", "\ni'm\tI'm\t", "\nmonday\tMonday\t", "\nparis\tParis\t"}) QVERIFY2(en.contains(line), line);
+        for (const auto &line : {"\nmadrid\tMadrid\t", "\nespaña\tEspaña\t"}) QVERIFY2(es.contains(QString::fromUtf8(line)), line);
+        QVERIFY(fr.contains("\nfrance\tFrance\t"));
+        for (const auto &line : {"\nhall\t", "\nwill\t", "\nmark\t"}) QVERIFY2(!en.contains(line), line);
+        for (const auto &line : {"\nbanco\t", "\nluna\t", "\nhola\t"}) QVERIFY2(!es.contains(line), line);
+        QVERIFY(capitalsList("de").isEmpty());
+        QVERIFY(capitalsList("pt").isEmpty());
+    }
     void textingParserSkipsBadLinesAndKeepsGoodOnes() {
         const QByteArray tsv =
             "# comment\n\n"

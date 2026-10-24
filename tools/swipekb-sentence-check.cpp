@@ -13,7 +13,10 @@
 //
 // Usage:
 //   swipekb-sentence-check --dict LANG.combined --layout keys.tsv [--model swipe-model.bin] [--ngram LANG.ngram]
-//       [--vocab LANG.vocab.tsv] [--nwp LANG.nwp.bin] [--language en] [--limit N per file] [--noise F] [--misses N] [--by-word] SENTENCES.txt...
+//       [--vocab LANG.vocab.tsv] [--nwp LANG.nwp.bin] [--capitals LANG.tsv] [--language en] [--limit N per file] [--noise F]
+//       [--misses N] [--by-word] SENTENCES.txt...
+// --capitals: the keyboard's capitals list (packaging/capitals); adds "case" scores: of the words not starting a sentence
+// that were guessed right, how many also have the sentence's own capitals ("I", "Paris", but "the hall").
 // Sentences: one per line (scripts/lm/make-nextword-testsets.py output; never training text).
 // Swipes: straight lines through the key centres, every point moved by a fixed-seed random offset of up to --noise
 // key widths (default 0.25), so the shape alone is not always decisive. Output: one "key: value" line per score.
@@ -24,7 +27,9 @@
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
+#include <iterator>
 #include <map>
+#include <memory>
 #include <random>
 #include <sstream>
 #include <string>
@@ -120,7 +125,7 @@ std::vector<TracePoint> swipeOf(const QString &word, const std::vector<KeyRect> 
 int main(int argc, char **argv)
 {
     LanguageEngineSetup setup;
-    std::string layout, vocab, nwp;
+    std::string layout, vocab, nwp, capitalsPath;
     std::vector<std::string> inputs;
     size_t limit = 0, misses = 0;
     bool byWord = false;   // per pair word: how often seen, swiped right first, suggested in the top 3
@@ -136,6 +141,7 @@ int main(int argc, char **argv)
         else if (a == "--ngram") setup.ngram = val();
         else if (a == "--vocab") vocab = val();
         else if (a == "--nwp") nwp = val();
+        else if (a == "--capitals") capitalsPath = val();
         else if (a == "--language") setup.language = val();
         else if (a == "--layout") layout = val();
         else if (a == "--limit") limit = size_t(std::atoll(val().c_str()));
@@ -154,6 +160,16 @@ int main(int argc, char **argv)
     if (keys.empty()) { std::fprintf(stderr, "cannot read the layout %s\n", layout.c_str()); return 1; }
     LanguageEngine engine;
     if (!engine.init(setup)) { std::fprintf(stderr, "cannot load the dictionary %s\n", setup.dictionary.c_str()); return 1; }
+    std::shared_ptr<const Capitals> capitals;
+    if (!capitalsPath.empty()) {
+        std::ifstream c(capitalsPath);
+        if (!c) { std::fprintf(stderr, "cannot read %s\n", capitalsPath.c_str()); return 1; }
+        capitals = Capitals::fromTsv(std::string(std::istreambuf_iterator<char>(c), {}));
+        engine.setCapitals(capitals);   // as the keyboard does
+    }
+    // WHY curly = straight only: the case scores compare capitals exactly.
+    auto exact = [](const QString &w) { return QString(w).replace(QChar(0x2019), QLatin1Char('\'')); };
+    Score swipeCase, nextCase;
     Predictor predictor;
     // WHY siblingFallback=false: only the neural file named on the command line is used, so runs are comparable.
     const bool predicting = !setup.ngram.empty() && !vocab.empty() && predictor.init(setup.ngram, vocab, nwp, false);
@@ -189,6 +205,10 @@ int main(int argc, char **argv)
                     for (size_t k = 0; k < guesses.size(); ++k)
                         if (canon(QString::fromStdString(guesses[k].word)) == canon(target)) { three = true; first |= k == 0; }
                     swipeAll.add(first, three);
+                    if (first && !context.empty()) {
+                        const bool same = exact(QString::fromStdString(guesses[0].word)) == exact(target);
+                        swipeCase.add(same, same);
+                    }
                     if (pair) { swipePair.add(first, three); pairSwipe[canon(target).toStdString()].add(first, three); }
                     if (pair && !first && shown < misses) {
                         ++shown;
@@ -202,6 +222,11 @@ int main(int argc, char **argv)
                     for (size_t k = 0; k < next.size(); ++k)
                         if (canon(QString::fromStdString(next[k])) == canon(target)) { three = true; first |= k == 0; }
                     nextAll.add(first, three);
+                    if (first && !context.empty()) {
+                        const QString shownWord = QString::fromStdString(capitals ? capitals->apply(next[0]) : next[0]);
+                        const bool same = exact(shownWord) == exact(target);
+                        nextCase.add(same, same);
+                    }
                     if (pair) { nextPair.add(first, three); pairNext[canon(target).toStdString()].add(first, three); }
                 }
                 context.push_back(target.toStdString());
@@ -214,6 +239,9 @@ int main(int argc, char **argv)
     std::printf("sentences: %zu\nwords skipped (a letter with no key): %zu\n", sentences, skipped);
     std::printf("swipe all words: n=%zu top-1 %s top-3 %s\n", swipeAll.n, swipeAll.pct(swipeAll.top1).c_str(), swipeAll.pct(swipeAll.top3).c_str());
     std::printf("swipe pair words: n=%zu top-1 %s top-3 %s\n", swipePair.n, swipePair.pct(swipePair.top1).c_str(), swipePair.pct(swipePair.top3).c_str());
+        std::printf("swipe case (mid-sentence, right word): n=%zu same capitals %s\n", swipeCase.n, swipeCase.pct(swipeCase.top1).c_str());
+    if (predicting)
+        std::printf("next word case (mid-sentence, right word): n=%zu same capitals %s\n", nextCase.n, nextCase.pct(nextCase.top1).c_str());
     if (predicting) {
         std::printf("next word all: n=%zu top-1 %s top-3 %s\n", nextAll.n, nextAll.pct(nextAll.top1).c_str(), nextAll.pct(nextAll.top3).c_str());
         std::printf("next word pair words: n=%zu top-1 %s top-3 %s\n", nextPair.n, nextPair.pct(nextPair.top1).c_str(), nextPair.pct(nextPair.top3).c_str());

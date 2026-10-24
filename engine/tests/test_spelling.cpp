@@ -6,6 +6,7 @@
 
 #include "swipekb/spellings.hpp"
 
+using swipekb::Capitals;
 using swipekb::Spellings;
 using V = std::vector<std::string>;
 
@@ -35,7 +36,7 @@ static const char *kDict =
 TEST(Spellings, PutsApostrophesBackWithoutCapitals)
 {
     const Spellings s = Spellings::fromCombinedText(kDict);
-    EXPECT_EQ(s.spell("im"), "i'm");      // never "I'm": the owner chose no auto-capital for a lone i
+    EXPECT_EQ(s.spell("im"), "i'm");      // lower case here; Capitals (below) adds "I'm" (owner decision 2026-10-23)
     EXPECT_EQ(s.spell("lets"), "let's");
     EXPECT_EQ(s.spell("dont"), "don't");
     EXPECT_EQ(s.spell("whats"), "what's");
@@ -83,4 +84,23 @@ TEST(Spellings, OtherSpellingsForTheGuessBar)
 TEST(Spellings, MissingFileIsEmpty)
 {
     EXPECT_TRUE(Spellings::fromCombinedFile("/nonexistent.combined").empty());
+}
+
+// WHY: the list decides the shown capitals of en/es/fr words; anything not listed is lower case, a malformed line can
+// never turn one word into another, and an empty list means "leave words as they are" (German).
+TEST(Capitals, ListedWordsGetTheirFormOthersLowerCase)
+{
+    const auto caps = Capitals::fromTsv("# capitals language=en\ni\tI\t0.96\ni'm\tI'm\nparis\tParis\niphone\tiPhone\n"
+                                        "nasa\tNASA\nbank\tBanco\n\nbad line\n");
+    ASSERT_NE(caps, nullptr);
+    EXPECT_EQ(caps->size(), 5u);   // "bank -> Banco" is not the same word: skipped
+    EXPECT_EQ(caps->apply("i"), "I");
+    EXPECT_EQ(caps->apply("I'M"), "I'm");
+    EXPECT_EQ(caps->apply("i\u2019m"), "I\u2019m");   // keeps the word's own apostrophe
+    EXPECT_EQ(caps->apply("Paris"), "Paris");
+    EXPECT_EQ(caps->apply("IPHONE"), "iPhone");
+    EXPECT_EQ(caps->apply("nasa"), "NASA");
+    EXPECT_EQ(caps->apply("Hall"), "hall");
+    EXPECT_EQ(caps->apply("bank"), "bank");
+    EXPECT_EQ(Capitals::fromTsv("# nothing\n"), nullptr);
 }

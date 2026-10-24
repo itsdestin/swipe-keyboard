@@ -65,6 +65,9 @@ void NextWordWorker::run()
                 for (const auto &word : predictor.predict(context, job.topK, job.prefix.toStdString()))
                     words << QString::fromStdString(word);
             }
+            // WHY after both paths: whatever produced the words, the bar shows the same capitals as a swipe.
+            if (job.capitals)
+                for (auto &w : words) w = QString::fromStdString(job.capitals->apply(w.toStdString()));
         } catch (...) { words.clear(); }
         {
             QMutexLocker lock(&m_mutex);

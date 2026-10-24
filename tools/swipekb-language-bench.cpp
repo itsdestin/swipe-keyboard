@@ -133,7 +133,10 @@ int main(int argc,char **argv)
                     runtime->dictionary=dictionaryFor(p.assets.value("dictionary").path);
                     runtime->engine=std::make_unique<swipekb::LanguageEngine>();
                     if(!swipekb::configureLanguageEngine(p,setup) || !runtime->engine->init(setup)) runtime->engine.reset();
-                    else runtime->engine->liftWords(swipekb::textingWordPairs(language));
+                    else {
+                        runtime->engine->liftWords(swipekb::textingWordPairs(language));
+                        runtime->engine->setCapitals(swipekb::capitalsFor(language));
+                    }
                 }
                 runtimes[group]=runtime;
             }
