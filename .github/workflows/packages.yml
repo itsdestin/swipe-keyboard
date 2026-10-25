@@ -368,7 +368,7 @@ jobs:
           tar -xf retest-input/arch-retest-input.tar -C .
           # WHY compared with the published artifact and the job output, not with the tar's own hash file: the hash
           # must not travel in the same box as the bytes it vouches for.
-          cmp "release/swipe-keyboard-$PACKAGE_VERSION-x86_64.pkg.tar.zst" "dist/swipe-keyboard-$PACKAGE_VERSION-x86_64.pkg.tar.zst"
+          [[ "$(sha256sum < "release/swipe-keyboard-$PACKAGE_VERSION-x86_64.pkg.tar.zst")" == "$(sha256sum < "dist/swipe-keyboard-$PACKAGE_VERSION-x86_64.pkg.tar.zst")" ]] || { echo "package in the retest input differs from the published arch-files package" >&2; exit 1; }
           echo "$STOCKLAYOUT_SHA  dist/src/swipe-keyboard-$VERSION/build/plugin/tst_stocklayout" | sha256sum -c
           pacman -Q glibc gcc-libs qt6-base qt6-declarative qt6-virtualkeyboard kwindowsystem plasma-keyboard python | tee dist/CURRENT-VERSIONS.txt
           sha256sum -c dist/baseline-package.sha256

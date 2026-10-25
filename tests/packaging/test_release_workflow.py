@@ -404,7 +404,7 @@ exit "$result"
         self.assertIn('if [[ "$PREPARED_MODE" == full && "$GITHUB_REF" != refs/tags/* ]]; then want_site=success; fi', gate)
         # The retest's inputs are checked against hashes that did not travel in the same artifact.
         current = self.jobs['arch-current']
-        self.assertIn('cmp "release/swipe-keyboard-$PACKAGE_VERSION-x86_64.pkg.tar.zst"', current)
+        self.assertIn('sha256sum < "release/swipe-keyboard-$PACKAGE_VERSION-x86_64.pkg.tar.zst"', current)
         self.assertIn('needs.arch.outputs.stocklayout_sha', current)
 
     def test_gaming_tests_run_in_every_mode_and_block_keyboard_ci_without_being_a_producer(self):
