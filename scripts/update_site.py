@@ -218,20 +218,46 @@ def verify(site, keyring, armored, bundle=None, key_id=None):
     for arch in ('x86_64', 'aarch64'):
         repodata = site / 'fedora' / arch / 'repodata'
         run('gpgv', '--keyring', str(keyring), str(repodata / 'repomd.xml.asc'), str(repodata / 'repomd.xml'))
+    # The Deck's "moved" note (packaging/updates/flatpak-redirect.txt): exactly the one written there, or none at all.
+    redirect = flatpak_redirect()
+    summary = subprocess.run(['ostree', 'summary', '--view', f'--repo={site}/repo'], check=True, capture_output=True,
+                             text=True).stdout
+    if redirect and f"xa.redirect-url: '{redirect}'" not in summary:
+        raise SystemExit(f'the Flatpak summary does not carry the moved note to {redirect}')
+    if not redirect and 'xa.redirect-url' in summary:
+        raise SystemExit('the Flatpak summary carries a moved note nobody turned on')
+    flatpak_site = site
+    if redirect:
+        # WHY prove it with Flatpak itself: a Deck that adds this site must end up at the new address (the note is part
+        # of the signed summary, so a Deck only takes it from a summary signed with our key).
+        with tempfile.TemporaryDirectory() as home:
+            env = {'HOME': home, 'PATH': '/usr/bin:/bin'}
+            run('flatpak', 'remote-add', '--user', f'--gpg-import={keyring}', 'verify-repo', f'file://{site}/repo', env=env)
+            url = subprocess.run(['flatpak', 'remotes', '--user', '--columns=url'], check=True, capture_output=True,
+                                 text=True, env=env).stdout.strip()
+        if url.rstrip('/') != redirect.rstrip('/'):
+            raise SystemExit(f'a Deck adding the site ends up at {url}, not {redirect}')
+        # WHY a copy without the note for the checks below: they install and update from this site, and the new address
+        # only exists after the rename. The copy holds the same signed commits; only its summary is rebuilt.
+        if not key_id:
+            raise SystemExit('with the moved note on, verify needs --key-id to check the apps on a copy without it')
+        flatpak_site = Path(tempfile.mkdtemp(prefix='swipekb-noredirect-'))
+        shutil.copytree(site / 'repo', flatpak_site / 'repo', symlinks=True)
+        run('flatpak', 'build-update-repo', f'--gpg-sign={key_id}', '--title=Swipe Keyboard', str(flatpak_site / 'repo'))
     with tempfile.TemporaryDirectory() as home:
         env = {'HOME': home, 'PATH': '/usr/bin:/bin'}
-        run('flatpak', 'remote-add', '--user', f'--gpg-import={keyring}', 'verify-repo', f'file://{site}/repo', env=env)
+        run('flatpak', 'remote-add', '--user', f'--gpg-import={keyring}', 'verify-repo', f'file://{flatpak_site}/repo', env=env)
         listed = subprocess.run(['flatpak', 'remote-ls', '--user', '--columns=application', 'verify-repo'],
                                 check=True, capture_output=True, text=True, env=env).stdout.split()
     if sorted(listed) != sorted([MAIN_ID, HELPER_ID]):
         raise SystemExit(f'the Flatpak repository lists {listed}')
     if bundle:
-        if not bundle_origin_accepts(site, bundle, keyring):
+        if not bundle_origin_accepts(flatpak_site, bundle, keyring):
             raise SystemExit('a Deck installed from the bundle cannot update from the site with the right key')
         if key_id:
             # WHY a newer copy: the site holds the same build as the bundle, so "nothing to update" would pass the check
             # above. A re-stamped, re-signed commit makes a real update: it must install with our key (below, wrong key).
-            newer = newer_copy(site, key_id)
+            newer = newer_copy(flatpak_site, key_id)
             if not bundle_origin_accepts(newer, bundle, keyring):
                 raise SystemExit('a Deck did not install a newer, correctly signed update')
         with tempfile.TemporaryDirectory() as gnupg:
@@ -240,11 +266,13 @@ def verify(site, keyring, armored, bundle=None, key_id=None):
             wrong = Path(gnupg) / 'wrong.gpg'
             wrong.write_bytes(subprocess.run(['gpg', '--batch', '--homedir', gnupg, '--export'], check=True,
                                              capture_output=True).stdout)
-            for candidate in ([site] + ([newer] if key_id else [])):
+            for candidate in ([flatpak_site] + ([newer] if key_id else [])):
                 if bundle_origin_accepts(candidate, bundle, wrong):
                     raise SystemExit('a Deck that trusts a different key still accepted the site: signatures are not checked')
         if key_id:
             shutil.rmtree(newer, ignore_errors=True)
+    if flatpak_site != site:
+        shutil.rmtree(flatpak_site, ignore_errors=True)
     # WHY a real Fedora: dnf itself must accept the signed index (repo_gpgcheck) and see this version.
     repo = (ROOT / 'packaging/updates/swipe-keyboard.repo').read_text()
     repo = '\n'.join('baseurl=file:///site/fedora/$basearch/' if l.startswith('baseurl=') else
