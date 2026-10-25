@@ -50,6 +50,7 @@ SwipeInputMethod::~SwipeInputMethod() = default;
 
 void SwipeInputMethod::setPhysicalLayout(const QString &layoutId)
 {
+    fprintf(stderr,"DBG setPhysicalLayout %s this=%p m_locale='%s'\n",qPrintable(layoutId),(void*)this,qPrintable(m_locale));
     if (layoutId==m_layoutId) return;
     m_layoutId=layoutId;
     resolveCurrentProfile();
@@ -158,6 +159,7 @@ QList<QVirtualKeyboardInputEngine::InputMode> SwipeInputMethod::inputModes(const
 
 bool SwipeInputMethod::setInputMode(const QString &locale, QVirtualKeyboardInputEngine::InputMode mode)
 {
+    fprintf(stderr,"DBG setInputMode locale='%s' this=%p\n",qPrintable(locale),(void*)this);
     const QString inputMode=mode==QVirtualKeyboardInputEngine::InputMode::Latin ? "Latin" : "Unsupported";
     // WHY skip an unchanged mode: Qt repeats this call on every "?123"/letters switch (the symbols page
     // names its own mode). Rebuilding the profile reloaded the swipe model each time, a visible hitch

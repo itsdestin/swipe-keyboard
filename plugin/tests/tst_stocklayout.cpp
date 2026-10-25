@@ -122,6 +122,7 @@ private slots:
                 function restore() { editor.inputMethodHints = Qt.ImhNone; editor.forceActiveFocus() }
                 function alternative() { InputContext.inputEngine.wordCandidateListModel.selectItem(0) }
                 function tap() { InputContext.inputEngine.virtualKeyClick(Qt.Key_X, "x", Qt.NoModifier) }
+                function dumpLocale() { return "settings=" + VirtualKeyboardSettings.locale + " ctx=" + InputContext.locale + " method=" + InputContext.inputEngine.inputMethod + " modes=" + InputContext.inputEngine.inputModes }
                 function reapplyLocale() { VirtualKeyboardSettings.locale = "en_GB"; VirtualKeyboardSettings.locale = "en_US" }
                 Component.onCompleted: { VirtualKeyboardSettings.locale = "en_US"; editor.forceActiveFocus() }
                 TextInput { id: editor; width: parent.width; height: 40; focus: true }
@@ -146,15 +147,18 @@ private slots:
         {
             const auto isReady=[&] { bool ready=false; QMetaObject::invokeMethod(method,"isReady",Q_RETURN_ARG(bool,ready)); return ready; };
             QElapsedTimer waited; waited.start();
+            { QVariant d; QMetaObject::invokeMethod(root.get(),"dumpLocale",Q_RETURN_ARG(QVariant,d)); fprintf(stderr,"DBG start: %s method=%p\n",qPrintable(d.toString()),(void*)method.data()); }
             int nudges=0;
-            while (!isReady() && waited.elapsed()<30000) {
+            while (!isReady() && waited.elapsed()<12000) {
                 QTest::qWait(100);
                 if (!isReady() && waited.elapsed()>(nudges+1)*2000) {
                     ++nudges;
                     QMetaObject::invokeMethod(root.get(),"reapplyLocale");
                 }
             }
-            QVERIFY2(isReady(), qPrintable(QString::fromUtf8(QJsonDocument::fromVariant(method->property("diagnostics")).toJson(QJsonDocument::Compact))));
+            { QVariant d; QMetaObject::invokeMethod(root.get(),"dumpLocale",Q_RETURN_ARG(QVariant,d)); fprintf(stderr,"DBG end: %s nudges=%d method=%p\n",qPrintable(d.toString()),nudges,(void*)method.data()); }
+            QVERIFY2(nudges==0, "DBG nudge fired");
+            QVERIFY2(method && isReady(), method ? qPrintable(QString::fromUtf8(QJsonDocument::fromVariant(method->property("diagnostics")).toJson(QJsonDocument::Compact))) : "method object was destroyed");
         }
         auto *capture = swipeLayout(item)->property("swipeCapture").value<QObject *>();
         QVariant geometry;
