@@ -1,0 +1,64 @@
+{
+  "channels": {
+    "deck-beta": {
+      "build": "1792108788",
+      "checked_at": "2026-10-25T09:50:26.429103+00:00",
+      "contract_hash": "60b01cc816c5335924135752ea2819c18cd9d6db910e50e395190b34c9759cea",
+      "region_hash": "102f48a50591adeb683ea73eca5401b9efc3f568771e0227324110b58187760b",
+      "result": "pass",
+      "verified_region_hash": "102f48a50591adeb683ea73eca5401b9efc3f568771e0227324110b58187760b"
+    },
+    "deck-stable": {
+      "build": "1792618285",
+      "checked_at": "2026-10-25T09:50:26.429103+00:00",
+      "contract_hash": "60b01cc816c5335924135752ea2819c18cd9d6db910e50e395190b34c9759cea",
+      "region_hash": "102f48a50591adeb683ea73eca5401b9efc3f568771e0227324110b58187760b",
+      "result": "pass",
+      "verified_region_hash": "102f48a50591adeb683ea73eca5401b9efc3f568771e0227324110b58187760b"
+    },
+    "desktop-beta": {
+      "build": "1792108788",
+      "checked_at": "2026-10-25T09:50:26.429103+00:00",
+      "contract_hash": "60b01cc816c5335924135752ea2819c18cd9d6db910e50e395190b34c9759cea",
+      "region_hash": "102f48a50591adeb683ea73eca5401b9efc3f568771e0227324110b58187760b",
+      "result": "pass",
+      "verified_region_hash": "102f48a50591adeb683ea73eca5401b9efc3f568771e0227324110b58187760b"
+    },
+    "desktop-stable": {
+      "build": "1792618285",
+      "checked_at": "2026-10-25T09:50:26.429103+00:00",
+      "contract_hash": "60b01cc816c5335924135752ea2819c18cd9d6db910e50e395190b34c9759cea",
+      "region_hash": "102f48a50591adeb683ea73eca5401b9efc3f568771e0227324110b58187760b",
+      "result": "pass",
+      "verified_region_hash": "102f48a50591adeb683ea73eca5401b9efc3f568771e0227324110b58187760b"
+    }
+  },
+  "history": [
+    {
+      "build": "1792618285",
+      "channel": "desktop-stable",
+      "date": "2026-10-25T09:50:26.429103+00:00",
+      "result": "pass"
+    },
+    {
+      "build": "1792108788",
+      "channel": "desktop-beta",
+      "date": "2026-10-25T09:50:26.429103+00:00",
+      "result": "pass"
+    },
+    {
+      "build": "1792618285",
+      "channel": "deck-stable",
+      "date": "2026-10-25T09:50:26.429103+00:00",
+      "result": "pass"
+    },
+    {
+      "build": "1792108788",
+      "channel": "deck-beta",
+      "date": "2026-10-25T09:50:26.429103+00:00",
+      "result": "pass"
+    }
+  ],
+  "last_run": "2026-10-25T09:50:26.429103+00:00",
+  "schema": 1
+}
