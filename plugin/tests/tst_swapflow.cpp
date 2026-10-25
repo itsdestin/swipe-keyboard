@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
 //
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
 
 // The swap flow both front ends share (card #500): the tidy-up of a swap list, the words read after a tapped word,
 // the worker's scores re-ranking a list, and the post-swipe list. No keyboard and no engine files needed.

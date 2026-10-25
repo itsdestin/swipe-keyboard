@@ -44,7 +44,8 @@ def shared_plugin_files():
     daemon and tools would quietly become GPL as built again."""
     cmake = (ROOT/'plugin/CMakeLists.txt').read_text()
     names = set()
-    for lib in ('swipekb_language', 'swipekb_session'):
+    # WHY swipekb_swapflow too: the swap bench (tools/, MIT) builds it, like the two libraries before it.
+    for lib in ('swipekb_language', 'swipekb_session', 'swipekb_swapflow'):
         sources = re.search(r'add_library\(' + lib + r' STATIC ([^)]*)\)', cmake).group(1).split()
         names |= {pathlib.Path(s).stem for s in sources if s.endswith('.cpp') and not s.startswith('../')}
     names |= {'nextwordworker', 'learningmanager'}   # built into frontend-plasma69's core and the feature tests
