@@ -960,8 +960,11 @@ void SwipeInputMethod::followContextLocale()
 {
     auto *ic = inputContext();
     if (!ic) return;
+    // WHY only from the placeholder: a method that was given a real language (tests and the language switcher do this
+    // directly) keeps it; only "C"/"POSIX" ("no language yet") is replaced, and only by a real language.
+    const auto placeholder = [](const QString &tag) { return tag.compare(QLatin1String("C"), Qt::CaseInsensitive) == 0 || tag.compare(QLatin1String("POSIX"), Qt::CaseInsensitive) == 0; };
     const QString current = ic->locale();
-    if (current.isEmpty() || current == m_locale) return;
+    if (current.isEmpty() || placeholder(current) || !placeholder(m_locale)) return;
     m_locale = current;
     resolveCurrentProfile();
 }
