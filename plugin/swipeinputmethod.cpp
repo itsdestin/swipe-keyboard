@@ -1283,9 +1283,12 @@ void SwipeInputMethod::observeWordSwap(const EditorSnapshot &editor)
 swapflow::Rules SwipeInputMethod::swapRules()
 {
     const auto snapshot = m_profiles.snapshot();
-    // WHY boost 0: only drops forgotten words and taught words that are no longer wanted; the order stays as is.
+    // WHY the list's own boost (swapflow::Rules::personalBoost): a tap-back list only drops forgotten words and taught
+    // words no longer wanted (boost 0, order kept); the bar after a swipe also lifts learned words at half strength.
     return {snapshot.effectiveLanguage, snapshot.requestedLocale,
-            [this](const QStringList &l) { return personalize(l, QString(), QString(), false, int(l.size()), 0.0); }};
+            [this](const QStringList &l, const QString &prev, double boost) {
+                return personalize(l, prev, QString(), false, int(l.size()), boost);
+            }};
 }
 
 bool SwipeInputMethod::afterSwipeScoring() const

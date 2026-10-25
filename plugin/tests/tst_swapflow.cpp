@@ -55,9 +55,43 @@ private slots:
     }
     void forgottenWordsAreDropped() {
         auto r = rules();
-        r.personalize = [](const QStringList &l) { QStringList o = l; o.removeAll("wood"); return o; };
+        r.personalize = [](const QStringList &l, const QString &, double) { QStringList o = l; o.removeAll("wood"); return o; };
         const std::vector<SwapCandidate> c{cand("food", 0), cand("wood", -1), cand("hood", -2)};
         QCOMPARE(swapflow::tidySwapList("good", c, {}, 3, r, true), (QStringList{"food", "hood"}));
+    }
+    // WHY (card #500 review): before card #500 the bar after a swipe was the swipe's runner-ups personalized at half
+    // strength (boost 0.5 after the word before), so a learned word moved up there. The swap list must keep that
+    // lift, including when the worker's scores re-rank it; a tap-back list keeps boost 0.
+    void aLearnedWordKeepsItsLiftInTheBarAfterASwipe() {
+        QList<QPair<QString, double>> calls;
+        auto r = rules();
+        // A stand-in for the front end's personalize(): "hood" is the person's word after "the" (lifted when boost > 0).
+        r.personalize = [&calls](const QStringList &l, const QString &prev, double boost) {
+            calls.append({prev, boost});
+            QStringList o = l;
+            if (boost > 0 && prev == "the" && o.removeAll("hood")) o.prepend("hood");
+            return o;
+        };
+        r.prev = "the";   // what buildAfterSwipe sets from the words before
+        const std::vector<SwapCandidate> c{cand("food", 0), cand("wood", -1), cand("hood", -2)};
+        auto after = swapflow::afterSwipeList("good", c, {}, 1, r);
+        QCOMPARE(after.candidates, (QStringList{"good", "hood", "food"}));
+        QCOMPARE(calls.last(), (QPair<QString, double>{"the", swapflow::kAfterSwipeBoost}));
+        // The worker's scores re-rank the bar: still lifted.
+        QVERIFY(after.pending.arm({1, 0, 2}));
+        const auto words = after.pending.scoreList();
+        QVector<float> sc;
+        for (const auto &w : words) sc << (w == "wood" ? -0.1f : -5.f);
+        swapflow::PendingSwap tap;
+        auto rr = rules();
+        rr.personalize = r.personalize;   // as a front end's swapRules(): no boost, no word before
+        const auto got = swapflow::handleScores(tap, after.pending, false, true, {1, 0, 2}, words, sc, rr);
+        QCOMPARE(got.target, swapflow::ScoredList::AfterSwipe);
+        QCOMPARE(got.list, (QStringList{"good", "hood", "wood"}));
+        QCOMPARE(calls.last(), (QPair<QString, double>{"the", swapflow::kAfterSwipeBoost}));
+        // A tap-back list on the same words: no lift.
+        QCOMPARE(swapflow::tidySwapList("good", c, {}, 3, rr, true), (QStringList{"food", "wood", "hood"}));
+        QCOMPARE(calls.last(), (QPair<QString, double>{QString(), swapflow::kTapBackBoost}));
     }
     void theWorkersScoresReRankTheList() {
         swapflow::PendingSwap p;
@@ -119,7 +153,11 @@ private slots:
         for (const char *lang : {"en", "de"}) {
             const auto tb = swapflow::tapBackParams(QString::fromLatin1(lang));
             QVERIFY(tb.tapBack);
-            QCOMPARE(tb.tapBackMinFrequency, swipekb::SwapParams::forLanguage(lang).tapBackMinFrequency);
+            // WHY these: the tap-back rule must really be looser than the bar's (rarer words allowed) and add
+            // sentence words; otherwise "only tap-back lists" would test nothing.
+            QVERIFY(tb.tapBackMinFrequency < tb.minFrequency);
+            QVERIFY(tb.tapBackSentenceWords > 0);
+            QCOMPARE(tb.minFrequency, swipekb::SwapParams::forLanguage(lang).minFrequency);
         }
         QVERIFY(!swapflow::afterSwipeList("good", {cand("food", 0)}, {}, 5, rules()).pending.params.tapBack);
     }

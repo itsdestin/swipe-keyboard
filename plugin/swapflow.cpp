@@ -66,8 +66,9 @@ QStringList tidySwapList(const QString &tapped, const std::vector<swipekb::SwapC
             if (swipekb::offeredUnprompted(x, rules.language)) clean << x;
         list = clean;
     }
-    // WHY boost 0 (the caller's callback): only drops forgotten words and taught words no longer wanted; order stays.
-    if (rules.personalize) list = rules.personalize(list);
+    // WHY the rules' boost: 0 on tap-back only drops forgotten words and taught words no longer wanted (order stays);
+    // the bar after a swipe also lifts learned words at half strength (kAfterSwipeBoost).
+    if (rules.personalize) list = rules.personalize(list, rules.prev, rules.personalBoost);
     list = swipekb::rankRegionalCandidates(list, rules.locale, limit);
     QStringList out;
     for (const auto &x : std::as_const(list)) {
@@ -143,7 +144,12 @@ std::optional<QStringList> PendingSwap::answer(const PredictionStamp &got, const
     if (!waiting || !(got == stamp)) return std::nullopt;
     waiting = false;
     if (!applyScores(cands, words, scores)) return std::nullopt;
-    return tidySwapList(tapped, cands, params, limit, rules, dress);
+    // WHY this list's own boost and word before: one Rules serves both lists (handleScores), but the bar after a
+    // swipe lifts learned words and a tap-back list does not.
+    Rules own = rules;
+    own.personalBoost = personalBoost;
+    own.prev = prev;
+    return tidySwapList(tapped, cands, params, limit, own, dress);
 }
 
 AfterSwipeList afterSwipeList(const QString &first, std::vector<swipekb::SwapCandidate> cands, const QString &otherSpelling,
@@ -151,8 +157,10 @@ AfterSwipeList afterSwipeList(const QString &first, std::vector<swipekb::SwapCan
 {
     AfterSwipeList out;
     const auto params = swipekb::SwapParams::forLanguage(rules.language.toStdString());
+    Rules own = rules;
+    own.personalBoost = kAfterSwipeBoost;
     // WHY 2: the bar shows the typed word's two other places (three with the other spelling), as before.
-    const auto list = tidySwapList(first, cands, params, 2, rules, false);
+    const auto list = tidySwapList(first, cands, params, 2, own, false);
     if (!list.isEmpty()) out.candidates = afterSwipeCandidates(first, list, otherSpelling);
     out.pending.tapped = first;
     out.pending.cands = std::move(cands);
@@ -161,6 +169,8 @@ AfterSwipeList afterSwipeList(const QString &first, std::vector<swipekb::SwapCan
     out.pending.dress = false;
     out.pending.otherSpelling = otherSpelling;
     out.pending.sessionSerial = sessionSerial;
+    out.pending.personalBoost = kAfterSwipeBoost;
+    out.pending.prev = rules.prev;
     return out;
 }
 
@@ -169,7 +179,10 @@ AfterSwipeList buildAfterSwipe(swipekb::LanguageEngine &engine, const QString &f
                                quint64 sessionSerial, const Rules &rules)
 {
     const auto params = swipekb::SwapParams::forLanguage(rules.language.toStdString());
-    return afterSwipeList(first, gather(engine, first, keys, context, {}, trace, params), otherSpelling, sessionSerial, rules);
+    // WHY the last word before: the same word pair the swipe's own guesses were personalized with (swipePrev).
+    Rules own = rules;
+    own.prev = context.isEmpty() ? QString() : context.last();
+    return afterSwipeList(first, gather(engine, first, keys, context, {}, trace, params), otherSpelling, sessionSerial, own);
 }
 
 ScoredList handleScores(PendingSwap &tapBack, PendingSwap &afterSwipe, bool tapBackOpen, bool afterSwipeOpen,

@@ -27,14 +27,25 @@ namespace swipekb { class LanguageEngine; }
 
 namespace swapflow {
 
-// The front end's personal-words step (SwipeInputMethod/SwipeController::personalize with boost 0: drops forgotten
-// and no-longer-wanted taught words, keeps the order). Empty = nothing dropped.
-using Personalize = std::function<QStringList(const QStringList &)>;
+// The front end's personal-words step (SwipeInputMethod/SwipeController::personalize(list, prev, "", false, all,
+// boost)): drops forgotten and no-longer-wanted taught words; with boost > 0 it also lifts the person's own words
+// (after `prev`, the word before). Empty = nothing dropped or lifted.
+using Personalize = std::function<QStringList(const QStringList &list, const QString &prev, double boost)>;
 struct Rules {
     QString language;   // effective language ("en", "de", ...): the swear-word list
     QString locale;     // requested locale ("en_GB"): regional spelling order
     Personalize personalize;
+    // WHY per list: a tap-back list keeps the swap rule's order (boost 0, kTapBackBoost); the bar after a swipe lifts
+    // learned words at half strength (kAfterSwipeBoost), as its other places did before card #500.
+    double personalBoost = 0;
+    QString prev;       // the word before, for the person's word pairs (bar after a swipe only)
 };
+// WHY 0.5 after a swipe: before card #500 the bar's other places were the swipe's runner-ups through
+// personalize(..., 0.5) (half strength: the finger path is strong evidence, so habits break near-ties and lift a
+// word a place or two). The swap list replaced them, and must keep that lift or learned words would rank lower there.
+inline constexpr double kAfterSwipeBoost = 0.5;
+// WHY 0 on tap-back: the person tapped a word to see other words; the swap rule's order (path, sentence) decides.
+inline constexpr double kTapBackBoost = 0.0;
 
 // WHY 32: a gathered list is at most SwapParams::pool (24) words plus 12 neighbours (plus up to 16 sentence words on a
 // tap-back list). The worker scores one word per network lookup, so the list sent is bounded; the words cut are the
@@ -104,6 +115,8 @@ struct PendingSwap {
     swipekb::SwapParams params;
     int limit = 3;
     bool dress = true;       // tidySwapList's `dress` (false for the bar after a swipe)
+    double personalBoost = kTapBackBoost;   // Rules::personalBoost for this list (kAfterSwipeBoost after a swipe)
+    QString prev;                           // Rules::prev for this list
     bool waiting = false;
     // Post-swipe only: the other spelling to keep first, and the SwipeSession::serial() the list belongs to.
     QString otherSpelling;
@@ -131,7 +144,8 @@ struct AfterSwipeList {
     QStringList candidates;
     PendingSwap pending;
 };
-// From gathered candidates (no engine needed; tested on its own).
+// From gathered candidates (no engine needed; tested on its own). Personalized with kAfterSwipeBoost after
+// `rules.prev` (buildAfterSwipe sets it to the last word before).
 AfterSwipeList afterSwipeList(const QString &first, std::vector<swipekb::SwapCandidate> cands, const QString &otherSpelling,
                               quint64 sessionSerial, const Rules &rules);
 // The whole post-swipe build: gather (no words after: they do not exist yet) + afterSwipeList.
