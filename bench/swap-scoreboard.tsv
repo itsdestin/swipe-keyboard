@@ -1,0 +1,49 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+# SPDX-License-Identifier: MIT
+# Swap options scoreboard (card #500), written by bench/swap-score.sh. One row per measure per run.
+# set: bench-2000 / test-extra-10000 = real English swipes (public MIT test split, never trained or tuned on);
+#   heliboard-LANG = HeliBoard Gesture Data (CC BY-SA, test only, no sentences); trv8k = FUTO English TUNING slice
+#   (labels start "[tuning]"; never quote those rows as results).
+# mode: baseline = today's keyboard (the shipped WordSwap::build); new = the improved order.
+# n = swipes replayed. measure: after-swipe = the guess bar's other places right after the swipe; tapback-trace = the
+#   list on tapping back while the swipe's guesses are remembered; tapback-notrace = the same without them.
+#   For these three, only swipes whose FIRST guess was wrong count (their number is "cases" in extra); first = the right
+#   word is the first option, in3 = among the first three (best-first order, not the bar's middle-first layout).
+# junk: first guess right; extra = share of the bar's other places that are stretched, rare (frequency under 80 of
+#   255) or rare names (capitalised, under 120) — the swipe scoreboard's rule. speed: extra = ms to build one tap-back list.
+date	commit	label	set	mode	n	measure	first	in3	extra
+2026-10-24	2fec156	baseline 0.5.0 (WordSwap::build)	bench-2000	baseline	2000	after-swipe	19.70	30.81	cases 198
+2026-10-24	2fec156	baseline 0.5.0 (WordSwap::build)	bench-2000	baseline	2000	tapback-trace	19.70	33.33	cases 198
+2026-10-24	2fec156	baseline 0.5.0 (WordSwap::build)	bench-2000	baseline	2000	tapback-notrace	12.12	16.67	cases 198
+2026-10-24	2fec156	baseline 0.5.0 (WordSwap::build)	bench-2000	baseline	2000	junk			6.04
+2026-10-24	2fec156	baseline 0.5.0 (WordSwap::build)	bench-2000	baseline	2000	speed			2.22
+2026-10-24	2fec156	baseline 0.5.0 (WordSwap::build)	test-extra-10000	baseline	10000	after-swipe	24.66	32.60	cases 957
+2026-10-24	2fec156	baseline 0.5.0 (WordSwap::build)	test-extra-10000	baseline	10000	tapback-trace	24.76	34.38	cases 957
+2026-10-24	2fec156	baseline 0.5.0 (WordSwap::build)	test-extra-10000	baseline	10000	tapback-notrace	10.76	15.57	cases 957
+2026-10-24	2fec156	baseline 0.5.0 (WordSwap::build)	test-extra-10000	baseline	10000	junk			6.29
+2026-10-24	2fec156	baseline 0.5.0 (WordSwap::build)	test-extra-10000	baseline	10000	speed			1.93
+2026-10-24	2fec156	baseline 0.5.0 (WordSwap::build)	heliboard-es	baseline	5000	after-swipe	26.73	35.72	cases 1201
+2026-10-24	2fec156	baseline 0.5.0 (WordSwap::build)	heliboard-es	baseline	5000	tapback-trace	26.73	36.39	cases 1201
+2026-10-24	2fec156	baseline 0.5.0 (WordSwap::build)	heliboard-es	baseline	5000	tapback-notrace	5.83	12.91	cases 1201
+2026-10-24	2fec156	baseline 0.5.0 (WordSwap::build)	heliboard-es	baseline	5000	junk			43.71
+2026-10-24	2fec156	baseline 0.5.0 (WordSwap::build)	heliboard-es	baseline	5000	speed			1.08
+2026-10-24	2fec156	baseline 0.5.0 (WordSwap::build)	heliboard-fr	baseline	5000	after-swipe	29.88	42.51	cases 1583
+2026-10-24	2fec156	baseline 0.5.0 (WordSwap::build)	heliboard-fr	baseline	5000	tapback-trace	29.88	44.41	cases 1583
+2026-10-24	2fec156	baseline 0.5.0 (WordSwap::build)	heliboard-fr	baseline	5000	tapback-notrace	8.78	19.77	cases 1583
+2026-10-24	2fec156	baseline 0.5.0 (WordSwap::build)	heliboard-fr	baseline	5000	junk			42.11
+2026-10-24	2fec156	baseline 0.5.0 (WordSwap::build)	heliboard-fr	baseline	5000	speed			1.14
+2026-10-24	2fec156	baseline 0.5.0 (WordSwap::build)	heliboard-de	baseline	5000	after-swipe	18.54	23.64	cases 1764
+2026-10-24	2fec156	baseline 0.5.0 (WordSwap::build)	heliboard-de	baseline	5000	tapback-trace	18.54	24.49	cases 1764
+2026-10-24	2fec156	baseline 0.5.0 (WordSwap::build)	heliboard-de	baseline	5000	tapback-notrace	4.88	9.92	cases 1764
+2026-10-24	2fec156	baseline 0.5.0 (WordSwap::build)	heliboard-de	baseline	5000	junk			29.96
+2026-10-24	2fec156	baseline 0.5.0 (WordSwap::build)	heliboard-de	baseline	5000	speed			1.13
+2026-10-24	2fec156	baseline 0.5.0 (WordSwap::build)	heliboard-en	baseline	5000	after-swipe	30.35	43.14	cases 962
+2026-10-24	2fec156	baseline 0.5.0 (WordSwap::build)	heliboard-en	baseline	5000	tapback-trace	30.35	45.43	cases 962
+2026-10-24	2fec156	baseline 0.5.0 (WordSwap::build)	heliboard-en	baseline	5000	tapback-notrace	8.32	17.98	cases 962
+2026-10-24	2fec156	baseline 0.5.0 (WordSwap::build)	heliboard-en	baseline	5000	junk			9.44
+2026-10-24	2fec156	baseline 0.5.0 (WordSwap::build)	heliboard-en	baseline	5000	speed			1.72
+2026-10-24	2fec156	[tuning] baseline 0.5.0 (WordSwap::build)	trv8k	baseline	7198	after-swipe	31.71	40.08	cases 514
+2026-10-24	2fec156	[tuning] baseline 0.5.0 (WordSwap::build)	trv8k	baseline	7198	tapback-trace	31.71	42.80	cases 514
+2026-10-24	2fec156	[tuning] baseline 0.5.0 (WordSwap::build)	trv8k	baseline	7198	tapback-notrace	15.95	21.21	cases 514
+2026-10-24	2fec156	[tuning] baseline 0.5.0 (WordSwap::build)	trv8k	baseline	7198	junk			5.81
+2026-10-24	2fec156	[tuning] baseline 0.5.0 (WordSwap::build)	trv8k	baseline	7198	speed			2.08
