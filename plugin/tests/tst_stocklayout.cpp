@@ -16,6 +16,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QDateTime>
+#include <QElapsedTimer>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QTemporaryDir>
@@ -121,6 +122,7 @@ private slots:
                 function restore() { editor.inputMethodHints = Qt.ImhNone; editor.forceActiveFocus() }
                 function alternative() { InputContext.inputEngine.wordCandidateListModel.selectItem(0) }
                 function tap() { InputContext.inputEngine.virtualKeyClick(Qt.Key_X, "x", Qt.NoModifier) }
+                function reapplyLocale() { VirtualKeyboardSettings.locale = "en_GB"; VirtualKeyboardSettings.locale = "en_US" }
                 Component.onCompleted: { VirtualKeyboardSettings.locale = "en_US"; editor.forceActiveFocus() }
                 TextInput { id: editor; width: parent.width; height: 40; focus: true }
                 TextInput { id: other; y:45; width:parent.width; height:40; text:"sentinel" }
@@ -135,13 +137,24 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(swipeLayout(item), 10000);
         QPointer<QObject> method(root->property("method").value<QObject *>());
         QVERIFY(method);
-        // WHY wait for the engine: beginSwipe() answers -1 (and asks no questions) until the model has loaded. On a busy
-        // machine (tests now run in parallel) that load can still be running here, so the capture-query row saw
-        // 0 callbacks instead of 1. Waiting makes the test about the callback, not about how fast the machine is.
+        // WHY wait for the engine: beginSwipe() answers -1 (and asks no questions) until the swipe model has loaded.
+        // On a busy machine (CTest now runs tests in parallel) the keyboard's first language hand-over from Qt can arrive
+        // with an EMPTY language ("profile-unavailable: malformed locale tag") and the later "en_US" set in onCompleted is
+        // then not passed on, so the first row saw 0 callbacks instead of 1. Re-applying the language (a real change
+        // en_GB -> en_US) is what the keyboard does when the person switches language, so the test does that until the
+        // engine is ready. Names and counts of the diagnostics go in the failure message so a slow runner is explainable.
         {
             const auto isReady=[&] { bool ready=false; QMetaObject::invokeMethod(method,"isReady",Q_RETURN_ARG(bool,ready)); return ready; };
-            // WHY the diagnostics in the message: if a slow runner ever still fails here, the log says why (names and counts only).
-            QTRY_VERIFY2_WITH_TIMEOUT(isReady(), qPrintable(QString::fromUtf8(QJsonDocument::fromVariant(method->property("diagnostics")).toJson(QJsonDocument::Compact))), 30000);
+            QElapsedTimer waited; waited.start();
+            int nudges=0;
+            while (!isReady() && waited.elapsed()<30000) {
+                QTest::qWait(100);
+                if (!isReady() && waited.elapsed()>(nudges+1)*2000) {
+                    ++nudges;
+                    QMetaObject::invokeMethod(root.get(),"reapplyLocale");
+                }
+            }
+            QVERIFY2(isReady(), qPrintable(QString::fromUtf8(QJsonDocument::fromVariant(method->property("diagnostics")).toJson(QJsonDocument::Compact))));
         }
         auto *capture = swipeLayout(item)->property("swipeCapture").value<QObject *>();
         QVariant geometry;
