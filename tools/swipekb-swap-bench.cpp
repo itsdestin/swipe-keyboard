@@ -13,7 +13,9 @@
 // (plugin/swipeinputmethod.cpp) and calls the shipped WordSwap::build itself, so the baseline is the code that ships.
 // `--mode new` grades the tap-to-swap path (card #500): the committed word is the same as baseline's, and every list
 // is LanguageEngine::swapCandidates scored by the sentence model (Predictor::scoreWords) and ordered by rankSwap,
-// then given the same tidy-up as baseline (swear-word rule, regional spelling order).
+// then given the keyboard's own tidy-up (swapflow::tidySwapList, the very function both front ends call: swear-word rule,
+// regional spelling order, the tapped word's capitals). It also reports how long the after-swipe list takes to build
+// (the swap search and tidy-up the keyboard runs right after committing a swipe; the sentence scores run on a worker).
 // `--params F`: SwapParams as JSON {wPath, wBefore, wAfter, wNeural, pool, minFrequency, beam, searchPrior,
 // junkFilter, neighbours, neighbourFloor, syntheticTemperature} (missing keys keep the
 // defaults), or an ARRAY of such objects: then every set is graded in one pass and each report is printed after a
@@ -59,6 +61,7 @@
 #include "swipekb/language_engine.hpp"
 #include "swipekb/prediction.hpp"
 #include "swipekb/swap.hpp"
+#include "swapflow.h"
 #include "swipesession.h"
 #include "wordswap.h"
 
@@ -182,9 +185,10 @@ int main(int argc, char **argv)
     const benchdata::JunkRule junkRule(setup.dictionary, setup.language);
     auto junk = [&](const std::string &w) { return junkRule(engine, w); };
     const auto norm = [&](const std::string &s) { return benchdata::norm(s, match); };
-    // The keyboard's tidy-up of a swap list, shared by both modes so they are tidied the same way: swear words are
+    // Baseline mode's tidy-up of the dictionary neighbours, as the keyboard did before card #500: swear words are
     // dropped unless the tapped word is one itself (offeredUnprompted), then the regional spelling order
-    // ("colour" before "color" in en_GB), cut to `limit`.
+    // ("colour" before "color" in en_GB), cut to `limit`. New mode uses swapflow::tidySwapList (same two rules, plus
+    // the tapped word's capitals), the function the keyboard itself calls.
     auto tidy = [&](const QString &tapped, QStringList list, int limit) {
         if (offeredUnprompted(tapped, language)) {
             QStringList clean;
@@ -194,6 +198,10 @@ int main(int argc, char **argv)
         return rankRegionalCandidates(list, qlocale, limit);
     };
 
+    // New mode: the keyboard's tidy-up itself (no learned words in the bench, so no personal-words step).
+    const swapflow::Rules swapRules{language, qlocale, {}};
+    double afterMsTotal = 0, afterMsMax = 0;
+    size_t afterLists = 0;
     // One report per parameter set (baseline: one).
     std::vector<swapbench::Report> reports(paramSets.size());
     swapbench::Report &report = reports.front();
@@ -289,7 +297,18 @@ int main(int argc, char **argv)
                 auto it = cache.find(key);
                 if (it != cache.end()) return it->second;
                 Lists l;
-                l.afterSwipe = withNeural(engine.swapCandidates(ws, keys, context, {}, s.trace, p));
+                const auto ta = Clock::now();
+                auto afterCands = engine.swapCandidates(ws, keys, context, {}, s.trace, p);
+                // Timed as the keyboard builds the after-swipe list on the input thread: the search and the tidy-up
+                // (the first weight set's, once per swipe), without the sentence scores (a worker does those).
+                if (cache.empty()) {
+                    (void)swapflow::tidySwapList(w, afterCands, p, 2, swapRules);
+                    const double ams = std::chrono::duration<double, std::milli>(Clock::now() - ta).count();
+                    afterMsTotal += ams;
+                    afterMsMax = std::max(afterMsMax, ams);
+                    ++afterLists;
+                }
+                l.afterSwipe = withNeural(std::move(afterCands));
                 const auto t0 = Clock::now();
                 l.trace = withNeural(engine.swapCandidates(ws, keys, context, next, s.trace, p));
                 if (traceMs < 0) traceMs = std::chrono::duration<double, std::milli>(Clock::now() - t0).count();
@@ -297,10 +316,7 @@ int main(int argc, char **argv)
                 return cache.emplace(key, std::move(l)).first->second;
             };
             auto shown = [&](const std::vector<SwapCandidate> &c, const SwapParams &p, int k) {
-                QStringList l;
-                // WHY rank them all, then tidy: the tidy-up may drop some, and the list must still be k long.
-                for (const auto &x : rankSwap(ws, c, p, int(c.size()))) l << QString::fromStdString(x);
-                return toStd(tidy(w, l, k));
+                return toStd(swapflow::tidySwapList(w, c, p, k, swapRules));
             };
             // Speed: one tap-back list with the first weight set, as the keyboard builds it (search + sentence
             // scores + order + tidy-up), not the other two lists built alongside it here. The neural scoring runs on
@@ -356,9 +372,7 @@ int main(int argc, char **argv)
                     };
                     for (size_t k = 0; k < kPools.size(); ++k) d.inPool[k] += variant([&](SwapParams &q) { q.pool = kPools[k]; });
                     // The rank after ordering and tidy-up, in the full list.
-                    QStringList full;
-                    for (const auto &x : rankSwap(ws, pool0, p0, int(pool0.size()))) full << QString::fromStdString(x);
-                    const auto tidied = toStd(tidy(w, full, int(full.size())));
+                    const auto tidied = toStd(swapflow::tidySwapList(w, pool0, p0, int(pool0.size()), swapRules));
                     int rank = -1;
                     for (size_t j = 0; j < tidied.size(); ++j) if (norm(tidied[j]) == target) { rank = int(j); break; }
                     const bool gathered = has(pool0);
@@ -474,6 +488,11 @@ int main(int argc, char **argv)
         }
     }
     if (diagOut) std::fclose(diagOut);
+    // WHY not a scoreboard row: the speed budget (20 ms on the input thread) is checked by eye; swap-score.sh reads
+    // only the rows above.
+    if (newMode && afterLists)
+        std::printf("after-swipe list time: avg %.2f ms, max %.2f ms over %zu lists (swap search + tidy-up, input thread)\n",
+                    afterMsTotal / double(afterLists), afterMsMax, afterLists);
     std::printf("setup: %s ngram=%d nwp=%d n=%zu\n", engine.mode(), haveNgram ? 1 : 0, haveNgram && !nwp.empty() ? 1 : 0, n);
     if (noLayout) std::printf("(%zu swipes had no readable layout file; skipped)\n", noLayout);
     return 0;

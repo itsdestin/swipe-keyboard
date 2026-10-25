@@ -56,4 +56,4 @@ target_link_libraries(tst_swapmeasures PRIVATE swapmeasures Qt6::Core Qt6::Test)
 add_test(NAME tools_swapmeasures COMMAND tst_swapmeasures)
 # swipekb-swap-bench: the swap scoreboard's engine (card #500). Baseline mode runs the shipped WordSwap::build itself.
 add_executable(swipekb-swap-bench swipekb-swap-bench.cpp)
-target_link_libraries(swipekb-swap-bench PRIVATE swipekb_engine swipekb_session swipekb_language swapmeasures Qt6::Core)
+target_link_libraries(swipekb-swap-bench PRIVATE swipekb_engine swipekb_session swipekb_swapflow swipekb_language swapmeasures Qt6::Core)
