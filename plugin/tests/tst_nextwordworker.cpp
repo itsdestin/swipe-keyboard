@@ -98,7 +98,7 @@ private slots:
         QVERIFY(!assets.isEmpty());
         NextWordWorker worker;
         QSignalSpy scores(&worker, &NextWordWorker::wordScoresReady), next(&worker, &NextWordWorker::resultReady),
-            completion(&worker, &NextWordWorker::completionReady), alternatives(&worker, &NextWordWorker::alternativesReady);
+            completion(&worker, &NextWordWorker::completionReady);
         PredictionJob job{{1, 1, 1}, assets + "/language-packs/en.ngram", assets + "/language-packs/en.vocab.tsv",
                           {"i", "can"}, "en"};
         job.scoreWords = {"see", "sea", "sew"};
@@ -116,7 +116,7 @@ private slots:
         worker.submit(job);
         QTRY_COMPARE_WITH_TIMEOUT(scores.size(), 2, 15000);
         QVERIFY(qvariant_cast<QVector<float>>(scores.at(1).at(2)).isEmpty());
-        QCOMPARE(next.size() + completion.size() + alternatives.size(), 0);
+        QCOMPARE(next.size() + completion.size(), 0);
     }
     void onlyNewestScoreJobSurvives() {
         QSemaphore started, finish;

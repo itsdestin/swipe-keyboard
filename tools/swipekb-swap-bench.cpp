@@ -302,7 +302,7 @@ int main(int argc, char **argv)
                 // Timed as the keyboard builds the after-swipe list on the input thread: the search and the tidy-up
                 // (the first weight set's, once per swipe), without the sentence scores (a worker does those).
                 if (cache.empty()) {
-                    (void)swapflow::tidySwapList(w, afterCands, p, 2, swapRules);
+                    (void)swapflow::tidySwapList(w, afterCands, p, 2, swapRules, false);
                     const double ams = std::chrono::duration<double, std::milli>(Clock::now() - ta).count();
                     afterMsTotal += ams;
                     afterMsMax = std::max(afterMsMax, ams);
@@ -315,8 +315,10 @@ int main(int argc, char **argv)
                 l.noTrace = withNeural(engine.swapCandidates(ws, keys, context, next, {}, p));
                 return cache.emplace(key, std::move(l)).first->second;
             };
-            auto shown = [&](const std::vector<SwapCandidate> &c, const SwapParams &p, int k) {
-                return toStd(swapflow::tidySwapList(w, c, p, k, swapRules));
+            // WHY dress false for the after-swipe bar: the keyboard does not dress it in the first guess's capitals
+            // (swapflow::afterSwipeList); tap-back lists are dressed like the tapped word.
+            auto shown = [&](const std::vector<SwapCandidate> &c, const SwapParams &p, int k, bool dress = true) {
+                return toStd(swapflow::tidySwapList(w, c, p, k, swapRules, dress));
             };
             // Speed: one tap-back list with the first weight set, as the keyboard builds it (search + sentence
             // scores + order + tidy-up), not the other two lists built alongside it here. The neural scoring runs on
@@ -329,7 +331,7 @@ int main(int argc, char **argv)
                 const SwapParams &p = paramSets[i];
                 const Lists &l = listsFor(p);
                 auto &r = reports[i];
-                const auto bar = shown(l.afterSwipe, p, 2);
+                const auto bar = shown(l.afterSwipe, p, 2, false);
                 r.add(Measure::AfterSwipe, wrongFirst, s.word, bar, norm);
                 if (!wrongFirst) {
                     size_t j = 0;

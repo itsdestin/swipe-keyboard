@@ -93,7 +93,6 @@ void NextWordWorker::run()
                 // loaded bit may cross into support diagnostics.
                 emit modelStateChanged(job.stamp.profileEpoch,modelLoaded);
                 if (scoring) emit wordScoresReady(job.stamp, job.scoreWords, scores);
-                else if (job.alternatives) emit alternativesReady(job.stamp, words);
                 else if (job.prefix.isEmpty()) emit resultReady(job.stamp, words);
                 else emit completionReady(job.stamp, job.prefix, words);
             }

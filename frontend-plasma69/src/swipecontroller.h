@@ -193,6 +193,7 @@ private:
     // Metadata for diagnostics/tests, never words (see diagnostics()).
     bool m_lastSwapUsedPath = false;
     int m_lastSwapWordsAfter = 0;
+    quint64 m_afterSwipeLists = 0; // post-swipe lists built (a count, for tests: a stale one is never built)
     void buildAfterSwipeList(quint64 sessionSerial, int generation, quint64 profileEpoch, const QString &first,
                              const RecentSwipes::Keys &keys, const QStringList &context, const RecentSwipes::Trace &trace,
                              const QString &otherSpelling, bool predictionField);

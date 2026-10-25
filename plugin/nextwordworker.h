@@ -23,10 +23,7 @@ struct PredictionJob {
     // Letters typed so far of the current word: non-empty makes this a completion job, answered by
     // completionReady instead of resultReady.
     QString prefix;
-    // Tap-to-swap ranking (card #187): `prefix` is then the tapped word's first letter and `topK` is wide, so the
-    // answer lists many words that fit the sentence and the caller keeps the ones that are real neighbours.
-    // Answered by alternativesReady, never by resultReady/completionReady.
-    bool alternatives = false;
+    // How many words a next-word or completion job answers with.
     int topK = 12;
     // Tap-to-swap scoring (one brain): non-empty makes this a "score these words" job. The worker returns each
     // word's next-word score after `context` (log10, same order) on wordScoresReady, never a word list. WHY on the
@@ -57,7 +54,6 @@ public:
 signals:
     void resultReady(PredictionStamp, QStringList);
     void completionReady(PredictionStamp, QString prefix, QStringList);
-    void alternativesReady(PredictionStamp, QStringList);
     // Answer to a scoreWords job: the words asked about and one score each (empty scores when no model is loaded).
     void wordScoresReady(PredictionStamp, QStringList words, QVector<float> scores);
     void requestSettled();

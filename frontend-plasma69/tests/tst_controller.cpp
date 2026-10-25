@@ -369,6 +369,39 @@ private Q_SLOTS:
         QVERIFY(!later.contains(text.mid(3).trimmed(), Qt::CaseInsensitive));
     }
 
+    void aSecondSwipeKeepsItsOwnAlternatives()
+    {
+        // WHY (card #500): the first swipe's list is built a moment after it; when the person swipes again before
+        // that, it is dropped, never shown beside the second word.
+        const auto before = m_controller->diagnostics().value(QStringLiteral("afterSwipeLists")).toULongLong();
+        swipe(QStringLiteral("hello"));
+        swipe(QStringLiteral("world"));   // no event loop between: the first list has not been built yet
+        QTest::qWait(300);
+        QCOMPARE(m_controller->diagnostics().value(QStringLiteral("afterSwipeLists")).toULongLong() - before, 1ull);
+        QVERIFY(!m_controller->candidates().isEmpty());
+    }
+
+    void nextWordsStillFollowASwipe()
+    {
+        // WHY (card #500): the after-swipe list asks the worker for scores, and the worker keeps only its latest job;
+        // the next-word list after a Space must still arrive, typed right away or after the scores came back.
+        for (const bool wait : {false, true}) {
+            make();
+            m_editor->setField(QStringLiteral("many "));
+            QTest::qWait(300);
+            swipe(QStringLiteral("thank"));
+            QVERIFY2(m_editor->m_text.endsWith(QStringLiteral("thank")), qPrintable(m_editor->m_text));
+            if (wait) {
+                QTest::qWait(300);
+            }
+            type(QStringLiteral(" "));
+            QVERIFY2(waitForBar([](const QStringList &bar) {
+                         return bar.contains(QStringLiteral("you"));
+                     }),
+                     qPrintable(m_controller->candidates().join(QLatin1Char(','))));
+        }
+    }
+
     void passwordFieldDisablesEverything()
     {
         m_editor->setHints(Qt::ImhSensitiveData | Qt::ImhHiddenText | Qt::ImhNoPredictiveText);

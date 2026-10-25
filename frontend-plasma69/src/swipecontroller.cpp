@@ -101,30 +101,15 @@ SwipeController::SwipeController(EditorPort *editor, QObject *parent, NextWordWo
         }
     });
     connect(&m_worker, &NextWordWorker::wordScoresReady, this, [this](PredictionStamp stamp, const QStringList &words, const QVector<float> &scores) {
-        // Card #500: the sentence model's scores for a shown swap list arrived; the list is re-ranked with them.
+        // Card #500: the sentence model's scores for a shown swap list arrived; the list is re-ranked with them
+        // (swapflow::handleScores, shared with the Qt Virtual Keyboard front end).
         // WHY the same word and no finger down: a list that changes under a pressed finger would swap in another word.
-        if (m_swapPending.waiting && stamp == m_swapPending.stamp) {
-            if (!m_swap.active() || !(stamp == m_swapStamp) || !m_swapPress.isEmpty() || m_barPressed) {
-                m_swapPending.clear();
-                return;
-            }
-            const auto list = m_swapPending.answer(stamp, words, scores, swapRules());
-            if (list && m_swap.setList(*list)) {
-                refreshBar();
-            }
-            return;
-        }
-        // The row right after a swipe: only while that very swipe's word is still the one shown, unpicked.
-        if (m_afterSwipePending.waiting && stamp == m_afterSwipePending.stamp) {
-            if (!afterSwipeScoring() || m_barPressed) {
-                m_afterSwipePending.clear();
-                return;
-            }
-            const auto list = m_afterSwipePending.answer(stamp, words, scores, swapRules());
-            if (list && !list->isEmpty()
-                && m_session.replaceAlternatives(swapflow::afterSwipeCandidates(m_afterSwipePending.tapped, *list, m_afterSwipePending.otherSpelling))) {
-                refreshBar();
-            }
+        const bool tapBackOpen = m_swap.active() && stamp == m_swapStamp && m_swapPress.isEmpty() && !m_barPressed;
+        const bool afterSwipeOpen = afterSwipeScoring() && !m_barPressed;
+        const auto r = swapflow::handleScores(m_swapPending, m_afterSwipePending, tapBackOpen, afterSwipeOpen, stamp, words, scores, swapRules());
+        if ((r.target == swapflow::ScoredList::TapBack && m_swap.setList(r.list))
+            || (r.target == swapflow::ScoredList::AfterSwipe && m_session.replaceAlternatives(r.list))) {
+            refreshBar();
         }
     });
     connect(&m_worker, &NextWordWorker::completionReady, this, [this](PredictionStamp stamp, const QString &prefix, const QStringList &ranked) {
@@ -936,13 +921,16 @@ void SwipeController::observeWordSwap(const EditorSnapshot &editor)
     if (!predictionCapable()) {
         return;
     }
-    m_swapPending = {m_swapStamp, span->word, std::move(cands), params, 3, true};
-    auto j = job(m_swapStamp, sentence, QString());
-    j.scoreWords = m_swapPending.scoreList();
-    if (j.scoreWords.isEmpty()) {
+    m_swapPending.tapped = span->word;
+    m_swapPending.cands = std::move(cands);
+    m_swapPending.params = params;
+    m_swapPending.limit = 3;
+    if (!m_swapPending.arm(m_swapStamp)) {
         m_swapPending.clear();
         return;
     }
+    auto j = job(m_swapStamp, sentence, QString());
+    j.scoreWords = m_swapPending.scoreList();
     m_worker.submit(j);
 }
 
@@ -983,30 +971,30 @@ void SwipeController::buildAfterSwipeList(quint64 sessionSerial,
             || !c->ready() || c->m_barPressed) {
             return;
         }
-        const auto params = swipekb::SwapParams::forLanguage(c->m_profile.effectiveLanguage.toStdString());
-        auto cands = swapflow::gather(*c->m_engine, first, keys, context, {}, trace, params);
-        const auto list = swapflow::tidySwapList(first, cands, params, 2, c->swapRules());
-        // WHY an empty list keeps today's guesses: an emptier row would be worse than the swipe's own other guesses.
-        if (list.isEmpty()) {
+        auto built = swapflow::buildAfterSwipe(*c->m_engine, first, keys, context, trace, otherSpelling, sessionSerial, c->swapRules());
+        ++c->m_afterSwipeLists;
+        // An empty list keeps the swipe's own guesses (swapflow::AfterSwipeList).
+        if (built.candidates.isEmpty()) {
             return;
         }
-        if (c->m_session.replaceAlternatives(swapflow::afterSwipeCandidates(first, list, otherSpelling))) {
+        if (c->m_session.replaceAlternatives(built.candidates)) {
             c->refreshBar();
         }
         // WHY the prediction field rule for the sentence scores: the sentence model only ever sees a field's words where
         // next-word predictions may run (the same rule as tap-to-swap); elsewhere the list stays on path + n-gram order.
-        if (!predictionField || !c->predictionCapable()) {
+        // WHY not while a next-word or completion list is wanted: the worker keeps only the latest job, so this one
+        // would cancel that list; the row then simply keeps the n-gram order.
+        if (!predictionField || !c->predictionCapable() || c->m_nextWord.pendingOrVisible() || !c->m_typedWord.token().isEmpty()) {
             return;
         }
         // WHY one id counter with tap-back: the two kinds of answer can then never be mistaken for each other.
         const PredictionStamp stamp{c->m_epoch, 0, ++c->m_swapStamp.requestId};
-        c->m_afterSwipePending = {stamp, first, std::move(cands), params, 2, true, otherSpelling, sessionSerial};
-        auto j = c->job(stamp, context, QString());
-        j.scoreWords = c->m_afterSwipePending.scoreList();
-        if (j.scoreWords.isEmpty()) {
-            c->m_afterSwipePending.clear();
+        if (!built.pending.arm(stamp)) {
             return;
         }
+        c->m_afterSwipePending = std::move(built.pending);
+        auto j = c->job(stamp, context, QString());
+        j.scoreWords = c->m_afterSwipePending.scoreList();
         c->m_worker.submit(j);
     });
 }
@@ -1129,6 +1117,7 @@ void SwipeController::reset()
     m_typedWord.clear();
     m_typedPress.clear();
     m_press = {};
+    m_barPressed = false; // WHY: a press on another field's row never ends here; it must not freeze this field's row
     clearWordSwap();
     invalidatePredictions();
     // WHY: points collected before a focus/privacy/language reset must never authorize a later commit.
@@ -1411,6 +1400,7 @@ QVariantMap SwipeController::diagnostics() const
     // WHY a flag and a count only (never words): shows which evidence the last tap-to-swap list used.
     out.insert(QStringLiteral("swapUsedPath"), m_lastSwapUsedPath);
     out.insert(QStringLiteral("swapWordsAfter"), m_lastSwapWordsAfter);
+    out.insert(QStringLiteral("afterSwipeLists"), m_afterSwipeLists);
     out.insert(QStringLiteral("policy"), policy().source == PredictionPolicySource::RawBridge ? QStringLiteral("app-declared") : QStringLiteral("owned-history"));
     const bool learning = self->m_learning.enabled();
     out.insert(QStringLiteral("learning"), learning);

@@ -50,15 +50,20 @@ std::vector<swipekb::SwapCandidate> gather(swipekb::LanguageEngine &engine, cons
                                            const QStringList &after, const RecentSwipes::Trace &trace,
                                            const swipekb::SwapParams &params);
 
-// Step 2. Best first, at most `limit`, never `tapped` (any case), dressed in `tapped`'s capitals (WordSwap::matchCase).
+// Step 2. Best first, at most `limit`, never `tapped` (any case). With `dress`, in `tapped`'s capitals
+// (WordSwap::matchCase): a tapped word in the text carries its capitals ("Good" -> "Food"). WHY never after a swipe
+// (dress false): there `tapped` is the dictionary spelling of the first guess ("I", German "Haus"), not what the
+// person's text looks like; the swipe session applies Shift/Caps itself, so dressing would wrongly give "In", "Aus".
 QStringList tidySwapList(const QString &tapped, const std::vector<swipekb::SwapCandidate> &cands,
-                         const swipekb::SwapParams &params, int limit, const Rules &rules);
+                         const swipekb::SwapParams &params, int limit, const Rules &rules, bool dress = true);
 
 // The words to send to the worker's scoreWords job: the list's best kMaxScored by rankSwap (before neural scores).
 QStringList wordsToScore(const QString &tapped, const std::vector<swipekb::SwapCandidate> &cands,
                          const swipekb::SwapParams &params, int cap = kMaxScored);
 
 // Fills `neural` from the worker's answer (words in the order asked) and drops the words that were not scored.
+// WHY an exact match: the worker echoes the very strings it was asked about (PredictionJob::scoreWords, which are the
+// candidates' own spellings from wordsToScore); its capitals rule is applied to word lists, never to these.
 // WHY drop them: rankSwap compares neural scores when a word has one and the n-gram when it has none; a list with
 // both would rank on two scales. False (and `cands` unchanged) when the answer is empty or does not line up.
 bool applyScores(std::vector<swipekb::SwapCandidate> &cands, const QStringList &words, const QVector<float> &scores);
@@ -81,17 +86,53 @@ struct PendingSwap {
     std::vector<swipekb::SwapCandidate> cands;
     swipekb::SwapParams params;
     int limit = 3;
+    bool dress = true;       // tidySwapList's `dress` (false for the bar after a swipe)
     bool waiting = false;
     // Post-swipe only: the other spelling to keep first, and the SwipeSession::serial() the list belongs to.
     QString otherSpelling;
     quint64 sessionSerial = 0;
 
     QStringList scoreList() const { return wordsToScore(tapped, cands, params); }
+    // Starts waiting for the worker's answer under `stamp`. False (and not waiting) when there is nothing to score.
+    bool arm(const PredictionStamp &s)
+    {
+        stamp = s;
+        waiting = !scoreList().isEmpty();
+        return waiting;
+    }
     // The re-ranked, tidied list when `got` is this list's stamp; nothing otherwise. Stops waiting either way when
     // the stamp matches.
     std::optional<QStringList> answer(const PredictionStamp &got, const QStringList &words, const QVector<float> &scores,
                                       const Rules &rules);
     void clear() { *this = PendingSwap{}; }
 };
+
+// The bar right after a swipe: the full guess list for SwipeSession::replaceAlternatives (the first guess, then the
+// swap list's best 2, then the other-spelling rule) and the PendingSwap to arm for the worker's scores.
+// `candidates` empty = keep the swipe's own guesses (an emptier bar would be worse).
+struct AfterSwipeList {
+    QStringList candidates;
+    PendingSwap pending;
+};
+// From gathered candidates (no engine needed; tested on its own).
+AfterSwipeList afterSwipeList(const QString &first, std::vector<swipekb::SwapCandidate> cands, const QString &otherSpelling,
+                              quint64 sessionSerial, const Rules &rules);
+// The whole post-swipe build: gather (no words after: they do not exist yet) + afterSwipeList.
+AfterSwipeList buildAfterSwipe(swipekb::LanguageEngine &engine, const QString &first, const RecentSwipes::Keys &keys,
+                               const QStringList &context, const RecentSwipes::Trace &trace, const QString &otherSpelling,
+                               quint64 sessionSerial, const Rules &rules);
+
+// The worker's sentence scores arrived: which shown list they re-rank, and its new content. The front end decides
+// whether each list may still change (`tapBackOpen`: the tap-back list is still the one shown under this stamp and
+// no finger is down; `afterSwipeOpen`: the same for the bar after a swipe) and applies the result
+// (TapBack: WordSwapSession::setList; AfterSwipe: SwipeSession::replaceAlternatives). A list that may no longer change
+// stops waiting.
+struct ScoredList {
+    enum Target { None, TapBack, AfterSwipe } target = None;
+    QStringList list;
+};
+ScoredList handleScores(PendingSwap &tapBack, PendingSwap &afterSwipe, bool tapBackOpen, bool afterSwipeOpen,
+                        const PredictionStamp &stamp, const QStringList &words, const QVector<float> &scores,
+                        const Rules &rules);
 
 } // namespace swapflow

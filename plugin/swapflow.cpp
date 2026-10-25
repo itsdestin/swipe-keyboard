@@ -46,7 +46,7 @@ std::vector<swipekb::SwapCandidate> gather(swipekb::LanguageEngine &engine, cons
 }
 
 QStringList tidySwapList(const QString &tapped, const std::vector<swipekb::SwapCandidate> &cands,
-                         const swipekb::SwapParams &params, int limit, const Rules &rules)
+                         const swipekb::SwapParams &params, int limit, const Rules &rules, bool dress)
 {
     // WHY rank them all, then tidy (as the swap bench does): the tidy-up may drop some, and the list must still fill
     // its places.
@@ -66,7 +66,7 @@ QStringList tidySwapList(const QString &tapped, const std::vector<swipekb::SwapC
     list = swipekb::rankRegionalCandidates(list, rules.locale, limit);
     QStringList out;
     for (const auto &x : std::as_const(list)) {
-        const QString dressed = WordSwap::matchCase(tapped, x);
+        const QString dressed = dress ? WordSwap::matchCase(tapped, x) : x;
         if (dressed.compare(tapped, Qt::CaseInsensitive) == 0 || out.contains(dressed, Qt::CaseInsensitive)) continue;
         out << dressed;
     }
@@ -138,7 +138,53 @@ std::optional<QStringList> PendingSwap::answer(const PredictionStamp &got, const
     if (!waiting || !(got == stamp)) return std::nullopt;
     waiting = false;
     if (!applyScores(cands, words, scores)) return std::nullopt;
-    return tidySwapList(tapped, cands, params, limit, rules);
+    return tidySwapList(tapped, cands, params, limit, rules, dress);
+}
+
+AfterSwipeList afterSwipeList(const QString &first, std::vector<swipekb::SwapCandidate> cands, const QString &otherSpelling,
+                              quint64 sessionSerial, const Rules &rules)
+{
+    AfterSwipeList out;
+    const auto params = swipekb::SwapParams::forLanguage(rules.language.toStdString());
+    // WHY 2: the bar shows the typed word's two other places (three with the other spelling), as before.
+    const auto list = tidySwapList(first, cands, params, 2, rules, false);
+    if (!list.isEmpty()) out.candidates = afterSwipeCandidates(first, list, otherSpelling);
+    out.pending.tapped = first;
+    out.pending.cands = std::move(cands);
+    out.pending.params = params;
+    out.pending.limit = 2;
+    out.pending.dress = false;
+    out.pending.otherSpelling = otherSpelling;
+    out.pending.sessionSerial = sessionSerial;
+    return out;
+}
+
+AfterSwipeList buildAfterSwipe(swipekb::LanguageEngine &engine, const QString &first, const RecentSwipes::Keys &keys,
+                               const QStringList &context, const RecentSwipes::Trace &trace, const QString &otherSpelling,
+                               quint64 sessionSerial, const Rules &rules)
+{
+    const auto params = swipekb::SwapParams::forLanguage(rules.language.toStdString());
+    return afterSwipeList(first, gather(engine, first, keys, context, {}, trace, params), otherSpelling, sessionSerial, rules);
+}
+
+ScoredList handleScores(PendingSwap &tapBack, PendingSwap &afterSwipe, bool tapBackOpen, bool afterSwipeOpen,
+                        const PredictionStamp &stamp, const QStringList &words, const QVector<float> &scores,
+                        const Rules &rules)
+{
+    ScoredList out;
+    if (tapBack.waiting && stamp == tapBack.stamp) {
+        if (!tapBackOpen) { tapBack.clear(); return out; }
+        if (const auto list = tapBack.answer(stamp, words, scores, rules)) out = {ScoredList::TapBack, *list};
+        return out;
+    }
+    if (afterSwipe.waiting && stamp == afterSwipe.stamp) {
+        if (!afterSwipeOpen) { afterSwipe.clear(); return out; }
+        const auto list = afterSwipe.answer(stamp, words, scores, rules);
+        // WHY an empty answer keeps the bar: an emptier bar would be worse than the list already shown.
+        if (list && !list->isEmpty())
+            out = {ScoredList::AfterSwipe, afterSwipeCandidates(afterSwipe.tapped, *list, afterSwipe.otherSpelling)};
+    }
+    return out;
 }
 
 } // namespace swapflow

@@ -113,6 +113,46 @@ private slots:
         QFETCH(QString, after); QFETCH(QStringList, words);
         QCOMPARE(swapflow::wordsAfter(after), words);
     }
+    void thePostSwipeListIsNotDressedLikeTheFirstGuess() {
+        // WHY: after a swipe the first guess is the dictionary's spelling ("I", German "Haus"); its capitals say
+        // nothing about the alternatives, and the swipe session applies Shift/Caps itself.
+        const auto i = swapflow::afterSwipeList("I", {cand("in", 0), cand("it", -1), cand("i", -2)}, {}, 5, rules());
+        QCOMPARE(i.candidates, (QStringList{"I", "in", "it"}));
+        const auto haus = swapflow::afterSwipeList("Haus", {cand("aus", 0), cand("Maus", -1)}, {}, 5, rules("de", "de_DE"));
+        QCOMPARE(haus.candidates, (QStringList{"Haus", "aus", "Maus"}));
+        QVERIFY(!haus.pending.dress);
+        QCOMPARE(haus.pending.limit, 2);
+        QCOMPARE(haus.pending.sessionSerial, quint64(5));
+        QVERIFY(!haus.pending.waiting);   // armed only when a scoring job is sent
+        // Nothing gathered: the bar keeps the swipe's own guesses.
+        QVERIFY(swapflow::afterSwipeList("Haus", {}, {}, 5, rules("de", "de_DE")).candidates.isEmpty());
+    }
+    void scoresGoToTheListTheyWereAskedFor() {
+        auto after = swapflow::afterSwipeList("its", {cand("ita", 0), cand("is", -1), cand("itd", -2)}, "it's", 9, rules());
+        QVERIFY(after.pending.arm({1, 0, 4}));
+        swapflow::PendingSwap tap;
+        tap.tapped = "good";
+        tap.cands = {cand("food", 0), cand("wood", -1)};
+        QVERIFY(tap.arm({1, 0, 3}));
+        const auto words = after.pending.scoreList();
+        QVector<float> sc;
+        for (int k = 0; k < words.size(); ++k) sc << (words[k] == "itd" ? -0.1f : -9.f);
+        // The bar after the swipe, still open: re-ranked, "it's" still first.
+        auto r = swapflow::handleScores(tap, after.pending, true, true, {1, 0, 4}, words, sc, rules());
+        QCOMPARE(r.target, swapflow::ScoredList::AfterSwipe);
+        QCOMPARE(r.list, (QStringList{"its", "it's", "itd", "ita"}));
+        QVERIFY(tap.waiting);                     // the other list is untouched
+        // The tap-back list is no longer open (finger down, or another word): its answer is dropped.
+        r = swapflow::handleScores(tap, after.pending, false, true, {1, 0, 3}, {"food", "wood"}, {-1.f, -0.1f}, rules());
+        QCOMPARE(r.target, swapflow::ScoredList::None);
+        QVERIFY(!tap.waiting);
+        // An unknown stamp changes nothing.
+        QCOMPARE(swapflow::handleScores(tap, after.pending, true, true, {1, 0, 99}, {}, {}, rules()).target, swapflow::ScoredList::None);
+        // Nothing to score: never armed.
+        swapflow::PendingSwap empty;
+        QVERIFY(!empty.arm({1, 0, 5}));
+        QVERIFY(!empty.waiting);
+    }
     void thePostSwipeListKeepsTheOtherSpellingFirst() {
         QCOMPARE(swapflow::afterSwipeCandidates("its", {"ita", "is"}, "it's"), (QStringList{"its", "it's", "ita", "is"}));
         QCOMPARE(swapflow::afterSwipeCandidates("its", {"it's", "is"}, "it's"), (QStringList{"its", "it's", "is"}));
