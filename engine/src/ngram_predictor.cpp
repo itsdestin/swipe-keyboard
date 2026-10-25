@@ -53,6 +53,24 @@ std::vector<std::string> boundedContext(const std::vector<std::string> &context)
     return bounded;
 }
 
+namespace {
+// WHY one canonical spelling: callers pass display words in either case ("The", "haus") and either apostrophe style
+// (l'homme / l’homme); the vocabulary lists one of them, and a miss would wrongly score the word as unknown.
+std::string foldedSpelling(const std::string &word)
+{
+    QString text = QString::fromUtf8(word.data(), int(word.size())).toLower();
+    text.replace(QChar(0x2019), QLatin1Char('\''));
+    return text.toUtf8().toStdString();
+}
+}
+
+int32_t NgramPredictor::indexOf(const std::string &word) const
+{
+    if (const auto it = indexOfWord_.find(word); it != indexOfWord_.end()) return int32_t(it->second);
+    if (const auto it = indexOfFolded_.find(foldedSpelling(word)); it != indexOfFolded_.end()) return int32_t(it->second);
+    return -1;
+}
+
 bool NgramPredictor::load(const std::string &model, const std::string &vocab)
 {
     vocabulary_.clear();
@@ -78,9 +96,9 @@ bool NgramPredictor::load(const std::string &model, const std::string &vocab)
         // WHY the model's form: in a pack with apostrophes "were" and "we're" are different model words.
         wordIds_.push_back(ngram_.apostrophes() ? ngram_.id(ngram_.form(vocabulary_[i])) : ngram_.id(alpha_.back()));
     }
-    byUnigram_.clear(); unknownBySpelling_.clear(); indicesOfId_.clear(); indexOfWord_.clear();
+    byUnigram_.clear(); unknownBySpelling_.clear(); indicesOfId_.clear(); indexOfWord_.clear(); indexOfFolded_.clear();
     // WHY emplace keeps the first: a spelling listed twice resolves to its first (best-ranked) entry.
-    for (uint32_t i = 0; i < vocabulary_.size(); ++i) indexOfWord_.emplace(vocabulary_[i], i);
+    for (uint32_t i = 0; i < vocabulary_.size(); ++i) { indexOfWord_.emplace(vocabulary_[i], i); indexOfFolded_.emplace(foldedSpelling(vocabulary_[i]), i); }
     for (uint32_t i = 0; i < vocabulary_.size(); ++i) {
         if (wordIds_[i] == NgramLM::kUnk) unknownBySpelling_.push_back(i);
         else { byUnigram_.push_back(i); indicesOfId_[wordIds_[i]].push_back(i); }
