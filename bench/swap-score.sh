@@ -12,7 +12,7 @@
 #   --set    bench-2000 | test-extra-10000 (real English swipes, public MIT test split, never tuned on)
 #            | heliboard-es|fr|de|en (HeliBoard Gesture Data, CC BY-SA: test only, no sentences, per-swipe key boxes)
 #            | trv8k (FUTO English TUNING slice: its rows are labelled "[tuning]" and are never quoted as results)
-#   --check  exit 1 when any in3 is below the newest row with that label for the same set and measure.
+#   --check  exit 1 when any in3 is below the newest row with that label for the same set, mode, n and measure.
 # Env: SWIPEKB_ASSETS (assets/; language files in its language-files/), SWIPEKB_EVAL (assets/eval),
 #      HELI (~/.cache/swipe-keyboard-train/heliboard/out), SWIPEKB_TUNE_EN (~/.cache/swipe-keyboard-train/shape/futo/trv8k.jsonl),
 #      SWIPEKB_LAYOUT (scripts/swipe/layouts/qwerty.tsv), SWAP_SCOREBOARD (bench/swap-scoreboard.tsv),
@@ -85,6 +85,11 @@ if [ ! -f "$BOARD" ]; then
 date	commit	label	set	mode	n	measure	first	in3	extra
 EOF
 fi
+# WHY exactly 5 measure rows: a changed bench output must stop the run instead of quietly writing a short scoreboard.
+rows=$(grep -cE '^(after-swipe|tapback-trace|tapback-notrace|junk|speed): ' <<<"$out" || true)
+[ "$rows" = 5 ] || { echo "swap-score.sh: expected 5 measure rows from swipekb-swap-bench, got $rows:" >&2; tail -20 <<<"$out" >&2; exit 1; }
+# WHY recorded: swipes without a layout are left out of every measure, so the numbers cover fewer swipes than n says.
+skipped=$(sed -nE 's/^\(([0-9]+) swipes had no readable layout.*/\1/p' <<<"$out")
 commit=$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo none)
 day=$(date +%F)
 awk -v d="$day" -v c="$commit" -v l="$label" -v s="$set_name" -v m="$mode" -v n="$n" '
@@ -92,14 +97,18 @@ awk -v d="$day" -v c="$commit" -v l="$label" -v s="$set_name" -v m="$mode" -v n=
         printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\tcases %s\n", d, c, l, s, m, n, substr($1,1,length($1)-1), f, i, $3 }
     /^junk: / { j=$7; gsub("%","",j); printf "%s\t%s\t%s\t%s\t%s\t%s\tjunk\t\t\t%s\n", d, c, l, s, m, n, j }
     /^speed: / { printf "%s\t%s\t%s\t%s\t%s\t%s\tspeed\t\t\t%s\n", d, c, l, s, m, n, $2 }' <<<"$out" | tee -a "$BOARD"
+if [ -n "$skipped" ]; then
+    printf '%s\t%s\t%s\t%s\t%s\t%s\tskipped\t\t\t%s\n' "$day" "$commit" "$label" "$set_name" "$mode" "$n" "$skipped" | tee -a "$BOARD"
+fi
 
 if [ -n "$check" ]; then
     # WHY the newest row with that label: a baseline re-recorded later (same label) replaces the older one.
-    if ! awk -F'\t' -v lab="$check" -v s="$set_name" -v c="$commit" -v d="$day" -v l="$label" '
-        !/^#/ && $1 != "date" && $3 == lab && $4 == s && $9 != "" { base[$7] = $9 }
-        !/^#/ && $3 == l && $4 == s && $9 != "" { now[$7] = $9 }
+    if ! awk -F'\t' -v lab="$check" -v s="$set_name" -v c="$commit" -v d="$day" -v l="$label" -v mo="$mode" -v nn="$n" '
+        # WHY same n and mode: a 200-swipe run must not be judged against a 2000-swipe baseline (or another mode).
+        !/^#/ && $1 != "date" && $3 == lab && $4 == s && $5 == mo && $6 == nn && $9 != "" { base[$7] = $9 }
+        !/^#/ && $3 == l && $4 == s && $5 == mo && $6 == nn && $9 != "" { now[$7] = $9 }
         END { bad = 0; seen = 0
               for (k in base) if (k in now) { seen = 1; if (now[k] + 0 < base[k] + 0) { printf "FAIL: %s in3 %s%% below %s%%\n", k, now[k], base[k]; bad = 1 } }
-              if (!seen) { print "FAIL: no row labelled \"" lab "\" for " s; bad = 1 }
+              if (!seen) { print "FAIL: no row labelled \"" lab "\" for " s " with n=" nn " mode " mo; bad = 1 }
               exit bad }' "$BOARD"; then exit 1; fi
 fi

@@ -90,36 +90,9 @@ int main(int argc, char **argv)
     LanguageEngine engine;
     if (!engine.init(setup)) { std::fprintf(stderr, "cannot load the dictionary %s\n", setup.dictionary.c_str()); return 1; }
     if (altSet) engine.setAlternativeParams(alt);
-    // WHY the dictionary read again here: the "junk alternative" measure needs the dictionary's own capitals, which
-    // the engine shows in lower case (English, Spanish, French).
-    std::map<std::string, bool> capitalised;
-    {
-        std::ifstream d(setup.dictionary);
-        std::map<std::string, int> best;
-        for (std::string line; std::getline(d, line);) {
-            if (line.rfind(" word=", 0) != 0) continue;
-            const auto c = line.find(',', 6), fp = line.find(",f=");
-            if (c == std::string::npos || fp == std::string::npos) continue;
-            const QString w = QString::fromStdString(line.substr(6, c - 6));
-            const int fr = std::atoi(line.c_str() + fp + 3);
-            const std::string low = w.toLower().toStdString();
-            if (!best.count(low) || fr > best[low]) { best[low] = fr; capitalised[low] = !w.isEmpty() && w.front().isUpper(); }
-        }
-    }
-    auto stretchedWord = [](const std::string &w) {
-        const auto u = QString::fromStdString(w).toLower().toUcs4();
-        int run = 1;
-        for (qsizetype i = 1; i < u.size(); ++i) { run = u[i] == u[i - 1] ? run + 1 : 1; if (run >= 3) return true; }
-        return false;
-    };
-    // A shown alternative is "junk" when the person would hardly ever mean it: stretched, rare (dictionary
-    // frequency under 80 of 255) or a rarely used name (written with a capital, under 120). Fixed before tuning.
-    auto junk = [&](const std::string &w) {
-        const int f = engine.frequency(w);
-        const std::string low = QString::fromStdString(w).toLower().toStdString();
-        const bool name = setup.language.rfind("de", 0) != 0 && capitalised.count(low) && capitalised[low];
-        return stretchedWord(w) || f < 80 || (name && f < 120);
-    };
+    // WHY the shared rule (tools/benchdata.h): the swap scoreboard's junk must mean the same as this one.
+    const benchdata::JunkRule junkRule(setup.dictionary, setup.language);
+    auto junk = [&](const std::string &w) { return junkRule(engine, w); };
     size_t shownAlts = 0, junkAlts = 0, firstWrong = 0, rescued = 0;
     size_t n = 0, top1 = 0, top3 = 0, inDict = 0, dict1 = 0, dict3 = 0, noLayout = 0;
     double ms = 0;

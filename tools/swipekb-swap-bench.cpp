@@ -111,56 +111,32 @@ int main(int argc, char **argv)
         && predictor.init(setup.ngram, vocab, nwp, false) && predictor.ready();
     if (!setup.ngram.empty() && !haveNgram) { std::fprintf(stderr, "cannot load the sentence model %s\n", setup.ngram.c_str()); return 1; }
 
-    // Junk rule copied from tools/swipekb-bench.cpp so measure 4 means the same as the swipe scoreboard's "junk".
-    // WHY the dictionary read again here: the rule needs the dictionary's own capitals.
-    std::map<std::string, bool> capitalised;
-    {
-        std::ifstream d(setup.dictionary);
-        std::map<std::string, int> best;
-        for (std::string line; std::getline(d, line);) {
-            if (line.rfind(" word=", 0) != 0) continue;
-            const auto c = line.find(',', 6), fp = line.find(",f=");
-            if (c == std::string::npos || fp == std::string::npos) continue;
-            const QString w = QString::fromStdString(line.substr(6, c - 6));
-            const int fr = std::atoi(line.c_str() + fp + 3);
-            const std::string low = w.toLower().toStdString();
-            if (!best.count(low) || fr > best[low]) { best[low] = fr; capitalised[low] = !w.isEmpty() && w.front().isUpper(); }
-        }
-    }
-    auto stretchedWord = [](const std::string &w) {
-        const auto u = QString::fromStdString(w).toLower().toUcs4();
-        int run = 1;
-        for (qsizetype i = 1; i < u.size(); ++i) { run = u[i] == u[i - 1] ? run + 1 : 1; if (run >= 3) return true; }
-        return false;
-    };
-    auto junk = [&](const std::string &w) {
-        const int f = engine.frequency(w);
-        const std::string low = QString::fromStdString(w).toLower().toStdString();
-        const bool name = setup.language.rfind("de", 0) != 0 && capitalised.count(low) && capitalised[low];
-        return stretchedWord(w) || f < 80 || (name && f < 120);
-    };
+    // WHY the shared rule (tools/benchdata.h): measure 4 must mean the same as the swipe scoreboard's "junk".
+    const benchdata::JunkRule junkRule(setup.dictionary, setup.language);
+    auto junk = [&](const std::string &w) { return junkRule(engine, w); };
     const auto norm = [&](const std::string &s) { return benchdata::norm(s, match); };
 
     swapbench::Report report;
     auto keysFor = [&](const BenchSwipe &s) {
         return benchdata::readLayout(layoutsDir.empty() ? layout : layoutsDir + "/" + s.board + ".tsv", s.w, s.h);
     };
-    // WHY a warm-up swipe: the first recognize() builds the word list for the layout (seconds), which is not a swipe.
+    // The sentence as the keyboard reads it from the text (swipekb::textContextWords, at most 20 words).
+    auto contextFor = [](const BenchSwipe &s) {
+        QStringList beforeWords;
+        for (const auto &w : s.before) beforeWords << QString::fromStdString(w);
+        return toStd(beforeWords.isEmpty() ? QStringList() : textContextWords(beforeWords.join(u' ') + u' '));
+    };
+    // WHY a warm-up swipe: the first recognize() builds the word list for the layout (seconds), which is not a swipe. It gets the same cleaned context as the loop below.
     for (const auto &s : swipes) {
         const auto keys = keysFor(s);
-        if (!keys.empty()) { engine.recognize(s.trace, keys, s.before, 3); break; }
+        if (!keys.empty()) { engine.recognize(s.trace, keys, contextFor(s), 3); break; }
     }
     size_t n = 0, noLayout = 0;
     for (const auto &s : swipes) {
         ++n;
         const auto keys = keysFor(s);
         if (keys.empty()) { ++noLayout; continue; }
-        // The sentence as the keyboard reads it from the text (swipekb::textContextWords, at most 20 words).
-        QStringList beforeWords;
-        for (const auto &w : s.before) beforeWords << QString::fromStdString(w);
-        const QStringList contextWords = beforeWords.isEmpty() ? QStringList()
-                                                               : textContextWords(beforeWords.join(u' ') + u' ');
-        const auto context = toStd(contextWords);
+        const auto context = contextFor(s);
 
         // 1. The swipe, as finishSwipe: a 30-wide beam, regional spelling order cut to 3, then the other spelling.
         QStringList candidates;
@@ -177,6 +153,8 @@ int main(int argc, char **argv)
         const bool wrongFirst = candidates.isEmpty() || norm(w.toStdString()) != norm(s.word);
         // 3. The guess bar's other places, in their order.
         const std::vector<std::string> after = toStd(candidates.mid(1));
+        // NOTE: the bench scores the dictionary spelling of the target (s.word); the keyboard's tap-back uses the word as
+        // typed (capitalised at a sentence start).
         report.add(Measure::AfterSwipe, wrongFirst, s.word, after, norm);
         if (!wrongFirst) {
             size_t j = 0;

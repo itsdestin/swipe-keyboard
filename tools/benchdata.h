@@ -16,7 +16,9 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdlib>
 #include <fstream>
+#include <map>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -99,5 +101,50 @@ inline std::vector<BenchSwipe> readSwipes(const std::string &jsonl, size_t limit
     }
     return swipes;
 }
+
+// WHY one shared junk rule: the swipe scoreboard and the swap scoreboard both report "junk", and the two numbers must
+// mean the same thing, so the rule lives here once. A shown alternative is "junk" when the person would hardly ever
+// mean it: stretched (a letter three times in a row), rare (dictionary frequency under 80 of 255) or a rarely used
+// name (written with a capital in the dictionary, under 120; not in German, where all nouns are capitalised).
+// Fixed before tuning.
+class JunkRule
+{
+public:
+    // Reads the dictionary file again for its own capitals, which the engine shows in lower case (en, es, fr).
+    JunkRule(const std::string &dictPath, const std::string &language)
+        : m_germanLike(language.rfind("de", 0) == 0)
+    {
+        std::ifstream d(dictPath);
+        std::map<std::string, int> best;
+        for (std::string line; std::getline(d, line);) {
+            if (line.rfind(" word=", 0) != 0) continue;
+            const auto c = line.find(',', 6), fp = line.find(",f=");
+            if (c == std::string::npos || fp == std::string::npos) continue;
+            const QString w = QString::fromStdString(line.substr(6, c - 6));
+            const int fr = std::atoi(line.c_str() + fp + 3);
+            const std::string low = w.toLower().toStdString();
+            if (!best.count(low) || fr > best[low]) { best[low] = fr; m_capitalised[low] = !w.isEmpty() && w.front().isUpper(); }
+        }
+    }
+    bool operator()(const swipekb::LanguageEngine &engine, const std::string &word) const
+    {
+        const int f = engine.frequency(word);
+        const std::string low = QString::fromStdString(word).toLower().toStdString();
+        const auto it = m_capitalised.find(low);
+        const bool name = !m_germanLike && it != m_capitalised.end() && it->second;
+        return stretched(word) || f < 80 || (name && f < 120);
+    }
+
+private:
+    static bool stretched(const std::string &w)
+    {
+        const auto u = QString::fromStdString(w).toLower().toUcs4();
+        int run = 1;
+        for (qsizetype i = 1; i < u.size(); ++i) { run = u[i] == u[i - 1] ? run + 1 : 1; if (run >= 3) return true; }
+        return false;
+    }
+    bool m_germanLike;
+    std::map<std::string, bool> m_capitalised;
+};
 
 } // namespace benchdata
