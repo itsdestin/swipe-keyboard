@@ -421,3 +421,30 @@ exit "$result"
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class DeckRedirectTests(unittest.TestCase):
+    """The Steam Deck's "this has moved" note for the OpenSwipe rename (card #501)."""
+
+    def load(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('update_site', ROOT / 'scripts/update_site.py')
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_it_is_off_until_someone_turns_it_on(self):
+        # WHY: once on, Decks stop finding updates until the rename; it must never go out by accident
+        self.assertEqual(self.load().flatpak_redirect(), '')
+
+    def test_only_one_https_address_is_accepted(self):
+        import tempfile
+        module = self.load()
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'r.txt'
+            path.write_text('# note\nhttps://itsdestin.github.io/openswipe/repo/\n')
+            self.assertEqual(module.flatpak_redirect(path), 'https://itsdestin.github.io/openswipe/repo/')
+            for bad in ('http://example.org/\n', 'https://a/\nhttps://b/\n'):
+                path.write_text(bad)
+                with self.assertRaises(SystemExit):
+                    module.flatpak_redirect(path)

@@ -1,5 +1,19 @@
 # Changes
 
+## v0.5.1-1
+
+### Steam Deck: Gaming Mode is part of the one install
+
+- The installer now lists every change and asks one question: **Also swipe in Gaming Mode? [Y/n]**. Enter means yes, with other devices on your network blocked from Steam's developer switch (it asks for the Deck's administrator password once). Before, Enter gave the Desktop Mode keyboard only and a second numbered question asked about the network.
+- Someone who answered no keeps no as the default when running a newer installer. `--yes` (scripted use) still never turns Gaming Mode on or asks for a password. `--leave-open` keeps the network door open on purpose.
+- Gaming Mode: a Steam page reload in the middle of a check no longer counts against the keyboard layer (from #14).
+- Shorter Steam Deck steps in the README; the fine print stays in `docs/steam-deck.md`.
+
+### Ready for the new name
+
+- The project will be renamed **OpenSwipe**. GitHub does not forward a project's update website after a rename, so this version's Arch and Fedora updaters check the future OpenSwipe address first and fall back to today's. Same key, same checks: an index that fails its signature is refused, never swapped for the other site. Nothing changes for you now.
+- The update site can tell Steam Decks that it has moved (`packaging/updates/flatpak-redirect.txt`). It is off in this release.
+
 ## v0.5.0-1
 
 ### Our own engine; no FUTO code or models

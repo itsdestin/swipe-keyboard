@@ -4,7 +4,7 @@
 
 # Local build candidate only; no install hooks and no publication.
 pkgname=swipe-keyboard
-pkgver=0.5.0
+pkgver=0.5.1
 pkgrel=1
 pkgdesc='English, Spanish, French and German swipe typing, completions and next-word suggestions for Plasma Keyboard'
 arch=('x86_64')

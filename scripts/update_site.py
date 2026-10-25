@@ -30,6 +30,7 @@ ROOT = Path(__file__).resolve().parents[1]
 BASE_URL = 'https://itsdestin.github.io/swipe-keyboard'
 DOWNLOADS = 'https://github.com/itsdestin/swipe-keyboard/releases/download'
 MAIN_ID = 'org.itsdestin.SwipeKeyboard'
+REDIRECT_FILE = ROOT / 'packaging/updates/flatpak-redirect.txt'
 HELPER_ID = 'org.itsdestin.SwipeKeyboard.GamingHelper'
 
 
@@ -93,6 +94,14 @@ def build_fedora(release, site, tag, version_release, key_id, downloads):
         sign(folder / 'repodata/repomd.xml', key_id, armor=True)
 
 
+def flatpak_redirect(path=REDIRECT_FILE):
+    """The address every Deck should move to, or '' (see packaging/updates/flatpak-redirect.txt)."""
+    lines = [line.strip() for line in path.read_text().splitlines() if line.strip() and not line.lstrip().startswith('#')]
+    if len(lines) > 1 or (lines and not lines[0].startswith('https://')):
+        raise SystemExit(f'{path} must hold at most one https:// address')
+    return lines[0] if lines else ''
+
+
 def build_flatpak(release, site, version_release, key_id):
     n = names(version_release)
     repo = site / 'repo'
@@ -105,7 +114,10 @@ def build_flatpak(release, site, version_release, key_id):
         for bundle in (release / n['flatpak'], Path(tmp) / n['helper']):
             run('flatpak', 'build-import-bundle', f'--gpg-sign={key_id}', str(repo), str(bundle))
     # WHY no static deltas: a recent libostree refuses large delta parts, and a whole update is only about 30 MB.
-    run('flatpak', 'build-update-repo', f'--gpg-sign={key_id}', '--title=Swipe Keyboard', str(repo))
+    # WHY the redirect is part of the signed summary: a Deck only follows a "moved" note signed with our key.
+    redirect = flatpak_redirect()
+    run('flatpak', 'build-update-repo', f'--gpg-sign={key_id}', '--title=Swipe Keyboard',
+        *([f'--redirect-url={redirect}'] if redirect else []), str(repo))
 
 
 def write_key_files(site, key_id, base_url, test_key=False):

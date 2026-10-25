@@ -1,0 +1,10 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+#
+# The Steam Deck's "this has moved" note (card #501, the rename to OpenSwipe). Empty = off.
+# GitHub does not forward a project's web address after a rename, and a Deck's update address is fixed when the
+# installer runs. When a URL is written below (one line, not a comment), the next release's update site tells every
+# Deck: from now on, check this address instead. Each Deck switches on its next daily check, quietly; until the new
+# address exists it simply finds nothing to update (tested with Flatpak 1.18.4 and signed updates, 2026-10-24).
+# Turn on with https://itsdestin.github.io/openswipe/repo/ about two weeks before the rename; empty it again after.
