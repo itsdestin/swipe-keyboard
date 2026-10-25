@@ -138,7 +138,11 @@ private slots:
         // WHY wait for the engine: beginSwipe() answers -1 (and asks no questions) until the model has loaded. On a busy
         // machine (tests now run in parallel) that load can still be running here, so the capture-query row saw
         // 0 callbacks instead of 1. Waiting makes the test about the callback, not about how fast the machine is.
-        QTRY_VERIFY_WITH_TIMEOUT([&] { bool ready=false; QMetaObject::invokeMethod(method,"isReady",Q_RETURN_ARG(bool,ready)); return ready; }(), 30000);
+        {
+            const auto isReady=[&] { bool ready=false; QMetaObject::invokeMethod(method,"isReady",Q_RETURN_ARG(bool,ready)); return ready; };
+            // WHY the diagnostics in the message: if a slow runner ever still fails here, the log says why (names and counts only).
+            QTRY_VERIFY2_WITH_TIMEOUT(isReady(), qPrintable(QString::fromUtf8(QJsonDocument::fromVariant(method->property("diagnostics")).toJson(QJsonDocument::Compact))), 30000);
+        }
         auto *capture = swipeLayout(item)->property("swipeCapture").value<QObject *>();
         QVariant geometry;
         QVERIFY(QMetaObject::invokeMethod(capture,"letterKeys",Q_RETURN_ARG(QVariant,geometry)));
