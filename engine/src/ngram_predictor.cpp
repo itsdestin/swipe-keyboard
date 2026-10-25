@@ -66,8 +66,18 @@ std::string foldedSpelling(const std::string &word)
 
 int32_t NgramPredictor::indexOf(const std::string &word) const
 {
-    if (const auto it = indexOfWord_.find(word); it != indexOfWord_.end()) return int32_t(it->second);
-    if (const auto it = indexOfFolded_.find(foldedSpelling(word)); it != indexOfFolded_.end()) return int32_t(it->second);
+    // WHY the letters-only form narrows the search: a word with the same display spelling, or the same spelling in
+    // lower case with a straight apostrophe, always has the same letters-only form, so both lookups below only need
+    // the few vocabulary words sharing it ("were" / "we're" / "Were"), found by binary search.
+    const std::string alpha = NgramLM::alphaForm(word);
+    const auto lo = std::lower_bound(byAlpha_.begin(), byAlpha_.end(), alpha,
+                                     [this](uint32_t i, const std::string &x) { return alpha_[i] < x; });
+    const auto hi = std::upper_bound(lo, byAlpha_.end(), alpha,
+                                     [this](const std::string &x, uint32_t i) { return x < alpha_[i]; });
+    // Exact display spelling first (the lowest index, as the range is in index order), then the folded spelling.
+    for (auto it = lo; it != hi; ++it) if (vocabulary_[*it] == word) return int32_t(*it);
+    const std::string folded = foldedSpelling(word);
+    for (auto it = lo; it != hi; ++it) if (foldedSpelling(vocabulary_[*it]) == folded) return int32_t(*it);
     return -1;
 }
 
@@ -96,9 +106,14 @@ bool NgramPredictor::load(const std::string &model, const std::string &vocab)
         // WHY the model's form: in a pack with apostrophes "were" and "we're" are different model words.
         wordIds_.push_back(ngram_.apostrophes() ? ngram_.id(ngram_.form(vocabulary_[i])) : ngram_.id(alpha_.back()));
     }
-    byUnigram_.clear(); unknownBySpelling_.clear(); indicesOfId_.clear(); indexOfWord_.clear(); indexOfFolded_.clear();
-    // WHY emplace keeps the first: a spelling listed twice resolves to its first (best-ranked) entry.
-    for (uint32_t i = 0; i < vocabulary_.size(); ++i) { indexOfWord_.emplace(vocabulary_[i], i); indexOfFolded_.emplace(foldedSpelling(vocabulary_[i]), i); }
+    byUnigram_.clear(); unknownBySpelling_.clear(); indicesOfId_.clear(); byAlpha_.clear();
+    // WHY ties by index: a spelling listed twice resolves to its first (best-ranked) entry.
+    byAlpha_.resize(vocabulary_.size());
+    for (uint32_t i = 0; i < vocabulary_.size(); ++i) byAlpha_[i] = i;
+    std::sort(byAlpha_.begin(), byAlpha_.end(), [this](uint32_t a, uint32_t b) {
+        const int c = alpha_[a].compare(alpha_[b]);
+        return c != 0 ? c < 0 : a < b;
+    });
     for (uint32_t i = 0; i < vocabulary_.size(); ++i) {
         if (wordIds_[i] == NgramLM::kUnk) unknownBySpelling_.push_back(i);
         else { byUnigram_.push_back(i); indicesOfId_[wordIds_[i]].push_back(i); }

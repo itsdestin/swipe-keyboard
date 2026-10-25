@@ -139,6 +139,25 @@ TEST(LanguageEngineSwap, SavedTraceGivesTheSwipesRunnerUps)
     }
 }
 
+// WHY (card #500 review): one-letter words ("a", "I") have a made-up path of a single key (syntheticTrace pads it to
+// two points); tapping one must still give real, finite look-alikes and never the word itself, on both kinds of list.
+TEST(LanguageEngineSwap, OneLetterWordsGetLookalikes)
+{
+    if (!haveEnglish()) GTEST_SKIP() << "set SWIPEKB_ASSETS to a fetched asset tree";
+    LanguageEngine e;
+    ASSERT_TRUE(e.init(english()));
+    const auto keys = qwertyRects(0, 0, 1);
+    for (const char *w : {"a", "I"}) {
+        ASSERT_GE(syntheticTrace(w, keys).size(), 2u) << w;
+        for (const SwapParams &p : {SwapParams{}, SwapParams{}.forTapBack()}) {
+            const auto c = e.swapCandidates(w, keys, {"this", "is"}, {"good"}, {}, p);
+            EXPECT_FALSE(c.empty()) << w;
+            EXPECT_FALSE(hasTapped(c, w)) << w << ": " << list(c);
+            for (const auto &x : c) EXPECT_TRUE(std::isfinite(x.path) && std::isfinite(x.before)) << w << " " << x.word;
+        }
+    }
+}
+
 // WHY: a typed word without its apostrophe must be offered its dictionary spelling ("dont" -> "don't").
 TEST(LanguageEngineSwap, TypedWordWithoutApostropheGetsItsSpelling)
 {

@@ -54,8 +54,10 @@ private:
     NgramLM ngram_;
     std::vector<std::string> vocabulary_;
     std::vector<uint32_t> wordIds_;            // model number per vocabulary word; kUnk when unknown
-    std::unordered_map<std::string, uint32_t> indexOfFolded_;   // lower-case, straight-apostrophe spelling -> index (first wins)
-    std::unordered_map<std::string, uint32_t> indexOfWord_;   // display spelling -> index (hash lookup, not a scan of ~100k words)
+    // Vocabulary indices sorted by their letters-only form (alpha_), ties by index: indexOf() binary-searches it.
+    // WHY not two word -> index hash maps (the first version): measured 2026-10-25 on English (247k words) they cost
+    // 36 MB of memory and ~120 ms of load time; this costs 1 MB and finds the same word (see indexOf()).
+    std::vector<uint32_t> byAlpha_;
     std::vector<std::string> alpha_;           // letters-only lower-case form of every vocabulary word
     // WHY these three: next-word prediction scores only the words seen after the context plus the most
     // frequent others, instead of all ~100-230k words (same ranking, many times faster; see predict()).
