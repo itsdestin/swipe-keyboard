@@ -327,9 +327,7 @@ private slots:
         auto *abstract = qobject_cast<QVirtualKeyboardAbstractInputMethod *>(method.data());
         QVERIFY(abstract);
         QVERIFY(abstract->setInputMode(QStringLiteral("C"), QVirtualKeyboardInputEngine::InputMode::Latin));
-        QVERIFY(!isReady());
-        // The next swipe attempt must notice the context's language and recover on its own.
-        QMetaObject::invokeMethod(method, "beginSwipe");
+        // The engine must notice at once that the context's language is a real one and take it.
         QVERIFY2(isReady(), "engine did not follow the context language");
     }
     // The Space key of the REAL stock English layout slides the cursor in a real text field, for a mouse and a

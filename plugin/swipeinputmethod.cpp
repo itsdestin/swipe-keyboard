@@ -48,6 +48,11 @@ static std::vector<swipekb::KeyRect> measuredKeys(const QVariantList &keys)
 }
 SwipeInputMethod::~SwipeInputMethod() = default;
 
+static bool isPlaceholderLocale(const QString &tag)
+{
+    return tag.compare(QLatin1String("C"), Qt::CaseInsensitive) == 0 || tag.compare(QLatin1String("POSIX"), Qt::CaseInsensitive) == 0;
+}
+
 void SwipeInputMethod::setPhysicalLayout(const QString &layoutId)
 {
     if (layoutId==m_layoutId) return;
@@ -166,9 +171,13 @@ bool SwipeInputMethod::setInputMode(const QString &locale, QVirtualKeyboardInput
         reset();
         return true;
     }
+    QPointer<SwipeInputMethod> self(this);
     m_locale=locale;
     m_inputMode=inputMode;
     resolveCurrentProfile();
+    // WHY arm the language watch right away for the "C" placeholder: otherwise it only starts at the first key or swipe,
+    // and a real language that arrives (or already arrived) before that would go unnoticed until then.
+    if (self && isPlaceholderLocale(locale)) ensureContextConnections();
     return true; // WHY unsupported swiping must not interfere with stock tapping.
 }
 
@@ -962,7 +971,7 @@ void SwipeInputMethod::followContextLocale()
     if (!ic) return;
     // WHY only from the placeholder: a method that was given a real language (tests and the language switcher do this
     // directly) keeps it; only "C"/"POSIX" ("no language yet") is replaced, and only by a real language.
-    const auto placeholder = [](const QString &tag) { return tag.compare(QLatin1String("C"), Qt::CaseInsensitive) == 0 || tag.compare(QLatin1String("POSIX"), Qt::CaseInsensitive) == 0; };
+    const auto placeholder = isPlaceholderLocale;
     const QString current = ic->locale();
     if (current.isEmpty() || placeholder(current) || !placeholder(m_locale)) return;
     m_locale = current;
