@@ -47,3 +47,10 @@ target_link_libraries(swipekb-sentence-check PRIVATE swipekb_engine Qt6::Core)
 # The swipe engine's own scoring tool (network + search settings sweeps, per-board numbers).
 add_executable(swipekb-swipenet-bench swipekb-swipenet-bench.cpp)
 target_link_libraries(swipekb-swipenet-bench PRIVATE swipekb_engine Qt6::Core)
+
+# Swap scoreboard (card #500): the five swap measures are plain counting, tested on their own.
+add_library(swapmeasures STATIC swapmeasures.cpp)
+target_include_directories(swapmeasures PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+add_executable(tst_swapmeasures tests/tst_swapmeasures.cpp)
+target_link_libraries(tst_swapmeasures PRIVATE swapmeasures Qt6::Core Qt6::Test)
+add_test(NAME tools_swapmeasures COMMAND tst_swapmeasures)
