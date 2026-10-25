@@ -68,13 +68,17 @@ qt_add_executable(tst_predictioncapture tests/tst_predictioncapture.cpp)
 target_compile_definitions(tst_predictioncapture PRIVATE SWIPEKB_CAPTURE_SOURCE="${CMAKE_CURRENT_SOURCE_DIR}/SwipeCapture.qml")
 target_link_libraries(tst_predictioncapture PRIVATE Qt6::Quick Qt6::Qml Qt6::VirtualKeyboard Qt6::Test)
 add_test(NAME plugin_predictioncapture COMMAND tst_predictioncapture)
-set_tests_properties(plugin_predictioncapture PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_IM_MODULE=qtvirtualkeyboard")
+# WHY private folders: a test must never read or write the real keyboard's data in ~/.local/share/swipe-keyboard.
+set_tests_properties(plugin_predictioncapture PROPERTIES ENVIRONMENT
+    "QT_QPA_PLATFORM=offscreen;QT_IM_MODULE=qtvirtualkeyboard;SWIPEKB_DATA=${CMAKE_CURRENT_BINARY_DIR}/test-data-predictioncapture;HOME=${CMAKE_CURRENT_BINARY_DIR}/test-home-predictioncapture;XDG_DATA_HOME=${CMAKE_CURRENT_BINARY_DIR}/test-home-predictioncapture/.local/share;XDG_CONFIG_HOME=${CMAKE_CURRENT_BINARY_DIR}/test-home-predictioncapture/.config;XDG_CACHE_HOME=${CMAKE_CURRENT_BINARY_DIR}/test-home-predictioncapture/.cache")
 # WHY real input events: the spacebar slide is decided by SwipeCapture.qml reacting to the touch area, for touch and mouse alike.
 qt_add_executable(tst_spacebarslide tests/tst_spacebarslide.cpp)
 target_compile_definitions(tst_spacebarslide PRIVATE SWIPEKB_CAPTURE_SOURCE="${CMAKE_CURRENT_SOURCE_DIR}/SwipeCapture.qml")
 target_link_libraries(tst_spacebarslide PRIVATE Qt6::Quick Qt6::Qml Qt6::VirtualKeyboard Qt6::Test)
 add_test(NAME plugin_spacebarslide COMMAND tst_spacebarslide)
-set_tests_properties(plugin_spacebarslide PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_IM_MODULE=qtvirtualkeyboard")
+# WHY private folders: a test must never read or write the real keyboard's data in ~/.local/share/swipe-keyboard.
+set_tests_properties(plugin_spacebarslide PROPERTIES ENVIRONMENT
+    "QT_QPA_PLATFORM=offscreen;QT_IM_MODULE=qtvirtualkeyboard;SWIPEKB_DATA=${CMAKE_CURRENT_BINARY_DIR}/test-data-spacebarslide;HOME=${CMAKE_CURRENT_BINARY_DIR}/test-home-spacebarslide;XDG_DATA_HOME=${CMAKE_CURRENT_BINARY_DIR}/test-home-spacebarslide/.local/share;XDG_CONFIG_HOME=${CMAKE_CURRENT_BINARY_DIR}/test-home-spacebarslide/.config;XDG_CACHE_HOME=${CMAKE_CURRENT_BINARY_DIR}/test-home-spacebarslide/.cache")
 qt_add_executable(test_prediction ../engine/tests/test_prediction.cpp)
 target_link_libraries(test_prediction PRIVATE swipekb_engine Qt6::Test)
 # WHY: test_prediction.cpp reads the neural-model fixtures in tests/data (the features build already defines this);
@@ -132,7 +136,9 @@ qt_add_executable(tst_livehintsquery tests/tst_livehintsquery.cpp)
 target_include_directories(tst_livehintsquery PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(tst_livehintsquery PRIVATE Qt6::Quick Qt6::Test)
 add_test(NAME plugin_livehintsquery COMMAND tst_livehintsquery)
-set_tests_properties(plugin_livehintsquery PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+# WHY private folders: a test must never read or write the real keyboard's data in ~/.local/share/swipe-keyboard.
+set_tests_properties(plugin_livehintsquery PROPERTIES ENVIRONMENT
+    "QT_QPA_PLATFORM=offscreen;SWIPEKB_DATA=${CMAKE_CURRENT_BINARY_DIR}/test-data-livehintsquery;HOME=${CMAKE_CURRENT_BINARY_DIR}/test-home-livehintsquery;XDG_DATA_HOME=${CMAKE_CURRENT_BINARY_DIR}/test-home-livehintsquery/.local/share;XDG_CONFIG_HOME=${CMAKE_CURRENT_BINARY_DIR}/test-home-livehintsquery/.config;XDG_CACHE_HOME=${CMAKE_CURRENT_BINARY_DIR}/test-home-livehintsquery/.cache")
 qt_add_executable(tst_nextwordintegration tests/tst_nextwordintegration.cpp)
 target_include_directories(tst_nextwordintegration PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(tst_nextwordintegration PRIVATE swipekeyboard Qt6::Quick Qt6::Qml Qt6::VirtualKeyboard Qt6::Test)
@@ -175,7 +181,9 @@ qt_add_executable(tst_languagecapture tests/tst_languagecapture.cpp)
 target_link_libraries(tst_languagecapture PRIVATE Qt6::Quick Qt6::Qml Qt6::Test)
 target_compile_definitions(tst_languagecapture PRIVATE SWIPEKB_CAPTURE_QML="${CMAKE_CURRENT_SOURCE_DIR}/SwipeCapture.qml")
 add_test(NAME plugin_languagecapture COMMAND tst_languagecapture)
-set_tests_properties(plugin_languagecapture PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_IM_MODULE=")
+# WHY private folders: a test must never read or write the real keyboard's data in ~/.local/share/swipe-keyboard.
+set_tests_properties(plugin_languagecapture PROPERTIES ENVIRONMENT
+    "QT_QPA_PLATFORM=offscreen;QT_IM_MODULE=;SWIPEKB_DATA=${CMAKE_CURRENT_BINARY_DIR}/test-data-languagecapture;HOME=${CMAKE_CURRENT_BINARY_DIR}/test-home-languagecapture;XDG_DATA_HOME=${CMAKE_CURRENT_BINARY_DIR}/test-home-languagecapture/.local/share;XDG_CONFIG_HOME=${CMAKE_CURRENT_BINARY_DIR}/test-home-languagecapture/.config;XDG_CACHE_HOME=${CMAKE_CURRENT_BINARY_DIR}/test-home-languagecapture/.cache")
 qt_add_executable(tst_languageintegration tests/tst_languageintegration.cpp)
 target_include_directories(tst_languageintegration PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(tst_languageintegration PRIVATE swipekeyboard Qt6::Quick Qt6::Qml Qt6::VirtualKeyboard Qt6::Test)
@@ -245,7 +253,9 @@ qt_add_executable(tst_windowblur tests/tst_windowblur.cpp windowblur.cpp)
 target_include_directories(tst_windowblur PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(tst_windowblur PRIVATE Qt6::Quick Qt6::Test KF6::WindowSystem)
 add_test(NAME plugin_windowblur COMMAND tst_windowblur)
-set_tests_properties(plugin_windowblur PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+# WHY private folders: a test must never read or write the real keyboard's data in ~/.local/share/swipe-keyboard.
+set_tests_properties(plugin_windowblur PROPERTIES ENVIRONMENT
+    "QT_QPA_PLATFORM=offscreen;SWIPEKB_DATA=${CMAKE_CURRENT_BINARY_DIR}/test-data-windowblur;HOME=${CMAKE_CURRENT_BINARY_DIR}/test-home-windowblur;XDG_DATA_HOME=${CMAKE_CURRENT_BINARY_DIR}/test-home-windowblur/.local/share;XDG_CONFIG_HOME=${CMAKE_CURRENT_BINARY_DIR}/test-home-windowblur/.config;XDG_CACHE_HOME=${CMAKE_CURRENT_BINARY_DIR}/test-home-windowblur/.cache")
 
 qt_add_executable(tst_pluginload tests/tst_pluginload.cpp)
 target_link_libraries(tst_pluginload PRIVATE Qt6::Qml Qt6::Quick Qt6::Test Qt6::VirtualKeyboard)

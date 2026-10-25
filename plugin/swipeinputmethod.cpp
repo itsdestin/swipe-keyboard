@@ -161,8 +161,16 @@ QList<QVirtualKeyboardInputEngine::InputMode> SwipeInputMethod::inputModes(const
     return {QVirtualKeyboardInputEngine::InputMode::Latin};
 }
 
-bool SwipeInputMethod::setInputMode(const QString &locale, QVirtualKeyboardInputEngine::InputMode mode)
+bool SwipeInputMethod::setInputMode(const QString &handedLocale, QVirtualKeyboardInputEngine::InputMode mode)
 {
+    // WHY before the unchanged check below: if Qt keeps handing over the "C" placeholder (it repeats this call on every
+    // "?123"/letters switch) after the context already has a real language, the repeat must count as unchanged.
+    // Otherwise each switch would rebuild for "C" (swiping dead) and then back again: two model reloads, the hitch the
+    // guard below exists to prevent.
+    QString locale = handedLocale;
+    if (isPlaceholderLocale(locale)) {
+        if (auto *ic = inputContext(); ic && !ic->locale().isEmpty() && !isPlaceholderLocale(ic->locale())) locale = ic->locale();
+    }
     const QString inputMode=mode==QVirtualKeyboardInputEngine::InputMode::Latin ? "Latin" : "Unsupported";
     // WHY skip an unchanged mode: Qt repeats this call on every "?123"/letters switch (the symbols page
     // names its own mode). Rebuilding the profile reloaded the swipe model each time, a visible hitch
@@ -968,7 +976,9 @@ void SwipeInputMethod::syncInputCache()
 void SwipeInputMethod::followContextLocale()
 {
     auto *ic = inputContext();
-    if (!ic) return;
+    // WHY also check the engine's current method is this one: a stale method that is no longer the active one must not
+    // reload models for a keyboard the person is not using.
+    if (!ic || ic->inputEngine()->inputMethod() != this) return;
     // WHY only from the placeholder: a method that was given a real language (tests and the language switcher do this
     // directly) keeps it; only "C"/"POSIX" ("no language yet") is replaced, and only by a real language.
     const auto placeholder = isPlaceholderLocale;

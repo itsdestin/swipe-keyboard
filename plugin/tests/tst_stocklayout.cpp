@@ -307,6 +307,8 @@ private slots:
             import QtQuick.VirtualKeyboard.Settings
             Item {
                 width: 1000; height: 500
+                property string localeToApply: "en_US"
+                function applyLocale() { VirtualKeyboardSettings.locale = localeToApply }
                 property QtObject method: InputContext.inputEngine.inputMethod
                 Component.onCompleted: { VirtualKeyboardSettings.locale = "en_US"; editor.forceActiveFocus() }
                 TextInput { id: editor; width: parent.width; height: 40; focus: true }
@@ -329,6 +331,22 @@ private slots:
         QVERIFY(abstract->setInputMode(QStringLiteral("C"), QVirtualKeyboardInputEngine::InputMode::Latin));
         // The engine must notice at once that the context's language is a real one and take it.
         QVERIFY2(isReady(), "engine did not follow the context language");
+        // Qt repeats the hand-over on every "?123"/letters switch: a repeated "C" must not rebuild the engine again
+        // (two model reloads per switch was the hitch the unchanged-mode guard removed).
+        QSignalSpy reloads(method.data(), SIGNAL(profileChanged()));
+        QVERIFY(abstract->setInputMode(QStringLiteral("C"), QVirtualKeyboardInputEngine::InputMode::Latin));
+        QVERIFY(abstract->setInputMode(QStringLiteral("C"), QVirtualKeyboardInputEngine::InputMode::Latin));
+        QVERIFY2(reloads.isEmpty(), qPrintable(QStringLiteral("engine reloaded %1 times for a repeated C").arg(reloads.count())));
+        QVERIFY(isReady());
+        // The later path: the context language goes "C", then a real one. The engine must end up ready either way.
+        QVERIFY(root->setProperty("localeToApply", QStringLiteral("C")));
+        QMetaObject::invokeMethod(root.get(), "applyLocale");
+        QTest::qWait(200);
+        QVERIFY(root->setProperty("localeToApply", QStringLiteral("en_US")));
+        QMetaObject::invokeMethod(root.get(), "applyLocale");
+        QPointer<QObject> after(root->property("method").value<QObject *>());
+        QVERIFY(after);
+        QTRY_VERIFY_WITH_TIMEOUT([&] { bool ready = false; QMetaObject::invokeMethod(after, "isReady", Q_RETURN_ARG(bool, ready)); return ready; }(), 15000);
     }
     // The Space key of the REAL stock English layout slides the cursor in a real text field, for a mouse and a
     // finger, also in a password field, and a plain tap on it still types a space.

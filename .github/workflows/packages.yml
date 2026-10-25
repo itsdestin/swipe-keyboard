@@ -150,6 +150,10 @@ jobs:
     if: ${{ needs.prepare.outputs.reuse_run == '' && needs.prepare.outputs.mode != 'docs' }}
     runs-on: ubuntu-24.04
     container: archlinux:latest
+    # WHY an output: the retest job checks the stock-layout test program it receives against this hash, which travels
+    # by a different route than the artifact itself.
+    outputs:
+      stocklayout_sha: ${{ steps.retestinput.outputs.stocklayout_sha }}
     env:
       VERSION: ${{ needs.prepare.outputs.version }}
       PACKAGE_VERSION: ${{ needs.prepare.outputs.package_version }}
@@ -280,15 +284,17 @@ jobs:
       # "Keyboard CI" still waits for it, so nothing merges without it. Same bytes: the tar carries the package, its
       # recorded hash, the unpacked payload and the older-built stock-layout test program.
       - name: Save the inputs of the current-Arch retest
+        id: retestinput
         run: |
           mkdir retest-input
+          echo "stocklayout_sha=$(sha256sum "dist/src/swipe-keyboard-$VERSION/build/plugin/tst_stocklayout" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
           tar -cf retest-input/arch-retest-input.tar dist/stage dist/baseline-package.sha256 "dist/swipe-keyboard-$PACKAGE_VERSION-x86_64.pkg.tar.zst" "dist/src/swipe-keyboard-$VERSION/build/plugin/tst_stocklayout"
       - uses: actions/upload-artifact@v4
         with:
           name: arch-retest-input
           path: retest-input/
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 7
           compression-level: 0
       - name: Bind package metadata and exact final bytes
         run: |
@@ -349,11 +355,21 @@ jobs:
         with:
           name: arch-retest-input
           path: retest-input
+      - uses: actions/download-artifact@v4
+        with:
+          name: arch-files
+          path: release
       - name: Test identical older-built bytes on current Arch (container only)
+        env:
+          STOCKLAYOUT_SHA: ${{ needs.arch.outputs.stocklayout_sha }}
         run: |
           useradd -m builder
           mkdir dist
           tar -xf retest-input/arch-retest-input.tar -C .
+          # WHY compared with the published artifact and the job output, not with the tar's own hash file: the hash
+          # must not travel in the same box as the bytes it vouches for.
+          cmp "release/swipe-keyboard-$PACKAGE_VERSION-x86_64.pkg.tar.zst" "dist/swipe-keyboard-$PACKAGE_VERSION-x86_64.pkg.tar.zst"
+          echo "$STOCKLAYOUT_SHA  dist/src/swipe-keyboard-$VERSION/build/plugin/tst_stocklayout" | sha256sum -c
           pacman -Q glibc gcc-libs qt6-base qt6-declarative qt6-virtualkeyboard kwindowsystem plasma-keyboard python | tee dist/CURRENT-VERSIONS.txt
           sha256sum -c dist/baseline-package.sha256
           python scripts/package-check.py dist/stage

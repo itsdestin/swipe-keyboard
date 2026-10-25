@@ -392,6 +392,21 @@ exit "$result"
         self.assertIn('swipe-keyboard check', current)
         self.assertNotIn('continue-on-error', current)
 
+    def test_gate_expectations_match_the_conditions_of_the_jobs_they_judge(self):
+        # WHY: the gate decides "should this job have run?" with its own shell test. If a job's `if:` changes and the
+        # gate's copy does not, a skipped check could pass silently (or a correct skip could fail the gate).
+        gate = self.jobs['keyboard-ci']
+        current_if = re.search(r'(?m)^    if: (.*)$', self.jobs['arch-current']).group(1)
+        self.assertEqual(current_if, "${{ needs.prepare.outputs.reuse_run == '' && needs.prepare.outputs.mode != 'docs' }}")
+        self.assertIn('if [[ -z "$REUSE_RUN" && "$PREPARED_MODE" != docs ]]; then want_arch=success; fi', gate)
+        site_if = re.search(r'(?m)^    if: (.*)$', self.jobs['update-site-check']).group(1)
+        self.assertEqual(site_if, "${{ needs.prepare.outputs.mode == 'full' && !startsWith(github.ref, 'refs/tags/') }}")
+        self.assertIn('if [[ "$PREPARED_MODE" == full && "$GITHUB_REF" != refs/tags/* ]]; then want_site=success; fi', gate)
+        # The retest's inputs are checked against hashes that did not travel in the same artifact.
+        current = self.jobs['arch-current']
+        self.assertIn('cmp "release/swipe-keyboard-$PACKAGE_VERSION-x86_64.pkg.tar.zst"', current)
+        self.assertIn('needs.arch.outputs.stocklayout_sha', current)
+
     def test_gaming_tests_run_in_every_mode_and_block_keyboard_ci_without_being_a_producer(self):
         # WHY: ~1 minute, no Qt or Flatpak, and it catches Gaming Mode regressions on drafts too. It is not a
         # producer: it writes no release files and is not in release.PRODUCERS. The gate still waits on it, so a
