@@ -222,7 +222,7 @@ private:
         QTemporaryDir data; QQmlEngine engine; QQmlComponent fixture{&engine};
         std::unique_ptr<QObject> root; QQuickWindow window; std::unique_ptr<InputListenerItem> edit;
         QVirtualKeyboardInputContext *ic = nullptr; std::unique_ptr<SwipeInputMethod> method; TestPolicyBridge bridge;
-        QStringList jobPrefixes, jobContexts; QSemaphore ranked;
+        QStringList jobPrefixes, jobContexts, scoredWords; QSemaphore ranked;
         bool init(const QString &text, int cursor, Qt::InputMethodHints extra, const QString &locale,
                   SwipeInputMethod *own = nullptr, bool native = false) {
             qputenv("SWIPEKB_DATA", data.path().toUtf8());
@@ -234,9 +234,15 @@ private:
             edit = std::make_unique<InputListenerItem>(item); edit->text = text; edit->cursor = cursor; edit->hints |= extra;
             window.show(); window.requestActivate(); edit->forceActiveFocus();
             ic = qvariant_cast<QVirtualKeyboardInputContext*>(root->property("context"));
-            method.reset(own ? own : new SwipeInputMethod(nullptr, [this](const PredictionJob &job) {
-                if (job.alternatives) { jobPrefixes << job.prefix; jobContexts = job.context; ranked.release(); return QStringList{"paso", "casi"}; }
-                return QStringList{"x", "y", "z"}; }));
+            // WHY a stand-in scorer: the swap list's sentence scores (card #500) come from the worker; this one
+            // records what it was asked and scores the words in reverse order, so a re-rank is visible.
+            method.reset(own ? own : new SwipeInputMethod(nullptr, [](const PredictionJob &) {
+                return QStringList{"x", "y", "z"}; }, [this](const PredictionJob &job) {
+                    jobPrefixes << job.prefix; jobContexts = job.context; scoredWords = job.scoreWords;
+                    QVector<float> scores;
+                    for (int i = 0; i < job.scoreWords.size(); ++i) scores << -float(job.scoreWords.size() - i);
+                    ranked.release();
+                    return scores; }));
             ic->inputEngine()->setInputMethod(method.get()); method->setInputMode(locale, QVirtualKeyboardInputEngine::InputMode::Latin);
             method->setPhysicalLayout("qwerty");
             if (!native) method->setPredictionPolicySource(&bridge);
@@ -427,13 +433,20 @@ private slots:
         const auto swipeGuesses = f.bar();            // right after the swipe the bar shows that swipe's other guesses
         QVERIFY(!swipeGuesses.isEmpty());
         QTest::qWait(400);                            // the swipe's own edit has settled: a move now is a tap
+        // Card #500: the bar's other places were rebuilt from the swap search a moment after the swipe; the typed
+        // word itself never changes, and the bar never goes empty.
+        QCOMPARE(f.edit->text, QStringLiteral("we say ") + typed);
+        QVERIFY(!f.bar().isEmpty()); QVERIFY(!f.bar().contains(typed));
         f.tapAt(7 + typed.size() / 2);
         const auto shown = f.bar();
         for (const auto &guess : swipeGuesses) QVERIFY2(shown.contains(guess), qPrintable(guess + " not in " + shown.join(",")));
         QVERIFY(!shown.contains(typed));
+        // WHY (card #500): the list re-scores the remembered finger path, not a made-up one.
+        QVERIFY(f.method->diagnostics().value("swapUsedPath").toBool());
         QCOMPARE(f.edit->text, QStringLiteral("we say ") + typed);
         f.tapAt(0);                                   // "we": a different word, none of the swipe's guesses
         for (const auto &guess : swipeGuesses) QVERIFY(!f.bar().contains(guess));
+        QVERIFY(!f.method->diagnostics().value("swapUsedPath").toBool());   // typed text: a made-up path
     }
     void aCleanWordIsNeverAnsweredWithASwearWordItResembles() {
         // WHY: alternatives are derived from the tapped word, but a swear word must not appear for an innocent one.
@@ -560,7 +573,8 @@ private slots:
         QCOMPARE(f.edit->text, after);
     }
     void sentenceAwareRankingUsesTheWordsBeforeTheTappedWord() {
-        // WHY: with an n-gram pack the worker reorders the dictionary's neighbours by the words before the tapped word.
+        // WHY: with an n-gram pack the worker scores the swap list's words after the words before the tapped word,
+        // and the list is re-ranked with those scores (card #500).
         const QString packs = qEnvironmentVariable("SWIPEKB_TEST_LANGUAGE_PACKS");
         if (packs.isEmpty()) QSKIP("Explicit local language pack fixture not supplied");
         qputenv("SWIPEKB_LANGUAGE_PACKS", packs.toUtf8());
@@ -572,7 +586,8 @@ private slots:
         QVERIFY(!dictionaryOrder.isEmpty()); QVERIFY(!dictionaryOrder.contains("caso"));
         QVERIFY(f.ranked.tryAcquire(1, 15000));
         QCOMPARE(f.jobContexts, QStringList({"vivo", "en", "una"}));
-        QCOMPARE(f.jobPrefixes.last(), QStringLiteral("c"));
+        QVERIFY(!f.scoredWords.isEmpty() && f.scoredWords.size() <= swapflow::kMaxScored);
+        QVERIFY(!f.scoredWords.contains("caso"));
         // WHY no exact words: they come from the real Spanish dictionary, which changes with each word-list
         // release. What must hold is that the sentence changes the order, never the text.
         QTRY_VERIFY_WITH_TIMEOUT(f.bar() != dictionaryOrder, 5000);

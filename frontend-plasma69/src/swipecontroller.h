@@ -34,6 +34,7 @@
 #include "swipesession.h"
 #include "typedwordsession.h"
 #include "wordswap.h"
+#include "swapflow.h"
 
 class EditorPort;
 
@@ -50,7 +51,9 @@ class SwipeController : public QObject
 
 public:
     // `inference` replaces the next-word worker's model (tests); empty = the real n-gram predictor.
-    explicit SwipeController(EditorPort *editor, QObject *parent = nullptr, NextWordWorker::Inference inference = {});
+    // `scorer` (tests): stands in for the worker's swap-list scoring, like `inference` for word lists.
+    explicit SwipeController(EditorPort *editor, QObject *parent = nullptr, NextWordWorker::Inference inference = {},
+                             NextWordWorker::Scorer scorer = {});
     ~SwipeController() override;
 
     bool ready() const;
@@ -178,6 +181,22 @@ private:
     std::optional<PredictionStamp> m_predictionTap;
     quint64 m_pressId = 0;
     PredictionStamp m_swapStamp;
+    // Card #500 (one brain): swap lists come from the engine's swap search (swapflow.h), shown at once and re-ranked
+    // when the worker's sentence scores arrive. One waiting list for tap-back, one for the bar right after a swipe.
+    swapflow::PendingSwap m_swapPending, m_afterSwipePending;
+    swapflow::Rules swapRules();
+    // The key rectangles of the latest swipe (the current layout), for the made-up path of a typed word.
+    RecentSwipes::Keys m_layoutKeys;
+    // A finger is on the suggestion row (pressCandidate .. releaseCandidate). WHY: the row after a swipe has a fixed
+    // token, so its list must not change under a pressed finger.
+    bool m_barPressed = false;
+    // Metadata for diagnostics/tests, never words (see diagnostics()).
+    bool m_lastSwapUsedPath = false;
+    int m_lastSwapWordsAfter = 0;
+    void buildAfterSwipeList(quint64 sessionSerial, int generation, quint64 profileEpoch, const QString &first,
+                             const RecentSwipes::Keys &keys, const QStringList &context, const RecentSwipes::Trace &trace,
+                             const QString &otherSpelling, bool predictionField);
+    bool afterSwipeScoring() const;
     int m_autoSpaceCursor = -1;
     bool m_afterSwipe = false;
     int m_afterSwipeCursorBefore = -1, m_afterSwipeCursorAfter = -1;

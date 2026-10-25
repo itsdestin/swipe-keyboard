@@ -116,10 +116,20 @@ QStringList SwipeSession::alternatives() const
     return out;
 }
 
+bool SwipeSession::replaceAlternatives(const QStringList &candidates)
+{
+    if (!isActive() || m_current != 0 || candidates.isEmpty() || candidates.front() != m_candidates.front()
+        || candidates == m_candidates)
+        return false;
+    m_candidates = candidates;
+    return true;
+}
+
 CommitPlan SwipeSession::swapToAlternative(int index)
 {
     if (!isActive() || index < 0 || index >= m_candidates.size() - 1)
         return {};
+    ++m_serial;
     const int target = index < m_current ? index : index + 1; // skip the typed word in the list
     const QString old = m_typedWord;
     m_current = target;
@@ -151,6 +161,7 @@ bool SwipeSession::cursorStillAfterWord(const QString &textBeforeCursor) const
 
 void SwipeSession::clear()
 {
+    ++m_serial;
     m_candidates.clear();
     m_current = -1;
     m_mode = CaseMode::AsIs;

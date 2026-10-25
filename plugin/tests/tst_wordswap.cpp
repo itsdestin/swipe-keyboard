@@ -110,7 +110,7 @@ private slots:
     static std::vector<swipekb::KeyRect> keys2() { return {{U's', 0, 0, 20, 30}, {U'e', 20, 0, 20, 30}}; }
     void recentSwipesAreAnchoredToTheirText() {
         RecentSwipes m;
-        m.remember("I can ", "see", trace3(), keys2(), {"see", "sea", "sew"});
+        m.remember("I can ", "see", trace3(), keys2());
         const auto got = m.traceFor("I can ", "see");
         QVERIFY(got.has_value());
         QCOMPARE(got->first.size(), size_t(3));
@@ -118,13 +118,10 @@ private slots:
         QCOMPARE(got->first[2].t_ms, 90.f);
         QCOMPARE(got->second.size(), size_t(2));
         QCOMPARE(got->second[1].letter, U'e');
-        QCOMPARE(m.candidatesFor("I can ", "see"), (QStringList{"see", "sea", "sew"}));
         QVERIFY(!m.traceFor("You can ", "see").has_value());   // same word, different place
         QVERIFY(!m.traceFor("I can ", "sea").has_value());     // different word
-        QVERIFY(m.candidatesFor("You can ", "see").isEmpty());
         m.forget("I can ", "see");
         QVERIFY(!m.traceFor("I can ", "see").has_value());
-        QVERIFY(m.candidatesFor("I can ", "see").isEmpty());
         // A word typed key by key has no finger path to re-score.
         m.remember("I can ", "go", {}, {});
         QVERIFY(!m.traceFor("I can ", "go").has_value());
@@ -132,16 +129,15 @@ private slots:
     void longTextAnchorsOnItsLastCharacters() {
         RecentSwipes m;
         const QString before = QString("lots of earlier text, ").repeated(5) + "and then ";
-        m.remember(before, "go", trace3(), keys2(), {"go", "so"});
+        m.remember(before, "go", trace3(), keys2());
         QVERIFY(m.traceFor("EDITED " + before.mid(7), "go").has_value()); // far-away edit tolerated
-        QCOMPARE(m.candidatesFor("EDITED " + before.mid(7), "go"), (QStringList{"go", "so"}));
         QVERIFY(!m.traceFor(before + "x", "go").has_value());
     }
     void ownWordsAreFoundByComparingNotReading() {
         // Tap-to-swap in stock Plasma fields offers only the keyboard's own words (card #187).
         RecentSwipes m;
-        m.remember("I can ", "see", trace3(), keys2(), {"see", "sea"}, {"i", "can"});
-        m.remember("I can see ", "it", {}, {}, {}, {"i", "can", "see"});   // typed key by key: no swipe guesses
+        m.remember("I can ", "see", trace3(), keys2(), {"i", "can"});
+        m.remember("I can see ", "it", {}, {}, {"i", "can", "see"});   // typed key by key: no finger path
         const QString text = "I can see it now";
         for (int cursor : {6, 7, 9}) {
             const auto o = m.ownedAt(text, cursor);
@@ -149,12 +145,11 @@ private slots:
             QCOMPARE(o->span, (WordSpan{6, 3, "see"}));
             QCOMPARE(o->trace.size(), size_t(3));
             QCOMPARE(o->keys.size(), size_t(2));
-            QCOMPARE(o->candidates, (QStringList{"see", "sea"}));
             QCOMPARE(o->context, (QStringList{"i", "can"}));
         }
         QCOMPARE(m.ownedAt(text, 11)->span, (WordSpan{10, 2, "it"}));
         QVERIFY(m.ownedAt(text, 11)->trace.empty());
-        QVERIFY(m.ownedAt(text, 11)->candidates.isEmpty());
+        QVERIFY(m.ownedAt(text, 11)->keys.empty());
         QVERIFY(!m.ownedAt(text, 14).has_value());              // "now" was not typed by the keyboard
         QVERIFY(!m.ownedAt(text, 2).has_value());               // nor "can"
         QVERIFY(!m.ownedAt("I can seed it", 8).has_value());    // never part of a longer word
@@ -192,7 +187,7 @@ private slots:
     }
     void memoryIsBounded() {
         RecentSwipes m;
-        for (int i = 0; i < 40; ++i) m.remember(QString("t%1 ").arg(i), "w", trace3(), keys2(), {"w", "x"});
+        for (int i = 0; i < 40; ++i) m.remember(QString("t%1 ").arg(i), "w", trace3(), keys2());
         QCOMPARE(m.size(), RecentSwipes::kMax);
         QVERIFY(!m.traceFor("t0 ", "w").has_value());
         QVERIFY(m.traceFor("t39 ", "w").has_value());
@@ -208,7 +203,7 @@ private slots:
         QFETCH(int, cursor);
         const QString text = "the Sea is";
         WordSwapSession s;
-        QVERIFY(s.begin(text, cursor, {}, {"see", "sew", "set"}));
+        QVERIFY(s.begin(text, cursor, {"See", "Sew", "Set"}));   // the finished list, dressed by swapflow
         QCOMPARE(s.candidates().size(), 3);
         const int index = s.candidates().indexOf("See");
         QVERIFY(index >= 0);
@@ -220,7 +215,7 @@ private slots:
     }
     void takeIsRefusedWhenAnythingNoLongerMatches() {
         const QString text = "the sea is";
-        auto fresh = [&] { WordSwapSession s; [&] { QVERIFY(s.begin(text, 5, {}, {"see", "sew"})); }(); return s; };
+        auto fresh = [&] { WordSwapSession s; [&] { QVERIFY(s.begin(text, 5, {"see", "sew"})); }(); return s; };
         { auto s = fresh(); QVERIFY(s.take(0, QString(), text, 5).isEmpty()); }                       // finger never pressed
         { auto s = fresh(); QVERIFY(s.take(0, "swap:0", text, 5).isEmpty()); }                        // another list's press
         { auto s = fresh(); const auto t = s.token(); QVERIFY(s.take(0, t, "the sea is.", 5).isEmpty()); }   // text changed
@@ -230,22 +225,31 @@ private slots:
     }
     void sentenceAnswerChangesTheListAndTheToken() {
         WordSwapSession s;
-        QVERIFY(s.begin("the sea is", 5, {}, {"set", "see", "sew"}));
+        QVERIFY(s.begin("the sea is", 5, {"set", "see", "sew"}));
+        QCOMPARE(s.candidates(), (QStringList{"see", "set", "sew"}));   // strongest in the middle
         const auto before = s.token();
-        QVERIFY(!s.setRanked({}));                 // nothing new
-        QVERIFY(s.setRanked({"sew", "see"}));
+        QVERIFY(!s.setList({}));                   // an empty answer keeps the shown list
+        QVERIFY(!s.setList({"set", "see", "sew"})); // nothing new
+        QCOMPARE(s.token(), before);
+        QVERIFY(s.setList({"sew", "see"}));
+        QCOMPARE(s.candidates(), (QStringList{"sew", "see"}));
         QVERIFY(s.token() != before);              // a press on the old list must not swap the new one
+        WordSwapSession t;
+        QVERIFY(t.begin("the sea is", 5, {"set"}));
+        QVERIFY(t.setList({"sew"}));
+        QCOMPARE(t.take(0, t.token(), "the sea is", 5).text, QString("sew"));   // a press on the new list works
         QVERIFY(s.take(0, before, "the sea is", 5).isEmpty());
     }
     void noAlternativesMeansNotActive() {
         WordSwapSession s;
-        QVERIFY(!s.begin("the sea is", 5, {}, {}));
+        QVERIFY(!s.begin("the sea is", 5, {}));
+        QVERIFY(!s.begin("the sea is", 5, {"Sea", "sea"}));   // only the word itself: nothing to offer
         QVERIFY(!s.active());
-        QVERIFY(!s.begin("the  is", 4, {}, {"x"}));  // no word under the cursor
+        QVERIFY(!s.begin("the  is", 4, {"x"}));  // no word under the cursor
     }
     void stillValidFollowsTheWord() {
         WordSwapSession s;
-        QVERIFY(s.begin("the sea is", 5, {}, {"see"}));
+        QVERIFY(s.begin("the sea is", 5, {"see"}));
         QVERIFY(s.stillValid("the sea is", 4));
         QVERIFY(s.stillValid("the sea is", 7));
         QVERIFY(!s.stillValid("the sea is", 8));

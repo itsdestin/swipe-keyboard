@@ -130,7 +130,8 @@ add_library(feature_inputmethod STATIC ${ROOT}/plugin/swipeinputmethod.cpp ${ROO
     ${ROOT}/plugin/swipesession.cpp ${ROOT}/plugin/swipeoutcome.cpp ${ROOT}/plugin/swiperecorder.cpp
     ${ROOT}/plugin/learningmanager.cpp ${ROOT}/plugin/learningmanager.h
     ${ROOT}/plugin/nextwordsession.cpp ${ROOT}/plugin/nextwordworker.cpp ${ROOT}/plugin/nextwordworker.h
-    ${ROOT}/plugin/predictionpolicy.cpp ${ROOT}/plugin/predictiondiagnostics.cpp ${ROOT}/plugin/wordswap.cpp)
+    ${ROOT}/plugin/predictionpolicy.cpp ${ROOT}/plugin/predictiondiagnostics.cpp ${ROOT}/plugin/wordswap.cpp
+    ${ROOT}/plugin/swapflow.cpp)
 target_include_directories(feature_inputmethod PUBLIC ${ROOT}/plugin)
 target_link_libraries(feature_inputmethod PUBLIC feature_engine language_rules Qt6::Qml Qt6::Quick Qt6::VirtualKeyboard)
 set(_im_env "QT_QPA_PLATFORM=offscreen;QT_IM_MODULE=qtvirtualkeyboard;QT_VIRTUALKEYBOARD_DESKTOP_DISABLE=1")
@@ -149,7 +150,7 @@ foreach(name swipesession swipeoutcome swiperecorder)
     target_link_libraries(tst_${name} PRIVATE feature_inputmethod Qt6::Test)
     add_test(NAME plugin_${name} COMMAND tst_${name})
 endforeach()
-foreach(name nextwordsession nextwordworker predictionpolicy predictiondiagnostics nextwordintegration ownedhistory typedwordsession wordswap)
+foreach(name nextwordsession nextwordworker predictionpolicy predictiondiagnostics nextwordintegration ownedhistory typedwordsession wordswap swapflow)
     add_executable(tst_${name} ${ROOT}/plugin/tests/tst_${name}.cpp)
     target_link_libraries(tst_${name} PRIVATE feature_inputmethod Qt6::Test)
     add_test(NAME prediction_${name} COMMAND tst_${name})

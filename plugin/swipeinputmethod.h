@@ -18,6 +18,7 @@
 #include "ownedhistory.h"
 #include "typedwordsession.h"
 #include "wordswap.h"
+#include "swapflow.h"
 #include "nextwordworker.h"
 #include "languageprofile.h"
 #include "predictiondiagnostics.h"
@@ -38,7 +39,8 @@ class SwipeInputMethod : public QVirtualKeyboardAbstractInputMethod {
 
 public:
     explicit SwipeInputMethod(QObject *parent = nullptr);
-    SwipeInputMethod(QObject *parent, NextWordWorker::Inference inference);
+    // `scorer` (tests): stands in for the worker's swap-list scoring, like `inference` for word lists.
+    SwipeInputMethod(QObject *parent, NextWordWorker::Inference inference, NextWordWorker::Scorer scorer = {});
     ~SwipeInputMethod() override;
     swipekb::ProfileSnapshot profileSnapshot() const { return m_profiles.snapshot(); }
     Q_INVOKABLE void setPhysicalLayout(const QString &layoutId);
@@ -144,6 +146,23 @@ private:
     QString m_swapPress;
     PredictionStamp m_swapStamp;
     quint64 m_predictionPressId = 0;
+    // Card #500 (one brain): swap lists come from the engine's swap search (swapflow.h), shown at once and re-ranked
+    // when the worker's sentence scores arrive. One waiting list for tap-back, one for the bar right after a swipe.
+    swapflow::PendingSwap m_swapPending, m_afterSwipePending;
+    swapflow::Rules swapRules();
+    // The key rectangles of the latest swipe (the current layout), for the made-up path of a typed word.
+    RecentSwipes::Keys m_layoutKeys;
+    // A finger is on the guess bar (between beginPredictionSelection and its endPredictionSelection). WHY: the bar
+    // after a swipe has no press token, so its list must not change under a pressed finger.
+    bool m_barPressed = false;
+    // Metadata for diagnostics/tests, never words: whether the last tap-back list used a remembered swipe, and how
+    // many words after the tapped word it used.
+    bool m_lastSwapUsedPath = false;
+    int m_lastSwapWordsAfter = 0;
+    void buildAfterSwipeList(quint64 sessionSerial, int generation, quint64 profileEpoch, const QString &first,
+                             const RecentSwipes::Keys &keys, const QStringList &context, const RecentSwipes::Trace &trace,
+                             const QString &otherSpelling, bool predictionField);
+    bool afterSwipeScoring() const;
     std::optional<PredictionStamp> m_predictionTap;
     NextWordSession m_nextWord;
     OwnedHistory m_ownedHistory;

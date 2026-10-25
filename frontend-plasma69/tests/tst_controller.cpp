@@ -281,6 +281,10 @@ private Q_SLOTS:
         }));
         const auto bar = m_controller->candidates();
         QVERIFY(!bar.contains(QStringLiteral("cat")));
+        // WHY (card #500): a readable field lends the word after the tapped one ("sat") to the ranking; text the
+        // keyboard did not type has no remembered swipe, so a made-up path is used.
+        QCOMPARE(m_controller->diagnostics().value(QStringLiteral("swapWordsAfter")).toInt(), 1);
+        QVERIFY(!m_controller->diagnostics().value(QStringLiteral("swapUsedPath")).toBool());
         m_controller->pressCandidate(m_controller->selectionToken());
         m_controller->selectCandidate(0);
         QCOMPARE(m_editor->m_text, QStringLiteral("the ") + bar.first() + QStringLiteral(" sat"));
@@ -324,6 +328,45 @@ private Q_SLOTS:
         m_editor->moveCursor(5);
         QTest::qWait(300);
         QVERIFY(m_controller->candidates().isEmpty());
+    }
+
+    void anUnreadableFieldLendsNoWordsAfterTheTappedOne()
+    {
+        // WHY (card #500): in owned-history fields only the keyboard's own words may be inspected, so a tap-back
+        // list there is built from the words before the tapped word alone, never from the text after it, even
+        // when that text is the keyboard's own next word.
+        m_editor->setHints(Qt::ImhNoPredictiveText);
+        m_editor->setField(QStringLiteral("we "));
+        QTest::qWait(300);
+        swipe(QStringLiteral("hello"));
+        swipe(QStringLiteral("there"));
+        const QString text = m_editor->m_text;
+        QVERIFY2(text.startsWith(QStringLiteral("we ")) && text.count(QLatin1Char(' ')) >= 2, qPrintable(text));
+        QTest::qWait(400); // our own edits settle
+        m_editor->moveCursor(5); // inside the first swiped word
+        QVERIFY2(waitForBar([](const QStringList &bar) {
+                     return !bar.isEmpty();
+                 }),
+                 "no alternatives for the keyboard's own word");
+        QCOMPARE(m_controller->diagnostics().value(QStringLiteral("swapWordsAfter")).toInt(), 0);
+        QVERIFY(m_controller->diagnostics().value(QStringLiteral("swapUsedPath")).toBool()); // its own finger path
+    }
+
+    void theBarAfterASwipeKeepsTheWordAndIsNeverEmpty()
+    {
+        // WHY (card #500): the other places are rebuilt from the swap search right after the swipe; the typed word
+        // must stay exactly what the swipe typed.
+        m_editor->setField(QStringLiteral("we "));
+        QTest::qWait(300);
+        swipe(QStringLiteral("hello"));
+        const QString text = m_editor->m_text;
+        const auto first = m_controller->candidates();
+        QVERIFY(!first.isEmpty());
+        QTest::qWait(300); // the deferred list (and the worker's scores) arrive
+        QCOMPARE(m_editor->m_text, text);
+        const auto later = m_controller->candidates();
+        QVERIFY(!later.isEmpty());
+        QVERIFY(!later.contains(text.mid(3).trimmed(), Qt::CaseInsensitive));
     }
 
     void passwordFieldDisablesEverything()

@@ -41,6 +41,16 @@ target_include_directories(swipekb_session PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 # WHY the engine: SwipeSession::contextWords forwards to swipekb::contextWords (one shared implementation).
 target_link_libraries(swipekb_session PUBLIC Qt6::Core swipekb_engine)
 
+# The swap flow (card #500): gathering, tidy-up and re-ranking of swap lists, shared by both front ends and the swap
+# bench. WHY its own library: it needs the language text rules (swear words, regional spellings) and the engine, which
+# the pure text rules above do not.
+add_library(swipekb_swapflow STATIC swapflow.cpp)
+target_include_directories(swipekb_swapflow PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(swipekb_swapflow PUBLIC swipekb_session swipekb_language swipekb_engine)
+qt_add_executable(tst_swapflow tests/tst_swapflow.cpp)
+target_link_libraries(tst_swapflow PRIVATE swipekb_swapflow Qt6::Test)
+add_test(NAME plugin_swapflow COMMAND tst_swapflow)
+
 qt_add_executable(tst_swipesession tests/tst_swipesession.cpp)
 target_link_libraries(tst_swipesession PRIVATE swipekb_session Qt6::Test)
 add_test(NAME plugin_session COMMAND tst_swipesession)
@@ -117,7 +127,7 @@ qt_add_qml_module(swipekeyboard
     SOURCES swipeinputmethod.h swipeinputmethod.cpp nextwordworker.h nextwordworker.cpp windowblur.h windowblur.cpp
             learningmanager.h learningmanager.cpp
 )
-target_link_libraries(swipekeyboard PRIVATE Qt6::Quick Qt6::VirtualKeyboard KF6::WindowSystem swipekb_session swipekb_recorder swipekb_engine swipekb_language)
+target_link_libraries(swipekeyboard PRIVATE Qt6::Quick Qt6::VirtualKeyboard KF6::WindowSystem swipekb_session swipekb_swapflow swipekb_recorder swipekb_engine swipekb_language)
 # WHY PUBLIC include of the engine headers: swipekeyboard links the engine PRIVATE, so tests that include the plugin's
 # learningmanager.h (which includes swipekb/learning.hpp) could not find it and the full build stopped at the first
 # of them (the lighter tests/features project adds this include by hand).
