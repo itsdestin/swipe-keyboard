@@ -21,6 +21,11 @@ struct Report {
     void add(Measure k, bool wrongFirst, const std::string &target, const std::vector<std::string> &shown,
              const std::function<std::string(const std::string &)> &norm);
     void addJunk(size_t shownCount, size_t junkCount) { ++rightFirst; shownWhenRight += shownCount; junkWhenRight += junkCount; }
+    // Measure 4b: the same count for the tap-back lists (0 = with the swipe's guesses, 1 = without) when the first
+    // guess was right. WHY its own line: a looser rare-word rule for tap-back lists only (card #500, 2026-10-25)
+    // must show what it costs there; measure 4 covers only the bar right after the swipe.
+    size_t tapShown[2] = {}, tapJunk[2] = {};
+    void addTapJunk(int which, size_t shownCount, size_t junkCount) { tapShown[which] += shownCount; tapJunk[which] += junkCount; }
     std::string format() const;      // the lines bench/swap-score.sh reads
 };
 }

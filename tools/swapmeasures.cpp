@@ -38,6 +38,10 @@ std::string Report::format() const {
     std::snprintf(buf, sizeof buf, "junk: right %zu shown %zu junk %.2f%%\n", rightFirst, shownWhenRight,
                   pct(junkWhenRight, shownWhenRight));
     out += buf;
+    // WHY "junk-tapback" and not "junk ...": bench/swap-score.sh and swap-tune.py read the "junk:" line above as measure 4.
+    std::snprintf(buf, sizeof buf, "junk-tapback: trace shown %zu junk %.2f%% notrace shown %zu junk %.2f%%\n", tapShown[0],
+                  pct(tapJunk[0], tapShown[0]), tapShown[1], pct(tapJunk[1], tapShown[1]));
+    out += buf;
     std::snprintf(buf, sizeof buf, "speed: %.2f ms/list\n", lists ? msTotal / double(lists) : 0.0);
     out += buf;
     return out;
