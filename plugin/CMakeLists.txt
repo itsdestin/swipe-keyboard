@@ -268,7 +268,7 @@ add_test(NAME plugin_preflight_failures
 set_tests_properties(plugin_preflight_failures PROPERTIES
     ENVIRONMENT "SWIPEKB_TEST_PREFLIGHT=$<TARGET_FILE:swipekb-preflight>")
 qt_add_executable(tst_stocklayout tests/tst_stocklayout.cpp)
-target_link_libraries(tst_stocklayout PRIVATE Qt6::Qml Qt6::Quick Qt6::Test)
+target_link_libraries(tst_stocklayout PRIVATE Qt6::Qml Qt6::Quick Qt6::VirtualKeyboard Qt6::Test)
 add_dependencies(tst_stocklayout swipekeyboardplugin)
 # WHY: Flatpak's bundled backend installs under /app; native builds retain the
 # existing distro layout default, without testing an unrelated host backend.

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
 
 #include <QtTest>
+#include <QtVirtualKeyboard/QVirtualKeyboardAbstractInputMethod>
 #include <QQmlComponent>
 #include <QQmlEngine>
 #include <QQuickItem>
@@ -122,8 +123,6 @@ private slots:
                 function restore() { editor.inputMethodHints = Qt.ImhNone; editor.forceActiveFocus() }
                 function alternative() { InputContext.inputEngine.wordCandidateListModel.selectItem(0) }
                 function tap() { InputContext.inputEngine.virtualKeyClick(Qt.Key_X, "x", Qt.NoModifier) }
-                function dumpLocale() { return "settings=" + VirtualKeyboardSettings.locale + " ctx=" + InputContext.locale + " method=" + InputContext.inputEngine.inputMethod + " modes=" + InputContext.inputEngine.inputModes }
-                function reapplyLocale() { VirtualKeyboardSettings.locale = "en_GB"; VirtualKeyboardSettings.locale = "en_US" }
                 Component.onCompleted: { VirtualKeyboardSettings.locale = "en_US"; editor.forceActiveFocus() }
                 TextInput { id: editor; width: parent.width; height: 40; focus: true }
                 TextInput { id: other; y:45; width:parent.width; height:40; text:"sentinel" }
@@ -139,27 +138,7 @@ private slots:
         QPointer<QObject> method(root->property("method").value<QObject *>());
         QVERIFY(method);
         // WHY wait for the engine: beginSwipe() answers -1 (and asks no questions) until the swipe model has loaded.
-        // On a busy machine (CTest now runs tests in parallel) the keyboard's first language hand-over from Qt can arrive
-        // with an EMPTY language ("profile-unavailable: malformed locale tag") and the later "en_US" set in onCompleted is
-        // then not passed on, so the first row saw 0 callbacks instead of 1. Re-applying the language (a real change
-        // en_GB -> en_US) is what the keyboard does when the person switches language, so the test does that until the
-        // engine is ready. Names and counts of the diagnostics go in the failure message so a slow runner is explainable.
-        {
-            const auto isReady=[&] { bool ready=false; QMetaObject::invokeMethod(method,"isReady",Q_RETURN_ARG(bool,ready)); return ready; };
-            QElapsedTimer waited; waited.start();
-            { QVariant d; QMetaObject::invokeMethod(root.get(),"dumpLocale",Q_RETURN_ARG(QVariant,d)); fprintf(stderr,"DBG start: %s method=%p\n",qPrintable(d.toString()),(void*)method.data()); }
-            int nudges=0;
-            while (!isReady() && waited.elapsed()<12000) {
-                QTest::qWait(100);
-                if (!isReady() && waited.elapsed()>(nudges+1)*2000) {
-                    ++nudges;
-                    QMetaObject::invokeMethod(root.get(),"reapplyLocale");
-                }
-            }
-            { QVariant d; QMetaObject::invokeMethod(root.get(),"dumpLocale",Q_RETURN_ARG(QVariant,d)); fprintf(stderr,"DBG end: %s nudges=%d method=%p\n",qPrintable(d.toString()),nudges,(void*)method.data()); }
-            QVERIFY2(nudges==0, "DBG nudge fired");
-            QVERIFY2(method && isReady(), method ? qPrintable(QString::fromUtf8(QJsonDocument::fromVariant(method->property("diagnostics")).toJson(QJsonDocument::Compact))) : "method object was destroyed");
-        }
+        QTRY_VERIFY_WITH_TIMEOUT([&] { bool ready=false; QMetaObject::invokeMethod(method,"isReady",Q_RETURN_ARG(bool,ready)); return ready; }(), 30000);
         auto *capture = swipeLayout(item)->property("swipeCapture").value<QObject *>();
         QVariant geometry;
         QVERIFY(QMetaObject::invokeMethod(capture,"letterKeys",Q_RETURN_ARG(QVariant,geometry)));
@@ -315,6 +294,43 @@ private slots:
         QVERIFY2(reloads.isEmpty(), qPrintable(QStringLiteral("engine reloaded %1 times").arg(reloads.count())));
         QVERIFY(QMetaObject::invokeMethod(method, "isReady", Q_RETURN_ARG(bool, ready)));
         QVERIFY(ready);
+    }
+    // The keyboard follows the language of the input context. WHY: Qt's first hand-over can be "C" and the real language
+    // was then not always passed on (Arch CI runner), leaving swiping dead. The stale hand-over is made by hand here.
+    void engineFollowsTheContextLanguageAfterAStaleHandOver()
+    {
+        QQmlEngine engine;
+        QQmlComponent component(&engine);
+        component.setData(R"(
+            import QtQuick
+            import QtQuick.VirtualKeyboard
+            import QtQuick.VirtualKeyboard.Settings
+            Item {
+                width: 1000; height: 500
+                property QtObject method: InputContext.inputEngine.inputMethod
+                Component.onCompleted: { VirtualKeyboardSettings.locale = "en_US"; editor.forceActiveFocus() }
+                TextInput { id: editor; width: parent.width; height: 40; focus: true }
+                InputPanel { width: parent.width; anchors.bottom: parent.bottom; active: true }
+            }
+        )", QUrl());
+        std::unique_ptr<QObject> root(component.create());
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *item = qobject_cast<QQuickItem *>(root.get());
+        QQuickWindow window; window.resize(1000, 500);
+        item->setParentItem(window.contentItem()); window.show();
+        QTRY_VERIFY_WITH_TIMEOUT(swipeLayout(item), 10000);
+        QPointer<QObject> method(root->property("method").value<QObject *>());
+        QVERIFY(method);
+        const auto isReady = [&] { bool ready = false; QMetaObject::invokeMethod(method, "isReady", Q_RETURN_ARG(bool, ready)); return ready; };
+        QTRY_VERIFY_WITH_TIMEOUT(isReady(), 30000);
+        // The stale hand-over: the engine is told "C" while the context still says en_US.
+        auto *abstract = qobject_cast<QVirtualKeyboardAbstractInputMethod *>(method.data());
+        QVERIFY(abstract);
+        QVERIFY(abstract->setInputMode(QStringLiteral("C"), QVirtualKeyboardInputEngine::InputMode::Latin));
+        QVERIFY(!isReady());
+        // The next swipe attempt must notice the context's language and recover on its own.
+        QMetaObject::invokeMethod(method, "beginSwipe");
+        QVERIFY2(isReady(), "engine did not follow the context language");
     }
     // The Space key of the REAL stock English layout slides the cursor in a real text field, for a mouse and a
     // finger, also in a password field, and a plain tap on it still types a space.

@@ -50,7 +50,6 @@ SwipeInputMethod::~SwipeInputMethod() = default;
 
 void SwipeInputMethod::setPhysicalLayout(const QString &layoutId)
 {
-    fprintf(stderr,"DBG setPhysicalLayout %s this=%p m_locale='%s'\n",qPrintable(layoutId),(void*)this,qPrintable(m_locale));
     if (layoutId==m_layoutId) return;
     m_layoutId=layoutId;
     resolveCurrentProfile();
@@ -159,7 +158,6 @@ QList<QVirtualKeyboardInputEngine::InputMode> SwipeInputMethod::inputModes(const
 
 bool SwipeInputMethod::setInputMode(const QString &locale, QVirtualKeyboardInputEngine::InputMode mode)
 {
-    fprintf(stderr,"DBG setInputMode locale='%s' this=%p\n",qPrintable(locale),(void*)this);
     const QString inputMode=mode==QVirtualKeyboardInputEngine::InputMode::Latin ? "Latin" : "Unsupported";
     // WHY skip an unchanged mode: Qt repeats this call on every "?123"/letters switch (the symbols page
     // names its own mode). Rebuilding the profile reloaded the swipe model each time, a visible hitch
@@ -953,12 +951,31 @@ void SwipeInputMethod::syncInputCache()
     refreshExposedInputCache(ic, item, item->window(), m_generation, m_profiles.snapshot().epoch);
 }
 
+// WHY: Qt hands the language to the input method once, at start-up, and in a session that has not finished setting
+// its language yet that first hand-over can be "C" (no language). Qt did not always send the real language afterwards
+// (seen on the Arch CI runner, 4 of 6 runs of the first stock-layout test row), which left swiping dead with
+// "Unsupported or malformed locale tag" until the person switched language. The input context always knows the current
+// language, so follow it whenever it differs from the one this method was last given.
+void SwipeInputMethod::followContextLocale()
+{
+    auto *ic = inputContext();
+    if (!ic) return;
+    const QString current = ic->locale();
+    if (current.isEmpty() || current == m_locale) return;
+    m_locale = current;
+    resolveCurrentProfile();
+}
+
 void SwipeInputMethod::ensureContextConnections()
 {
     watchInputWindow();
     auto *ic = inputContext();
-    if (!ic || m_contextConnected) return;
+    if (!ic) return;
+    QPointer<SwipeInputMethod> alive(this);
+    followContextLocale();
+    if (!alive || m_contextConnected) return;
     // WHY first key/swipe, not construction: Qt attaches the input context later.
+    connect(ic, &QVirtualKeyboardInputContext::localeChanged, this, &SwipeInputMethod::followContextLocale);
     connect(ic, &QVirtualKeyboardInputContext::inputItemChanged, this, [this, ic] {
         QPointer<SwipeInputMethod> self(this);
         setPredictionPolicySource(ic->inputItem());
