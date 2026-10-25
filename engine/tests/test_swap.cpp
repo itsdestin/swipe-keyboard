@@ -351,3 +351,29 @@ TEST(LanguageEngineSwap, NeighboursWithoutNetworkUseTheFloor)
     for (const auto &x : e.swapCandidates("painting", keys, {"a"}, {}, {}, noNeighbours)) plain.insert(x.word);
     for (const auto &x : e.swapCandidates("painting", keys, {"a"}, {}, {}, none)) EXPECT_TRUE(plain.count(x.word)) << x.word;
 }
+
+// WHY: a swap list changes the search's width, frequency weight and temperature for its own search only; the next swipe
+// must be recognised exactly as if no swap list had been built (the restore is a guard object, so it also runs if the
+// search throws; that path has no hook to force a throw, so only the normal path is checked here).
+TEST(LanguageEngineSwap, ASwapListNeverChangesTheNextSwipe)
+{
+    if (!haveEnglish()) GTEST_SKIP() << "set SWIPEKB_ASSETS to a fetched asset tree";
+    LanguageEngine e;
+    ASSERT_TRUE(e.init(english()));
+    const auto keys = qwertyRects(0, 0, 1);
+    const auto trace = traceThrough("hello", keys);
+    const auto words = [](const std::vector<Candidate> &c) {
+        std::vector<std::string> o;
+        for (const auto &x : c) o.push_back(x.word);
+        return o;
+    };
+    const auto before = words(e.recognize(trace, keys, {"i", "said"}, 10));
+    ASSERT_FALSE(before.empty());
+    SwapParams odd;
+    odd.beam = 512;
+    odd.searchPrior = 2;            // also clears the lookahead and the frequency weight during the search
+    odd.syntheticTemperature = 4.f; // a typed word: the made-up path is searched flattened
+    (void)e.swapCandidates("world", keys, {"hello"}, {}, {}, odd);
+    (void)e.swapCandidates("hello", keys, {"i"}, {}, trace, odd);
+    EXPECT_EQ(words(e.recognize(trace, keys, {"i", "said"}, 10)), before);
+}

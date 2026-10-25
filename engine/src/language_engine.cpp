@@ -477,22 +477,30 @@ std::vector<SwapCandidate> LanguageEngine::swapCandidates(const std::string &wor
         // words that fit the sentence must survive that to be compared at all (as in recognize()).
         // SwapParams::searchPrior / beam change this for measurement (tools/swipekb-swap-bench --diagnose); the
         // recognizer's own settings are put back afterwards, so a swap list never changes the next swipe.
-        const BeamParams savedBeam = d_->engine.params.beam;
-        const float savedFreq = d_->engine.params.freqWeight;
-        const float savedTemp = d_->engine.params.temperature;
-        if (sp.beam > 0) d_->engine.params.beam.beam = sp.beam;
-        if (trace.size() < 2) d_->engine.params.temperature = sp.syntheticTemperature;
-        if (sp.searchPrior == 0) d_->setSentencePrior(before);
-        else if (sp.searchPrior == 1) d_->engine.setPrior({}, {});
-        else {
-            d_->engine.setPrior([](uint32_t) { return 0.f; }, {});
-            d_->engine.params.beam.lookahead = 0.f;
-            d_->engine.params.freqWeight = 0.f;
+        // The search's own settings are changed only inside this block; `restore` puts them back when it ends,
+        // right after the search (later steps, such as the neighbours' path fits, run with the recognizer's settings).
+        decltype(d_->engine.decode(pts, aspect, sp.pool)) found;
+        {
+            // WHY a guard object, not three lines after decode(): if the search throws (out of memory on a huge pool),
+            // the catch below returns an empty list, and the recognizer must still get its own width, frequency weight
+            // and temperature back, or every later swipe would be searched with the swap list's settings.
+            struct Restore {
+                SwipeEngine &e;
+                const BeamParams beam;
+                const float freq, temp;
+                ~Restore() { e.params.beam = beam; e.params.freqWeight = freq; e.params.temperature = temp; }
+            } restore{d_->engine, d_->engine.params.beam, d_->engine.params.freqWeight, d_->engine.params.temperature};
+            if (sp.beam > 0) d_->engine.params.beam.beam = sp.beam;
+            if (trace.size() < 2) d_->engine.params.temperature = sp.syntheticTemperature;
+            if (sp.searchPrior == 0) d_->setSentencePrior(before);
+            else if (sp.searchPrior == 1) d_->engine.setPrior({}, {});
+            else {
+                d_->engine.setPrior([](uint32_t) { return 0.f; }, {});
+                d_->engine.params.beam.lookahead = 0.f;
+                d_->engine.params.freqWeight = 0.f;
+            }
+            found = d_->engine.decode(pts, aspect, sp.pool);
         }
-        const auto found = d_->engine.decode(pts, aspect, sp.pool);
-        d_->engine.params.beam = savedBeam;
-        d_->engine.params.freqWeight = savedFreq;
-        d_->engine.params.temperature = savedTemp;
 
         const QString tappedLow = QString::fromStdString(word).toLower();
         const QString shownLow = QString::fromStdString(displaySpelling(word)).toLower();
