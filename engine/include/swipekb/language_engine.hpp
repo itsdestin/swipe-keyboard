@@ -88,7 +88,8 @@ public:
     // word's; `before`/`after` = log10 n-gram evidence from the words before and up to two words after (without a
     // pack: before = the frequency prior on the same scale, after = 0). `trace`: the swipe that produced the word,
     // empty for a typed word or a forgotten swipe (a made-up path through the word's keys is used). `after` may be
-    // empty (no words follow, or the field cannot be read past the word). Empty when not ready or unusable.
+    // empty (no words follow, or the field cannot be read past the word). Empty when not ready or unusable,
+    // and for a typed word with a character that is on no key (a digit): it has no path.
     // WHY not const: like recognize(), it sets the search's sentence prior and uses its scratch space.
     std::vector<SwapCandidate> swapCandidates(const std::string &word, const std::vector<KeyRect> &keys,
                                               const std::vector<std::string> &before,

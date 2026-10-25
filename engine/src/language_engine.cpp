@@ -479,19 +479,24 @@ std::vector<SwapCandidate> LanguageEngine::swapCandidates(const std::string &wor
         const auto found = d_->engine.decode(pts, aspect, sp.pool);
 
         const QString tappedLow = QString::fromStdString(word).toLower();
-        const std::string shown = displaySpelling(word);
-        const auto isTapped = [&](const std::string &w) {
-            return w == shown || QString::fromStdString(w).toLower() == tappedLow;
+        const QString shownLow = QString::fromStdString(displaySpelling(word)).toLower();
+        // WHY only the word itself (any case) is left out, as in rankSwap(): its dictionary spelling is a real swap
+        // ("dont" typed -> "don't" offered).
+        const auto isTapped = [&](const std::string &w) { return QString::fromStdString(w).toLower() == tappedLow; };
+        // The decoded word that stands for the tapped one: itself, or its dictionary spelling ("dont" -> "don't").
+        const auto standsForTapped = [&](const std::string &w) {
+            const QString low = QString::fromStdString(w).toLower();
+            return low == tappedLow || low == shownLow;
         };
         // WHY the path alone (ctc) and not the search score: the score already holds the sentence prior, which
-        // rankSwap() weighs separately (before/after). The reference is the tapped word's own fit to this path; its
-        // other spellings share that path exactly.
+        // rankSwap() weighs separately (before/after). The reference is the tapped word's own fit to this path (its
+        // other spellings share that path exactly); when the search did not find the tapped word, the best fit found.
         float ref = -1e30f, bestCtc = -1e30f;
         for (const auto &c : found) {
             const std::string &w = d_->engine.lexicon().text(c.word);
             if (w.empty()) continue;
             bestCtc = std::max(bestCtc, c.ctc);
-            if (isTapped(w)) ref = std::max(ref, c.ctc);
+            if (standsForTapped(w)) ref = std::max(ref, c.ctc);
         }
         if (ref <= -1e29f) ref = bestCtc > -1e29f ? bestCtc : 0.f;
 
@@ -511,7 +516,9 @@ std::vector<SwapCandidate> LanguageEngine::swapCandidates(const std::string &wor
         for (const auto &c : found) {
             const std::string &w = d_->engine.lexicon().text(c.word);
             int f = 0;
-            if (w.empty() || !d_->mayOffer(w, sp.minFrequency, f)) continue;
+            // WHY the language's own cutoff when lower: outside English recognize() uses none (0), because the
+            // rare-word cutoff cost 2-5 points of "right word in the top 3" there (see init()).
+            if (w.empty() || !d_->mayOffer(w, std::min(sp.minFrequency, d_->alt.minFrequency), f)) continue;
             add(w, c.ctc);
         }
 
@@ -533,6 +540,7 @@ std::vector<SwapCandidate> LanguageEngine::swapCandidates(const std::string &wor
             const auto ctxBefore = d_->lm.context(previous);
             for (auto &c : out) {
                 const std::string form = d_->lm.form(c.word);
+                if (form.empty()) continue;   // WHY: the model cannot read it; no evidence either way (0, 0)
                 c.before = d_->lm.logProb(ctxBefore, form, float(frequency(c.word)));
                 std::vector<std::string> ctx = previous;
                 ctx.push_back(form);

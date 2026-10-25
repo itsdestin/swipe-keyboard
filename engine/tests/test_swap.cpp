@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdio>
 #include <set>
 
 #include "swipekb/language_engine.hpp"
@@ -112,6 +113,20 @@ TEST(LanguageEngineSwap, SavedTraceGivesTheSwipesRunnerUps)
     }
 }
 
+// WHY: a typed word without its apostrophe must be offered its dictionary spelling ("dont" -> "don't").
+TEST(LanguageEngineSwap, TypedWordWithoutApostropheGetsItsSpelling)
+{
+    if (!haveEnglish()) GTEST_SKIP() << "set SWIPEKB_ASSETS to a fetched asset tree";
+    LanguageEngine e;
+    ASSERT_TRUE(e.init(english()));
+    const auto keys = qwertyRects(0, 0, 1);
+    const auto dont = e.swapCandidates("dont", keys, {"i"}, {"know"}, {}, SwapParams{});
+    EXPECT_TRUE(hasWord(dont, "don't")) << list(dont);
+    EXPECT_FALSE(hasWord(dont, "dont")) << list(dont);
+    const auto im = e.swapCandidates("im", keys, {}, {"going"}, {}, SwapParams{});
+    EXPECT_TRUE(hasWord(im, "I'm") || hasWord(im, "i'm")) << list(im);
+}
+
 TEST(LanguageEngineSwap, AfterIsZeroWithoutFollowingWords)
 {
     if (!haveEnglish()) GTEST_SKIP() << "set SWIPEKB_ASSETS to a fetched asset tree";
@@ -153,14 +168,14 @@ TEST(LanguageEngineSwap, FastEnoughForTheInputThread)
     LanguageEngine e;
     ASSERT_TRUE(e.init(english()));
     const auto keys = qwertyRects(0, 0, 1);
-    // 200 common words: the most frequent completions of each two-letter start.
+    // 1,000 common words: the most frequent completions of each two-letter start.
     std::vector<std::string> words;
     std::set<std::string> seen;
     for (const char *pre : {"th", "an", "wh", "wa", "be", "ha", "co", "pr", "st", "re", "mo", "fo", "go", "ca", "ma",
-                            "sa", "lo", "pe", "de", "in", "to", "ab", "ev", "li", "ne", "ti", "wo", "yo", "ma", "se"})
-        for (const auto &c : e.complete(pre, 10))
-            if (words.size() < 200 && seen.insert(c.word).second) words.push_back(c.word);
-    ASSERT_GE(words.size(), 150u);
+                            "sa", "lo", "pe", "de", "in", "to", "ab", "ev", "li", "ne", "ti", "wo", "yo", "se"})
+        for (const auto &c : e.complete(pre, 60))
+            if (words.size() < 1000 && seen.insert(c.word).second) words.push_back(c.word);
+    ASSERT_GE(words.size(), 900u);
     (void)e.swapCandidates("hello", keys, {}, {}, {}, SwapParams{});   // WHY: the first call builds the word list
     const auto t0 = std::chrono::steady_clock::now();
     size_t n = 0;
