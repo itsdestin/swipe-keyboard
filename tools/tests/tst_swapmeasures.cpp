@@ -22,13 +22,13 @@ private slots:
     }
     void junkShare() {
         Report r; r.addJunk(3, 1); r.addJunk(1, 0);
-        QVERIFY(QString::fromStdString(r.format()).contains("junk: right 2 shown 4 junk 25.00%"));
+        QVERIFY(QString::fromStdString(r.format()).contains("junk: right 2 shown 4 junk 25.00% count 1\n"));
     }
     void tapBackJunkHasItsOwnLine() {
         Report r; r.addTapJunk(0, 3, 1); r.addTapJunk(1, 4, 0); r.addTapJunk(1, 4, 2);
         const auto out = QString::fromStdString(r.format());
-        QVERIFY(out.contains("junk-tapback: trace shown 3 junk 33.33% notrace shown 8 junk 25.00%"));
-        QVERIFY(out.contains("junk: right 0 shown 0 junk 0.00%"));   // measure 4 is left alone
+        QVERIFY(out.contains("junk-tapback: trace shown 3 junk 33.33% notrace shown 8 junk 25.00% counts 1 2\n"));
+        QVERIFY(out.contains("junk: right 0 shown 0 junk 0.00% count 0\n"));   // measure 4 is left alone
     }
 };
 QTEST_APPLESS_MAIN(TstSwapMeasures)

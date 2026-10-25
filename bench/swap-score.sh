@@ -7,12 +7,15 @@
 # bench/swap-score.sh — the swap scoreboard (card #500). Replays real recorded swipes through build/tools/swipekb-swap-bench
 # and records, for the swipes whose first guess was wrong, how often the right word is the first swap option and how
 # often it is among three — right after the swipe, on tapping back with the swipe's guesses, and on tapping back without
-# them — plus junk options and the time to build a tap-back list. One row per measure in bench/swap-scoreboard.tsv.
+# them — plus junk options (in the bar after a swipe and in tap-back lists) and the time to build a tap-back list and
+# the bar after a swipe. One row per measure in bench/swap-scoreboard.tsv.
 # Usage: bench/swap-score.sh --set NAME [--mode baseline|new] [--label TEXT] [--limit N] [--check BASELINE_LABEL]
 #   --set    bench-2000 | test-extra-10000 (real English swipes, public MIT test split, never tuned on)
 #            | heliboard-es|fr|de|en (HeliBoard Gesture Data, CC BY-SA: test only, no sentences, per-swipe key boxes)
 #            | trv8k (FUTO English TUNING slice: its rows are labelled "[tuning]" and are never quoted as results)
-#   --check  exit 1 when any in3 is below the newest row with that label for the same set, mode, n and measure.
+#   --check  exit 1 against the newest rows with that label for the same set and n (any mode, so a new-mode run is
+#            judged against the baseline): any first or in3 lower, junk in the bar after a swipe more than 1 point
+#            higher, junk in a tap-back list more than 3 points higher, or a different number of skipped swipes.
 # Env: SWIPEKB_ASSETS (assets/; language files in its language-files/), SWIPEKB_EVAL (assets/eval),
 #      HELI (~/.cache/swipe-keyboard-train/heliboard/out), SWIPEKB_TUNE_EN (~/.cache/swipe-keyboard-train/shape/futo/trv8k.jsonl),
 #      SWIPEKB_LAYOUT (scripts/swipe/layouts/qwerty.tsv), SWAP_SCOREBOARD (bench/swap-scoreboard.tsv),
@@ -81,13 +84,18 @@ if [ ! -f "$BOARD" ]; then
 #   For these three, only swipes whose FIRST guess was wrong count (their number is "cases" in extra); first = the right
 #   word is the first option, in3 = among the first three (best-first order, not the bar's middle-first layout).
 # junk: first guess right; extra = share of the bar's other places that are stretched, rare (frequency under 80 of
-#   255) or rare names (capitalised, under 120) — the swipe scoreboard's rule. speed: extra = ms to build one tap-back list.
+#   255) or rare names (capitalised, under 120) — the swipe scoreboard's rule. junk-tapback-trace / junk-tapback-notrace:
+#   the same share among the three tap-back options (with / without the swipe's guesses).
+# speed: extra = ms to build one tap-back list; speed-after-swipe (new mode): average ms to build the bar after a swipe
+#   (input thread). skipped: swipes left out for want of a layout file.
 date	commit	label	set	mode	n	measure	first	in3	extra
 EOF
 fi
-# WHY exactly 5 measure rows: a changed bench output must stop the run instead of quietly writing a short scoreboard.
-rows=$(grep -cE '^(after-swipe|tapback-trace|tapback-notrace|junk|speed): ' <<<"$out" || true)
-[ "$rows" = 5 ] || { echo "swap-score.sh: expected 5 measure rows from swipekb-swap-bench, got $rows:" >&2; tail -20 <<<"$out" >&2; exit 1; }
+# WHY exactly these lines: a changed bench output must stop the run instead of quietly writing a short scoreboard.
+# Six measure lines (the three swap measures, the two junk lines, tap-back speed), plus the after-swipe list time in new mode.
+rows=$(grep -cE '^(after-swipe|tapback-trace|tapback-notrace|junk|junk-tapback|speed): ' <<<"$out" || true)
+want=6; [ "$mode" = new ] && want=7 && rows=$((rows + $(grep -c '^after-swipe list time: ' <<<"$out" || true)))
+[ "$rows" = "$want" ] || { echo "swap-score.sh: expected $want measure lines from swipekb-swap-bench, got $rows:" >&2; tail -20 <<<"$out" >&2; exit 1; }
 # WHY recorded: swipes without a layout are left out of every measure, so the numbers cover fewer swipes than n says.
 skipped=$(sed -nE 's/^\(([0-9]+) swipes had no readable layout.*/\1/p' <<<"$out")
 commit=$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo none)
@@ -96,19 +104,43 @@ awk -v d="$day" -v c="$commit" -v l="$label" -v s="$set_name" -v m="$mode" -v n=
     /^(after-swipe|tapback-trace|tapback-notrace): / { f=$5; i=$7; gsub("%","",f); gsub("%","",i)
         printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\tcases %s\n", d, c, l, s, m, n, substr($1,1,length($1)-1), f, i, $3 }
     /^junk: / { j=$7; gsub("%","",j); printf "%s\t%s\t%s\t%s\t%s\t%s\tjunk\t\t\t%s\n", d, c, l, s, m, n, j }
-    /^speed: / { printf "%s\t%s\t%s\t%s\t%s\t%s\tspeed\t\t\t%s\n", d, c, l, s, m, n, $2 }' <<<"$out" | tee -a "$BOARD"
+    # WHY only when options were shown: a run with no tap-back lists would otherwise record a meaningless 0 %.
+    /^junk-tapback: / { t=$6; u=$11; gsub("%","",t); gsub("%","",u)
+        if ($4 + 0 > 0) printf "%s\t%s\t%s\t%s\t%s\t%s\tjunk-tapback-trace\t\t\t%s\n", d, c, l, s, m, n, t
+        if ($9 + 0 > 0) printf "%s\t%s\t%s\t%s\t%s\t%s\tjunk-tapback-notrace\t\t\t%s\n", d, c, l, s, m, n, u }
+    /^speed: / { printf "%s\t%s\t%s\t%s\t%s\t%s\tspeed\t\t\t%s\n", d, c, l, s, m, n, $2 }
+    # WHY its own row: the bar after a swipe is built on the input thread after every swipe (budget 20 ms).
+    /^after-swipe list time: / { printf "%s\t%s\t%s\t%s\t%s\t%s\tspeed-after-swipe\t\t\t%s\n", d, c, l, s, m, n, $5 }' <<<"$out" | tee -a "$BOARD"
 if [ -n "$skipped" ]; then
     printf '%s\t%s\t%s\t%s\t%s\t%s\tskipped\t\t\t%s\n' "$day" "$commit" "$label" "$set_name" "$mode" "$n" "$skipped" | tee -a "$BOARD"
 fi
 
 if [ -n "$check" ]; then
-    # WHY the newest row with that label: a baseline re-recorded later (same label) replaces the older one.
-    if ! awk -F'\t' -v lab="$check" -v s="$set_name" -v c="$commit" -v d="$day" -v l="$label" -v mo="$mode" -v nn="$n" '
-        # WHY same n and mode: a 200-swipe run must not be judged against a 2000-swipe baseline (or another mode).
-        !/^#/ && $1 != "date" && $3 == lab && $4 == s && $5 == mo && $6 == nn && $9 != "" { base[$7] = $9 }
-        !/^#/ && $3 == l && $4 == s && $5 == mo && $6 == nn && $9 != "" { now[$7] = $9 }
-        END { bad = 0; seen = 0
-              for (k in base) if (k in now) { seen = 1; if (now[k] + 0 < base[k] + 0) { printf "FAIL: %s in3 %s%% below %s%%\n", k, now[k], base[k]; bad = 1 } }
-              if (!seen) { print "FAIL: no row labelled \"" lab "\" for " s " with n=" nn " mode " mo; bad = 1 }
+    # WHY the newest rows with that label: a baseline re-recorded later (same label) replaces the older one.
+    # WHY same set and n but any mode: a 200-swipe run must not be judged against a 2000-swipe baseline, while the
+    # point of a new-mode run is to be judged against today's keyboard (baseline mode).
+    if ! awk -F'\t' -v lab="$check" -v s="$set_name" -v l="$label" -v mo="$mode" -v nn="$n" '
+        !/^#/ && $1 != "date" && $4 == s && $6 == nn {
+            if ($3 == lab) { seen = 1; bf[$7] = $8; bi[$7] = $9; bx[$7] = $10 }
+            if ($3 == l && $5 == mo) { nf[$7] = $8; ni[$7] = $9; nx[$7] = $10 }
+        }
+        function worse(what, now, base, slack) { if (now - base > slack + 1e-9) { printf "FAIL: %s %s%% is more than %s points above %s%%\n", what, now, slack, base; bad = 1 } }
+        END { bad = 0
+              if (!seen) { print "FAIL: no row labelled \"" lab "\" for " s " with n=" nn; exit 1 }
+              split("after-swipe tapback-trace tapback-notrace", ms, " ")
+              for (i = 1; i <= 3; i++) { k = ms[i]
+                  if (!(k in bi)) continue
+                  if (!(k in ni)) { printf "FAIL: no %s row in this run\n", k; bad = 1; continue }
+                  # WHY first and in3 apart: the first option is what one tap gives; never let in3 hide a worse first.
+                  if (nf[k] + 0 < bf[k] + 0) { printf "FAIL: %s first %s%% below %s%%\n", k, nf[k], bf[k]; bad = 1 }
+                  if (ni[k] + 0 < bi[k] + 0) { printf "FAIL: %s in3 %s%% below %s%%\n", k, ni[k], bi[k]; bad = 1 } }
+              # Junk limits agreed for card #500: the bar after a swipe +1 point, tap-back lists +3 points.
+              if ("junk" in bx && "junk" in nx) worse("junk", nx["junk"], bx["junk"], 1)
+              split("junk-tapback-trace junk-tapback-notrace", js, " ")
+              for (i = 1; i <= 2; i++) { k = js[i]
+                  if (k in bx && k in nx) worse(k, nx[k], bx[k], 3)
+                  else if (k in nx) printf "note: no %s row labelled \"%s\" to compare with (re-record it to check this)\n", k, lab }
+              # WHY: swipes skipped for want of a layout change which swipes the numbers cover.
+              if (nx["skipped"] + 0 != bx["skipped"] + 0) { printf "FAIL: %d swipes skipped, the baseline skipped %d\n", nx["skipped"], bx["skipped"]; bad = 1 }
               exit bad }' "$BOARD"; then exit 1; fi
 fi

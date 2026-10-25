@@ -35,12 +35,15 @@ std::string Report::format() const {
                       pct(m[i].first, m[i].cases), pct(m[i].inThree, m[i].cases));
         out += buf;
     }
-    std::snprintf(buf, sizeof buf, "junk: right %zu shown %zu junk %.2f%%\n", rightFirst, shownWhenRight,
-                  pct(junkWhenRight, shownWhenRight));
+    // WHY the raw count at the end ("count N"): bench/swap-tune.py adds counts up over several sets, and a count
+    // worked back from a rounded percentage can be off by one or two once thousands of options are shown.
+    std::snprintf(buf, sizeof buf, "junk: right %zu shown %zu junk %.2f%% count %zu\n", rightFirst, shownWhenRight,
+                  pct(junkWhenRight, shownWhenRight), junkWhenRight);
     out += buf;
     // WHY "junk-tapback" and not "junk ...": bench/swap-score.sh and swap-tune.py read the "junk:" line above as measure 4.
-    std::snprintf(buf, sizeof buf, "junk-tapback: trace shown %zu junk %.2f%% notrace shown %zu junk %.2f%%\n", tapShown[0],
-                  pct(tapJunk[0], tapShown[0]), tapShown[1], pct(tapJunk[1], tapShown[1]));
+    std::snprintf(buf, sizeof buf, "junk-tapback: trace shown %zu junk %.2f%% notrace shown %zu junk %.2f%% counts %zu %zu\n",
+                  tapShown[0], pct(tapJunk[0], tapShown[0]), tapShown[1], pct(tapJunk[1], tapShown[1]), tapJunk[0],
+                  tapJunk[1]);
     out += buf;
     std::snprintf(buf, sizeof buf, "speed: %.2f ms/list\n", lists ? msTotal / double(lists) : 0.0);
     out += buf;

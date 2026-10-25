@@ -254,9 +254,13 @@ int main(int argc, char **argv)
             if (!c.word.empty()) candidates << QString::fromStdString(c.word);
         const QString rawShape = QString::fromStdString(engine.bestShapeWord());
         candidates = rankRegionalCandidates(candidates, qlocale, 3, rawShape);
+        QString otherSpelling;
         if (!candidates.isEmpty()) {
             const auto others = engine.otherSpellings(candidates.front().toStdString());
-            if (!others.empty()) candidates = SwipeSession::withOtherSpelling(candidates, QString::fromStdString(others.front()));
+            if (!others.empty()) {
+                otherSpelling = QString::fromStdString(others.front());
+                candidates = SwipeSession::withOtherSpelling(candidates, otherSpelling);
+            }
         }
         // 2. A swipe with no guess types nothing: it counts as a wrong first guess with nothing to offer.
         const QString w = candidates.isEmpty() ? QString() : candidates.front();
@@ -269,13 +273,17 @@ int main(int argc, char **argv)
                 continue;
             }
             const std::string ws = w.toStdString();
-            // WHY at most the first two words after, stopping at a sentence end: swapCandidates reads two, and words
-            // of the next sentence are no evidence for this one.
+            // WHY swapflow::wordsAfter, the keyboard's own rule: the text after the tapped word as the keyboard reads
+            // it (the punctuation recorded on the swiped word itself, then the next words) gives the same words after
+            // (at most two, none past punctuation or a sentence end).
             std::vector<std::string> next;
-            for (const auto &a : s.after) {
-                if (next.size() >= 2) break;
-                next.push_back(a);
-                if (!a.empty() && (a.back() == '.' || a.back() == '!' || a.back() == '?')) break;
+            {
+                const QString sw = QString::fromStdString(s.word);
+                qsizetype tail = sw.size();
+                while (tail > 0 && !sw.at(tail - 1).isLetter()) --tail;
+                QString textAfter = sw.mid(tail);
+                for (const auto &a : s.after) textAfter += u' ' + QString::fromStdString(a);
+                next = toStd(swapflow::wordsAfter(textAfter));
             }
             // The candidates (and their neural scores) depend only on pool and minFrequency, not on the weights, so
             // they are built once per such pair and every weight set reuses them.
@@ -342,8 +350,11 @@ int main(int argc, char **argv)
                 }
                 return kept;
             };
+            auto shownQ = [&](const std::vector<SwapCandidate> &c, const SwapParams &p, int k, bool dress) {
+                return swapflow::tidySwapList(w, asKeyboard(c, p), p, k, swapRules, dress);
+            };
             auto shown = [&](const std::vector<SwapCandidate> &c, const SwapParams &p, int k, bool dress) {
-                return toStd(swapflow::tidySwapList(w, asKeyboard(c, p), p, k, swapRules, dress));
+                return toStd(shownQ(c, p, k, dress));
             };
             // Speed: one tap-back list with the first weight set, as the keyboard builds it (search + sentence
             // scores + order + tidy-up), not the other two lists built alongside it here. The neural scoring runs on
@@ -356,7 +367,10 @@ int main(int argc, char **argv)
                 const SwapParams &p = paramSets[i];
                 const Lists &l = listsFor(p);
                 auto &r = reports[i];
-                const auto bar = shown(l.afterSwipe, p, 2, false);
+                // WHY through swapflow::afterSwipeCandidates: the keyboard's bar after a swipe is the first guess, its
+                // other spelling ("it's" after "its") when there is one, then the swap list; the bench grades the
+                // same other places (as baseline mode grades candidates.mid(1)).
+                const auto bar = toStd(swapflow::afterSwipeCandidates(w, shownQ(l.afterSwipe, p, 2, false), otherSpelling).mid(1));
                 r.add(Measure::AfterSwipe, wrongFirst, s.word, bar, norm);
                 if (!wrongFirst) {
                     size_t j = 0;
@@ -494,8 +508,16 @@ int main(int argc, char **argv)
         auto rankedOrder = [](QStringList l) { if (l.size() == 3) l.swapItemsAt(0, 1); return l; };
         report.add(Measure::TapBackTrace, wrongFirst, s.word, toStd(rankedOrder(list)), norm);
         // 7. The same word with no remembered swipe guesses.
-        list = WordSwap::build(w, {}, neighbours, ranked, 3);
-        report.add(Measure::TapBackNoTrace, wrongFirst, s.word, toStd(rankedOrder(list)), norm);
+        const QStringList listNoTrace = WordSwap::build(w, {}, neighbours, ranked, 3);
+        report.add(Measure::TapBackNoTrace, wrongFirst, s.word, toStd(rankedOrder(listNoTrace)), norm);
+        // Measure 4b for today's keyboard too, so new-mode tap-back junk has a baseline to be judged against.
+        if (!wrongFirst) {
+            size_t jt = 0, jn = 0;
+            for (const auto &a : list) jt += junk(a.toStdString());
+            for (const auto &a : listNoTrace) jn += junk(a.toStdString());
+            report.addTapJunk(0, size_t(list.size()), jt);
+            report.addTapJunk(1, size_t(listNoTrace.size()), jn);
+        }
     }
     if (reports.size() == 1) {
         std::printf("%s", report.format().c_str());
@@ -525,8 +547,7 @@ int main(int argc, char **argv)
         }
     }
     if (diagOut) std::fclose(diagOut);
-    // WHY not a scoreboard row: the speed budget (20 ms on the input thread) is checked by eye; swap-score.sh reads
-    // only the rows above.
+    // bench/swap-score.sh records the average as its "speed-after-swipe" row (budget 20 ms on the input thread).
     if (newMode && afterLists)
         std::printf("after-swipe list time: avg %.2f ms, max %.2f ms over %zu lists (swap search + tidy-up, input thread)\n",
                     afterMsTotal / double(afterLists), afterMsMax, afterLists);

@@ -49,7 +49,10 @@ POOLS = [16, 24, 32]
 WEIGHTS = ["wPath", "wBefore", "wAfter", "wNeural"]
 MEASURES = ["after-swipe", "tapback-trace", "tapback-notrace"]
 LINE = re.compile(r"^(after-swipe|tapback-trace|tapback-notrace): cases (\d+) first ([\d.]+)% in3 ([\d.]+)%")
-JUNK = re.compile(r"^junk: right (\d+) shown (\d+) junk ([\d.]+)%")
+# WHY the raw counts ("count N", "counts N M"): pooling several sets adds counts, and a count worked back from a
+# rounded percentage can be off once thousands of options are shown.
+JUNK = re.compile(r"^junk: right (\d+) shown (\d+) junk [\d.]+% count (\d+)")
+TAP_JUNK = re.compile(r"^junk-tapback: trace shown (\d+) junk [\d.]+% notrace shown (\d+) junk [\d.]+% counts (\d+) (\d+)")
 SPEED = re.compile(r"^speed: ([\d.]+) ms/list")
 
 
@@ -84,8 +87,9 @@ def run_bench(bench, set_name, mode, params):
             # Counts back from the printed percentages (2 decimals is exact enough for whole counts).
             cur[m[1]] = (cases, round(float(m[3]) * cases / 100), round(float(m[4]) * cases / 100))
         elif m := JUNK.match(line):
-            shown = int(m[2])
-            cur["junk"] = (shown, round(float(m[3]) * shown / 100))
+            cur["junk"] = (int(m[2]), int(m[3]))
+        elif m := TAP_JUNK.match(line):
+            cur["tap-junk"] = ((int(m[1]), int(m[3])), (int(m[2]), int(m[4])))
         elif m := SPEED.match(line):
             cur["ms"] = float(m[1])
     return blocks
@@ -100,6 +104,10 @@ def pooled(results):
                 "in3": 100 * sum(x[k][2] for x in results) / max(cases, 1)}
     shown = sum(x["junk"][0] for x in results)
     r["junk"] = 100 * sum(x["junk"][1] for x in results) / max(shown, 1)
+    # Measure 4b, reported next to the rest (today's keyboard has no tap-back rare-word rule, so no baseline to reject on).
+    for i, name in enumerate(["tap-junk-trace", "tap-junk-notrace"]):
+        tshown = sum(x["tap-junk"][i][0] for x in results if "tap-junk" in x)
+        r[name] = 100 * sum(x["tap-junk"][i][1] for x in results if "tap-junk" in x) / max(tshown, 1)
     r["ms"] = max(x.get("ms", 0) for x in results)
     r["objective"] = sum(r[k]["in3"] for k in MEASURES) / 3
     return r
@@ -109,7 +117,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--set", action="append", required=True)
     ap.add_argument("-j", type=int, default=3)
-    ap.add_argument("--bench", default="/tmp/claude-1000/swapbench-bin/swipekb-swap-bench")
+    ap.add_argument("--bench", default=os.path.join(ROOT, "build", "tools", "swipekb-swap-bench"))
     ap.add_argument("--log", default=None)
     ap.add_argument("--out", default=None)
     ap.add_argument("--fixed", default="{}")

@@ -10,7 +10,10 @@
 #   For these three, only swipes whose FIRST guess was wrong count (their number is "cases" in extra); first = the right
 #   word is the first option, in3 = among the first three (best-first order, not the bar's middle-first layout).
 # junk: first guess right; extra = share of the bar's other places that are stretched, rare (frequency under 80 of
-#   255) or rare names (capitalised, under 120) — the swipe scoreboard's rule. speed: extra = ms to build one tap-back list.
+#   255) or rare names (capitalised, under 120) — the swipe scoreboard's rule. junk-tapback-trace / junk-tapback-notrace:
+#   the same share among the three tap-back options (with / without the swipe's guesses).
+# speed: extra = ms to build one tap-back list; speed-after-swipe (new mode): average ms to build the bar after a swipe
+#   (input thread). skipped: swipes left out for want of a layout file. (Rows before 2026-10-25 have no tap-back junk.)
 date	commit	label	set	mode	n	measure	first	in3	extra
 2026-10-24	2fec156	baseline 0.5.0 (WordSwap::build)	bench-2000	baseline	2000	after-swipe	19.70	30.81	cases 198
 2026-10-24	2fec156	baseline 0.5.0 (WordSwap::build)	bench-2000	baseline	2000	tapback-trace	19.70	33.33	cases 198
