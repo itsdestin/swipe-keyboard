@@ -40,6 +40,10 @@ constexpr size_t kMaxLetters = 48;
 // spelling that can win a swipe is exactly one that is also offered as the alternative ("we're" for "were"), and
 // rare junk sharing a common word's path ("I's" for "is", 121 points apart) never can.
 constexpr int kSpellingWithin = 80;
+// Sentence words for tap-back lists (SwapParams::tapBackSentenceWords), see swapCandidates(). WHY caps: the list is built on
+// the input thread.
+constexpr size_t kSentenceScan = 200000;      // continuations looked at (all of them in practice)
+constexpr size_t kSentenceShortlist = 256;    // the best of them by the words before, scored with the words after
 
 QString nfc(const std::string &s) { return QString::fromStdString(s).normalized(QString::NormalizationForm_C); }
 
@@ -537,12 +541,25 @@ std::vector<SwapCandidate> LanguageEngine::swapCandidates(const std::string &wor
         // WHY other spellings first: "it's" for "its" is the swap people most often want, so the pool limit must
         // never squeeze it out; it is not filtered (Spellings only lists close, real spellings).
         for (const auto &w : otherSpellings(word)) add(w, ref);
+        // The junk rule (rare, stretched, rare-name words are never offered). WHY the language's own cutoff when
+        // lower: outside English recognize() uses none (0), because the rare-word cutoff cost 2-5 points of "right
+        // word in the top 3" there (see init()). A tap-back list (SwapParams::tapBack) may go down to
+        // tapBackMinFrequency, for a word between the two cutoffs only when its path is within tapBackRareWithin of
+        // the tapped word's (see swap.hpp).
+        const int minFreq = std::min(sp.minFrequency, d_->alt.minFrequency);
+        const int lowFreq = sp.tapBack ? std::min(minFreq, sp.tapBackMinFrequency) : minFreq;
+        const auto offered = [&](const std::string &w, float path) {
+            if (!sp.junkFilter) return true;
+            int f = 0;
+            if (!d_->mayOffer(w, lowFreq, f)) return false;
+            if (lowFreq >= minFreq) return true;
+            // WHY mayOffer again: it passes a word above the usual cutoff, and learned and texting words whatever
+            // their frequency; only the words that are rare by the usual rule need the strong path.
+            return d_->mayOffer(w, minFreq, f) || path >= ref - sp.tapBackRareWithin;
+        };
         for (const auto &c : found) {
             const std::string &w = d_->engine.lexicon().text(c.word);
-            int f = 0;
-            // WHY the language's own cutoff when lower: outside English recognize() uses none (0), because the
-            // rare-word cutoff cost 2-5 points of "right word in the top 3" there (see init()).
-            if (w.empty() || (sp.junkFilter && !d_->mayOffer(w, std::min(sp.minFrequency, d_->alt.minFrequency), f))) continue;
+            if (w.empty() || !offered(w, c.ctc)) continue;
             add(w, c.ctc);
         }
         // One-edit neighbours (SwapParams::neighbours): words the search may not reach because their path differs
@@ -551,9 +568,8 @@ std::vector<SwapCandidate> LanguageEngine::swapCandidates(const std::string &wor
         if (sp.neighbours > 0) {
             std::vector<std::string> extra;
             for (const auto &c : similar(word, sp.neighbours)) {
-                int f = 0;
                 if (isTapped(c.word) || seen.count(QString::fromStdString(c.word).toLower().toStdString())) continue;
-                if (sp.junkFilter && !d_->mayOffer(c.word, std::min(sp.minFrequency, d_->alt.minFrequency), f)) continue;
+                if (!offered(c.word, 1e30f)) continue;   // first the frequency rule; the path rule once fitted
                 extra.push_back(c.word);
             }
             const auto fits = d_->engine.pathScores(extra);
@@ -561,6 +577,7 @@ std::vector<SwapCandidate> LanguageEngine::swapCandidates(const std::string &wor
                 const float fit = fits.size() == extra.size() ? fits[i] : -1e30f;
                 const float path = std::max(fit, sp.neighbourFloor >= 0 ? ref - sp.neighbourFloor : -1e30f);
                 if (path <= -1e29f) continue;   // no usable fit and no floor
+                if (!offered(extra[i], fit)) continue;   // WHY its own fit, not the floor: a rare word must earn its place
                 seen.insert(QString::fromStdString(extra[i]).toLower().toStdString());
                 SwapCandidate c;
                 c.word = extra[i];
@@ -570,12 +587,12 @@ std::vector<SwapCandidate> LanguageEngine::swapCandidates(const std::string &wor
         }
 
         constexpr float kLn10 = 2.302585093f;
+        // WHY the model's form (as recognize() builds the previous words): the pack stores lower-case words,
+        // letters only or with apostrophes. Following words stop at the first one the model cannot read
+        // (a number, an emoji), so the two that are used are the two right after the word.
+        std::vector<std::string> previous, next;
+        std::vector<int> nextFreq;
         if (d_->lmLoaded) {
-            // WHY the model's form (as recognize() builds the previous words): the pack stores lower-case words,
-            // letters only or with apostrophes. Following words stop at the first one the model cannot read
-            // (a number, an emoji), so the two that are used are the two right after the word.
-            std::vector<std::string> previous, next;
-            std::vector<int> nextFreq;
             for (const auto &w : before) { const auto a = d_->lm.form(w); if (!a.empty()) previous.push_back(a); }
             for (const auto &w : after) {
                 if (next.size() >= 2) break;
@@ -584,17 +601,80 @@ std::vector<SwapCandidate> LanguageEngine::swapCandidates(const std::string &wor
                 next.push_back(a);
                 nextFreq.push_back(frequency(displaySpelling(w)));
             }
-            const auto ctxBefore = d_->lm.context(previous);
+        }
+        const auto ctxBefore = d_->lm.context(previous);
+        // WHY only the last two previous words for the words after: the model looks back two words at most, and this
+        // runs for thousands of sentence-word candidates on the input thread.
+        const std::vector<std::string> lastTwo(previous.end() - std::min<ptrdiff_t>(2, ptrdiff_t(previous.size())), previous.end());
+        // log10 evidence of `form` from the words before and the words after (0 when none follow).
+        const auto sentenceFit = [&](const std::string &form, float freq, float &b, float &a) {
+            b = d_->lm.logProb(ctxBefore, form, freq);
+            a = 0;
+            if (next.empty()) return;
+            std::vector<std::string> ctx = lastTwo;
+            ctx.push_back(form);
+            for (size_t k = 0; k < next.size(); ++k) {
+                a += d_->lm.logProb(d_->lm.context(ctx), next[k], float(nextFreq[k]));
+                ctx.push_back(next[k]);
+            }
+        };
+
+        // Sentence words (SwapParams::tapBackSentenceWords, tap-back lists only): the words the n-gram expects in this place, given the words
+        // before it and (fill in the blank) the words after it, each scored on its own fit to this path.
+        // WHY: the search and the one-edit neighbours only find words whose path looks like the tapped word's; a word
+        // meant for this place whose path is further off (a typed word's made-up path is only a guess at the swipe)
+        // was never gathered, however well it fits the sentence. WHY only the n-gram here: it is what the input
+        // thread has; the worker's neural score still re-ranks the whole list afterwards.
+        if (sp.tapBack && sp.tapBackSentenceWords > 0 && d_->lmLoaded && d_->prior) {
+            d_->prior->setContext(previous);
+            const SwipeLexicon &lex = d_->engine.lexicon();
+            // Step 1, every word the model has seen after the words before (trigram, then bigram continuations), by
+            // that evidence alone. WHY all of them and not the first few: the model lists continuations in its word
+            // order, which is alphabetical, so a short scan would favour words early in the alphabet. WHY the prior's
+            // own score: it reads the model by word number, a couple of lookups per word (it is ln 10 times the
+            // n-gram's log10 P with the weights LanguageEngine leaves at 1 and 0).
+            std::vector<std::pair<float, uint32_t>> byBefore;   // (ln P(word | before), lexicon word); may repeat
+            for (const uint32_t lw : d_->prior->hints(kSentenceScan)) byBefore.push_back({(*d_->prior)(lw), lw});
+            // Step 2, the best of those that may be offered, scored again with the words after (fill in the blank).
+            // WHY a shortlist: the words-after score costs a few model lookups per word. WHY only the best few
+            // thousand are put in order: sorting every continuation of a common word would cost more than the search.
+            const auto better = [](const auto &x, const auto &y) { return x.first > y.first || (x.first == y.first && x.second < y.second); };
+            const size_t head = std::min(byBefore.size(), 8 * kSentenceShortlist);
+            std::nth_element(byBefore.begin(), byBefore.begin() + head, byBefore.end(), better);
+            std::sort(byBefore.begin(), byBefore.begin() + head, better);
+            std::vector<std::pair<float, uint32_t>> fit;   // (log10 before + after, lexicon word)
+            std::unordered_set<uint32_t> scanned;          // WHY: a word can be both a trigram and a bigram continuation
+            for (size_t i = 0; i < head && fit.size() < kSentenceShortlist; ++i) {
+                const uint32_t lw = byBefore[i].second;
+                if (!scanned.insert(lw).second) continue;
+                const std::string &w = lex.text(lw);
+                if (w.empty() || isTapped(w) || seen.count(QString::fromStdString(w).toLower().toStdString())) continue;
+                if (!offered(w, 1e30f)) continue;   // the path rule once fitted, below
+                float b = 0, a = 0;
+                sentenceFit(d_->lm.form(w), float(lex.freq(lw)), b, a);
+                fit.push_back({b + a, lw});
+            }
+            const size_t n = std::min(fit.size(), size_t(sp.tapBackSentenceWords));
+            std::partial_sort(fit.begin(), fit.begin() + n, fit.end(), [](const auto &x, const auto &y) { return x.first > y.first; });
+            std::vector<std::string> extra;
+            for (size_t i = 0; i < n; ++i) extra.push_back(lex.text(fit[i].second));
+            const auto fits = d_->engine.pathScores(extra);
+            for (size_t i = 0; i < extra.size() && fits.size() == extra.size(); ++i) {
+                // WHY no floor (unlike neighbours): these words are not look-alikes; a word with no path to this
+                // swipe at all (a letter with no key) is left out, any other competes on its real fit.
+                if (fits[i] <= -1e29f || !offered(extra[i], fits[i]) || !seen.insert(QString::fromStdString(extra[i]).toLower().toStdString()).second) continue;
+                SwapCandidate c;
+                c.word = extra[i];
+                c.path = fits[i];
+                out.push_back(std::move(c));
+            }
+        }
+
+        if (d_->lmLoaded) {
             for (auto &c : out) {
                 const std::string form = d_->lm.form(c.word);
                 if (form.empty()) continue;   // WHY: the model cannot read it; no evidence either way (0, 0)
-                c.before = d_->lm.logProb(ctxBefore, form, float(frequency(c.word)));
-                std::vector<std::string> ctx = previous;
-                ctx.push_back(form);
-                for (size_t k = 0; k < next.size(); ++k) {
-                    c.after += d_->lm.logProb(d_->lm.context(ctx), next[k], float(nextFreq[k]));
-                    ctx.push_back(next[k]);
-                }
+                sentenceFit(form, float(frequency(c.word)), c.before, c.after);
             }
         } else {
             // WHY divided by ln 10: without a pack the search's own frequency prior (nats) stands in, put on the

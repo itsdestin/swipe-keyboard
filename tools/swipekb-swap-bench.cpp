@@ -8,6 +8,7 @@
 //   tapback-trace    the list shown when they tap back on the word while this swipe's guesses are still remembered;
 //   tapback-notrace  the same list without the swipe's guesses (a word tapped later, or not typed by swiping);
 //   junk             when the first guess was right, how many of the bar's other places are words nobody means;
+//   junk-tapback     the same for the tap-back lists (with and without the swipe's guesses; new mode only);
 //   speed            milliseconds to build one tap-back list (dictionary neighbours + sentence ranking + ordering).
 // `--mode baseline` replays today's keyboard: it mirrors SwipeInputMethod::finishSwipe and observeWordSwap
 // (plugin/swipeinputmethod.cpp) and calls the shipped WordSwap::build itself, so the baseline is the code that ships.
@@ -17,7 +18,8 @@
 // regional spelling order, the tapped word's capitals). It also reports how long the after-swipe list takes to build
 // (the swap search and tidy-up the keyboard runs right after committing a swipe; the sentence scores run on a worker).
 // `--params F`: SwapParams as JSON {wPath, wBefore, wAfter, wNeural, pool, minFrequency, beam, searchPrior,
-// junkFilter, neighbours, neighbourFloor, syntheticTemperature} (missing keys keep the
+// junkFilter, neighbours, neighbourFloor, syntheticTemperature,
+// tapBackSentenceWords, tapBackMinFrequency, tapBackRareWithin} (missing keys keep the
 // defaults), or an ARRAY of such objects: then every set is graded in one pass and each report is printed after a
 // line "== params N" (bench/swap-tune.py uses this; WHY: the swipe and the swap searches are the slow part, and they
 // do not depend on the weights, so one pass can grade many weight sets).
@@ -104,6 +106,9 @@ std::vector<SwapParams> readParams(const std::string &path, std::string &error)
         p.neighbours = o.value("neighbours").toInt(p.neighbours);
         p.neighbourFloor = float(o.value("neighbourFloor").toDouble(p.neighbourFloor));
         p.syntheticTemperature = float(o.value("syntheticTemperature").toDouble(p.syntheticTemperature));
+        p.tapBackSentenceWords = o.value("tapBackSentenceWords").toInt(p.tapBackSentenceWords);
+        p.tapBackMinFrequency = o.value("tapBackMinFrequency").toInt(p.tapBackMinFrequency);
+        p.tapBackRareWithin = float(o.value("tapBackRareWithin").toDouble(p.tapBackRareWithin));
         out.push_back(p);
     }
     if (out.empty()) error = path + ": no parameter sets";
@@ -276,7 +281,7 @@ int main(int argc, char **argv)
             // they are built once per such pair and every weight set reuses them.
             struct Lists { std::vector<SwapCandidate> afterSwipe, trace, noTrace; };
             // WHY every gathering knob in the key: each changes which words are found; the weights do not.
-            using GatherKey = std::tuple<int, int, int, int, bool, int, float, float>;
+            using GatherKey = std::tuple<int, int, int, int, bool, int, float, float, int, int, float>;
             std::map<GatherKey, Lists> cache;
             auto withNeural = [&](std::vector<SwapCandidate> c) {
                 // WHY one call per list, all words at once: the keyboard's worker answers for the whole list, so
@@ -293,7 +298,8 @@ int main(int argc, char **argv)
             double traceMs = -1;   // the first tap-back-with-trace search and its sentence scores (speed, below)
             auto listsFor = [&](const SwapParams &p) -> const Lists & {
                 const GatherKey key{p.pool, p.minFrequency, p.beam, p.searchPrior, p.junkFilter, p.neighbours,
-                                    p.neighbourFloor, p.syntheticTemperature};
+                                    p.neighbourFloor, p.syntheticTemperature, p.tapBackSentenceWords,
+                                    p.tapBackMinFrequency, p.tapBackRareWithin};
                 auto it = cache.find(key);
                 if (it != cache.end()) return it->second;
                 Lists l;
@@ -310,15 +316,34 @@ int main(int argc, char **argv)
                 }
                 l.afterSwipe = withNeural(std::move(afterCands));
                 const auto t0 = Clock::now();
-                l.trace = withNeural(engine.swapCandidates(ws, keys, context, next, s.trace, p));
+                // WHY forTapBack: the keyboard builds tap-back lists with it (its rare-word rule), the bar after a
+                // swipe without.
+                const SwapParams tb = p.forTapBack();
+                l.trace = withNeural(engine.swapCandidates(ws, keys, context, next, s.trace, tb));
                 if (traceMs < 0) traceMs = std::chrono::duration<double, std::milli>(Clock::now() - t0).count();
-                l.noTrace = withNeural(engine.swapCandidates(ws, keys, context, next, {}, p));
+                l.noTrace = withNeural(engine.swapCandidates(ws, keys, context, next, {}, tb));
                 return cache.emplace(key, std::move(l)).first->second;
             };
             // WHY dress false for the after-swipe bar: the keyboard does not dress it in the first guess's capitals
             // (swapflow::afterSwipeList); tap-back lists are dressed like the tapped word.
+            // WHY only the words the keyboard would have scored: the keyboard sends the list's best
+            // swapflow::kMaxScored words (ranked without neural scores) to the worker and drops the rest
+            // (swapflow::wordsToScore / applyScores). The cache holds neural scores for every word (they do not depend
+            // on the weights), so the cut is redone here per weight set. Before 2026-10-25 the bench ranked every
+            // gathered word, which only mattered once a list could hold more than 32 (pool 24 + 12 neighbours = 36).
+            auto asKeyboard = [&](const std::vector<SwapCandidate> &c, const SwapParams &p) {
+                if (c.empty() || !c.front().hasNeural) return c;
+                auto bare = c;
+                for (auto &x : bare) x.hasNeural = false;
+                std::vector<SwapCandidate> kept;
+                for (const auto &word : swapflow::wordsToScore(w, bare, p)) {
+                    const std::string ww = word.toStdString();
+                    for (const auto &x : c) if (x.word == ww) { kept.push_back(x); break; }
+                }
+                return kept;
+            };
             auto shown = [&](const std::vector<SwapCandidate> &c, const SwapParams &p, int k, bool dress) {
-                return toStd(swapflow::tidySwapList(w, c, p, k, swapRules, dress));
+                return toStd(swapflow::tidySwapList(w, asKeyboard(c, p), p, k, swapRules, dress));
             };
             // Speed: one tap-back list with the first weight set, as the keyboard builds it (search + sentence
             // scores + order + tidy-up), not the other two lists built alongside it here. The neural scoring runs on
@@ -338,8 +363,18 @@ int main(int argc, char **argv)
                     for (const auto &a : bar) j += junk(a);
                     r.addJunk(bar.size(), j);
                 }
-                r.add(Measure::TapBackTrace, wrongFirst, s.word, i == 0 ? first : shown(l.trace, p, 3, true), norm);
-                r.add(Measure::TapBackNoTrace, wrongFirst, s.word, shown(l.noTrace, p, 3, true), norm);
+                const auto tapTrace = i == 0 ? first : shown(l.trace, p, 3, true);
+                const auto tapNoTrace = shown(l.noTrace, p, 3, true);
+                r.add(Measure::TapBackTrace, wrongFirst, s.word, tapTrace, norm);
+                r.add(Measure::TapBackNoTrace, wrongFirst, s.word, tapNoTrace, norm);
+                if (!wrongFirst) {
+                    // Measure 4b: junk among the tap-back options of a word that was already right.
+                    size_t jt = 0, jn = 0;
+                    for (const auto &a : tapTrace) jt += junk(a);
+                    for (const auto &a : tapNoTrace) jn += junk(a);
+                    r.addTapJunk(0, tapTrace.size(), jt);
+                    r.addTapJunk(1, tapNoTrace.size(), jn);
+                }
                 r.msTotal += ms;
                 ++r.lists;
             }
@@ -368,13 +403,13 @@ int main(int argc, char **argv)
                     Diag &d = diag[m];
                     ++d.cases;
                     auto variant = [&](auto change) {
-                        SwapParams q = p0;
+                        SwapParams q = m == int(Measure::AfterSwipe) ? p0 : p0.forTapBack();
                         change(q);
                         return has(engine.swapCandidates(ws, keys, context, nx, tr, q));
                     };
                     for (size_t k = 0; k < kPools.size(); ++k) d.inPool[k] += variant([&](SwapParams &q) { q.pool = kPools[k]; });
                     // The rank after ordering and tidy-up, in the full list.
-                    const auto tidied = toStd(swapflow::tidySwapList(w, pool0, p0, int(pool0.size()), swapRules, m != int(Measure::AfterSwipe)));
+                    const auto tidied = toStd(swapflow::tidySwapList(w, asKeyboard(pool0, p0), p0, int(pool0.size()), swapRules, m != int(Measure::AfterSwipe)));
                     int rank = -1;
                     for (size_t j = 0; j < tidied.size(); ++j) if (norm(tidied[j]) == target) { rank = int(j); break; }
                     const bool gathered = has(pool0);

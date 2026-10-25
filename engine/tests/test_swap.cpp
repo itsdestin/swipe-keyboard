@@ -56,6 +56,9 @@ TEST(Swap, ForLanguageGivesTheTunedWeights) {
         EXPECT_EQ(p.beam, 256); EXPECT_EQ(p.searchPrior, 0); EXPECT_TRUE(p.junkFilter);
         EXPECT_EQ(p.neighbours, 12); EXPECT_FLOAT_EQ(p.neighbourFloor, 15.f);
         EXPECT_FLOAT_EQ(p.syntheticTemperature, 2.f);
+        EXPECT_FALSE(p.tapBack);
+        EXPECT_EQ(p.tapBackSentenceWords, 16); EXPECT_EQ(p.tapBackMinFrequency, 0);
+        EXPECT_FLOAT_EQ(p.tapBackRareWithin, 1.f);
     }
 }
 TEST(Swap, SyntheticTraceVisitsKeyCentres) {
@@ -205,8 +208,17 @@ TEST(LanguageEngineSwap, FastEnoughForTheInputThread)
     for (const auto &w : words) n += e.swapCandidates(w, keys, {"i", "think"}, {"is", "fine"}, {}, SwapParams{}).size();
     const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count() / words.size();
     std::printf("swapCandidates: %.2f ms per word over %zu words (%zu candidates)\n", ms, words.size(), n);
+    // The tap-back list (sentence words and the looser rare-word rule on top), after the common word "the" too: it
+    // has the most continuations the sentence words look through.
+    const auto t1 = std::chrono::steady_clock::now();
+    size_t m = 0;
+    const auto tapBack = SwapParams{}.forTapBack();
+    for (const auto &w : words) m += e.swapCandidates(w, keys, {"i", "think", "the"}, {"is", "fine"}, {}, tapBack).size();
+    const double tms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t1).count() / words.size();
+    std::printf("swapCandidates, tap-back: %.2f ms per word over %zu words (%zu candidates)\n", tms, words.size(), m);
     // WHY 60 and not the 20 ms budget: shared CI machines are slow and noisy; the measured value is reported above.
     EXPECT_LE(ms, 60.0);
+    EXPECT_LE(tms, 60.0);
 }
 
 // The swipe network's fit for any word (SwipeEngine::pathScores): the scale the swap list's paths are on.
@@ -373,7 +385,103 @@ TEST(LanguageEngineSwap, ASwapListNeverChangesTheNextSwipe)
     odd.beam = 512;
     odd.searchPrior = 2;            // also clears the lookahead and the frequency weight during the search
     odd.syntheticTemperature = 4.f; // a typed word: the made-up path is searched flattened
+    odd.tapBack = true;
+    odd.tapBackSentenceWords = 64;  // also moves the sentence prior's context to the tapped word's place
     (void)e.swapCandidates("world", keys, {"hello"}, {}, {}, odd);
     (void)e.swapCandidates("hello", keys, {"i"}, {}, trace, odd);
     EXPECT_EQ(words(e.recognize(trace, keys, {"i", "said"}, 10)), before);
+}
+
+// WHY (card #500, 2026-10-25): words the n-gram expects in the tapped word's place join the pool with their own path
+// fit, so a word meant there is gathered even when its path is not a look-alike of the tapped word's.
+TEST(LanguageEngineSwap, SentenceWordsJoinThePool)
+{
+    if (!haveEnglish()) GTEST_SKIP() << "set SWIPEKB_ASSETS to a fetched asset tree";
+    LanguageEngine e;
+    ASSERT_TRUE(e.init(english()));
+    const auto keys = qwertyRects(0, 0, 1);
+    SwapParams off, on;
+    off.tapBack = on.tapBack = true;
+    off.tapBackSentenceWords = 0;
+    on.tapBackSentenceWords = 16;
+    const auto a = e.swapCandidates("cat", keys, {"in", "the"}, {"states"}, {}, off);
+    const auto b = e.swapCandidates("cat", keys, {"in", "the"}, {"states"}, {}, on);
+    std::set<std::string> plain;
+    for (const auto &x : a) plain.insert(x.word);
+    size_t added = 0;
+    for (const auto &x : b) {
+        if (plain.count(x.word)) continue;
+        ++added;
+        EXPECT_FALSE(hasTapped({x}, "cat"));
+        EXPECT_TRUE(std::isfinite(x.path) && x.path > -1e29f) << x.word;   // its own fit, never a placeholder
+        EXPECT_GE(e.frequency(x.word), 80) << x.word;                       // the junk rule still applies
+    }
+    for (const auto &x : a) EXPECT_TRUE(hasWord(b, x.word)) << x.word;  // nothing gathered before is lost
+    EXPECT_GT(added, 0u) << list(b);
+    EXPECT_LE(added, 16u) << list(b);
+    // Fill in the blank: "in the ___ states" is "united", a path nothing like "cat"'s; the words after decide it.
+    EXPECT_TRUE(hasWord(b, "united")) << list(b);
+    EXPECT_FALSE(hasWord(a, "united")) << list(a);
+    // The bar right after a swipe never gets them (it is built after every swipe; see swap.hpp).
+    SwapParams bar = on;
+    bar.tapBack = false;
+    const auto c = e.swapCandidates("cat", keys, {"in", "the"}, {"states"}, {}, bar);
+    ASSERT_EQ(c.size(), a.size()) << list(c);
+    for (size_t i = 0; i < a.size(); ++i) EXPECT_EQ(a[i].word, c[i].word);
+}
+
+// WHY: the sentence words come from the n-gram pack; without one (word frequency only) the list is as before.
+TEST(LanguageEngineSwap, SentenceWordsNeedTheNgramPack)
+{
+    if (!haveEnglish()) GTEST_SKIP() << "set SWIPEKB_ASSETS to a fetched asset tree";
+    auto s = english();
+    s.ngram.clear();
+    LanguageEngine e;
+    ASSERT_TRUE(e.init(s));
+    const auto keys = qwertyRects(0, 0, 1);
+    SwapParams off, on;
+    off.tapBack = on.tapBack = true;
+    off.tapBackSentenceWords = 0;
+    on.tapBackSentenceWords = 16;
+    const auto a = e.swapCandidates("cat", keys, {"in", "the"}, {"states"}, {}, off);
+    const auto b = e.swapCandidates("cat", keys, {"in", "the"}, {"states"}, {}, on);
+    ASSERT_EQ(a.size(), b.size()) << list(b);
+    for (size_t i = 0; i < a.size(); ++i) EXPECT_EQ(a[i].word, b[i].word);
+}
+
+// WHY (card #500, 2026-10-25): a tap-back list may offer rarer words than the bar after a swipe (the person asked
+// for options), but only with a path that fits the swipe about as well as the tapped word; the bar keeps its rule.
+TEST(LanguageEngineSwap, TapBackListsMayOfferRareWordsThatFitThePath)
+{
+    if (!haveEnglish()) GTEST_SKIP() << "set SWIPEKB_ASSETS to a fetched asset tree";
+    LanguageEngine e;
+    ASSERT_TRUE(e.init(english()));
+    const auto keys = qwertyRects(0, 0, 1);
+    const auto trace = traceThrough("were", keys);
+    SwapParams bar;
+    bar.tapBackSentenceWords = 0;
+    bar.tapBackMinFrequency = 0;
+    bar.tapBackRareWithin = 1e9f;   // no path condition: any rare word may come in
+    const auto rare = [&](const std::vector<SwapCandidate> &c) {
+        std::vector<SwapCandidate> o;
+        for (const auto &x : c) if (e.frequency(x.word) < 80) o.push_back(x);
+        return o;
+    };
+    // The bar after a swipe ignores the tap-back settings.
+    EXPECT_TRUE(rare(e.swapCandidates("were", keys, {"we"}, {}, trace, bar)).empty());
+    EXPECT_FALSE(bar.tapBack);
+    const SwapParams loose = bar.forTapBack();
+    EXPECT_TRUE(loose.tapBack);
+    const auto all = rare(e.swapCandidates("were", keys, {"we"}, {}, trace, loose));
+    ASSERT_FALSE(all.empty());
+    // With the path condition, only the rare words whose path is within the margin of the tapped word's stay; the
+    // other spelling "we're" carries the tapped word's own path.
+    SwapParams strict = loose;
+    strict.tapBackRareWithin = 0;
+    const auto c = e.swapCandidates("were", keys, {"we"}, {}, trace, strict);
+    const auto it = std::find_if(c.begin(), c.end(), [](const SwapCandidate &x) { return x.word == "we're"; });
+    ASSERT_NE(it, c.end()) << list(c);
+    const auto kept = rare(c);
+    for (const auto &x : kept) EXPECT_GE(x.path, it->path - 1e-3f) << x.word;
+    EXPECT_LT(kept.size(), all.size()) << list(c);
 }

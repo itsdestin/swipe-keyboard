@@ -57,6 +57,31 @@ struct SwapParams {
     // Flattening of the network's output for the made-up path of a typed word (see EngineParams::temperature);
     // 1 = none. A real swipe is always searched as is.
     float syntheticTemperature = 2.f;
+    // Tap-back lists only (`tapBack`, set by forTapBack(); never the bar right after a swipe):
+    //   tapBackSentenceWords: up to this many words the n-gram expects in the tapped word's place (from the words
+    //     before it and, when known, the words after it: fill in the blank), added with their own fit to the path;
+    //     0 = none.
+    //   tapBackMinFrequency / tapBackRareWithin: a looser rare-word rule (the person asked for options). Words down to
+    //     tapBackMinFrequency may be offered; one below minFrequency only when its path is within tapBackRareWithin
+    //     nats of the tapped word's (negative = only when it fits better by that much; 1e9 = no path condition).
+    // WHY these values (2026-10-25, trv8k tuning set, 514 wrong first guesses; first / in-3, %): tap-back with the
+    // swipe 37.55 / 47.08 -> 39.30 / 49.03, without it 31.13 / 38.33 -> 31.91 / 38.72; objective 42.54 -> 43.32. The
+    // bar after a swipe is unchanged (42.22, junk 4.34 %). Junk among tap-back options of a word that was already
+    // right: 5.13 -> 7.50 % with the swipe, 4.61 -> 4.84 % without (limit set beforehand: +3 points). Tried:
+    //   rare words with no path condition (minimum 40 / 20 / 0): +0.4 to +0.6, but tap-back junk 16-17.5 %: dropped;
+    //   within -2 / 0 / 1 / 2 nats (minimum 0): 42.87 / 43.06 / 43.19 / 43.19, junk 5.4 / 7.3 / 7.6 / 8.1 %; 1 kept
+    //     (2 is no better and at the junk limit);
+    //   sentence words 8 / 16 / 32 / 64: alone 42.74 for 16-64 (8 one swipe less); on top of the rare-word rule
+    //     +0.20 (two tap-back swipes); 16 kept, the least work. They cost about 2.5 ms per tap-back list (7.0 -> 9.4 ms).
+    //     WHY not after a swipe: there they found one more word in 514 for about 4.5 ms on every swipe.
+    //   The weights stayed the same when re-tuned on top (swap-tune.py, pool 24).
+    // French and German (FUTO validation slices): unchanged on every measure (their rare-word cutoff is already 0).
+    bool tapBack = false;
+    int tapBackSentenceWords = 16;
+    int tapBackMinFrequency = 0;
+    float tapBackRareWithin = 1.f;
+    // The same settings for a tap-back list.
+    SwapParams forTapBack() const { SwapParams q = *this; q.tapBack = true; return q; }
     // The tuned weights for a language ("en", "fr", ...).
     // WHY one set for every language: French and German were tuned too (FUTO swipe-5 validation sessions, AZERTY
     // 262 swipes + German layout 386, only 75 wrong first guesses together). Their own best weights (wBefore .25,
