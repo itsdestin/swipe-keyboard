@@ -42,6 +42,9 @@ public:
     };
     Ranked rank(const std::vector<std::string> &context, size_t want, const std::string &prefix = {}) const;
     float score(const NgramLM::Context &state, uint32_t vocabIndex) const;
+    // The n-gram state after `context` (what rank() scores against) and a word's vocabulary index (-1 = not a vocabulary word).
+    NgramLM::Context contextState(const std::vector<std::string> &context) const;
+    int32_t indexOf(const std::string &word) const { const auto it = indexOfWord_.find(word); return it == indexOfWord_.end() ? -1 : int32_t(it->second); }
     // Letters-only lower-case form of a vocabulary word (what typed letters are matched against).
     const std::string &alphaOf(uint32_t vocabIndex) const { return alpha_[vocabIndex]; }
     const NgramLM &model() const { return ngram_; }
@@ -50,6 +53,7 @@ private:
     NgramLM ngram_;
     std::vector<std::string> vocabulary_;
     std::vector<uint32_t> wordIds_;            // model number per vocabulary word; kUnk when unknown
+    std::unordered_map<std::string, uint32_t> indexOfWord_;   // display spelling -> index (hash lookup, not a scan of ~100k words)
     std::vector<std::string> alpha_;           // letters-only lower-case form of every vocabulary word
     // WHY these three: next-word prediction scores only the words seen after the context plus the most
     // frequent others, instead of all ~100-230k words (same ranking, many times faster; see predict()).

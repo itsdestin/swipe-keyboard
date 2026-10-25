@@ -44,7 +44,15 @@ public:
     std::vector<std::string> predict(const std::vector<std::string> &context, int topK,
                                      const std::string &prefix = {}) const;
 
+    // log10 score of each word as the next word after `context`, the same blend predict() ranks by. Words the keyboard
+    // vocabulary lacks get the n-gram floor. Same length and order as `words`; empty when not ready.
+    std::vector<float> scoreWords(const std::vector<std::string> &context, const std::vector<std::string> &words) const;
+
 private:
+    // Brings the cached sentence state (and the next-word log-probabilities) up to date for `context`.
+    void prepare(const std::vector<std::string> &context) const;
+    // Blended log10 score of one vocabulary word; needs prepare() and the n-gram state of the same context first.
+    float blendScore(const NgramLM::Context &state, uint32_t index) const;
     NgramPredictor ngram_;
     NwpModel lm_;
     bool useLm_ = false;

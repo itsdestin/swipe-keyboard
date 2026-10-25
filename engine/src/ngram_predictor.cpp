@@ -78,7 +78,9 @@ bool NgramPredictor::load(const std::string &model, const std::string &vocab)
         // WHY the model's form: in a pack with apostrophes "were" and "we're" are different model words.
         wordIds_.push_back(ngram_.apostrophes() ? ngram_.id(ngram_.form(vocabulary_[i])) : ngram_.id(alpha_.back()));
     }
-    byUnigram_.clear(); unknownBySpelling_.clear(); indicesOfId_.clear();
+    byUnigram_.clear(); unknownBySpelling_.clear(); indicesOfId_.clear(); indexOfWord_.clear();
+    // WHY emplace keeps the first: a spelling listed twice resolves to its first (best-ranked) entry.
+    for (uint32_t i = 0; i < vocabulary_.size(); ++i) indexOfWord_.emplace(vocabulary_[i], i);
     for (uint32_t i = 0; i < vocabulary_.size(); ++i) {
         if (wordIds_[i] == NgramLM::kUnk) unknownBySpelling_.push_back(i);
         else { byUnigram_.push_back(i); indicesOfId_[wordIds_[i]].push_back(i); }
@@ -110,6 +112,14 @@ std::vector<std::string> NgramPredictor::predict(const std::vector<std::string> 
     return filterPredictedWords(shown, topK);
 }
 
+NgramLM::Context NgramPredictor::contextState(const std::vector<std::string> &context) const
+{
+    std::vector<std::string> history;
+    for (const auto &word : boundedContext(context))
+        history.push_back(QString::fromUtf8(word.data(), int(word.size())).toLower().toUtf8().toStdString());
+    return ngram_.context(history);
+}
+
 NgramPredictor::Ranked NgramPredictor::rank(const std::vector<std::string> &context, size_t want,
                                             const std::string &prefix) const
 {
@@ -119,10 +129,7 @@ NgramPredictor::Ranked NgramPredictor::rank(const std::vector<std::string> &cont
     const std::string typed = prefix.empty() ? std::string() : NgramLM::alphaForm(prefix);
     if (!prefix.empty() && typed.empty()) return result;
     want = std::min<size_t>(want, 256);
-    std::vector<std::string> history;
-    for (const auto &word : boundedContext(context))
-        history.push_back(QString::fromUtf8(word.data(), int(word.size())).toLower().toUtf8().toStdString());
-    const auto state = ngram_.context(history);
+    const auto state = contextState(context);
     result.state = state;
     // WHY (score, index) pairs: sorting numbers instead of copying 100k strings per request; ties still
     // break on the spelling, exactly as before.

@@ -23,6 +23,10 @@ public:
     // prefix: letters already typed of the current word (completion); empty = next word. Only n-gram packs
     // ("SWKBNG2") load; init() refuses any other file.
     std::vector<std::string> predict(const std::vector<std::string> &context, int topK, const std::string &prefix = {});
+    // log10 score of each word as the next word after `context`: the same blend predict() ranks by (neural model and
+    // n-gram). Words the vocabulary lacks get the n-gram floor. Same length and order as `words`. Empty when not ready.
+    // WHY: tap-to-swap ranks given alternatives, so it needs their scores, not a top list.
+    std::vector<float> scoreWords(const std::vector<std::string> &context, const std::vector<std::string> &words);
 private:
     struct Impl;
     std::unique_ptr<Impl> m_impl;

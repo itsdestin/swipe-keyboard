@@ -37,4 +37,11 @@ std::vector<std::string> Predictor::predict(const std::vector<std::string> &cont
         return m_impl->ngram.predict(context, std::min(topK, 64), prefix);
     } catch (...) { return {}; }
 }
+std::vector<float> Predictor::scoreWords(const std::vector<std::string> &context, const std::vector<std::string> &words)
+{
+    if (!ready()) return {};
+    try {
+        return m_impl->ngram.scoreWords(context, words);
+    } catch (...) { return {}; }
+}
 }
