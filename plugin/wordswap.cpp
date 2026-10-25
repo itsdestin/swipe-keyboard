@@ -110,13 +110,26 @@ bool RecentSwipes::anchored(const Item &it, const QString &before)
     return before.right(it.tail.size()) == it.tail && (!it.whole || before.size() == it.tail.size());
 }
 
-void RecentSwipes::remember(const QString &textBeforeWord, const QString &word, const QStringList &candidates,
-                            const QStringList &context)
+void RecentSwipes::remember(const QString &textBeforeWord, const QString &word, Trace trace, Keys keys,
+                            const QStringList &candidates, const QStringList &context)
 {
     if (word.isEmpty()) return;
     forget(textBeforeWord, word);
-    m_items.push_back({textBeforeWord.right(kTail), textBeforeWord.size() <= kTail, word, candidates, context});
+    m_items.push_back({textBeforeWord.right(kTail), textBeforeWord.size() <= kTail, word, std::move(trace),
+                       std::move(keys), candidates, context});
     while (int(m_items.size()) > kMax) m_items.pop_front();
+}
+
+std::optional<std::pair<RecentSwipes::Trace, RecentSwipes::Keys>> RecentSwipes::traceFor(const QString &textBeforeWord,
+                                                                                         const QString &word) const
+{
+    for (auto it = m_items.rbegin(); it != m_items.rend(); ++it)
+        if (it->word == word && anchored(*it, textBeforeWord)) {
+            // WHY nothing for a typed word: there is no finger path to score other words against.
+            if (it->trace.empty()) return std::nullopt;
+            return std::make_pair(it->trace, it->keys);
+        }
+    return std::nullopt;
 }
 
 QStringList RecentSwipes::candidatesFor(const QString &textBeforeWord, const QString &word) const
@@ -138,7 +151,7 @@ std::optional<RecentSwipes::Owned> RecentSwipes::ownedAt(const QString &text, in
             if (start > 0 && letter(text.at(start - 1))) continue;
             if (start + n < text.size() && letter(text.at(start + n))) continue;
             if (!anchored(*it, text.left(start))) continue;
-            return Owned{{start, n, it->word}, it->candidates, it->context};
+            return Owned{{start, n, it->word}, it->trace, it->keys, it->candidates, it->context};
         }
     }
     return std::nullopt;

@@ -104,36 +104,56 @@ private slots:
         QVERIFY(t.observe("hello", 1, 1200));
     }
 
+    // WHY a trace: tap-to-swap re-scores the remembered finger path against each alternative (one brain), so the
+    // memory keeps the path and the key layout it was drawn on, not only the guesses of the moment.
+    static std::vector<swipekb::TracePoint> trace3() { return {{10, 20, 0}, {30, 22, 40}, {55, 25, 90}}; }
+    static std::vector<swipekb::KeyRect> keys2() { return {{U's', 0, 0, 20, 30}, {U'e', 20, 0, 20, 30}}; }
     void recentSwipesAreAnchoredToTheirText() {
         RecentSwipes m;
-        m.remember("I can ", "see", {"see", "sea", "sew"});
+        m.remember("I can ", "see", trace3(), keys2(), {"see", "sea", "sew"});
+        const auto got = m.traceFor("I can ", "see");
+        QVERIFY(got.has_value());
+        QCOMPARE(got->first.size(), size_t(3));
+        QCOMPARE(got->first[1].x, 30.f);
+        QCOMPARE(got->first[2].t_ms, 90.f);
+        QCOMPARE(got->second.size(), size_t(2));
+        QCOMPARE(got->second[1].letter, U'e');
         QCOMPARE(m.candidatesFor("I can ", "see"), (QStringList{"see", "sea", "sew"}));
-        QVERIFY(m.candidatesFor("You can ", "see").isEmpty());  // same word, different place
-        QVERIFY(m.candidatesFor("I can ", "sea").isEmpty());    // different word
+        QVERIFY(!m.traceFor("You can ", "see").has_value());   // same word, different place
+        QVERIFY(!m.traceFor("I can ", "sea").has_value());     // different word
+        QVERIFY(m.candidatesFor("You can ", "see").isEmpty());
         m.forget("I can ", "see");
+        QVERIFY(!m.traceFor("I can ", "see").has_value());
         QVERIFY(m.candidatesFor("I can ", "see").isEmpty());
+        // A word typed key by key has no finger path to re-score.
+        m.remember("I can ", "go", {}, {});
+        QVERIFY(!m.traceFor("I can ", "go").has_value());
     }
     void longTextAnchorsOnItsLastCharacters() {
         RecentSwipes m;
         const QString before = QString("lots of earlier text, ").repeated(5) + "and then ";
-        m.remember(before, "go", {"go", "so"});
-        QCOMPARE(m.candidatesFor("EDITED " + before.mid(7), "go"), (QStringList{"go", "so"})); // far-away edit tolerated
-        QVERIFY(m.candidatesFor(before + "x", "go").isEmpty());
+        m.remember(before, "go", trace3(), keys2(), {"go", "so"});
+        QVERIFY(m.traceFor("EDITED " + before.mid(7), "go").has_value()); // far-away edit tolerated
+        QCOMPARE(m.candidatesFor("EDITED " + before.mid(7), "go"), (QStringList{"go", "so"}));
+        QVERIFY(!m.traceFor(before + "x", "go").has_value());
     }
     void ownWordsAreFoundByComparingNotReading() {
         // Tap-to-swap in stock Plasma fields offers only the keyboard's own words (card #187).
         RecentSwipes m;
-        m.remember("I can ", "see", {"see", "sea"}, {"i", "can"});
-        m.remember("I can see ", "it", {}, {"i", "can", "see"});   // typed key by key: no swipe guesses
+        m.remember("I can ", "see", trace3(), keys2(), {"see", "sea"}, {"i", "can"});
+        m.remember("I can see ", "it", {}, {}, {}, {"i", "can", "see"});   // typed key by key: no swipe guesses
         const QString text = "I can see it now";
         for (int cursor : {6, 7, 9}) {
             const auto o = m.ownedAt(text, cursor);
             QVERIFY2(o.has_value(), qPrintable(QString::number(cursor)));
             QCOMPARE(o->span, (WordSpan{6, 3, "see"}));
+            QCOMPARE(o->trace.size(), size_t(3));
+            QCOMPARE(o->keys.size(), size_t(2));
             QCOMPARE(o->candidates, (QStringList{"see", "sea"}));
             QCOMPARE(o->context, (QStringList{"i", "can"}));
         }
         QCOMPARE(m.ownedAt(text, 11)->span, (WordSpan{10, 2, "it"}));
+        QVERIFY(m.ownedAt(text, 11)->trace.empty());
         QVERIFY(m.ownedAt(text, 11)->candidates.isEmpty());
         QVERIFY(!m.ownedAt(text, 14).has_value());              // "now" was not typed by the keyboard
         QVERIFY(!m.ownedAt(text, 2).has_value());               // nor "can"
@@ -172,10 +192,10 @@ private slots:
     }
     void memoryIsBounded() {
         RecentSwipes m;
-        for (int i = 0; i < 40; ++i) m.remember(QString("t%1 ").arg(i), "w", {"w", "x"});
+        for (int i = 0; i < 40; ++i) m.remember(QString("t%1 ").arg(i), "w", trace3(), keys2(), {"w", "x"});
         QCOMPARE(m.size(), RecentSwipes::kMax);
-        QVERIFY(m.candidatesFor("t0 ", "w").isEmpty());
-        QVERIFY(!m.candidatesFor("t39 ", "w").isEmpty());
+        QVERIFY(!m.traceFor("t0 ", "w").has_value());
+        QVERIFY(m.traceFor("t39 ", "w").has_value());
         m.clear();
         QCOMPARE(m.size(), 0);
     }

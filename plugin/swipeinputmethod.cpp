@@ -257,7 +257,7 @@ bool SwipeInputMethod::keyEvent(Qt::Key key, const QString &text, Qt::KeyboardMo
                 && previous.text.left(previous.cursor).endsWith(unfinished)) {
                 auto context=m_ownedHistory.context();
                 if (!context.isEmpty() && context.last()==unfinished.toLower()) context.removeLast();
-                m_recentSwipes.remember(previous.text.left(previous.cursor-unfinished.size()), unfinished, {}, context);
+                m_recentSwipes.remember(previous.text.left(previous.cursor-unfinished.size()), unfinished, {}, {}, {}, context); // typed: no path
             }
             m_ownedHistory.word(previous,previous,predictionPolicy(),m_profiles.snapshot().epoch,unfinished,true);
             m_ownedHistory.observe(previous,predictionPolicy(),m_profiles.snapshot().epoch);
@@ -458,7 +458,9 @@ void SwipeInputMethod::selectionListItemSelected(Type type, int index)
         // WHY remembered again: the swapped-in word is the keyboard's own too, so tapping it again still works
         // (in stock Plasma fields that is the only way it can be offered again).
         if (owned && owned->span.start==oldStart)
-            m_recentSwipes.remember(editor.text.left(oldStart), plan.text, owned->candidates, owned->context);
+            // WHY the same path: the swapped-in word came from the same finger stroke, so a second tap re-scores it.
+            m_recentSwipes.remember(editor.text.left(oldStart), plan.text, owned->trace, owned->keys, owned->candidates,
+                                    owned->context);
         QPointer<QObject> item(ic->inputItem()); const int generation=m_generation;
         m_predictionWorker.invalidate();
         m_outcome.abandon(); m_lastRecordedSwipeTs=0; clearAfterSwipe();
@@ -830,7 +832,7 @@ void SwipeInputMethod::finishSwipe(const QVariantList &points, const QVariantLis
         // remembered as the keyboard's own (tap-to-swap then only ever offers words it typed itself).
         if (tapSwapAllowed(predictionEditor()))
             m_recentSwipes.remember(before + (plan.text.startsWith(QLatin1Char(' ')) ? QStringLiteral(" ") : QString()),
-                                    plan.text.trimmed(), candidates, contextWords);
+                                    plan.text.trimmed(), trace, rects, candidates, contextWords);
     }
     const int barGeneration = m_generation;
     QPointer<QObject> barItem(ic->inputItem());

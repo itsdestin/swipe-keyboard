@@ -14,8 +14,11 @@
 #include <QStringList>
 #include <optional>
 #include <deque>
+#include <utility>
+#include <vector>
 
 #include "swipesession.h"
+#include "swipekb/text.hpp"
 
 struct WordSpan {
     int start = 0;
@@ -37,6 +40,7 @@ public:
     // dictionary's one-edit words (most frequent first); `ranked` is the sentence model's order and only
     // reorders them. The result is in guess-bar order: with three, the strongest sits in the middle (same
     // layout as next-word predictions).
+    // Baseline only (bench); the keyboard uses swipekb::rankSwap.
     static QStringList build(const QString &word, const QStringList &swipeCandidates, const QStringList &neighbours,
                              const QStringList &ranked, int max = 3);
 };
@@ -69,28 +73,37 @@ private:
     qint64 m_since = 0;
 };
 
-// Memory-only record of the last few swiped words so a later tap can offer that swipe's other guesses.
+// Memory-only record of the last few swiped words so a later tap can re-score that swipe against other words.
 // Bounded; never written to disk.
 class RecentSwipes {
 public:
-    // WHY 24: enough for a sentence or two of the person's own words, still bounded and memory-only.
+    // WHY 24: enough for a sentence or two of the person's own words, still bounded and memory-only. Each item now
+    // keeps its finger path and key layout (at most 24 x ~300 points x 12 bytes: a few dozen kilobytes).
     static constexpr int kMax = 24;
-    // `textBeforeWord` = everything before the word when it was typed (incl. its auto-space). `candidates` may be
-    // empty (a word typed key by key); `context` = the sentence's earlier words as the keyboard knew them then.
-    void remember(const QString &textBeforeWord, const QString &word, const QStringList &candidates,
-                  const QStringList &context = {});
+    using Trace = std::vector<swipekb::TracePoint>;
+    using Keys = std::vector<swipekb::KeyRect>;
+    // `textBeforeWord` = everything before the word when it was typed (incl. its auto-space). `trace` and `keys` are
+    // the finger path and the key rectangles it was drawn on, both empty for a word typed key by key. WHY the path:
+    // tap-to-swap re-scores that same path against each alternative, so the options come from the swipe itself and
+    // not only from the few guesses shown at the time. `candidates` = those guesses (kept until the swap list is
+    // built from the path; empty for a typed word); `context` = the sentence's earlier words as known then.
+    void remember(const QString &textBeforeWord, const QString &word, Trace trace, Keys keys,
+                  const QStringList &candidates = {}, const QStringList &context = {});
     // A word this keyboard typed that the cursor is inside of or next to. WHY a separate lookup: in fields where
     // the keyboard may inspect only its own words, it never reads a word out of the text; it only checks whether
     // one of its own remembered words still sits, unchanged, at the cursor.
-    struct Owned { WordSpan span; QStringList candidates, context; };
+    struct Owned { WordSpan span; Trace trace; Keys keys; QStringList candidates, context; };
     std::optional<Owned> ownedAt(const QString &text, int cursor) const;
+    // The finger path and keys of the swipe that typed `word` at this spot. Nothing when the text around it changed,
+    // or when the word was typed key by key (no path to re-score).
+    std::optional<std::pair<Trace, Keys>> traceFor(const QString &textBeforeWord, const QString &word) const;
     // Candidates of the swipe that typed `word` at this spot, or empty when the text around it changed.
     QStringList candidatesFor(const QString &textBeforeWord, const QString &word) const;
     void forget(const QString &textBeforeWord, const QString &word);
     void clear() { m_items.clear(); }
     int size() const { return int(m_items.size()); }
 private:
-    struct Item { QString tail; bool whole; QString word; QStringList candidates, context; };
+    struct Item { QString tail; bool whole; QString word; Trace trace; Keys keys; QStringList candidates, context; };
     static constexpr int kTail = 32;
     static bool anchored(const Item &, const QString &before);
     std::deque<Item> m_items;

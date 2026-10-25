@@ -7,6 +7,7 @@
 #pragma once
 #include "nextwordsession.h"
 #include <QThread>
+#include <QVector>
 #include <memory>
 #include "swipekb/spellings.hpp"
 #include <QMutex>
@@ -27,6 +28,10 @@ struct PredictionJob {
     // Answered by alternativesReady, never by resultReady/completionReady.
     bool alternatives = false;
     int topK = 12;
+    // Tap-to-swap scoring (one brain): non-empty makes this a "score these words" job. The worker returns each
+    // word's next-word score after `context` (log10, same order) on wordScoresReady, never a word list. WHY on the
+    // worker: the model is loaded and used only on this thread, so the swap list borrows it rather than a copy.
+    QStringList scoreWords;
     // The neural next-word file (LANG.nwp.bin) that the profile verified against the lock; empty = n-gram only.
     // WHY explicit: the engine must never pick up an unverified file that merely sits beside the n-gram.
     QString nwp;
@@ -41,7 +46,9 @@ class NextWordWorker : public QThread {
     Q_OBJECT
 public:
     using Inference = std::function<QStringList(const PredictionJob &)>;
-    explicit NextWordWorker(Inference inference = {}, QObject *parent = nullptr);
+    // Test hook for scoring jobs, like Inference for word lists; empty = the real model.
+    using Scorer = std::function<QVector<float>(const PredictionJob &)>;
+    explicit NextWordWorker(Inference inference = {}, Scorer scorer = {}, QObject *parent = nullptr);
     ~NextWordWorker() override;
     void submit(PredictionJob);
     void invalidate();
@@ -51,6 +58,8 @@ signals:
     void resultReady(PredictionStamp, QStringList);
     void completionReady(PredictionStamp, QString prefix, QStringList);
     void alternativesReady(PredictionStamp, QStringList);
+    // Answer to a scoreWords job: the words asked about and one score each (empty scores when no model is loaded).
+    void wordScoresReady(PredictionStamp, QStringList words, QVector<float> scores);
     void requestSettled();
     void modelStateChanged(quint64 profileEpoch, bool loaded);
 protected:
@@ -62,4 +71,5 @@ private:
     quint64 m_serial = 0;
     bool m_stopping = false;
     Inference m_inference;
+    Scorer m_scorer;
 };

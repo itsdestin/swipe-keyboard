@@ -91,6 +91,51 @@ private slots:
         QTRY_COMPARE_WITH_TIMEOUT(spy.size(), 1, 15000);
         QVERIFY(spy.at(0).at(1).toStringList().isEmpty());
     }
+    // Tap-to-swap (one brain): a "score these words" job answers with one score per word on its own signal, from the
+    // same loaded next-word model, and never with a word list.
+    void scoreJobAnswersWithOneScorePerWord() {
+        const QString assets = qEnvironmentVariable("SWIPEKB_TEST_ASSETS");
+        QVERIFY(!assets.isEmpty());
+        NextWordWorker worker;
+        QSignalSpy scores(&worker, &NextWordWorker::wordScoresReady), next(&worker, &NextWordWorker::resultReady),
+            completion(&worker, &NextWordWorker::completionReady), alternatives(&worker, &NextWordWorker::alternativesReady);
+        PredictionJob job{{1, 1, 1}, assets + "/language-packs/en.ngram", assets + "/language-packs/en.vocab.tsv",
+                          {"i", "can"}, "en"};
+        job.scoreWords = {"see", "sea", "sew"};
+        worker.submit(job);
+        QTRY_COMPARE_WITH_TIMEOUT(scores.size(), 1, 15000);
+        QCOMPARE(qvariant_cast<PredictionStamp>(scores.at(0).at(0)).requestId, quint64(1));
+        QCOMPARE(scores.at(0).at(1).toStringList(), (QStringList{"see", "sea", "sew"}));
+        const auto got = qvariant_cast<QVector<float>>(scores.at(0).at(2));
+        QCOMPARE(got.size(), 3);
+        QVERIFY2(got[0] > got[1], "after \"i can\", \"see\" must score above \"sea\"");
+        // No model: the job still answers on its own signal, with no scores.
+        job.stamp = {1, 1, 2};
+        job.model = job.vocab = "/missing";
+        job.modelIdentity = "missing";
+        worker.submit(job);
+        QTRY_COMPARE_WITH_TIMEOUT(scores.size(), 2, 15000);
+        QVERIFY(qvariant_cast<QVector<float>>(scores.at(1).at(2)).isEmpty());
+        QCOMPARE(next.size() + completion.size() + alternatives.size(), 0);
+    }
+    void onlyNewestScoreJobSurvives() {
+        QSemaphore started, finish;
+        NextWordWorker worker({}, [&](const PredictionJob &j) {
+            if (j.stamp.requestId == 1) { started.release(); finish.acquire(); }
+            return QVector<float>(j.scoreWords.size(), float(j.stamp.requestId));
+        });
+        QSignalSpy scores(&worker, &NextWordWorker::wordScoresReady);
+        PredictionJob job{{1, 1, 1}, "a", "b", {"hello"}};
+        job.scoreWords = {"x", "y"};
+        worker.submit(job);
+        QVERIFY(started.tryAcquire(1, 15000));
+        job.stamp = {1, 1, 2}; worker.submit(job);
+        job.stamp = {1, 1, 3}; worker.submit(job);
+        finish.release();
+        QTRY_COMPARE_WITH_TIMEOUT(scores.size(), 1, 15000);
+        QCOMPARE(qvariant_cast<PredictionStamp>(scores.at(0).at(0)).requestId, quint64(3));
+        QCOMPARE(qvariant_cast<QVector<float>>(scores.at(0).at(2)), (QVector<float>{3.f, 3.f}));
+    }
     // WHY: the next-word files spell some words as web text does ("Banco", "Hall"); the capitals list must decide what
     // the bar shows, as for a swipe ("I", "Paris"), and no list (German) leaves the words as they are.
     void capitalsListDecidesHowWordsAreShown() {

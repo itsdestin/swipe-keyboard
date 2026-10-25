@@ -503,8 +503,8 @@ void SwipeController::finishSwipe(const QVariantList &points, const QVariantList
         // Remember this swipe's guesses so tapping the word later offers them (memory only). WHY also in owned-history
         // fields: there tap-to-swap offers only the keyboard's own words, and this is one.
         if (tapSwapAllowed(editorSnapshot())) {
-            m_recentSwipes.remember(before + (plan.text.startsWith(QLatin1Char(' ')) ? QStringLiteral(" ") : QString()), plan.text.trimmed(), candidates,
-                                    contextWords);
+            m_recentSwipes.remember(before + (plan.text.startsWith(QLatin1Char(' ')) ? QStringLiteral(" ") : QString()), plan.text.trimmed(), trace,
+                                    rects, candidates, contextWords);
         }
     }
     refreshBar();
@@ -578,7 +578,7 @@ void SwipeController::keyPressed(int key, const QString &rawText)
                     if (!context.isEmpty() && context.last() == unfinished.toLower()) {
                         context.removeLast();
                     }
-                    m_recentSwipes.remember(previous.text.left(previous.cursor - unfinished.size()), unfinished, {}, context);
+                    m_recentSwipes.remember(previous.text.left(previous.cursor - unfinished.size()), unfinished, {}, {}, {}, context); // typed: no path
                 }
                 m_ownedHistory.word(previous, previous, pol, m_epoch, unfinished, true);
                 m_ownedHistory.observe(previous, pol, m_epoch);
@@ -1167,7 +1167,9 @@ void SwipeController::selectCandidate(int index)
         m_recentSwipes.forget(editor.text.left(oldStart), oldWord);
         // WHY remembered again: the swapped-in word is the keyboard's own too, so tapping it again still works.
         if (owned && owned->span.start == oldStart) {
-            m_recentSwipes.remember(editor.text.left(oldStart), plan.text, owned->candidates, owned->context);
+            // WHY the same path: the swapped-in word came from the same finger stroke, so a second tap re-scores it.
+            m_recentSwipes.remember(editor.text.left(oldStart), plan.text, owned->trace, owned->keys, owned->candidates,
+                                    owned->context);
         }
         m_worker.invalidate();
         clearAfterSwipe();
