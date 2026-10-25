@@ -35,6 +35,16 @@ TEST(Swap, MissingNeuralIsNotZero) {
     std::vector<SwapCandidate> c{{"a", -1, -1, 0, -3, true}, {"b", -1, -1, 0, 0, false}};
     EXPECT_EQ(rankSwap("x", c, p, 1).front(), "b");   // b is not penalised for having no neural score
 }
+// WHY pinned: these are the tuned weights (bench/swap-tune.py, 2026-10-24); changing them needs a new tuning run,
+// not a quiet edit. Every language uses the English values (see swap.hpp).
+TEST(Swap, ForLanguageGivesTheTunedWeights) {
+    for (const char *lang : {"en", "fr", "de", "es", "xx"}) {
+        const auto p = SwapParams::forLanguage(lang);
+        EXPECT_FLOAT_EQ(p.wPath, 1.f); EXPECT_FLOAT_EQ(p.wBefore, 0.f);
+        EXPECT_FLOAT_EQ(p.wAfter, 1.f); EXPECT_FLOAT_EQ(p.wNeural, 1.f);
+        EXPECT_EQ(p.pool, 24); EXPECT_EQ(p.minFrequency, 80);
+    }
+}
 TEST(Swap, SyntheticTraceVisitsKeyCentres) {
     const auto keys = qwertyRects(0, 0, 1);
     const auto t = syntheticTrace("see", keys);

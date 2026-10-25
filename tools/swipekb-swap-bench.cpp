@@ -11,6 +11,13 @@
 //   speed            milliseconds to build one tap-back list (dictionary neighbours + sentence ranking + ordering).
 // `--mode baseline` replays today's keyboard: it mirrors SwipeInputMethod::finishSwipe and observeWordSwap
 // (plugin/swipeinputmethod.cpp) and calls the shipped WordSwap::build itself, so the baseline is the code that ships.
+// `--mode new` grades the tap-to-swap path (card #500): the committed word is the same as baseline's, and every list
+// is LanguageEngine::swapCandidates scored by the sentence model (Predictor::scoreWords) and ordered by rankSwap,
+// then given the same tidy-up as baseline (swear-word rule, regional spelling order).
+// `--params F`: SwapParams as JSON {wPath, wBefore, wAfter, wNeural, pool, minFrequency} (missing keys keep the
+// defaults), or an ARRAY of such objects: then every set is graded in one pass and each report is printed after a
+// line "== params N" (bench/swap-tune.py uses this; WHY: the swipe and the swap searches are the slow part, and they
+// do not depend on the weights, so one pass can grade many weight sets).
 // HeliBoard input has no sentence. WHY that matters: tap-back lists are then ranked with no words before the word,
 // the same as a word at the very start of a sentence.
 //
@@ -19,6 +26,10 @@
 //                      (--layout F | --layouts-dir DIR) [--locale en_US] [--limit N] [--match ascii|lookup] [--params F]
 //                      swipes.jsonl
 // Output: Report::format() lines (bench/swap-score.sh reads them), then "setup: <engine mode> ngram=0|1 nwp=0|1 n=N".
+#include <QFile>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QString>
 #include <QStringList>
 
@@ -35,6 +46,7 @@
 #include "swapmeasures.h"
 #include "swipekb/language_engine.hpp"
 #include "swipekb/prediction.hpp"
+#include "swipekb/swap.hpp"
 #include "swipesession.h"
 #include "wordswap.h"
 
@@ -49,6 +61,32 @@ std::vector<std::string> toStd(const QStringList &l)
     std::vector<std::string> o;
     for (const auto &s : l) o.push_back(s.toStdString());
     return o;
+}
+
+// --params: one JSON object or an array of them; keys left out keep SwapParams' defaults. Empty on a bad file.
+std::vector<SwapParams> readParams(const std::string &path, std::string &error)
+{
+    QFile f(QString::fromStdString(path));
+    if (!f.open(QIODevice::ReadOnly)) { error = "cannot read " + path; return {}; }
+    QJsonParseError pe;
+    const auto doc = QJsonDocument::fromJson(f.readAll(), &pe);
+    if (pe.error != QJsonParseError::NoError) { error = path + ": " + pe.errorString().toStdString(); return {}; }
+    QJsonArray items;
+    if (doc.isArray()) items = doc.array(); else if (doc.isObject()) items.append(doc.object());
+    std::vector<SwapParams> out;
+    for (const auto &v : items) {
+        const auto o = v.toObject();
+        SwapParams p;
+        p.wPath = float(o.value("wPath").toDouble(p.wPath));
+        p.wBefore = float(o.value("wBefore").toDouble(p.wBefore));
+        p.wAfter = float(o.value("wAfter").toDouble(p.wAfter));
+        p.wNeural = float(o.value("wNeural").toDouble(p.wNeural));
+        p.pool = o.value("pool").toInt(p.pool);
+        p.minFrequency = o.value("minFrequency").toInt(p.minFrequency);
+        out.push_back(p);
+    }
+    if (out.empty()) error = path + ": no parameter sets";
+    return out;
 }
 }
 
@@ -87,9 +125,16 @@ int main(int argc, char **argv)
                              " [--match ascii|lookup] [--params F] swipes.jsonl\n");
         return 2;
     }
-    // WHY refused for now: the improved swap order arrives in a later step of card #500; until then only today's
-    // keyboard can be measured, and a silent fallback would record baseline numbers under a "new" label.
-    if (mode != "baseline") { std::fprintf(stderr, "--mode %s is not available yet (only baseline)\n", mode.c_str()); return 2; }
+    if (mode != "baseline" && mode != "new") { std::fprintf(stderr, "unknown --mode %s (baseline|new)\n", mode.c_str()); return 2; }
+    const bool newMode = mode == "new";
+    // WHY the language's tuned weights by default: an unlabelled "new" run must grade what the keyboard will ship.
+    std::vector<SwapParams> paramSets{SwapParams::forLanguage(setup.language)};
+    if (!params.empty()) {
+        std::string err;
+        paramSets = readParams(params, err);
+        if (paramSets.empty()) { std::fprintf(stderr, "%s\n", err.c_str()); return 2; }
+    }
+    if (!newMode && paramSets.size() > 1) { std::fprintf(stderr, "several --params sets need --mode new\n"); return 2; }
 
     std::string readError;
     const std::vector<BenchSwipe> swipes = benchdata::readSwipes(input, limit, useContext, &readError);
@@ -115,8 +160,21 @@ int main(int argc, char **argv)
     const benchdata::JunkRule junkRule(setup.dictionary, setup.language);
     auto junk = [&](const std::string &w) { return junkRule(engine, w); };
     const auto norm = [&](const std::string &s) { return benchdata::norm(s, match); };
+    // The keyboard's tidy-up of a swap list, shared by both modes so they are tidied the same way: swear words are
+    // dropped unless the tapped word is one itself (offeredUnprompted), then the regional spelling order
+    // ("colour" before "color" in en_GB), cut to `limit`.
+    auto tidy = [&](const QString &tapped, QStringList list, int limit) {
+        if (offeredUnprompted(tapped, language)) {
+            QStringList clean;
+            for (const auto &x : list) if (offeredUnprompted(x, language)) clean << x;
+            list = clean;
+        }
+        return rankRegionalCandidates(list, qlocale, limit);
+    };
 
-    swapbench::Report report;
+    // One report per parameter set (baseline: one).
+    std::vector<swapbench::Report> reports(paramSets.size());
+    swapbench::Report &report = reports.front();
     auto keysFor = [&](const BenchSwipe &s) {
         return benchdata::readLayout(layoutsDir.empty() ? layout : layoutsDir + "/" + s.board + ".tsv", s.w, s.h);
     };
@@ -151,6 +209,82 @@ int main(int argc, char **argv)
         // 2. A swipe with no guess types nothing: it counts as a wrong first guess with nothing to offer.
         const QString w = candidates.isEmpty() ? QString() : candidates.front();
         const bool wrongFirst = candidates.isEmpty() || norm(w.toStdString()) != norm(s.word);
+        if (newMode) {
+            if (w.isEmpty()) {
+                for (auto &r : reports)
+                    for (auto k : {Measure::AfterSwipe, Measure::TapBackTrace, Measure::TapBackNoTrace})
+                        r.add(k, wrongFirst, s.word, {}, norm);
+                continue;
+            }
+            const std::string ws = w.toStdString();
+            // WHY at most the first two words after, stopping at a sentence end: swapCandidates reads two, and words
+            // of the next sentence are no evidence for this one.
+            std::vector<std::string> next;
+            for (const auto &a : s.after) {
+                if (next.size() >= 2) break;
+                next.push_back(a);
+                if (!a.empty() && (a.back() == '.' || a.back() == '!' || a.back() == '?')) break;
+            }
+            // The candidates (and their neural scores) depend only on pool and minFrequency, not on the weights, so
+            // they are built once per such pair and every weight set reuses them.
+            struct Lists { std::vector<SwapCandidate> afterSwipe, trace, noTrace; };
+            std::map<std::pair<int, int>, Lists> cache;
+            auto withNeural = [&](std::vector<SwapCandidate> c) {
+                // WHY one call per list, all words at once: the keyboard's worker answers for the whole list, so
+                // every candidate has a neural score or none does (rankSwap's "neural missing" rule never splits a list).
+                if (haveNgram && !nwp.empty() && !c.empty()) {
+                    std::vector<std::string> words;
+                    for (const auto &x : c) words.push_back(x.word);
+                    const auto sc = predictor.scoreWords(context, words);
+                    if (sc.size() == c.size())
+                        for (size_t i = 0; i < c.size(); ++i) { c[i].neural = sc[i]; c[i].hasNeural = true; }
+                }
+                return c;
+            };
+            double traceMs = -1;   // the first tap-back-with-trace search and its sentence scores (speed, below)
+            auto listsFor = [&](const SwapParams &p) -> const Lists & {
+                const auto key = std::make_pair(p.pool, p.minFrequency);
+                auto it = cache.find(key);
+                if (it != cache.end()) return it->second;
+                Lists l;
+                l.afterSwipe = withNeural(engine.swapCandidates(ws, keys, context, {}, s.trace, p));
+                const auto t0 = Clock::now();
+                l.trace = withNeural(engine.swapCandidates(ws, keys, context, next, s.trace, p));
+                if (traceMs < 0) traceMs = std::chrono::duration<double, std::milli>(Clock::now() - t0).count();
+                l.noTrace = withNeural(engine.swapCandidates(ws, keys, context, next, {}, p));
+                return cache.emplace(key, std::move(l)).first->second;
+            };
+            auto shown = [&](const std::vector<SwapCandidate> &c, const SwapParams &p, int k) {
+                QStringList l;
+                // WHY rank them all, then tidy: the tidy-up may drop some, and the list must still be k long.
+                for (const auto &x : rankSwap(ws, c, p, int(c.size()))) l << QString::fromStdString(x);
+                return toStd(tidy(w, l, k));
+            };
+            // Speed: one tap-back list with the first weight set, as the keyboard builds it (search + sentence
+            // scores + order + tidy-up), not the other two lists built alongside it here. The neural scoring runs on
+            // a worker in the keyboard, so this is an upper bound for the input thread.
+            const Lists &firstLists = listsFor(paramSets.front());
+            const auto t0 = Clock::now();
+            const auto first = shown(firstLists.trace, paramSets.front(), 3);
+            const double ms = traceMs + std::chrono::duration<double, std::milli>(Clock::now() - t0).count();
+            for (size_t i = 0; i < paramSets.size(); ++i) {
+                const SwapParams &p = paramSets[i];
+                const Lists &l = listsFor(p);
+                auto &r = reports[i];
+                const auto bar = shown(l.afterSwipe, p, 2);
+                r.add(Measure::AfterSwipe, wrongFirst, s.word, bar, norm);
+                if (!wrongFirst) {
+                    size_t j = 0;
+                    for (const auto &a : bar) j += junk(a);
+                    r.addJunk(bar.size(), j);
+                }
+                r.add(Measure::TapBackTrace, wrongFirst, s.word, i == 0 ? first : shown(l.trace, p, 3), norm);
+                r.add(Measure::TapBackNoTrace, wrongFirst, s.word, shown(l.noTrace, p, 3), norm);
+                r.msTotal += ms;
+                ++r.lists;
+            }
+            continue;
+        }
         // 3. The guess bar's other places, in their order.
         const std::vector<std::string> after = toStd(candidates.mid(1));
         // NOTE: the bench scores the dictionary spelling of the target (s.word); the keyboard's tap-back uses the word as
@@ -173,13 +307,8 @@ int main(int argc, char **argv)
         QStringList neighbours;
         for (const auto &o : engine.otherSpellings(w.toLower().toStdString())) neighbours << QString::fromStdString(o);
         for (const auto &c : engine.similar(w.toStdString(), 12)) neighbours << QString::fromStdString(c.word);
-        if (offeredUnprompted(w, language)) {
-            QStringList clean;
-            for (const auto &x : neighbours) if (offeredUnprompted(x, language)) clean << x;
-            neighbours = clean;
-        }
         // (The keyboard's personalize() step is skipped: with no learning and boost 0 it changes nothing.)
-        neighbours = rankRegionalCandidates(neighbours, qlocale, 12);
+        neighbours = tidy(w, neighbours, 12);
         QStringList ranked;
         if (haveNgram)
             for (const auto &r : predictor.predict(context, 64, w.left(1).toLower().toStdString()))
@@ -195,7 +324,11 @@ int main(int argc, char **argv)
         list = WordSwap::build(w, {}, neighbours, ranked, 3);
         report.add(Measure::TapBackNoTrace, wrongFirst, s.word, toStd(rankedOrder(list)), norm);
     }
-    std::printf("%s", report.format().c_str());
+    if (reports.size() == 1) {
+        std::printf("%s", report.format().c_str());
+    } else {
+        for (size_t i = 0; i < reports.size(); ++i) std::printf("== params %zu\n%s", i, reports[i].format().c_str());
+    }
     std::printf("setup: %s ngram=%d nwp=%d n=%zu\n", engine.mode(), haveNgram ? 1 : 0, haveNgram && !nwp.empty() ? 1 : 0, n);
     if (noLayout) std::printf("(%zu swipes had no readable layout file; skipped)\n", noLayout);
     return 0;
