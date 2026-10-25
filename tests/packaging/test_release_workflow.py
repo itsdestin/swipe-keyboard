@@ -433,9 +433,10 @@ class DeckRedirectTests(unittest.TestCase):
         spec.loader.exec_module(module)
         return module
 
-    def test_it_is_off_until_someone_turns_it_on(self):
-        # WHY: once on, Decks stop finding updates until the rename; it must never go out by accident
-        self.assertEqual(self.load().flatpak_redirect(), '')
+    def test_it_points_decks_at_the_openswipe_site(self):
+        # WHY exactly this address: once a Deck follows the note it never asks the old site again, so a typo would
+        # strand every Deck. It must be the renamed project's own site (on from 0.5.1-1; emptied after the rename).
+        self.assertEqual(self.load().flatpak_redirect(), 'https://itsdestin.github.io/openswipe/repo/')
 
     def test_only_one_https_address_is_accepted(self):
         import tempfile

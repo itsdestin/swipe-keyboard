@@ -12,7 +12,7 @@
 ### Ready for the new name
 
 - The project will be renamed **OpenSwipe**. GitHub does not forward a project's update website after a rename, so this version's Arch and Fedora updaters check the future OpenSwipe address first and fall back to today's. Same key, same checks: an index that fails its signature is refused, never swapped for the other site. Nothing changes for you now.
-- The update site can tell Steam Decks that it has moved (`packaging/updates/flatpak-redirect.txt`). It is off in this release.
+- Steam Decks: the update site now tells each Deck the future OpenSwipe address, and the Deck switches by itself on its next daily check (`packaging/updates/flatpak-redirect.txt`). Existing Decks get 0.5.1 once the rename happens, about two weeks later; until then they stay on 0.5.0, which keeps working. New installs from this download have 0.5.1 at once.
 
 ## v0.5.0-1
 

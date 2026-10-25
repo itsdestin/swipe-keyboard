@@ -7,4 +7,6 @@
 # installer runs. When a URL is written below (one line, not a comment), the next release's update site tells every
 # Deck: from now on, check this address instead. Each Deck switches on its next daily check, quietly; until the new
 # address exists it simply finds nothing to update (tested with Flatpak 1.18.4 and signed updates, 2026-10-24).
-# Turn on with https://itsdestin.github.io/openswipe/repo/ about two weeks before the rename; empty it again after.
+# A Deck follows the note BEFORE it downloads an update published with it, so until the rename existing Decks stay
+# on the version they have. On from 0.5.1-1 (Destin, 2026-10-24: include it now). Empty it again after the rename.
+https://itsdestin.github.io/openswipe/repo/
