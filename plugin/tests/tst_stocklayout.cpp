@@ -135,6 +135,10 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(swipeLayout(item), 10000);
         QPointer<QObject> method(root->property("method").value<QObject *>());
         QVERIFY(method);
+        // WHY wait for the engine: beginSwipe() answers -1 (and asks no questions) until the model has loaded. On a busy
+        // machine (tests now run in parallel) that load can still be running here, so the capture-query row saw
+        // 0 callbacks instead of 1. Waiting makes the test about the callback, not about how fast the machine is.
+        QTRY_VERIFY_WITH_TIMEOUT([&] { bool ready=false; QMetaObject::invokeMethod(method,"isReady",Q_RETURN_ARG(bool,ready)); return ready; }(), 30000);
         auto *capture = swipeLayout(item)->property("swipeCapture").value<QObject *>();
         QVariant geometry;
         QVERIFY(QMetaObject::invokeMethod(capture,"letterKeys",Q_RETURN_ARG(QVariant,geometry)));
