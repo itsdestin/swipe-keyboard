@@ -317,7 +317,7 @@ int main(int argc, char **argv)
             };
             // WHY dress false for the after-swipe bar: the keyboard does not dress it in the first guess's capitals
             // (swapflow::afterSwipeList); tap-back lists are dressed like the tapped word.
-            auto shown = [&](const std::vector<SwapCandidate> &c, const SwapParams &p, int k, bool dress = true) {
+            auto shown = [&](const std::vector<SwapCandidate> &c, const SwapParams &p, int k, bool dress) {
                 return toStd(swapflow::tidySwapList(w, c, p, k, swapRules, dress));
             };
             // Speed: one tap-back list with the first weight set, as the keyboard builds it (search + sentence
@@ -325,7 +325,7 @@ int main(int argc, char **argv)
             // a worker in the keyboard, so this is an upper bound for the input thread.
             const Lists &firstLists = listsFor(paramSets.front());
             const auto t0 = Clock::now();
-            const auto first = shown(firstLists.trace, paramSets.front(), 3);
+            const auto first = shown(firstLists.trace, paramSets.front(), 3, true);
             const double ms = traceMs + std::chrono::duration<double, std::milli>(Clock::now() - t0).count();
             for (size_t i = 0; i < paramSets.size(); ++i) {
                 const SwapParams &p = paramSets[i];
@@ -338,8 +338,8 @@ int main(int argc, char **argv)
                     for (const auto &a : bar) j += junk(a);
                     r.addJunk(bar.size(), j);
                 }
-                r.add(Measure::TapBackTrace, wrongFirst, s.word, i == 0 ? first : shown(l.trace, p, 3), norm);
-                r.add(Measure::TapBackNoTrace, wrongFirst, s.word, shown(l.noTrace, p, 3), norm);
+                r.add(Measure::TapBackTrace, wrongFirst, s.word, i == 0 ? first : shown(l.trace, p, 3, true), norm);
+                r.add(Measure::TapBackNoTrace, wrongFirst, s.word, shown(l.noTrace, p, 3, true), norm);
                 r.msTotal += ms;
                 ++r.lists;
             }
@@ -374,7 +374,7 @@ int main(int argc, char **argv)
                     };
                     for (size_t k = 0; k < kPools.size(); ++k) d.inPool[k] += variant([&](SwapParams &q) { q.pool = kPools[k]; });
                     // The rank after ordering and tidy-up, in the full list.
-                    const auto tidied = toStd(swapflow::tidySwapList(w, pool0, p0, int(pool0.size()), swapRules));
+                    const auto tidied = toStd(swapflow::tidySwapList(w, pool0, p0, int(pool0.size()), swapRules, m != int(Measure::AfterSwipe)));
                     int rank = -1;
                     for (size_t j = 0; j < tidied.size(); ++j) if (norm(tidied[j]) == target) { rank = int(j); break; }
                     const bool gathered = has(pool0);

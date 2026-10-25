@@ -55,7 +55,7 @@ std::vector<swipekb::SwapCandidate> gather(swipekb::LanguageEngine &engine, cons
 // (dress false): there `tapped` is the dictionary spelling of the first guess ("I", German "Haus"), not what the
 // person's text looks like; the swipe session applies Shift/Caps itself, so dressing would wrongly give "In", "Aus".
 QStringList tidySwapList(const QString &tapped, const std::vector<swipekb::SwapCandidate> &cands,
-                         const swipekb::SwapParams &params, int limit, const Rules &rules, bool dress = true);
+                         const swipekb::SwapParams &params, int limit, const Rules &rules, bool dress);
 
 // The words to send to the worker's scoreWords job: the list's best kMaxScored by rankSwap (before neural scores).
 QStringList wordsToScore(const QString &tapped, const std::vector<swipekb::SwapCandidate> &cands,
@@ -73,6 +73,17 @@ bool applyScores(std::vector<swipekb::SwapCandidate> &cands, const QStringList &
 // a word. WHY only RawBridge fields may call this: stock (owned-history) fields may be read only for the keyboard's
 // own words, so there the caller passes no words after.
 QStringList wordsAfter(const QString &textAfterWord, int max = 2);
+
+// May the bar after a swipe ask the worker for sentence scores? Only in a field where next-word predictions may run
+// (`predictionField`: the sentence model sees a field's words only there), with the language's sentence model
+// (`capable`), and never while a next-word or completion list is wanted (`wordListWanted`). WHY the last: the worker
+// keeps only its latest job, so the scoring job would cancel that list; the bar then just keeps the n-gram order.
+// (Both front ends end the swipe's session before they arm a next-word or completion list, so today this case is
+// stopped earlier too; the rule keeps it safe if that order ever changes.)
+inline bool mayScoreAfterSwipe(bool predictionField, bool capable, bool wordListWanted)
+{
+    return predictionField && capable && !wordListWanted;
+}
 
 // The post-swipe guess list: the committed word, then the swap list, then the other-spelling rule exactly as
 // finishSwipe applies it ("it's" right after "its" unless already listed; SwipeSession::withOtherSpelling).

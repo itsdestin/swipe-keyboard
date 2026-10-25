@@ -30,34 +30,34 @@ class SwapFlowTest : public QObject {
 private slots:
     void bestFirstAndNeverTheWordItself() {
         const std::vector<SwapCandidate> c{cand("hood", -3), cand("good", 0), cand("food", -1), cand("wood", -2), cand("mood", -5)};
-        QCOMPARE(swapflow::tidySwapList("good", c, {}, 3, rules()), (QStringList{"food", "wood", "hood"}));
+        QCOMPARE(swapflow::tidySwapList("good", c, {}, 3, rules(), true), (QStringList{"food", "wood", "hood"}));
     }
     void aCleanWordIsNeverAnsweredWithASwearWord() {
         // The blocked spelling is assembled in pieces.
         const QString swear = QStringLiteral("f") + "uck";
         const std::vector<SwapCandidate> c{cand(qPrintable(swear), 0), cand("duck", -1), cand("luck", -2)};
-        QCOMPARE(swapflow::tidySwapList("tuck", c, {}, 3, rules()), (QStringList{"duck", "luck"}));
+        QCOMPARE(swapflow::tidySwapList("tuck", c, {}, 3, rules(), true), (QStringList{"duck", "luck"}));
         // The person's own swear word keeps its look-alikes, whatever they are.
         const std::vector<SwapCandidate> d{cand("tuck", 0), cand("duck", -1)};
-        QCOMPARE(swapflow::tidySwapList(swear, d, {}, 3, rules()), (QStringList{"tuck", "duck"}));
+        QCOMPARE(swapflow::tidySwapList(swear, d, {}, 3, rules(), true), (QStringList{"tuck", "duck"}));
         const std::vector<SwapCandidate> e{cand(qPrintable(QStringLiteral("sh") + "it"), 0), cand("duck", -1)};
-        QCOMPARE(swapflow::tidySwapList(swear, e, {}, 3, rules()).size(), 2);
+        QCOMPARE(swapflow::tidySwapList(swear, e, {}, 3, rules(), true).size(), 2);
     }
     void theTappedWordsCapitalsAreKept() {
         const std::vector<SwapCandidate> c{cand("food", 0), cand("wood", -1)};
-        QCOMPARE(swapflow::tidySwapList("Good", c, {}, 3, rules()), (QStringList{"Food", "Wood"}));
-        QCOMPARE(swapflow::tidySwapList("GOOD", c, {}, 3, rules()), (QStringList{"FOOD", "WOOD"}));
+        QCOMPARE(swapflow::tidySwapList("Good", c, {}, 3, rules(), true), (QStringList{"Food", "Wood"}));
+        QCOMPARE(swapflow::tidySwapList("GOOD", c, {}, 3, rules(), true), (QStringList{"FOOD", "WOOD"}));
     }
     void germanNounsKeepTheirCapital() {
         // WHY: "Maus" is how the dictionary spells it; a lower-case tapped word must not lower it.
         const std::vector<SwapCandidate> c{cand("Maus", 0), cand("aus", -1)};
-        QCOMPARE(swapflow::tidySwapList("haus", c, {}, 3, rules("de", "de_DE")), (QStringList{"Maus", "aus"}));
+        QCOMPARE(swapflow::tidySwapList("haus", c, {}, 3, rules("de", "de_DE"), true), (QStringList{"Maus", "aus"}));
     }
     void forgottenWordsAreDropped() {
         auto r = rules();
         r.personalize = [](const QStringList &l) { QStringList o = l; o.removeAll("wood"); return o; };
         const std::vector<SwapCandidate> c{cand("food", 0), cand("wood", -1), cand("hood", -2)};
-        QCOMPARE(swapflow::tidySwapList("good", c, {}, 3, r), (QStringList{"food", "hood"}));
+        QCOMPARE(swapflow::tidySwapList("good", c, {}, 3, r, true), (QStringList{"food", "hood"}));
     }
     void theWorkersScoresReRankTheList() {
         swapflow::PendingSwap p;
@@ -152,6 +152,12 @@ private slots:
         swapflow::PendingSwap empty;
         QVERIFY(!empty.arm({1, 0, 5}));
         QVERIFY(!empty.waiting);
+    }
+    void theBarAfterASwipeAsksForScoresOnlyWhenNoWordListIsWanted() {
+        QVERIFY(swapflow::mayScoreAfterSwipe(true, true, false));
+        QVERIFY(!swapflow::mayScoreAfterSwipe(true, true, true));    // a next-word/completion list is wanted
+        QVERIFY(!swapflow::mayScoreAfterSwipe(false, true, false));  // not a prediction field
+        QVERIFY(!swapflow::mayScoreAfterSwipe(true, false, false));  // no sentence model
     }
     void thePostSwipeListKeepsTheOtherSpellingFirst() {
         QCOMPARE(swapflow::afterSwipeCandidates("its", {"ita", "is"}, "it's"), (QStringList{"its", "it's", "ita", "is"}));

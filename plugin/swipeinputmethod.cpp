@@ -1255,7 +1255,7 @@ void SwipeInputMethod::observeWordSwap(const EditorSnapshot &editor)
                                   remembered ? remembered->first : RecentSwipes::Trace{}, params);
     m_lastSwapUsedPath = remembered.has_value();
     m_lastSwapWordsAfter = int(after.size());
-    if (!m_swap.begin(editor.text, editor.cursor, swapflow::tidySwapList(span->word, cands, params, 3, swapRules()))) {
+    if (!m_swap.begin(editor.text, editor.cursor, swapflow::tidySwapList(span->word, cands, params, 3, swapRules(), true))) {
         clearWordSwap(); return;
     }
     m_swapPress.clear();
@@ -1318,12 +1318,9 @@ void SwipeInputMethod::buildAfterSwipeList(quint64 sessionSerial, int generation
             im->refreshGuessBar();
             if (!self) return;
         }
-        // WHY the prediction field rule for the sentence scores: the sentence model only ever sees a field's words where
-        // next-word predictions may run (the same rule as tap-to-swap); elsewhere the list stays on path + n-gram order.
-        // WHY not while a next-word or completion list is wanted: the worker keeps only the latest job, so this one
-        // would cancel that list; the bar then simply keeps the n-gram order.
-        if (!predictionField || !im->predictionCapable() || im->m_nextWord.pendingOrVisible()
-            || !im->m_typedWord.token().isEmpty())
+        // WHY these conditions: swapflow::mayScoreAfterSwipe (prediction fields only; never over a wanted word list).
+        if (!swapflow::mayScoreAfterSwipe(predictionField, im->predictionCapable(),
+                                          im->m_nextWord.pendingOrVisible() || !im->m_typedWord.token().isEmpty()))
             return;
         // WHY one id counter with tap-back: the two kinds of answer can then never be mistaken for each other.
         const PredictionStamp stamp{snapshot.epoch, 0, ++im->m_swapStamp.requestId};
@@ -1354,9 +1351,9 @@ void SwipeInputMethod::requestContextCompletion(const EditorSnapshot &editor)
     // Dictionary completions are already showing; this re-ranks them by the sentence so far, on the worker
     // thread, and replaces them when the answer arrives (a few milliseconds later).
     // WHY n-gram packs only: without the language's pack there is no sentence model, and dictionary completion
-    // stays exactly as it was.
-    if (!predictionCapable() ||
-        !m_profiles.snapshot().assets.value(QStringLiteral("contextModel")).compatibility.endsWith(QStringLiteral(":context-ngram-v1"))) return;
+    // stays exactly as it was. predictionCapable() is that test: the profile loader accepts a context model only when it
+    // is "<language>:context-ngram-v1" (languageprofile.cpp), so no separate compatibility check is needed.
+    if (!predictionCapable()) return;
     const auto token=m_typedWord.token();
     if (token.isEmpty()) return;
     QStringList words;

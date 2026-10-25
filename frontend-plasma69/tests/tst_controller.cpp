@@ -373,12 +373,30 @@ private Q_SLOTS:
     {
         // WHY (card #500): the first swipe's list is built a moment after it; when the person swipes again before
         // that, it is dropped, never shown beside the second word.
+        // Reference: the same two swipes with time in between, so each list lands on its own swipe.
+        swipe(QStringLiteral("hello"));
+        QTest::qWait(300);
+        const auto firstOnItsOwn = m_controller->candidates();
+        swipe(QStringLiteral("world"));
+        QTest::qWait(300);
+        const QString text = m_editor->m_text;
+        const auto secondOnItsOwn = m_controller->candidates();
+        QVERIFY(!secondOnItsOwn.isEmpty());
+        // Now back to back: no event loop between them, so the first list has not been built when the second comes.
+        make();
         const auto before = m_controller->diagnostics().value(QStringLiteral("afterSwipeLists")).toULongLong();
         swipe(QStringLiteral("hello"));
-        swipe(QStringLiteral("world"));   // no event loop between: the first list has not been built yet
+        swipe(QStringLiteral("world"));
         QTest::qWait(300);
         QCOMPARE(m_controller->diagnostics().value(QStringLiteral("afterSwipeLists")).toULongLong() - before, 1ull);
-        QVERIFY(!m_controller->candidates().isEmpty());
+        QCOMPARE(m_editor->m_text, text);                       // the second swipe's word, as typed
+        const auto bar = m_controller->candidates();
+        QCOMPARE(bar, secondOnItsOwn);                          // exactly the second swipe's own list
+        const QString second = text.mid(text.lastIndexOf(QLatin1Char(' ')) + 1);
+        QVERIFY(!bar.contains(second, Qt::CaseInsensitive));
+        for (const auto &w : firstOnItsOwn) {
+            QVERIFY2(!bar.contains(w) || secondOnItsOwn.contains(w), qPrintable(w + " came from the first swipe"));
+        }
     }
 
     void nextWordsStillFollowASwipe()

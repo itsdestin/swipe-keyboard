@@ -909,7 +909,7 @@ void SwipeController::observeWordSwap(const EditorSnapshot &editor)
                                   params);
     m_lastSwapUsedPath = remembered.has_value();
     m_lastSwapWordsAfter = int(after.size());
-    if (!m_swap.begin(editor.text, editor.cursor, swapflow::tidySwapList(span->word, cands, params, 3, swapRules()))) {
+    if (!m_swap.begin(editor.text, editor.cursor, swapflow::tidySwapList(span->word, cands, params, 3, swapRules(), true))) {
         clearWordSwap();
         return;
     }
@@ -980,11 +980,8 @@ void SwipeController::buildAfterSwipeList(quint64 sessionSerial,
         if (c->m_session.replaceAlternatives(built.candidates)) {
             c->refreshBar();
         }
-        // WHY the prediction field rule for the sentence scores: the sentence model only ever sees a field's words where
-        // next-word predictions may run (the same rule as tap-to-swap); elsewhere the list stays on path + n-gram order.
-        // WHY not while a next-word or completion list is wanted: the worker keeps only the latest job, so this one
-        // would cancel that list; the row then simply keeps the n-gram order.
-        if (!predictionField || !c->predictionCapable() || c->m_nextWord.pendingOrVisible() || !c->m_typedWord.token().isEmpty()) {
+        // WHY these conditions: swapflow::mayScoreAfterSwipe (prediction fields only; never over a wanted word list).
+        if (!swapflow::mayScoreAfterSwipe(predictionField, c->predictionCapable(), c->m_nextWord.pendingOrVisible() || !c->m_typedWord.token().isEmpty())) {
             return;
         }
         // WHY one id counter with tap-back: the two kinds of answer can then never be mistaken for each other.
