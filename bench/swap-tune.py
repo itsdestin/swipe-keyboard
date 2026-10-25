@@ -15,6 +15,10 @@ Objective: the mean of the three "right word among the options" (in3) rates for 
 1 point above today's keyboard (--mode baseline) on the same swipes. Several --set are pooled (counts added up).
 
 Usage: bench/swap-tune.py --set trv8k [--set ...] [-j 3] [--bench PATH] [--log FILE] [--out FILE]
+                          [--fixed JSON] [--pools 16,24,32]
+  --fixed SwapParams keys held fixed during the search, e.g. the gathering settings '{"beam": 256, "neighbours": 12}'
+          (WHY: they change which words are found, so the weights are re-tuned on top of each structural change).
+  --pools the pool sizes searched (each gets its own coordinate search).
   --set   trv8k (FUTO English tuning slice) | tune-fr | tune-de (FUTO swipe-5 validation sessions, AZERTY French and
           German layout). Anything else is refused. WHY: the test sets (bench-2000, test-extra-10000, HeliBoard) are
           never tuned on, so a tuned number on them stays an honest result.
@@ -108,6 +112,8 @@ def main():
     ap.add_argument("--bench", default="/tmp/claude-1000/swapbench-bin/swipekb-swap-bench")
     ap.add_argument("--log", default=None)
     ap.add_argument("--out", default=None)
+    ap.add_argument("--fixed", default="{}")
+    ap.add_argument("--pools", default=",".join(str(p) for p in POOLS))
     a = ap.parse_args()
     for s in a.set:
         if s not in SETS:
@@ -116,6 +122,7 @@ def main():
         if not os.path.exists(SETS[s][0]):
             sys.exit(f"swap-tune.py: missing tuning swipes {SETS[s][0]}")
     log = open(a.log, "a") if a.log else None
+    fixed = json.loads(a.fixed)
     ex = cf.ThreadPoolExecutor(max_workers=max(1, min(a.j, 4)))   # WHY at most 4: a tablet the owner is using
 
     def grade(params_list):
@@ -136,7 +143,7 @@ def main():
     print(f"baseline: objective {base['objective']:.2f} junk {base['junk']:.2f}% (reject above {limit:.2f}%)", flush=True)
 
     def search(pool):
-        cur = {"wPath": 1, "wBefore": 1, "wAfter": 1, "wNeural": 1, "pool": pool}
+        cur = dict(fixed, wPath=1, wBefore=1, wAfter=1, wNeural=1, pool=pool)
         best = grade([cur])[0]
         ok = lambda r: r["junk"] <= limit
         rounds = 0
@@ -155,13 +162,14 @@ def main():
         return best
 
     # WHY one thread per pool (nested work goes to the same capped executor through grade()).
-    with cf.ThreadPoolExecutor(max_workers=len(POOLS)) as pools:
-        finals = list(pools.map(search, POOLS))
+    pools_list = [int(x) for x in a.pools.split(",")]
+    with cf.ThreadPoolExecutor(max_workers=len(pools_list)) as pools:
+        finals = list(pools.map(search, pools_list))
     winners = [f for f in finals if f["junk"] <= limit]
     # WHY lower junk breaks a tie: two weight sets that find the right word equally often differ only in how many
     # nonsense words they show.
     win = max(winners, key=lambda r: (r["objective"], -r["junk"])) if winners else None
-    result = {"sets": a.set, "baseline": base, "per_pool": finals, "winner": win}
+    result = {"sets": a.set, "fixed": fixed, "baseline": base, "per_pool": finals, "winner": win}
     text = json.dumps(result, indent=1)
     print(text)
     if a.out:

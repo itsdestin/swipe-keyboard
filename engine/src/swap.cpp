@@ -26,9 +26,13 @@ std::vector<std::string> rankSwap(const std::string &tapped, const std::vector<S
     for (const auto &c : cands) {
         // WHY insert doubles as the duplicate test: "Good" and "good" are one suggestion; the first (listed) wins.
         if (!seen.insert(QString::fromUtf8(c.word.c_str()).toLower()).second) continue;
-        // WHY the neural term is skipped, not zeroed: log10 scores are negative, so 0 would make a word with no
-        // neural answer yet look better than every word that has one.
-        const float lm = p.wBefore * c.before + p.wAfter * c.after + (c.hasNeural ? p.wNeural * c.neural : 0.f);
+        // WHY the neural term is not zeroed when missing: log10 scores are negative, so 0 would make a word with no
+        // neural answer yet look better than every word that has one. WHY the n-gram `before` takes its weight
+        // instead: the neural score already blends that same n-gram (so the tuned wBefore is 0), and without a
+        // stand-in the list shown before the worker answers would ignore the words before entirely (measured on
+        // the tuning set, 2026-10-24: see swap.hpp).
+        const float lm = (p.wBefore + (c.hasNeural ? 0.f : p.wNeural)) * c.before + p.wAfter * c.after
+            + (c.hasNeural ? p.wNeural * c.neural : 0.f);
         s.push_back({&c, p.wPath * c.path + kLn10 * lm});
     }
     // WHY stable: equal scores keep the caller's order (the beam's own order).

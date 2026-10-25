@@ -5,6 +5,7 @@
 #include "swipekb/swipe_engine.hpp"
 
 #include <algorithm>
+#include <cmath>
 
 namespace swipekb {
 
@@ -58,8 +59,10 @@ void SwipeEngine::setPrior(std::function<float(uint32_t)> prior, std::vector<uin
 }
 
 std::vector<SwipeCandidate> SwipeEngine::decode(const std::vector<SwipePoint> &trace, float aspect, int topN) {
+    lastUsedNet_ = false;
     if (!ready() || trace.empty() || topN <= 0) return {};
     if (d_->net.ready() && d_->net.buildInput(trace, d_->layout, aspect, in_) && d_->net.forward(in_, lp_)) {
+        lastUsedNet_ = true;
         BeamParams bp = params.beam;
         bp.freqWeight = params.freqWeight;
         const bool blend = params.geoWeight > 0;
@@ -76,7 +79,51 @@ std::vector<SwipeCandidate> SwipeEngine::decode(const std::vector<SwipePoint> &t
             return res;
         }
     }
+    lastUsedNet_ = false;
     return d_->geo->decode(trace, aspect, topN, params.geo);
+}
+
+std::vector<float> SwipeEngine::pathScores(const std::vector<std::string> &words) const {
+    if (!lastUsedNet_ || !d_) return {};
+    constexpr float kNegInf = -1e30f;
+    const auto lae = [](float a, float b) {
+        if (a < b) std::swap(a, b);
+        return b <= kNegInf ? a : a + std::log1p(std::exp(b - a));
+    };
+    const int T = in_.steps, K = in_.keyCount;
+    std::vector<float> out;
+    out.reserve(words.size());
+    std::vector<float> a, b;
+    for (const auto &w : words) {
+        const auto keys = d_->layout.wordKeys(w);   // doubled letters already collapsed, as in the lexicon
+        if (keys.empty() || T <= 0) { out.push_back(kNegInf); continue; }
+        // CTC forward over the states blank, k1, blank, k2, ..., blank. Neighbouring keys differ (collapsed), so a
+        // letter may always follow the previous letter directly.
+        const size_t S = 2 * keys.size() + 1;
+        a.assign(S, kNegInf);
+        b.assign(S, kNegInf);
+        const float *row0 = lp_.data();
+        a[0] = row0[0];
+        a[1] = row0[1 + keys[0]];
+        for (int t = 1; t < T; ++t) {
+            const float *row = lp_.data() + size_t(t) * (K + 1);
+            for (size_t s = 0; s < S; ++s) {
+                if (s % 2 == 0) {
+                    float v = a[s];
+                    if (s >= 1) v = lae(v, a[s - 1]);
+                    b[s] = v <= kNegInf ? kNegInf : v + row[0];
+                } else {
+                    const int k = keys[s / 2];
+                    float v = lae(a[s], a[s - 1]);   // held, or started after a blank
+                    if (s >= 2) v = lae(v, a[s - 2]);   // started right after the previous letter
+                    b[s] = v <= kNegInf ? kNegInf : v + row[1 + k];
+                }
+            }
+            std::swap(a, b);
+        }
+        out.push_back(lae(a[S - 1], a[S - 2]));
+    }
+    return out;
 }
 
 }

@@ -96,6 +96,11 @@ public:
                                               const std::vector<std::string> &after,
                                               const std::vector<TracePoint> &trace, const SwapParams &p);
 
+    // Path fit (ctc, the scale of SwapCandidate::path) of each word against this swipe, found by the search or not.
+    // Empty without a network (geometry only) or for an unusable path. For measurement tools (swap bench --diagnose).
+    std::vector<float> pathFits(const std::vector<std::string> &words, const std::vector<KeyRect> &keys,
+                                const std::vector<TracePoint> &trace);
+
     // Dictionary words that start with the typed letters, most frequent first, followed by close corrections
     // (one letter replaced, missing, extra or two swapped; a missing double letter costs least). Never a word
     // shorter than what was typed. Empty for "" or more than 48 letters.

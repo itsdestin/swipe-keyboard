@@ -35,6 +35,16 @@ TEST(Swap, MissingNeuralIsNotZero) {
     std::vector<SwapCandidate> c{{"a", -1, -1, 0, -3, true}, {"b", -1, -1, 0, 0, false}};
     EXPECT_EQ(rankSwap("x", c, p, 1).front(), "b");   // b is not penalised for having no neural score
 }
+// WHY: the list shown before the worker's neural scores arrive must still read the words before; the n-gram
+// `before` stands in with the neural weight (the tuned wBefore is 0 because neural already holds that evidence).
+TEST(Swap, WithoutNeuralTheNgramBeforeStandsIn) {
+    SwapParams p; p.wBefore = 0; p.wNeural = 1; p.wAfter = 0;
+    std::vector<SwapCandidate> none{{"rare", -1, -4}, {"usual", -1, -1}};
+    EXPECT_EQ(rankSwap("x", none, p, 1).front(), "usual");
+    // With neural scores, `before` keeps its own (zero) weight: only neural decides.
+    std::vector<SwapCandidate> both{{"rare", -1, -4, 0, -1, true}, {"usual", -1, -1, 0, -2, true}};
+    EXPECT_EQ(rankSwap("x", both, p, 1).front(), "rare");
+}
 // WHY pinned: these are the tuned weights (bench/swap-tune.py, 2026-10-24); changing them needs a new tuning run,
 // not a quiet edit. Every language uses the English values (see swap.hpp).
 TEST(Swap, ForLanguageGivesTheTunedWeights) {
@@ -194,4 +204,95 @@ TEST(LanguageEngineSwap, FastEnoughForTheInputThread)
     std::printf("swapCandidates: %.2f ms per word over %zu words (%zu candidates)\n", ms, words.size(), n);
     // WHY 60 and not the 20 ms budget: shared CI machines are slow and noisy; the measured value is reported above.
     EXPECT_LE(ms, 60.0);
+}
+
+// The swipe network's fit for any word (SwipeEngine::pathScores): the scale the swap list's paths are on.
+TEST(LanguageEngineSwap, PathFitsMatchTheSearch)
+{
+    if (!haveEnglish()) GTEST_SKIP() << "set SWIPEKB_ASSETS to a fetched asset tree";
+    LanguageEngine e;
+    ASSERT_TRUE(e.init(english()));
+    const auto keys = qwertyRects(0, 0, 1);
+    const auto trace = traceThrough("were", keys);
+    const auto c = e.swapCandidates("were", keys, {"we"}, {}, trace, SwapParams{});
+    const auto it = std::find_if(c.begin(), c.end(), [](const SwapCandidate &x) { return x.word == "we're"; });
+    ASSERT_NE(it, c.end()) << list(c);   // its path is "were"'s own fit as the search found it
+    const auto fit = e.pathFits({"were", "zzzz", "1"}, keys, trace);
+    ASSERT_EQ(fit.size(), 3u);
+    // WHY >= and close: the exact sum over alignments is never below the search's pruned sum, and the search keeps
+    // a clean swipe's own word nearly whole.
+    EXPECT_GE(fit[0], it->path - 1e-3f);
+    EXPECT_LE(fit[0], it->path + 1.f);
+    EXPECT_LE(fit[0], 0.f);
+    EXPECT_LT(fit[1], fit[0] - 5.f);   // a path through z only fits far worse
+    EXPECT_LE(fit[2], -1e29f);         // no key: no fit
+    auto s = english();
+    s.swipeModel.clear();
+    LanguageEngine g;
+    ASSERT_TRUE(g.init(s));
+    EXPECT_TRUE(g.pathFits({"were"}, keys, trace).empty());   // geometry only: no network to score on
+}
+
+// WHY: one-edit neighbours the search did not reach join the pool, scored on the swipe (or floored).
+TEST(LanguageEngineSwap, NeighboursJoinThePool)
+{
+    if (!haveEnglish()) GTEST_SKIP() << "set SWIPEKB_ASSETS to a fetched asset tree";
+    LanguageEngine e;
+    ASSERT_TRUE(e.init(english()));
+    const auto keys = qwertyRects(0, 0, 1);
+    SwapParams off, on;
+    on.neighbours = 12;
+    on.neighbourFloor = 15;
+    const auto a = e.swapCandidates("painting", keys, {"a"}, {}, {}, off);
+    const auto b = e.swapCandidates("painting", keys, {"a"}, {}, {}, on);
+    std::set<std::string> before;
+    for (const auto &x : a) before.insert(x.word);
+    std::set<std::string> sim;
+    for (const auto &x : e.similar("painting", 12)) sim.insert(x.word);
+    float ref = -1e30f;
+    for (const auto &x : a) ref = std::max(ref, x.path);
+    size_t added = 0;
+    for (const auto &x : b) {
+        if (before.count(x.word)) continue;
+        ++added;
+        EXPECT_TRUE(sim.count(x.word)) << x.word;   // only neighbours are new
+        EXPECT_FALSE(hasTapped({x}, "painting"));
+        EXPECT_TRUE(std::isfinite(x.path)) << x.word;
+    }
+    EXPECT_GT(added, 0u) << list(b);
+    EXPECT_GE(b.size(), a.size());
+}
+
+// WHY: the swap search may run wider or without the sentence prior, but the next swipe must be recognised exactly
+// as before (the recognizer's search settings are restored).
+TEST(LanguageEngineSwap, WiderSwapSearchLeavesRecognitionAlone)
+{
+    if (!haveEnglish()) GTEST_SKIP() << "set SWIPEKB_ASSETS to a fetched asset tree";
+    LanguageEngine e;
+    ASSERT_TRUE(e.init(english()));
+    const auto keys = qwertyRects(0, 0, 1);
+    const auto trace = traceThrough("hello", keys);
+    const auto first = e.recognize(trace, keys, {"say"}, 5);
+    SwapParams wide;
+    wide.beam = 256;
+    wide.searchPrior = 2;
+    const auto w = e.swapCandidates("hello", keys, {"say"}, {}, trace, wide);
+    EXPECT_FALSE(w.empty());
+    const auto again = e.recognize(trace, keys, {"say"}, 5);
+    ASSERT_EQ(first.size(), again.size());
+    for (size_t i = 0; i < first.size(); ++i) {
+        EXPECT_EQ(first[i].word, again[i].word);
+        EXPECT_FLOAT_EQ(first[i].score, again[i].score);
+    }
+    // A wider search finds at least the words the default one does (same pool, junk rules).
+    SwapParams big;
+    big.beam = 256;
+    big.pool = 96;
+    SwapParams small;
+    small.pool = 96;
+    std::set<std::string> wideWords;
+    for (const auto &x : e.swapCandidates("hello", keys, {"say"}, {}, trace, big)) wideWords.insert(x.word);
+    size_t kept = 0, n = 0;
+    for (const auto &x : e.swapCandidates("hello", keys, {"say"}, {}, trace, small)) { ++n; kept += wideWords.count(x.word); }
+    EXPECT_GE(kept * 10, n * 8) << "the wide search lost most of the narrow one's words";
 }

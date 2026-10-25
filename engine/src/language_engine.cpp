@@ -475,8 +475,21 @@ std::vector<SwapCandidate> LanguageEngine::swapCandidates(const std::string &wor
         if (t.size() < 2 || !d_->toSwipePoints(t, rects, pts, aspect)) return {};
         // WHY the sentence prior during the search too: the search keeps only its likeliest words on the way, and
         // words that fit the sentence must survive that to be compared at all (as in recognize()).
-        d_->setSentencePrior(before);
+        // SwapParams::searchPrior / beam change this for measurement (tools/swipekb-swap-bench --diagnose); the
+        // recognizer's own settings are put back afterwards, so a swap list never changes the next swipe.
+        const BeamParams savedBeam = d_->engine.params.beam;
+        const float savedFreq = d_->engine.params.freqWeight;
+        if (sp.beam > 0) d_->engine.params.beam.beam = sp.beam;
+        if (sp.searchPrior == 0) d_->setSentencePrior(before);
+        else if (sp.searchPrior == 1) d_->engine.setPrior({}, {});
+        else {
+            d_->engine.setPrior([](uint32_t) { return 0.f; }, {});
+            d_->engine.params.beam.lookahead = 0.f;
+            d_->engine.params.freqWeight = 0.f;
+        }
         const auto found = d_->engine.decode(pts, aspect, sp.pool);
+        d_->engine.params.beam = savedBeam;
+        d_->engine.params.freqWeight = savedFreq;
 
         const QString tappedLow = QString::fromStdString(word).toLower();
         const QString shownLow = QString::fromStdString(displaySpelling(word)).toLower();
@@ -518,8 +531,31 @@ std::vector<SwapCandidate> LanguageEngine::swapCandidates(const std::string &wor
             int f = 0;
             // WHY the language's own cutoff when lower: outside English recognize() uses none (0), because the
             // rare-word cutoff cost 2-5 points of "right word in the top 3" there (see init()).
-            if (w.empty() || !d_->mayOffer(w, std::min(sp.minFrequency, d_->alt.minFrequency), f)) continue;
+            if (w.empty() || (sp.junkFilter && !d_->mayOffer(w, std::min(sp.minFrequency, d_->alt.minFrequency), f))) continue;
             add(w, c.ctc);
+        }
+        // One-edit neighbours (SwapParams::neighbours): words the search may not reach because their path differs
+        // in one letter from the tapped word's ("form" for "from"). WHY scored on the swipe's own network output:
+        // a neighbour must compete on the same path scale as the searched words, not on a guess.
+        if (sp.neighbours > 0) {
+            std::vector<std::string> extra;
+            for (const auto &c : similar(word, sp.neighbours)) {
+                int f = 0;
+                if (isTapped(c.word) || seen.count(QString::fromStdString(c.word).toLower().toStdString())) continue;
+                if (sp.junkFilter && !d_->mayOffer(c.word, std::min(sp.minFrequency, d_->alt.minFrequency), f)) continue;
+                extra.push_back(c.word);
+            }
+            const auto fits = d_->engine.pathScores(extra);
+            for (size_t i = 0; i < extra.size(); ++i) {
+                const float fit = fits.size() == extra.size() ? fits[i] : -1e30f;
+                const float path = std::max(fit, ref - sp.neighbourFloor);
+                if (path <= -1e29f) continue;   // no usable fit and no floor
+                seen.insert(QString::fromStdString(extra[i]).toLower().toStdString());
+                SwapCandidate c;
+                c.word = extra[i];
+                c.path = path;
+                out.push_back(std::move(c));
+            }
         }
 
         constexpr float kLn10 = 2.302585093f;
@@ -555,6 +591,22 @@ std::vector<SwapCandidate> LanguageEngine::swapCandidates(const std::string &wor
             for (auto &c : out) c.before = d_->engine.params.freqWeight * float(frequency(c.word)) / kLn10;
         }
         return out;
+    } catch (...) {
+        return {};
+    }
+}
+
+std::vector<float> LanguageEngine::pathFits(const std::vector<std::string> &words, const std::vector<KeyRect> &rects,
+                                           const std::vector<TracePoint> &trace)
+{
+    if (!d_->ok || words.empty()) return {};
+    try {
+        std::vector<SwipePoint> pts;
+        float aspect = 0;
+        if (trace.size() < 2 || !d_->toSwipePoints(trace, rects, pts, aspect)) return {};
+        d_->setSentencePrior({});
+        d_->engine.decode(pts, aspect, 1);   // WHY: runs the network on this path; the words are scored on its output
+        return d_->engine.pathScores(words);
     } catch (...) {
         return {};
     }

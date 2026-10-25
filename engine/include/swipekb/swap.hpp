@@ -29,14 +29,22 @@ struct SwapCandidate {
 // 5.81 % -> 4.57 %. wBefore = 0 because the neural score (Predictor::scoreWords) already blends the same n-gram
 // evidence about the words before; counting it twice made lists worse. Pool 24 and 32 graded the same; 24 is faster.
 // Neural missing: the keyboard's worker scores a whole list at once, so a list has neural scores for all words or
-// for none; rankSwap stays as it is (with none, the first list is ordered by path and following words only, then
-// re-ordered when the scores arrive). Cost measured on trv8k for a list with no neural scores: 34.63 with these
-// weights (junk 6.96 %) against 37.03 with wBefore = 1 (junk 4.36 %), so the list shown before the worker answers
-// is weaker than the one that replaces it.
+// for none. With none (the list shown before the worker answers), rankSwap gives `before` the neural weight
+// (2026-10-24): on trv8k that list went from 34.63 (junk 6.96 %, over the junk limit) to 37.03 (junk 4.36 %).
 struct SwapParams {
     float wPath = 1.f, wBefore = 0.f, wAfter = 1.f, wNeural = 1.f;
     int pool = 24;           // beam candidates considered
     int minFrequency = 80;   // same junk rule as AlternativeParams
+    // How the swap search gathers its words (card #500 hill-climb, 2026-10-24). The defaults are what ships; the
+    // others exist so tools/swipekb-swap-bench --diagnose can ask "would the word have been found if...".
+    int beam = 0;            // search width (word beginnings kept per step); 0 = the swipe recognizer's (48)
+    int searchPrior = 0;     // during the search: 0 = sentence prior, 1 = word frequency only, 2 = none (path only)
+    bool junkFilter = true;  // false = keep rare, stretched and rare-name words too (diagnosis only)
+    int neighbours = 0;      // dictionary words one edit from the tapped word (similar()) added to the pool
+    // A neighbour's path = the better of its own fit to the swipe and (the tapped word's fit - neighbourFloor); with
+    // no network, the latter. WHY a floor: a one-letter-off word ("paintings") can fit a swipe that skipped that
+    // letter very badly and still be the word meant.
+    float neighbourFloor = 1e9f;
     // The tuned weights for a language ("en", "fr", ...).
     // WHY one set for every language: French and German were tuned too (FUTO swipe-5 validation sessions, AZERTY
     // 262 swipes + German layout 386, only 75 wrong first guesses together). Their own best weights (wBefore .25,
@@ -47,7 +55,8 @@ struct SwapParams {
 };
 
 // Best-first, at most topK, never `tapped` itself (case-insensitive). Score = wPath*path + ln(10)*(wBefore*before +
-// wAfter*after + wNeural*neural); with hasNeural false, the neural term is left out (not scored as 0).
+// wAfter*after + wNeural*neural); with hasNeural false, `before` stands in for the neural score (weight
+// wBefore + wNeural), never 0.
 std::vector<std::string> rankSwap(const std::string &tapped, const std::vector<SwapCandidate> &cands,
                                   const SwapParams &p, int topK = 3);
 
