@@ -32,6 +32,11 @@ struct EngineParams {
     int rerank = 20;
     // Dictionary frequency prior used by the beam search when no sentence prior is set (nats per point).
     float freqWeight = 0.06f;
+    // The network's key probabilities are flattened by this factor before the search (log-probabilities divided by
+    // it, then renormalised per step). 1 = as trained. WHY: tap-to-swap searches a made-up, perfectly clean path
+    // through the typed word's keys; the network is far surer about such a path than about a real swipe, so words a
+    // real swipe could have produced fall out. Used only by LanguageEngine::swapCandidates (SwapParams).
+    float temperature = 1.f;
 };
 
 class SwipeEngine {

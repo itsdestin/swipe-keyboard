@@ -63,6 +63,18 @@ std::vector<SwipeCandidate> SwipeEngine::decode(const std::vector<SwipePoint> &t
     if (!ready() || trace.empty() || topN <= 0) return {};
     if (d_->net.ready() && d_->net.buildInput(trace, d_->layout, aspect, in_) && d_->net.forward(in_, lp_)) {
         lastUsedNet_ = true;
+        if (params.temperature > 0 && params.temperature != 1.f) {
+            const int K1 = in_.keyCount + 1;
+            for (int t = 0; t < in_.steps; ++t) {
+                float *row = lp_.data() + size_t(t) * K1;
+                float mx = -1e30f;
+                for (int k = 0; k < K1; ++k) { row[k] /= params.temperature; mx = std::max(mx, row[k]); }
+                float sum = 0;
+                for (int k = 0; k < K1; ++k) sum += std::exp(row[k] - mx);
+                const float lse = mx + std::log(sum);
+                for (int k = 0; k < K1; ++k) row[k] -= lse;
+            }
+        }
         BeamParams bp = params.beam;
         bp.freqWeight = params.freqWeight;
         const bool blend = params.geoWeight > 0;

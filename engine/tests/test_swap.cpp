@@ -53,6 +53,9 @@ TEST(Swap, ForLanguageGivesTheTunedWeights) {
         EXPECT_FLOAT_EQ(p.wPath, 1.f); EXPECT_FLOAT_EQ(p.wBefore, 0.f);
         EXPECT_FLOAT_EQ(p.wAfter, 1.f); EXPECT_FLOAT_EQ(p.wNeural, 1.f);
         EXPECT_EQ(p.pool, 24); EXPECT_EQ(p.minFrequency, 80);
+        EXPECT_EQ(p.beam, 256); EXPECT_EQ(p.searchPrior, 0); EXPECT_TRUE(p.junkFilter);
+        EXPECT_EQ(p.neighbours, 12); EXPECT_FLOAT_EQ(p.neighbourFloor, 15.f);
+        EXPECT_FLOAT_EQ(p.syntheticTemperature, 2.f);
     }
 }
 TEST(Swap, SyntheticTraceVisitsKeyCentres) {
@@ -105,7 +108,7 @@ TEST(LanguageEngineSwap, TypedWordGetsPathLookalikes)
     // by frequency would not have to put them anywhere.
     EXPECT_TRUE(hasWord(c, "food") || hasWord(c, "hood")) << list(c);
     EXPECT_FALSE(hasTapped(c, "good")) << list(c);
-    EXPECT_LE(int(c.size()), SwapParams{}.pool);
+    EXPECT_LE(int(c.size()), SwapParams{}.pool + SwapParams{}.neighbours);   // search words + one-edit neighbours
     for (const auto &x : c) {
         EXPECT_TRUE(std::isfinite(x.path) && std::isfinite(x.before) && std::isfinite(x.after)) << x.word;
         EXPECT_FALSE(x.hasNeural) << x.word;   // the neural score is added later (Predictor::scoreWords)
@@ -241,6 +244,7 @@ TEST(LanguageEngineSwap, NeighboursJoinThePool)
     ASSERT_TRUE(e.init(english()));
     const auto keys = qwertyRects(0, 0, 1);
     SwapParams off, on;
+    off.neighbours = 0;
     on.neighbours = 12;
     on.neighbourFloor = 15;
     const auto a = e.swapCandidates("painting", keys, {"a"}, {}, {}, off);
@@ -278,6 +282,9 @@ TEST(LanguageEngineSwap, WiderSwapSearchLeavesRecognitionAlone)
     wide.searchPrior = 2;
     const auto w = e.swapCandidates("hello", keys, {"say"}, {}, trace, wide);
     EXPECT_FALSE(w.empty());
+    SwapParams flat;
+    flat.syntheticTemperature = 2;   // a typed word: the made-up path is searched flattened
+    EXPECT_FALSE(e.swapCandidates("hello", keys, {"say"}, {}, {}, flat).empty());
     const auto again = e.recognize(trace, keys, {"say"}, 5);
     ASSERT_EQ(first.size(), again.size());
     for (size_t i = 0; i < first.size(); ++i) {
@@ -289,10 +296,58 @@ TEST(LanguageEngineSwap, WiderSwapSearchLeavesRecognitionAlone)
     big.beam = 256;
     big.pool = 96;
     SwapParams small;
+    small.beam = 0;
     small.pool = 96;
     std::set<std::string> wideWords;
     for (const auto &x : e.swapCandidates("hello", keys, {"say"}, {}, trace, big)) wideWords.insert(x.word);
     size_t kept = 0, n = 0;
     for (const auto &x : e.swapCandidates("hello", keys, {"say"}, {}, trace, small)) { ++n; kept += wideWords.count(x.word); }
     EXPECT_GE(kept * 10, n * 8) << "the wide search lost most of the narrow one's words";
+}
+
+// WHY: a flatter network output on a typed word's made-up path lets more look-alikes through (the clean path makes
+// the network over-sure), and a real swipe is never flattened.
+TEST(LanguageEngineSwap, SyntheticTemperatureOnlyTouchesTypedWords)
+{
+    if (!haveEnglish()) GTEST_SKIP() << "set SWIPEKB_ASSETS to a fetched asset tree";
+    LanguageEngine e;
+    ASSERT_TRUE(e.init(english()));
+    const auto keys = qwertyRects(0, 0, 1);
+    SwapParams plain, flat;
+    plain.syntheticTemperature = 1;
+    plain.beam = flat.beam = 256;
+    plain.pool = flat.pool = 96;
+    flat.syntheticTemperature = 2;
+    const auto a = e.swapCandidates("stole", keys, {"the"}, {}, {}, plain);
+    const auto b = e.swapCandidates("stole", keys, {"the"}, {}, {}, flat);
+    EXPECT_GE(b.size(), a.size()) << list(a) << "| " << list(b);
+    const auto trace = traceThrough("stole", keys);
+    const auto c = e.swapCandidates("stole", keys, {"the"}, {}, trace, plain);
+    const auto d = e.swapCandidates("stole", keys, {"the"}, {}, trace, flat);
+    ASSERT_EQ(c.size(), d.size());
+    for (size_t i = 0; i < c.size(); ++i) { EXPECT_EQ(c[i].word, d[i].word); EXPECT_FLOAT_EQ(c[i].path, d[i].path); }
+}
+
+// WHY: without the swipe network a neighbour has no fit of its own; the tapped word's fit minus the floor stands in.
+TEST(LanguageEngineSwap, NeighboursWithoutNetworkUseTheFloor)
+{
+    if (!haveEnglish()) GTEST_SKIP() << "set SWIPEKB_ASSETS to a fetched asset tree";
+    auto s = english();
+    s.swipeModel.clear();
+    LanguageEngine e;
+    ASSERT_TRUE(e.init(s));
+    const auto keys = qwertyRects(0, 0, 1);
+    SwapParams p;
+    p.neighbours = 12;
+    p.neighbourFloor = 15;
+    const auto c = e.swapCandidates("painting", keys, {"a"}, {}, {}, p);
+    std::set<std::string> sim;
+    for (const auto &x : e.similar("painting", 12)) sim.insert(x.word);
+    EXPECT_TRUE(std::any_of(c.begin(), c.end(), [&](const SwapCandidate &x) { return sim.count(x.word) > 0; })) << list(c);
+    SwapParams none, noNeighbours;
+    none.neighbourFloor = -1;   // no floor and no network: a neighbour has no path at all and stays out
+    noNeighbours.neighbours = 0;
+    std::set<std::string> plain;
+    for (const auto &x : e.swapCandidates("painting", keys, {"a"}, {}, {}, noNeighbours)) plain.insert(x.word);
+    for (const auto &x : e.swapCandidates("painting", keys, {"a"}, {}, {}, none)) EXPECT_TRUE(plain.count(x.word)) << x.word;
 }

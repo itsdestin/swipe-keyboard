@@ -479,7 +479,9 @@ std::vector<SwapCandidate> LanguageEngine::swapCandidates(const std::string &wor
         // recognizer's own settings are put back afterwards, so a swap list never changes the next swipe.
         const BeamParams savedBeam = d_->engine.params.beam;
         const float savedFreq = d_->engine.params.freqWeight;
+        const float savedTemp = d_->engine.params.temperature;
         if (sp.beam > 0) d_->engine.params.beam.beam = sp.beam;
+        if (trace.size() < 2) d_->engine.params.temperature = sp.syntheticTemperature;
         if (sp.searchPrior == 0) d_->setSentencePrior(before);
         else if (sp.searchPrior == 1) d_->engine.setPrior({}, {});
         else {
@@ -490,6 +492,7 @@ std::vector<SwapCandidate> LanguageEngine::swapCandidates(const std::string &wor
         const auto found = d_->engine.decode(pts, aspect, sp.pool);
         d_->engine.params.beam = savedBeam;
         d_->engine.params.freqWeight = savedFreq;
+        d_->engine.params.temperature = savedTemp;
 
         const QString tappedLow = QString::fromStdString(word).toLower();
         const QString shownLow = QString::fromStdString(displaySpelling(word)).toLower();
@@ -548,7 +551,7 @@ std::vector<SwapCandidate> LanguageEngine::swapCandidates(const std::string &wor
             const auto fits = d_->engine.pathScores(extra);
             for (size_t i = 0; i < extra.size(); ++i) {
                 const float fit = fits.size() == extra.size() ? fits[i] : -1e30f;
-                const float path = std::max(fit, ref - sp.neighbourFloor);
+                const float path = std::max(fit, sp.neighbourFloor >= 0 ? ref - sp.neighbourFloor : -1e30f);
                 if (path <= -1e29f) continue;   // no usable fit and no floor
                 seen.insert(QString::fromStdString(extra[i]).toLower().toStdString());
                 SwapCandidate c;

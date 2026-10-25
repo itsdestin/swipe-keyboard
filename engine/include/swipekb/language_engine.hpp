@@ -83,8 +83,9 @@ public:
 
     // Candidates to swap `word` with (tap-to-swap), scored on path and the n-gram (before/after), not yet ranked
     // (rankSwap()). They are the swipe search's words for this path (rare, stretched and name junk dropped as for
-    // alternatives, SwapParams::minFrequency as the rare cutoff) plus the word's other spellings; never `word`
-    // itself, at most SwapParams::pool. `path` = the path's natural-log fit (ctc), other spellings get the tapped
+    // alternatives, SwapParams::minFrequency as the rare cutoff) plus the word's other spellings, at most
+    // SwapParams::pool, then up to SwapParams::neighbours one-edit dictionary words (similar()) the search did not
+    // find, with their own fit to the path; never `word` itself. `path` = the path's natural-log fit (ctc), other spellings get the tapped
     // word's; `before`/`after` = log10 n-gram evidence from the words before and up to two words after (without a
     // pack: before = the frequency prior on the same scale, after = 0). `trace`: the swipe that produced the word,
     // empty for a typed word or a forgotten swipe (a made-up path through the word's keys is used). `after` may be

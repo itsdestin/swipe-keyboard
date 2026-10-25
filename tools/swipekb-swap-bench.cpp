@@ -15,7 +15,8 @@
 // is LanguageEngine::swapCandidates scored by the sentence model (Predictor::scoreWords) and ordered by rankSwap,
 // then given the same tidy-up as baseline (swear-word rule, regional spelling order).
 // `--params F`: SwapParams as JSON {wPath, wBefore, wAfter, wNeural, pool, minFrequency, beam, searchPrior,
-// junkFilter, neighbours, neighbourFloor} (missing keys keep the defaults), or an ARRAY of such objects: then every set is graded in one pass and each report is printed after a
+// junkFilter, neighbours, neighbourFloor, syntheticTemperature} (missing keys keep the
+// defaults), or an ARRAY of such objects: then every set is graded in one pass and each report is printed after a
 // line "== params N" (bench/swap-tune.py uses this; WHY: the swipe and the swap searches are the slow part, and they
 // do not depend on the weights, so one pass can grade many weight sets).
 // `--diagnose` (new mode): for each wrong first guess, where the right word was lost (diagnose(), below):
@@ -99,6 +100,7 @@ std::vector<SwapParams> readParams(const std::string &path, std::string &error)
         p.junkFilter = o.value("junkFilter").toBool(p.junkFilter);
         p.neighbours = o.value("neighbours").toInt(p.neighbours);
         p.neighbourFloor = float(o.value("neighbourFloor").toDouble(p.neighbourFloor));
+        p.syntheticTemperature = float(o.value("syntheticTemperature").toDouble(p.syntheticTemperature));
         out.push_back(p);
     }
     if (out.empty()) error = path + ": no parameter sets";
@@ -266,7 +268,7 @@ int main(int argc, char **argv)
             // they are built once per such pair and every weight set reuses them.
             struct Lists { std::vector<SwapCandidate> afterSwipe, trace, noTrace; };
             // WHY every gathering knob in the key: each changes which words are found; the weights do not.
-            using GatherKey = std::tuple<int, int, int, int, bool, int, float>;
+            using GatherKey = std::tuple<int, int, int, int, bool, int, float, float>;
             std::map<GatherKey, Lists> cache;
             auto withNeural = [&](std::vector<SwapCandidate> c) {
                 // WHY one call per list, all words at once: the keyboard's worker answers for the whole list, so
@@ -283,7 +285,7 @@ int main(int argc, char **argv)
             double traceMs = -1;   // the first tap-back-with-trace search and its sentence scores (speed, below)
             auto listsFor = [&](const SwapParams &p) -> const Lists & {
                 const GatherKey key{p.pool, p.minFrequency, p.beam, p.searchPrior, p.junkFilter, p.neighbours,
-                                    p.neighbourFloor};
+                                    p.neighbourFloor, p.syntheticTemperature};
                 auto it = cache.find(key);
                 if (it != cache.end()) return it->second;
                 Lists l;
