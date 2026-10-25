@@ -358,7 +358,9 @@ include("{ROOT}/cmake/Install.cmake")
         workflow = (ROOT/'.github/workflows/packages.yml').read_text()
         self.assertIn('archive.archlinux.org/repos/2026/07/01/$repo/os/$arch', workflow)
         self.assertIn('pacman -Syyuu --noconfirm', workflow)
-        self.assertIn('cp /tmp/current-mirrorlist /etc/pacman.d/mirrorlist', workflow)
+        # WHY changed: the retest is its own job in a fresh container that was never pointed at the archive, so it
+        # needs no saved mirror list; it brings that container up to date with current Arch itself.
+        self.assertIn('retry_pacman -Syyu --noconfirm', workflow)
         self.assertIn('sha256sum -c dist/baseline-package.sha256', workflow)
         self.assertIn('packaging/BASELINE-VERSIONS.txt', workflow)
         self.assertIn('dist/CURRENT-VERSIONS.txt', workflow)

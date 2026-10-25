@@ -41,7 +41,10 @@ build() {
 
 check() {
   cd "$srcdir/swipe-keyboard-$pkgver"
-  QT_QPA_PLATFORM=offscreen ctest --test-dir build --output-on-failure
+  # WHY -j: the tests are independent (each uses its own temporary folders and free ports; the one ordering
+  # dependency, the language-oracle fixture, is declared to CTest) and ran one after another for about 7 minutes;
+  # Fedora already runs the same tests in parallel in under 3.
+  QT_QPA_PLATFORM=offscreen ctest --test-dir build --output-on-failure -j"$(nproc)"
   python -m unittest discover -s tests/packaging -v
   python -m unittest discover -s tests/integration -v
 }

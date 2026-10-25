@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
 
 #include <QtTest>
+#include <QtVirtualKeyboard/QVirtualKeyboardAbstractInputMethod>
 #include <QQmlComponent>
 #include <QQmlEngine>
 #include <QQuickItem>
@@ -16,6 +17,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QDateTime>
+#include <QElapsedTimer>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QTemporaryDir>
@@ -135,6 +137,8 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(swipeLayout(item), 10000);
         QPointer<QObject> method(root->property("method").value<QObject *>());
         QVERIFY(method);
+        // WHY wait for the engine: beginSwipe() answers -1 (and asks no questions) until the swipe model has loaded.
+        QTRY_VERIFY_WITH_TIMEOUT([&] { bool ready=false; QMetaObject::invokeMethod(method,"isReady",Q_RETURN_ARG(bool,ready)); return ready; }(), 30000);
         auto *capture = swipeLayout(item)->property("swipeCapture").value<QObject *>();
         QVariant geometry;
         QVERIFY(QMetaObject::invokeMethod(capture,"letterKeys",Q_RETURN_ARG(QVariant,geometry)));
@@ -290,6 +294,59 @@ private slots:
         QVERIFY2(reloads.isEmpty(), qPrintable(QStringLiteral("engine reloaded %1 times").arg(reloads.count())));
         QVERIFY(QMetaObject::invokeMethod(method, "isReady", Q_RETURN_ARG(bool, ready)));
         QVERIFY(ready);
+    }
+    // The keyboard follows the language of the input context. WHY: Qt's first hand-over can be "C" and the real language
+    // was then not always passed on (Arch CI runner), leaving swiping dead. The stale hand-over is made by hand here.
+    void engineFollowsTheContextLanguageAfterAStaleHandOver()
+    {
+        QQmlEngine engine;
+        QQmlComponent component(&engine);
+        component.setData(R"(
+            import QtQuick
+            import QtQuick.VirtualKeyboard
+            import QtQuick.VirtualKeyboard.Settings
+            Item {
+                width: 1000; height: 500
+                property string localeToApply: "en_US"
+                function applyLocale() { VirtualKeyboardSettings.locale = localeToApply }
+                property QtObject method: InputContext.inputEngine.inputMethod
+                Component.onCompleted: { VirtualKeyboardSettings.locale = "en_US"; editor.forceActiveFocus() }
+                TextInput { id: editor; width: parent.width; height: 40; focus: true }
+                InputPanel { width: parent.width; anchors.bottom: parent.bottom; active: true }
+            }
+        )", QUrl());
+        std::unique_ptr<QObject> root(component.create());
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *item = qobject_cast<QQuickItem *>(root.get());
+        QQuickWindow window; window.resize(1000, 500);
+        item->setParentItem(window.contentItem()); window.show();
+        QTRY_VERIFY_WITH_TIMEOUT(swipeLayout(item), 10000);
+        QPointer<QObject> method(root->property("method").value<QObject *>());
+        QVERIFY(method);
+        const auto isReady = [&] { bool ready = false; QMetaObject::invokeMethod(method, "isReady", Q_RETURN_ARG(bool, ready)); return ready; };
+        QTRY_VERIFY_WITH_TIMEOUT(isReady(), 30000);
+        // The stale hand-over: the engine is told "C" while the context still says en_US.
+        auto *abstract = qobject_cast<QVirtualKeyboardAbstractInputMethod *>(method.data());
+        QVERIFY(abstract);
+        QVERIFY(abstract->setInputMode(QStringLiteral("C"), QVirtualKeyboardInputEngine::InputMode::Latin));
+        // The engine must notice at once that the context's language is a real one and take it.
+        QVERIFY2(isReady(), "engine did not follow the context language");
+        // Qt repeats the hand-over on every "?123"/letters switch: a repeated "C" must not rebuild the engine again
+        // (two model reloads per switch was the hitch the unchanged-mode guard removed).
+        QSignalSpy reloads(method.data(), SIGNAL(profileChanged()));
+        QVERIFY(abstract->setInputMode(QStringLiteral("C"), QVirtualKeyboardInputEngine::InputMode::Latin));
+        QVERIFY(abstract->setInputMode(QStringLiteral("C"), QVirtualKeyboardInputEngine::InputMode::Latin));
+        QVERIFY2(reloads.isEmpty(), qPrintable(QStringLiteral("engine reloaded %1 times for a repeated C").arg(reloads.count())));
+        QVERIFY(isReady());
+        // The later path: the context language goes "C", then a real one. The engine must end up ready either way.
+        QVERIFY(root->setProperty("localeToApply", QStringLiteral("C")));
+        QMetaObject::invokeMethod(root.get(), "applyLocale");
+        QTest::qWait(200);
+        QVERIFY(root->setProperty("localeToApply", QStringLiteral("en_US")));
+        QMetaObject::invokeMethod(root.get(), "applyLocale");
+        QPointer<QObject> after(root->property("method").value<QObject *>());
+        QVERIFY(after);
+        QTRY_VERIFY_WITH_TIMEOUT([&] { bool ready = false; QMetaObject::invokeMethod(after, "isReady", Q_RETURN_ARG(bool, ready)); return ready; }(), 15000);
     }
     // The Space key of the REAL stock English layout slides the cursor in a real text field, for a mouse and a
     // finger, also in a password field, and a plain tap on it still types a space.

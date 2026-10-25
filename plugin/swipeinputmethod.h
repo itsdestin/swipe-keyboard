@@ -125,6 +125,7 @@ private:
     std::shared_ptr<swipekb::LanguageEngine> m_engine;
     QString m_locale, m_layoutId, m_inputMode;
     void ensureContextConnections();
+    void followContextLocale();
     EditorSnapshot predictionEditor() const;
     PredictionPolicy predictionPolicy() const;
     void invalidatePredictions();

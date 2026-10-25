@@ -123,7 +123,9 @@ add_executable(tst_languagecapture ${ROOT}/plugin/tests/tst_languagecapture.cpp)
 target_link_libraries(tst_languagecapture PRIVATE Qt6::Qml Qt6::Quick Qt6::Test)
 target_compile_definitions(tst_languagecapture PRIVATE SWIPEKB_CAPTURE_QML="${ROOT}/plugin/SwipeCapture.qml")
 add_test(NAME language_capture COMMAND tst_languagecapture)
-set_tests_properties(language_capture PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_IM_MODULE=")
+# WHY private folders: a test must never read or write the real keyboard's data in ~/.local/share/swipe-keyboard.
+set_tests_properties(language_capture PROPERTIES ENVIRONMENT
+    "QT_QPA_PLATFORM=offscreen;QT_IM_MODULE=;SWIPEKB_DATA=${CMAKE_CURRENT_BINARY_DIR}/test-data-f-languagecapture;HOME=${CMAKE_CURRENT_BINARY_DIR}/test-home-f-languagecapture;XDG_DATA_HOME=${CMAKE_CURRENT_BINARY_DIR}/test-home-f-languagecapture/.local/share;XDG_CONFIG_HOME=${CMAKE_CURRENT_BINARY_DIR}/test-home-f-languagecapture/.config;XDG_CACHE_HOME=${CMAKE_CURRENT_BINARY_DIR}/test-home-f-languagecapture/.cache")
 add_library(feature_inputmethod STATIC ${ROOT}/plugin/swipeinputmethod.cpp ${ROOT}/plugin/swipeinputmethod.h
     ${ROOT}/plugin/swipesession.cpp ${ROOT}/plugin/swipeoutcome.cpp ${ROOT}/plugin/swiperecorder.cpp
     ${ROOT}/plugin/learningmanager.cpp ${ROOT}/plugin/learningmanager.h
@@ -168,7 +170,9 @@ add_executable(tst_predictioncapture ${ROOT}/plugin/tests/tst_predictioncapture.
 target_compile_definitions(tst_predictioncapture PRIVATE SWIPEKB_CAPTURE_SOURCE="${ROOT}/plugin/SwipeCapture.qml")
 target_link_libraries(tst_predictioncapture PRIVATE Qt6::Quick Qt6::Qml Qt6::VirtualKeyboard Qt6::Test)
 add_test(NAME prediction_capture COMMAND tst_predictioncapture)
-set_tests_properties(prediction_capture PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_IM_MODULE=qtvirtualkeyboard")
+# WHY private folders: a test must never read or write the real keyboard's data in ~/.local/share/swipe-keyboard.
+set_tests_properties(prediction_capture PROPERTIES ENVIRONMENT
+    "QT_QPA_PLATFORM=offscreen;QT_IM_MODULE=qtvirtualkeyboard;SWIPEKB_DATA=${CMAKE_CURRENT_BINARY_DIR}/test-data-f-predictioncapture;HOME=${CMAKE_CURRENT_BINARY_DIR}/test-home-f-predictioncapture;XDG_DATA_HOME=${CMAKE_CURRENT_BINARY_DIR}/test-home-f-predictioncapture/.local/share;XDG_CONFIG_HOME=${CMAKE_CURRENT_BINARY_DIR}/test-home-f-predictioncapture/.config;XDG_CACHE_HOME=${CMAKE_CURRENT_BINARY_DIR}/test-home-f-predictioncapture/.cache")
 add_executable(test_prediction ${ROOT}/engine/tests/test_prediction.cpp)
 target_link_libraries(test_prediction PRIVATE feature_engine Qt6::Test)
 target_compile_definitions(test_prediction PRIVATE SWIPEKB_TEST_DATA="${ROOT}/tests/data")
