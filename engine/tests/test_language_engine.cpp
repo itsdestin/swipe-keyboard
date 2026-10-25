@@ -290,20 +290,7 @@ TEST(LanguageEngine, BadInputAndDamagedPartsNeverBreakSwiping)
 
 // ---- with the real English files (SWIPEKB_ASSETS = an asset tree from scripts/fetch-assets.py) ----
 
-namespace {
-std::string assets() { const char *a = std::getenv("SWIPEKB_ASSETS"); return a ? a : ""; }
-bool haveEnglish() { return std::ifstream(assets() + "/dict/en_swipe.combined").good(); }
-LanguageEngineSetup english()
-{
-    LanguageEngineSetup s;
-    s.dictionary = assets() + "/dict/en_swipe.combined";
-    for (const auto *p : {"/language-packs/swipe-model.bin", "/language-files/swipe-model.bin"})
-        if (std::ifstream(assets() + p).good()) { s.swipeModel = assets() + p; break; }
-    for (const auto *p : {"/language-packs/en.ngram", "/language-files/en.ngram"})
-        if (std::ifstream(assets() + p).good()) { s.ngram = assets() + p; break; }
-    return s;
-}
-}
+// assets() / haveEnglish() / english() live in testkeys.h (shared with test_swap).
 
 TEST(LanguageEngineEnglish, CleanSwipesOfCommonWordsLandInTopThree)
 {

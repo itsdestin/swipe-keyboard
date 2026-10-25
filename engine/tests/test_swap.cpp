@@ -2,9 +2,17 @@
 //
 // SPDX-License-Identifier: MIT
 
-// Tests for the swap ranking function and the synthetic finger path.
+// Tests for the swap ranking function, the synthetic finger path and LanguageEngine::swapCandidates.
 #include <gtest/gtest.h>
 
+#include <QString>
+
+#include <algorithm>
+#include <chrono>
+#include <cmath>
+#include <set>
+
+#include "swipekb/language_engine.hpp"
 #include "swipekb/swap.hpp"
 #include "testkeys.h"
 
@@ -43,4 +51,122 @@ TEST(Swap, SyntheticTraceSkipsApostropheAndHandlesOneLetter) {
     EXPECT_EQ(a.size(), b.size());
     EXPECT_GE(syntheticTrace("a", keys).size(), 2u);
     EXPECT_TRUE(syntheticTrace("", keys).empty());
+}
+
+// ---- LanguageEngine::swapCandidates with the real English files (skipped when SWIPEKB_ASSETS is unset) ----
+
+namespace {
+bool hasWord(const std::vector<SwapCandidate> &c, const std::string &w)
+{
+    return std::any_of(c.begin(), c.end(), [&](const SwapCandidate &x) { return x.word == w; });
+}
+bool hasTapped(const std::vector<SwapCandidate> &c, const std::string &w)
+{
+    return std::any_of(c.begin(), c.end(), [&](const SwapCandidate &x) {
+        return QString::fromStdString(x.word).toLower() == QString::fromStdString(w).toLower(); });
+}
+std::string list(const std::vector<SwapCandidate> &c)
+{
+    std::string s;
+    for (const auto &x : c) s += x.word + " ";
+    return s;
+}
+}
+
+TEST(LanguageEngineSwap, TypedWordGetsPathLookalikes)
+{
+    if (!haveEnglish()) GTEST_SKIP() << "set SWIPEKB_ASSETS to a fetched asset tree";
+    LanguageEngine e;
+    ASSERT_TRUE(e.init(english()));
+    const auto keys = qwertyRects(0, 0, 1);
+    const auto c = e.swapCandidates("good", keys, {"this", "is"}, {"news"}, {}, SwapParams{});
+    // WHY these two: their swipe paths are "good"'s with the first key one row over; a one-letter-edit list ordered
+    // by frequency would not have to put them anywhere.
+    EXPECT_TRUE(hasWord(c, "food") || hasWord(c, "hood")) << list(c);
+    EXPECT_FALSE(hasTapped(c, "good")) << list(c);
+    EXPECT_LE(int(c.size()), SwapParams{}.pool);
+    for (const auto &x : c) {
+        EXPECT_TRUE(std::isfinite(x.path) && std::isfinite(x.before) && std::isfinite(x.after)) << x.word;
+        EXPECT_FALSE(x.hasNeural) << x.word;   // the neural score is added later (Predictor::scoreWords)
+    }
+}
+
+TEST(LanguageEngineSwap, SavedTraceGivesTheSwipesRunnerUps)
+{
+    if (!haveEnglish()) GTEST_SKIP() << "set SWIPEKB_ASSETS to a fetched asset tree";
+    LanguageEngine e;
+    ASSERT_TRUE(e.init(english()));
+    const auto keys = qwertyRects(0, 0, 1);
+    const auto trace = traceThrough("were", keys);
+    const auto c = e.swapCandidates("were", keys, {"we"}, {"here"}, trace, SwapParams{});
+    ASSERT_FALSE(c.empty());
+    EXPECT_TRUE(hasWord(c, "where") || hasWord(c, "we're")) << list(c);
+    EXPECT_FALSE(hasTapped(c, "were")) << list(c);
+    // The other spelling shares the swiped word's path, and a clean swipe through "were" fits "were" best: no
+    // candidate's path may fit better than the other spelling's (which is "were"'s own).
+    const auto it = std::find_if(c.begin(), c.end(), [](const SwapCandidate &x) { return x.word == "we're"; });
+    ASSERT_NE(it, c.end()) << list(c);
+    for (const auto &x : c) {
+        EXPECT_LE(x.path, it->path + 1e-3f) << x.word;
+        EXPECT_LE(x.path, 0.f) << x.word;   // a log-probability
+    }
+}
+
+TEST(LanguageEngineSwap, AfterIsZeroWithoutFollowingWords)
+{
+    if (!haveEnglish()) GTEST_SKIP() << "set SWIPEKB_ASSETS to a fetched asset tree";
+    LanguageEngine e;
+    ASSERT_TRUE(e.init(english()));
+    const auto keys = qwertyRects(0, 0, 1);
+    const auto none = e.swapCandidates("good", keys, {"this", "is"}, {}, {}, SwapParams{});
+    ASSERT_FALSE(none.empty());
+    for (const auto &x : none) EXPECT_EQ(x.after, 0.f) << x.word;
+    // With a following word the after evidence is there (log10, so below zero).
+    const auto some = e.swapCandidates("good", keys, {"this", "is"}, {"news"}, {}, SwapParams{});
+    ASSERT_FALSE(some.empty());
+    EXPECT_TRUE(std::any_of(some.begin(), some.end(), [](const SwapCandidate &x) { return x.after < 0.f; }));
+}
+
+// WHY: without the swipe model the decoder runs on geometry alone; swap lists must still work.
+TEST(LanguageEngineSwap, GeometryOnlyStillGivesCandidates)
+{
+    if (!haveEnglish()) GTEST_SKIP() << "set SWIPEKB_ASSETS to a fetched asset tree";
+    auto s = english();
+    s.swipeModel.clear();
+    s.ngram.clear();   // also no n-gram: before falls back to the word's frequency, after to 0
+    LanguageEngine e;
+    ASSERT_TRUE(e.init(s));
+    ASSERT_FALSE(e.hasModel());
+    const auto keys = qwertyRects(0, 0, 1);
+    const auto c = e.swapCandidates("good", keys, {"this", "is"}, {"news"}, {}, SwapParams{});
+    ASSERT_FALSE(c.empty());
+    EXPECT_FALSE(hasTapped(c, "good")) << list(c);
+    for (const auto &x : c) {
+        EXPECT_EQ(x.after, 0.f) << x.word;
+        EXPECT_GT(x.before, 0.f) << x.word;   // frequency-based, positive
+    }
+}
+
+TEST(LanguageEngineSwap, FastEnoughForTheInputThread)
+{
+    if (!haveEnglish()) GTEST_SKIP() << "set SWIPEKB_ASSETS to a fetched asset tree";
+    LanguageEngine e;
+    ASSERT_TRUE(e.init(english()));
+    const auto keys = qwertyRects(0, 0, 1);
+    // 200 common words: the most frequent completions of each two-letter start.
+    std::vector<std::string> words;
+    std::set<std::string> seen;
+    for (const char *pre : {"th", "an", "wh", "wa", "be", "ha", "co", "pr", "st", "re", "mo", "fo", "go", "ca", "ma",
+                            "sa", "lo", "pe", "de", "in", "to", "ab", "ev", "li", "ne", "ti", "wo", "yo", "ma", "se"})
+        for (const auto &c : e.complete(pre, 10))
+            if (words.size() < 200 && seen.insert(c.word).second) words.push_back(c.word);
+    ASSERT_GE(words.size(), 150u);
+    (void)e.swapCandidates("hello", keys, {}, {}, {}, SwapParams{});   // WHY: the first call builds the word list
+    const auto t0 = std::chrono::steady_clock::now();
+    size_t n = 0;
+    for (const auto &w : words) n += e.swapCandidates(w, keys, {"i", "think"}, {"is", "fine"}, {}, SwapParams{}).size();
+    const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count() / words.size();
+    std::printf("swapCandidates: %.2f ms per word over %zu words (%zu candidates)\n", ms, words.size(), n);
+    // WHY 60 and not the 20 ms budget: shared CI machines are slow and noisy; the measured value is reported above.
+    EXPECT_LE(ms, 60.0);
 }

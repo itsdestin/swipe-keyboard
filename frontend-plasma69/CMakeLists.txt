@@ -38,6 +38,8 @@ add_library(swipekb69_core STATIC
     ${_engine}/ngram_predictor.cpp ${_engine}/normalize.cpp ${_engine}/nwp_model.cpp ${_engine}/nwp_predictor.cpp
     ${_engine}/prediction.cpp ${_engine}/spelling.cpp ${_engine}/swipe_beam.cpp ${_engine}/swipe_engine.cpp
     ${_engine}/swipe_geo.cpp ${_engine}/swipe_layout.cpp ${_engine}/swipe_lm.cpp ${_engine}/swipe_net.cpp
+    # WHY swap.cpp: LanguageEngine::swapCandidates (tap-to-swap) uses its made-up finger path for typed words.
+    ${_engine}/swap.cpp
     ${_plugin}/languageprofile.cpp ${_plugin}/languageruntime.cpp ${_plugin}/languagetextrules.cpp ${_plugin}/language-assets.qrc
     ${_plugin}/swipesession.cpp ${_plugin}/nextwordsession.cpp ${_plugin}/predictionpolicy.cpp ${_plugin}/wordswap.cpp
     ${_plugin}/nextwordworker.cpp ${_plugin}/nextwordworker.h ${_plugin}/learningmanager.cpp ${_plugin}/learningmanager.h

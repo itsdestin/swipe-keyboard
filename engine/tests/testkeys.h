@@ -2,14 +2,18 @@
 //
 // SPDX-License-Identifier: MIT
 
-// Test helpers shared by the engine tests: a QWERTY key layout and a clean swipe through a word.
-// WHY a header: test_language_engine and test_swap both need the same layout; one copy cannot drift.
+// Test helpers shared by the engine tests: a QWERTY key layout, a clean swipe through a word, and where the real
+// English files are (SWIPEKB_ASSETS).
+// WHY a header: test_language_engine and test_swap both need the same layout and files; one copy cannot drift.
 #pragma once
 
+#include <cstdlib>
+#include <fstream>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "swipekb/language_engine.hpp"
 #include "swipekb/text.hpp"
 
 namespace swipekb::testkeys {
@@ -46,6 +50,21 @@ inline std::vector<TracePoint> traceThrough(const std::string &word, const std::
     auto [xe, ye] = centre(word.back());
     out.push_back({xe, ye, t});
     return out;
+}
+
+// ---- the real English files (SWIPEKB_ASSETS = an asset tree from scripts/fetch-assets.py) ----
+inline std::string assets() { const char *a = std::getenv("SWIPEKB_ASSETS"); return a ? a : ""; }
+inline bool haveEnglish() { return std::ifstream(assets() + "/dict/en_swipe.combined").good(); }
+// The English dictionary plus the swipe model and n-gram pack when the tree has them.
+inline LanguageEngineSetup english()
+{
+    LanguageEngineSetup s;
+    s.dictionary = assets() + "/dict/en_swipe.combined";
+    for (const auto *p : {"/language-packs/swipe-model.bin", "/language-files/swipe-model.bin"})
+        if (std::ifstream(assets() + p).good()) { s.swipeModel = assets() + p; break; }
+    for (const auto *p : {"/language-packs/en.ngram", "/language-files/en.ngram"})
+        if (std::ifstream(assets() + p).good()) { s.ngram = assets() + p; break; }
+    return s;
 }
 
 } // namespace swipekb::testkeys

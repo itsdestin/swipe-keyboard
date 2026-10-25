@@ -18,6 +18,7 @@
 
 #include "swipekb/ngram.hpp"
 #include "swipekb/spellings.hpp"
+#include "swipekb/swap.hpp"
 #include "swipekb/swipe_engine.hpp"
 #include "swipekb/swipe_lm.hpp"
 
@@ -289,6 +290,55 @@ struct LanguageEngine::Impl {
         return true;
     }
 
+    // The finger path in the engine's 0..1 units, after making the engine match these keys; `aspect` = height/width.
+    // False when the keys or the path are unusable.
+    // WHY shared by recognize() and swapCandidates(): a swap list must see a swipe exactly as recognition did.
+    bool toSwipePoints(const std::vector<TracePoint> &trace, const std::vector<KeyRect> &rects,
+                       std::vector<SwipePoint> &pts, float &aspect)
+    {
+        float x0, y0, W, H;
+        if (!prepare(rects, x0, y0, W, H)) return false;
+        pts.clear();
+        pts.reserve(trace.size());
+        for (const auto &p : trace) {
+            if (!std::isfinite(p.x) || !std::isfinite(p.y)) return false;
+            pts.push_back({(p.x - x0) / W, (p.y - y0) / H, double(p.t_ms)});
+        }
+        aspect = H / W;
+        return true;
+    }
+
+    // Gives the search the sentence prior for these previous words (word frequency when there is no n-gram pack).
+    void setSentencePrior(const std::vector<std::string> &context)
+    {
+        if (prior) {
+            // WHY the model's own form: the n-gram file stores lower-case words, letters only or with apostrophes.
+            std::vector<std::string> previous;
+            for (const auto &w : context) { const auto a = lm.form(w); if (!a.empty()) previous.push_back(a); }
+            prior->setContext(previous);
+            NgramWordPrior *pr = prior.get();
+            engine.setPrior([pr](uint32_t w) { return (*pr)(w); }, prior->hints());
+        } else {
+            engine.setPrior({}, {});
+        }
+    }
+
+    // May this found word be offered as an alternative (recognize) or a swap? `f` = its frequency (0 = unknown).
+    // WHY shared: the swap list and the guess bar must agree on which words are junk.
+    bool mayOffer(const std::string &w, int minFrequency, int &f) const
+    {
+        const auto it = byIdentity.find(QString::fromStdString(w).toLower().toStdString());
+        const Entry *e = it == byIdentity.end() ? nullptr : &entries[it->second];
+        f = e ? e->freq() : 0;
+        // WHY learned and texting words are never filtered: the person (or the texting list) vouches for them.
+        const bool vouched = e && (e->learned >= 0 || e->lift > 0);
+        if (vouched) return true;
+        if (f < minFrequency) return false;
+        if (e && e->capitalised && !keepCase && f < alt.nameMinFrequency) return false;
+        if (alt.dropStretched && stretched(w)) return false;
+        return true;
+    }
+
     const Entry *best(const std::u32string &key) const
     {
         const auto it = byKey.find(key);
@@ -368,27 +418,13 @@ std::vector<Candidate> LanguageEngine::recognize(const std::vector<TracePoint> &
     d_->bestShape.clear();
     if (!d_->ok || trace.size() < 2 || topK <= 0) return {};
     try {
-        float x0, y0, W, H;
-        if (!d_->prepare(rects, x0, y0, W, H)) return {};
         std::vector<SwipePoint> pts;
-        pts.reserve(trace.size());
-        for (const auto &p : trace) {
-            if (!std::isfinite(p.x) || !std::isfinite(p.y)) return {};
-            pts.push_back({(p.x - x0) / W, (p.y - y0) / H, double(p.t_ms)});
-        }
-        if (d_->prior) {
-            // WHY the model's own form: the n-gram file stores lower-case words, letters only or with apostrophes.
-            std::vector<std::string> previous;
-            for (const auto &w : context) { const auto a = d_->lm.form(w); if (!a.empty()) previous.push_back(a); }
-            d_->prior->setContext(previous);
-            NgramWordPrior *pr = d_->prior.get();
-            d_->engine.setPrior([pr](uint32_t w) { return (*pr)(w); }, d_->prior->hints());
-        } else {
-            d_->engine.setPrior({}, {});
-        }
+        float aspect = 0;
+        if (!d_->toSwipePoints(trace, rects, pts, aspect)) return {};
+        d_->setSentencePrior(context);
         std::vector<Candidate> out;
         float bestCtc = -1e30f;
-        const auto found = d_->engine.decode(pts, H / W, std::max(topK, d_->alt.pool));
+        const auto found = d_->engine.decode(pts, aspect, std::max(topK, d_->alt.pool));
         for (const auto &c : found) {
             const std::string &w = d_->engine.lexicon().text(c.word);
             if (!w.empty() && c.ctc > bestCtc) { bestCtc = c.ctc; d_->bestShape = w; }
@@ -403,16 +439,8 @@ std::vector<Candidate> LanguageEngine::recognize(const std::vector<TracePoint> &
             if (w.empty()) continue;
             if (out.empty()) { out.push_back({w, c.score}); firstScore = c.score; continue; }
             if (c.score < firstScore - p.margin) continue;
-            const auto it = d_->byIdentity.find(QString::fromStdString(w).toLower().toStdString());
-            const Impl::Entry *e = it == d_->byIdentity.end() ? nullptr : &d_->entries[it->second];
-            // WHY learned and texting words are never filtered: the person (or the texting list) vouches for them.
-            const bool vouched = e && (e->learned >= 0 || e->lift > 0);
-            const int f = e ? e->freq() : 0;
-            if (!vouched) {
-                if (f < p.minFrequency) continue;
-                if (e && e->capitalised && !d_->keepCase && f < p.nameMinFrequency) continue;
-                if (p.dropStretched && stretched(w)) continue;
-            }
+            int f = 0;
+            if (!d_->mayOffer(w, p.minFrequency, f)) continue;
             const float prior = d_->prior ? (*d_->prior)(c.word) : d_->engine.params.freqWeight * float(f);
             // WHY only with earlier words: measured (2026-10-24), the extra weight makes alternatives read like the
             // sentence ("you" -> "your", "to"), but with no sentence it only favours common words over the rarer
@@ -428,6 +456,98 @@ std::vector<Candidate> LanguageEngine::recognize(const std::vector<TracePoint> &
         return out;
     } catch (...) {
         d_->bestShape.clear();
+        return {};
+    }
+}
+
+std::vector<SwapCandidate> LanguageEngine::swapCandidates(const std::string &word, const std::vector<KeyRect> &rects,
+                                                         const std::vector<std::string> &before,
+                                                         const std::vector<std::string> &after,
+                                                         const std::vector<TracePoint> &trace, const SwapParams &sp)
+{
+    if (!d_->ok || word.empty() || sp.pool <= 0) return {};
+    try {
+        // WHY a made-up path for a typed word (or a swipe no longer remembered): the swap list is about words whose
+        // swipe looks like this one ("good" -> "food", "hood"), so the search needs a path to compare against.
+        const auto t = trace.size() >= 2 ? trace : syntheticTrace(word, rects);
+        std::vector<SwipePoint> pts;
+        float aspect = 0;
+        if (t.size() < 2 || !d_->toSwipePoints(t, rects, pts, aspect)) return {};
+        // WHY the sentence prior during the search too: the search keeps only its likeliest words on the way, and
+        // words that fit the sentence must survive that to be compared at all (as in recognize()).
+        d_->setSentencePrior(before);
+        const auto found = d_->engine.decode(pts, aspect, sp.pool);
+
+        const QString tappedLow = QString::fromStdString(word).toLower();
+        const std::string shown = displaySpelling(word);
+        const auto isTapped = [&](const std::string &w) {
+            return w == shown || QString::fromStdString(w).toLower() == tappedLow;
+        };
+        // WHY the path alone (ctc) and not the search score: the score already holds the sentence prior, which
+        // rankSwap() weighs separately (before/after). The reference is the tapped word's own fit to this path; its
+        // other spellings share that path exactly.
+        float ref = -1e30f, bestCtc = -1e30f;
+        for (const auto &c : found) {
+            const std::string &w = d_->engine.lexicon().text(c.word);
+            if (w.empty()) continue;
+            bestCtc = std::max(bestCtc, c.ctc);
+            if (isTapped(w)) ref = std::max(ref, c.ctc);
+        }
+        if (ref <= -1e29f) ref = bestCtc > -1e29f ? bestCtc : 0.f;
+
+        std::vector<SwapCandidate> out;
+        std::unordered_set<std::string> seen;   // lower-case spellings already in `out`
+        const auto add = [&](const std::string &w, float path) {
+            if (int(out.size()) >= sp.pool || isTapped(w)) return;
+            if (!seen.insert(QString::fromStdString(w).toLower().toStdString()).second) return;
+            SwapCandidate c;
+            c.word = w;
+            c.path = path;
+            out.push_back(std::move(c));
+        };
+        // WHY other spellings first: "it's" for "its" is the swap people most often want, so the pool limit must
+        // never squeeze it out; it is not filtered (Spellings only lists close, real spellings).
+        for (const auto &w : otherSpellings(word)) add(w, ref);
+        for (const auto &c : found) {
+            const std::string &w = d_->engine.lexicon().text(c.word);
+            int f = 0;
+            if (w.empty() || !d_->mayOffer(w, sp.minFrequency, f)) continue;
+            add(w, c.ctc);
+        }
+
+        constexpr float kLn10 = 2.302585093f;
+        if (d_->lmLoaded) {
+            // WHY the model's form (as recognize() builds the previous words): the pack stores lower-case words,
+            // letters only or with apostrophes. Following words stop at the first one the model cannot read
+            // (a number, an emoji), so the two that are used are the two right after the word.
+            std::vector<std::string> previous, next;
+            std::vector<int> nextFreq;
+            for (const auto &w : before) { const auto a = d_->lm.form(w); if (!a.empty()) previous.push_back(a); }
+            for (const auto &w : after) {
+                if (next.size() >= 2) break;
+                const auto a = d_->lm.form(w);
+                if (a.empty()) break;
+                next.push_back(a);
+                nextFreq.push_back(frequency(displaySpelling(w)));
+            }
+            const auto ctxBefore = d_->lm.context(previous);
+            for (auto &c : out) {
+                const std::string form = d_->lm.form(c.word);
+                c.before = d_->lm.logProb(ctxBefore, form, float(frequency(c.word)));
+                std::vector<std::string> ctx = previous;
+                ctx.push_back(form);
+                for (size_t k = 0; k < next.size(); ++k) {
+                    c.after += d_->lm.logProb(d_->lm.context(ctx), next[k], float(nextFreq[k]));
+                    ctx.push_back(next[k]);
+                }
+            }
+        } else {
+            // WHY divided by ln 10: without a pack the search's own frequency prior (nats) stands in, put on the
+            // n-gram's log10 scale so the weights in SwapParams mean the same with or without one.
+            for (auto &c : out) c.before = d_->engine.params.freqWeight * float(frequency(c.word)) / kLn10;
+        }
+        return out;
+    } catch (...) {
         return {};
     }
 }
