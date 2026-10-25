@@ -105,6 +105,45 @@ Rows in `bench/scoreboard.tsv` (commit and label are recorded per row):
 
 Swipe accuracy comes from `tools/swipekb-swipenet-bench` (our engine) and `bench/score.sh` (FUTO's), described in the model card.
 
+## Swap scoreboard
+
+When the first guess after a swipe is wrong, the person can take another word from the bar right after the swipe, or
+tap the word later to get a list of other words ("tap-to-swap"). `bench/swap-score.sh` measures how often the word they
+meant is offered. It replays recorded swipes through `tools/swipekb-swap-bench` (the keyboard's own swap code,
+`plugin/swapflow.cpp`, not a copy) and appends one row per measure to `bench/swap-scoreboard.tsv`.
+
+**Sets.** `bench-2000` and `test-extra-10000`: real English swipes inside sentences, FUTO's public test split (MIT),
+never trained or tuned on. `heliboard-es|fr|de|en`: HeliBoard Gesture Data (CC BY-SA), test only, single words with no
+sentence. `trv8k`: the English **tuning** slice; its rows are labelled `[tuning]` and are never quoted as results.
+
+**Measures.**
+
+1. `after-swipe`: the bar's other places right after the swipe (the other spelling first when there is one, then the
+   swap list), exactly as the keyboard builds that bar.
+2. `tapback-trace`: the list on tapping the word back while its swipe is remembered.
+3. `tapback-notrace`: the same list for a word with no remembered swipe (a typed word, or one from an earlier session),
+   which uses a made-up path through the word's keys.
+4. `junk`: when the first guess was right, the share of the bar's other places that are stretched spellings, rare
+   words (frequency under 80 of 255) or rare names (the swipe scoreboard's rule). `junk-tapback-trace` and
+   `junk-tapback-notrace` count the same among the three tap-back options.
+5. `speed`: milliseconds to build one tap-back list; `speed-after-swipe`: milliseconds to build the bar after a swipe
+   on the input thread (budget for both: 20 ms).
+
+For measures 1 to 3, **only swipes whose first guess was wrong count** (their number is "cases"): a swap list only
+matters when the swipe missed. `first` (the right word is the first option, one tap) and `in3` (among the first three)
+are reported separately and never rounded up. In-3 cannot approach 100 %: on the tuning set about a third of the wrong
+first guesses are words the dictionary does not have (names, hyphenated compounds), which no swap list can offer, and
+some more were swiped so far from the right word's keys that its path does not fit.
+
+**Tuning.** The swap list's weights (`SwapParams`) were tuned with `bench/swap-tune.py` on `trv8k` and on FUTO's
+swipe-5 validation sessions for French (AZERTY) and German only; the script refuses the test sets. Spanish uses the
+French and German weights. The keyboard sends at most 32 words per list to the sentence model (`swapflow::kMaxScored`),
+and the bench makes the same cut, so its numbers include that loss.
+
+**`--check LABEL`** compares a run against the newest rows with that label for the same set and number of swipes (in
+either mode, so a new run is judged against today's keyboard). It fails if any `first` or `in3` is lower, if `junk`
+rose by more than 1 point, if tap-back junk rose by more than 3 points, or if a different number of swipes was skipped.
+
 ## Data-leak safeguards
 
 1. **8-word-run exclusion (next word).** Any training sentence that shares a run of 8 consecutive words with any sentence of the three test sets is dropped, for both the n-gram files and the neural models. The same rule applies to the counts behind the word lists. This removes verbatim overlap, not paraphrases.

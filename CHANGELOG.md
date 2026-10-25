@@ -1,5 +1,21 @@
 # Changes
 
+## Unreleased
+
+### Better words to swap in
+
+- **Tap a word to swap it, and the bar after a swipe, now offer real look-alike words ranked by the sentence.** The
+  options are words whose swipe would look like yours, ordered by how well they fit the swipe and the words around them.
+  In fields the keyboard may read, the words after the tapped one count too ("in the ___ states" offers "united").
+- **Typed words get look-alikes too**, from a made-up swipe through their keys, not only one-letter-off spellings.
+- **Tap-back lists may show rarer real words** when they fit your swipe well; the bar right after a swipe keeps the
+  stricter rule.
+- **Measured** (`bench/swap-scoreboard.tsv`, only swipes whose first guess was wrong, first option / among three):
+  TODO(controller): fill in from the scoreboard rows after the final run — bench-2000 and test-extra-10000 after-swipe,
+  tap-back with and without the swipe, HeliBoard es/fr/de, junk and list time — with today's 0.5.0 numbers beside them.
+- **Learned words:** words the keyboard learned from you still move up in the bar after a swipe (at half strength, as
+  before). Tap-back lists are ordered by the swipe and the sentence only; forgotten words never appear in either.
+
 ## v0.5.0-1
 
 ### Our own engine; no FUTO code or models

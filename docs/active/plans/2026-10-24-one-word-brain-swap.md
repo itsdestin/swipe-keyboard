@@ -50,10 +50,10 @@ Spec: `docs/active/specs/2026-10-24-one-word-brain.md` (rollout steps 1 and 2).
 ## Setup (once)
 
 ```bash
-cd /home/destin/swipe-keyboard-dev/worktrees/sessions/one-brain/swipe-keyboard
+cd <your copy of the keyboard repo>
 python3 scripts/fetch-assets.py --assets ~/.cache/swipe-keyboard-train/one-brain-assets
 export SWIPEKB_ASSETS=~/.cache/swipe-keyboard-train/one-brain-assets
-export SWIPEKB_EVAL=/home/destin/swipe-keyboard-dev/swipe-keyboard/assets/eval      # bench-2000.jsonl, test-extra-10000.jsonl
+export SWIPEKB_EVAL=$SWIPEKB_ASSETS/eval      # bench-2000.jsonl, test-extra-10000.jsonl (assets/eval of a checkout)
 export HELI=~/.cache/swipe-keyboard-train/heliboard/out                               # {es,fr,de,en}/test.jsonl, layouts/
 cmake -S . -B build -G Ninja -DSWIPEKB_ASSETS="$SWIPEKB_ASSETS" && cmake --build build -j4
 ```
@@ -110,16 +110,14 @@ Expected: the build finishes. If the configure step asks for other options, copy
   200 swipes, then diff:
   ```bash
   cmake --build build --target swipekb-bench -j4
-  B=$SWIPEKB_ASSETS/language-files
+  B=$SWIPEKB_ASSETS/language-files; T=$SCRATCH   # T: a scratch folder outside the repo
   build/tools/swipekb-bench --dict $B/en_swipe.combined --model $B/swipe-model.bin --ngram $B/en.ngram --context --language en \
-    --layout scripts/swipe/layouts/qwerty.tsv --limit 200 --list $SWIPEKB_EVAL/bench-2000.jsonl > /tmp/claude-1000/after.txt
-  git stash push -m one-brain-t1 -- tools/swipekb-bench.cpp && cmake --build build --target swipekb-bench -j4 && \
-    build/tools/swipekb-bench <same flags> > /tmp/claude-1000/before.txt; git stash pop
-  diff <(grep -v ms/swipe /tmp/claude-1000/before.txt) <(grep -v ms/swipe /tmp/claude-1000/after.txt)
+    --layout scripts/swipe/layouts/qwerty.tsv --limit 200 --list $SWIPEKB_EVAL/bench-2000.jsonl > $T/after.txt
+  # The old binary: a second build folder of the commit before this task (git worktree add $T/old HEAD).
+  $T/old/build/tools/swipekb-bench <same flags> > $T/before.txt
+  diff <(grep -v ms/swipe $T/before.txt) <(grep -v ms/swipe $T/after.txt)
   ```
-  Expected: no diff.
-  - Use `git stash push -m one-brain-t1`, then find its SHA and `git stash apply <sha>` / drop, per the worktree rule.
-  - Simpler alternative: build the old file from `git show HEAD:tools/swipekb-bench.cpp` into a temporary target.
+  Expected: no diff. (Never set work aside with a plain stash: the stash list is shared by every worktree.)
 - [ ] **Step 4:** Commit:
   `git add tools/benchdata.h tools/swipekb-bench.cpp && git commit -m "Bench tools: one shared swipe reader (words before and after)"`
 
