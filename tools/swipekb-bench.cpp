@@ -33,51 +33,15 @@
 #include <string>
 #include <vector>
 
+#include "benchdata.h"
 #include "swipekb/language_engine.hpp"
 
 using namespace swipekb;
 using Clock = std::chrono::steady_clock;
-
-namespace {
-
-struct Swipe {
-    std::string word, board;
-    float w = 1, h = 1;
-    std::vector<TracePoint> trace;
-    std::vector<std::string> context;
-};
-
-// Key rectangles in canvas pixels from a layout file (0..1 of the letter area), or empty when unreadable.
-std::vector<KeyRect> readLayout(const std::string &path, float w, float h)
-{
-    std::ifstream in(path);
-    std::vector<KeyRect> keys;
-    std::string line;
-    if (!in || !std::getline(in, line)) return {};
-    while (std::getline(in, line)) {
-        std::istringstream f(line);
-        std::string letter;
-        float cx, cy, hw, hh;
-        if (!(f >> letter >> cx >> cy >> hw >> hh)) continue;
-        const auto u = QString::fromStdString(letter).toUcs4();
-        if (u.size() != 1) continue;
-        keys.push_back({char32_t(u[0]), (cx - hw) * w, (cy - hh) * h, 2 * hw * w, 2 * hh * h});
-    }
-    return keys;
-}
-
-// How a guess is compared with the target: "ascii" = a-z only (the original English benchmark),
-// "lookup" = lower-cased with accents kept (apostrophes/hyphens dropped), "exact" = byte for byte.
-std::string norm(const std::string &s, const std::string &mode)
-{
-    if (mode == "exact") return s;
-    if (mode == "lookup") return QString::fromStdString(s).toLower().remove(QLatin1Char('\'')).remove(QChar(0x2019)).remove(QLatin1Char('-')).toStdString();
-    std::string o;
-    for (unsigned char c : s) if (std::isalpha(c)) o.push_back(char(std::tolower(c)));
-    return o;
-}
-
-} // namespace
+using benchdata::BenchSwipe;
+using benchdata::norm;
+using benchdata::readLayout;
+using benchdata::readSwipes;
 
 int main(int argc, char **argv)
 {
@@ -119,30 +83,10 @@ int main(int argc, char **argv)
                              " [--ngram LANG.ngram] [--context] [--language en] [--limit N] [--match ascii|lookup|exact] swipes.jsonl\n");
         return 2;
     }
-    std::vector<Swipe> swipes;
-    QFile f(QString::fromStdString(input));
-    if (!f.open(QIODevice::ReadOnly)) { std::fprintf(stderr, "cannot read %s\n", input.c_str()); return 1; }
-    while (!f.atEnd() && (!limit || swipes.size() < limit)) {
-        const auto o = QJsonDocument::fromJson(f.readLine()).object();
-        if (o.isEmpty()) continue;
-        Swipe s;
-        s.word = o["word"].toString().toStdString();
-        s.board = o["layout"].toString().toStdString();
-        s.w = float(o["canvas_width"].toDouble(1));
-        s.h = float(o["canvas_height"].toDouble(1));
-        if (useContext && o.contains("sentence") && o.contains("word_idx")) {
-            const auto toks = o["sentence"].toString().split(' ', Qt::SkipEmptyParts);
-            for (int k = 0; k < std::min<int>(o["word_idx"].toInt(), int(toks.size())); ++k) s.context.push_back(toks[k].toStdString());
-        }
-        double t0 = -1;
-        for (const auto &p : o["data"].toArray()) {
-            const auto po = p.toObject();
-            const double t = po["t"].toDouble();
-            if (t0 < 0) t0 = t;
-            s.trace.push_back({float(po["x"].toDouble()) * s.w, float(po["y"].toDouble()) * s.h, float(t - t0)});
-        }
-        if (!s.trace.empty()) swipes.push_back(std::move(s));
-    }
+    // WHY shared reader: the swap benchmark reads swipes through the same code (tools/benchdata.h).
+    std::string readError;
+    const std::vector<BenchSwipe> swipes = readSwipes(input, limit, useContext, &readError);
+    if (!readError.empty()) { std::fprintf(stderr, "%s\n", readError.c_str()); return 1; }
     LanguageEngine engine;
     if (!engine.init(setup)) { std::fprintf(stderr, "cannot load the dictionary %s\n", setup.dictionary.c_str()); return 1; }
     if (altSet) engine.setAlternativeParams(alt);
@@ -182,14 +126,14 @@ int main(int argc, char **argv)
     // WHY a warm-up swipe: the first recognize() builds the word list for the layout (seconds), which is not a swipe.
     for (const auto &s : swipes) {
         const auto keys = readLayout(layoutsDir.empty() ? layout : layoutsDir + "/" + s.board + ".tsv", s.w, s.h);
-        if (!keys.empty()) { engine.recognize(s.trace, keys, s.context, 3); break; }
+        if (!keys.empty()) { engine.recognize(s.trace, keys, s.before, 3); break; }
     }
     for (const auto &s : swipes) {
         ++n;
         const auto keys = readLayout(layoutsDir.empty() ? layout : layoutsDir + "/" + s.board + ".tsv", s.w, s.h);
         if (keys.empty()) { ++noLayout; continue; }
         const auto a = Clock::now();
-        const auto c = engine.recognize(s.trace, keys, s.context, 3);
+        const auto c = engine.recognize(s.trace, keys, s.before, 3);
         ms += std::chrono::duration<double, std::milli>(Clock::now() - a).count();
         const std::string truth = norm(s.word, match);
         const bool h1 = !c.empty() && norm(c[0].word, match) == truth;

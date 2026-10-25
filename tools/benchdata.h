@@ -1,0 +1,103 @@
+// SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+//
+// SPDX-License-Identifier: MIT
+
+// benchdata.h — reads recorded swipes (jsonl: "word", "data" [{x,y,t}] 0..1 of the letter area, "canvas_width",
+// "canvas_height", optional "layout", "sentence" + "word_idx") and layout files for every bench tool, so the swipe
+// and swap scoreboards read the same swipes the same way.
+#pragma once
+
+#include <QFile>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QString>
+#include <QStringList>
+
+#include <algorithm>
+#include <cctype>
+#include <fstream>
+#include <sstream>
+#include <string>
+#include <vector>
+
+#include "swipekb/language_engine.hpp"
+
+namespace benchdata {
+
+struct BenchSwipe {
+    std::string word, board;
+    float w = 1, h = 1;
+    std::vector<swipekb::TracePoint> trace;
+    // Sentence words before and after the swiped word (empty unless the sentence was asked for).
+    std::vector<std::string> before, after;
+};
+
+// Key rectangles in canvas pixels from a layout file (0..1 of the letter area), or empty when unreadable.
+inline std::vector<swipekb::KeyRect> readLayout(const std::string &path, float w, float h)
+{
+    std::ifstream in(path);
+    std::vector<swipekb::KeyRect> keys;
+    std::string line;
+    if (!in || !std::getline(in, line)) return {};
+    while (std::getline(in, line)) {
+        std::istringstream f(line);
+        std::string letter;
+        float cx, cy, hw, hh;
+        if (!(f >> letter >> cx >> cy >> hw >> hh)) continue;
+        const auto u = QString::fromStdString(letter).toUcs4();
+        if (u.size() != 1) continue;
+        keys.push_back({char32_t(u[0]), (cx - hw) * w, (cy - hh) * h, 2 * hw * w, 2 * hh * h});
+    }
+    return keys;
+}
+
+// How a guess is compared with the target: "ascii" = a-z only (the original English benchmark),
+// "lookup" = lower-cased with accents kept (apostrophes/hyphens dropped), "exact" = byte for byte.
+inline std::string norm(const std::string &s, const std::string &mode)
+{
+    if (mode == "exact") return s;
+    if (mode == "lookup") return QString::fromStdString(s).toLower().remove(QLatin1Char('\'')).remove(QChar(0x2019)).remove(QLatin1Char('-')).toStdString();
+    std::string o;
+    for (unsigned char c : s) if (std::isalpha(c)) o.push_back(char(std::tolower(c)));
+    return o;
+}
+
+// Reads up to `limit` swipes (0 = all) from a jsonl file. With `withSentence`, fills `before` (the words ahead of
+// word_idx) and `after` (the next words). On a missing file returns empty and sets *error (when given).
+inline std::vector<BenchSwipe> readSwipes(const std::string &jsonl, size_t limit, bool withSentence, std::string *error)
+{
+    std::vector<BenchSwipe> swipes;
+    QFile f(QString::fromStdString(jsonl));
+    if (!f.open(QIODevice::ReadOnly)) {
+        if (error) *error = "cannot read " + jsonl;
+        return swipes;
+    }
+    while (!f.atEnd() && (!limit || swipes.size() < limit)) {
+        const auto o = QJsonDocument::fromJson(f.readLine()).object();
+        if (o.isEmpty()) continue;
+        BenchSwipe s;
+        s.word = o["word"].toString().toStdString();
+        s.board = o["layout"].toString().toStdString();
+        s.w = float(o["canvas_width"].toDouble(1));
+        s.h = float(o["canvas_height"].toDouble(1));
+        if (withSentence && o.contains("sentence") && o.contains("word_idx")) {
+            const auto toks = o["sentence"].toString().split(' ', Qt::SkipEmptyParts);
+            const int idx = o["word_idx"].toInt();
+            for (int k = 0; k < std::min<int>(idx, int(toks.size())); ++k) s.before.push_back(toks[k].toStdString());
+            // WHY 2: the "after" term of the swap ranking uses the next two words only.
+            for (int k = idx + 1; k >= 0 && k < int(toks.size()) && k <= idx + 2; ++k) s.after.push_back(toks[k].toStdString());
+        }
+        double t0 = -1;
+        for (const auto &p : o["data"].toArray()) {
+            const auto po = p.toObject();
+            const double t = po["t"].toDouble();
+            if (t0 < 0) t0 = t;
+            s.trace.push_back({float(po["x"].toDouble()) * s.w, float(po["y"].toDouble()) * s.h, float(t - t0)});
+        }
+        if (!s.trace.empty()) swipes.push_back(std::move(s));
+    }
+    return swipes;
+}
+
+} // namespace benchdata
