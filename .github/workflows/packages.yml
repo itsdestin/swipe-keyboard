@@ -162,7 +162,6 @@ jobs:
           # key; the archlinux-keyring downgrade hook must be able to sign trust.
           pacman-key --init
           pacman-key --populate archlinux
-          cp /etc/pacman.d/mirrorlist /tmp/current-mirrorlist
           printf 'Server = https://archive.archlinux.org/repos/2026/07/01/$repo/os/$arch\n' > /etc/pacman.d/mirrorlist
           # WHY bounded retries: the archive can hit pacman's low-speed timeout
           # fetching packages/signatures. Reuse verified cache, never bypass trust
@@ -276,19 +275,21 @@ jobs:
           pacman -R --noconfirm swipe-keyboard
           test ! -e /usr/bin/swipe-keyboard
           test ! -e /usr/share/swipe-keyboard
-      - name: Test identical older-built bytes on current Arch (container only)
+      # WHY moved out: retesting the same bytes on current Arch needs a fresh container anyway, and it used to run here
+      # one step after the other, adding minutes to the critical path. The "arch-current" job below does it in parallel;
+      # "Keyboard CI" still waits for it, so nothing merges without it. Same bytes: the tar carries the package, its
+      # recorded hash, the unpacked payload and the older-built stock-layout test program.
+      - name: Save the inputs of the current-Arch retest
         run: |
-          cp /tmp/current-mirrorlist /etc/pacman.d/mirrorlist
-          pacman -Syyu --noconfirm
-          pacman -Q glibc gcc-libs qt6-base qt6-declarative qt6-virtualkeyboard kwindowsystem plasma-keyboard python | tee dist/CURRENT-VERSIONS.txt
-          sha256sum -c dist/baseline-package.sha256
-          python scripts/package-check.py dist/stage
-          python3 scripts/check-stock-layout.py dist/src/swipe-keyboard-$VERSION/build/plugin/tst_stocklayout --runtime-root dist/stage/usr/share/swipe-keyboard
-          pacman -U --noconfirm dist/swipe-keyboard-$PACKAGE_VERSION-x86_64.pkg.tar.zst
-          su builder -c 'XDG_SESSION_TYPE=wayland XDG_CURRENT_DESKTOP=KDE swipe-keyboard check'
-          pacman -R --noconfirm swipe-keyboard
-          test ! -e /usr/bin/swipe-keyboard
-          test ! -e /usr/share/swipe-keyboard
+          mkdir retest-input
+          tar -cf retest-input/arch-retest-input.tar dist/stage dist/baseline-package.sha256 "dist/swipe-keyboard-$PACKAGE_VERSION-x86_64.pkg.tar.zst" "dist/src/swipe-keyboard-$VERSION/build/plugin/tst_stocklayout"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: arch-retest-input
+          path: retest-input/
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
       - name: Bind package metadata and exact final bytes
         run: |
           mkdir release evidence
@@ -308,6 +309,60 @@ jobs:
           if-no-files-found: error
           retention-days: 7
           compression-level: 0
+  arch-current:
+    # WHY its own job: the bytes built on the older Arch baseline must also work on today's Arch. That check only needs
+    # the finished package, so it runs next to the other jobs instead of lengthening the arch job (it is still part of
+    # the required "Keyboard CI" result).
+    needs: [prepare, arch]
+    if: ${{ needs.prepare.outputs.reuse_run == '' && needs.prepare.outputs.mode != 'docs' }}
+    runs-on: ubuntu-24.04
+    container: archlinux:latest
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      PACKAGE_VERSION: ${{ needs.prepare.outputs.package_version }}
+    steps:
+      - name: Bring the fresh container up to date with current Arch
+        run: |
+          pacman-key --init
+          pacman-key --populate archlinux
+          # WHY bounded retries: same reason as in the arch job (mirror hiccups must not fail the check by themselves).
+          retry_pacman() {
+            local attempt
+            for attempt in 1 2 3; do
+              if pacman "$@"; then return 0; fi
+              if (( attempt < 3 )); then sleep 15; fi
+            done
+            return 1
+          }
+          retry_pacman -Syyu --noconfirm
+          retry_pacman -S --noconfirm --needed git python qt6-declarative qt6-virtualkeyboard kwindowsystem kconfig kirigami curl plasma-keyboard
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: prepared
+          path: prepared
+      - name: Verify prepared input identity and hashes before executing source
+        run: python3 scripts/release.py verify-inputs --directory prepared --sha "$GITHUB_SHA"
+      - uses: actions/download-artifact@v4
+        with:
+          name: arch-retest-input
+          path: retest-input
+      - name: Test identical older-built bytes on current Arch (container only)
+        run: |
+          useradd -m builder
+          mkdir dist
+          tar -xf retest-input/arch-retest-input.tar -C .
+          pacman -Q glibc gcc-libs qt6-base qt6-declarative qt6-virtualkeyboard kwindowsystem plasma-keyboard python | tee dist/CURRENT-VERSIONS.txt
+          sha256sum -c dist/baseline-package.sha256
+          python scripts/package-check.py dist/stage
+          python3 scripts/check-stock-layout.py dist/src/swipe-keyboard-$VERSION/build/plugin/tst_stocklayout --runtime-root dist/stage/usr/share/swipe-keyboard
+          pacman -U --noconfirm dist/swipe-keyboard-$PACKAGE_VERSION-x86_64.pkg.tar.zst
+          su builder -c 'XDG_SESSION_TYPE=wayland XDG_CURRENT_DESKTOP=KDE swipe-keyboard check'
+          pacman -R --noconfirm swipe-keyboard
+          test ! -e /usr/bin/swipe-keyboard
+          test ! -e /usr/share/swipe-keyboard
   fedora:
     needs: prepare
     # WHY: optional in the fast path; the Keyboard CI gate requires these to be skipped there and successful otherwise.
@@ -861,7 +916,7 @@ jobs:
     if: ${{ always() }}
     # WHY gaming-tests is waited on here but kept out of the producer set: it builds no release file, yet a green
     # "Keyboard CI" must mean the Gaming Mode tests passed too, in every mode (it runs on drafts as well).
-    needs: [prepare, arch, fedora, fedora-arm64, flatpak, steamos, gaming-tests]
+    needs: [prepare, arch, arch-current, update-site-check, fedora, fedora-arm64, flatpak, steamos, gaming-tests]
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -877,6 +932,22 @@ jobs:
           GAMING_RESULT: ${{ needs.gaming-tests.result }}
         run: |
           if [[ "$GAMING_RESULT" != success ]]; then echo "gaming-tests finished as: $GAMING_RESULT"; exit 1; fi
+      # WHY a step per check: a skipped check counts only when its own condition (copied from the job) says it should
+      # not have run. A skipped-because-something-failed check therefore still fails "Keyboard CI".
+      - name: Current-Arch retest and update-site rehearsal must pass
+        if: ${{ always() }}
+        env:
+          CURRENT_ARCH_RESULT: ${{ needs.arch-current.result }}
+          SITE_CHECK_RESULT: ${{ needs.update-site-check.result }}
+          REUSE_RUN: ${{ needs.prepare.outputs.reuse_run }}
+          PREPARED_MODE: ${{ needs.prepare.outputs.mode }}
+        run: |
+          fail=0
+          want_arch=skipped; if [[ -z "$REUSE_RUN" && "$PREPARED_MODE" != docs ]]; then want_arch=success; fi
+          want_site=skipped; if [[ "$PREPARED_MODE" == full && "$GITHUB_REF" != refs/tags/* ]]; then want_site=success; fi
+          if [[ "$CURRENT_ARCH_RESULT" != "$want_arch" ]]; then echo "arch-current finished as: $CURRENT_ARCH_RESULT (wanted $want_arch)"; fail=1; fi
+          if [[ "$SITE_CHECK_RESULT" != "$want_site" ]]; then echo "update-site-check finished as: $SITE_CHECK_RESULT (wanted $want_site)"; fail=1; fi
+          exit $fail
       # Downloads come from this run, or, for a tag reusing main (card #200), only from the main run that
       # prepare chose for this exact commit, in this repository.
       # WHY tags only: files are re-downloaded to hash the exact bytes that get published. Non-release
@@ -923,7 +994,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           # WHY removed: the producer check wants exactly the producer jobs; gaming-tests has its own step above.
-          statuses=$(jq -c 'del(."gaming-tests")' <<< "$PRODUCER_STATUSES")
+          # WHY also removed: arch-current and update-site-check are checks, not producers; they are judged in their own step below.
+          statuses=$(jq -c 'del(."gaming-tests", ."arch-current", ."update-site-check")' <<< "$PRODUCER_STATUSES")
           if [[ -n "$REUSE_RUN" ]]; then
             # WHY: this run's producers were skipped on purpose; the results that count are those of the main run
             # whose files are checked below. Only a tag whose own prepare succeeded may do this.
@@ -1001,7 +1073,9 @@ jobs:
     # WHY a rehearsal on every full build: the real site is only built for a release tag, so without this its first run
     # would be the release itself. Same script, same checks, a throwaway key made here; the result is never published.
     if: ${{ needs.prepare.outputs.mode == 'full' && !startsWith(github.ref, 'refs/tags/') }}
-    needs: [prepare, keyboard-ci]
+    # WHY these needs, not keyboard-ci: it only reads the finished package files, so it starts the moment they exist and
+    # runs beside the current-Arch retest. "Keyboard CI" waits for it, so it still gates merges.
+    needs: [prepare, arch, fedora, fedora-arm64, flatpak, steamos]
     runs-on: ubuntu-24.04
     permissions:
       contents: read
