@@ -449,3 +449,21 @@ class DeckRedirectTests(unittest.TestCase):
                 path.write_text(bad)
                 with self.assertRaises(SystemExit):
                     module.flatpak_redirect(path)
+
+    def test_the_check_copy_really_drops_the_moved_note(self):
+        # WHY: Flatpak also saves the note in the repository's config; a rebuilt summary brought it back (CI, 2026-10-25)
+        import shutil, subprocess, tempfile
+        if not (shutil.which('ostree') and shutil.which('flatpak')):
+            self.skipTest('needs ostree and flatpak')
+        module = self.load()
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / 'repo'
+            subprocess.run(['ostree', 'init', '--mode=archive-z2', f'--repo={repo}'], check=True)
+            subprocess.run(['flatpak', 'build-update-repo', '--redirect-url=https://example.org/moved/', str(repo)],
+                           check=True, capture_output=True)
+            view = lambda r: subprocess.run(['ostree', 'summary', '--view', f'--repo={r}'], check=True,
+                                            capture_output=True, text=True).stdout
+            self.assertIn('xa.redirect-url', view(repo))
+            copy = module.copy_without_redirect(repo, Path(tmp) / 'copy')
+            self.assertNotIn('xa.redirect-url', view(copy))
+            self.assertIn('xa.redirect-url', view(repo))   # the real site is untouched

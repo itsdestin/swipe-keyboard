@@ -102,6 +102,19 @@ def flatpak_redirect(path=REDIRECT_FILE):
     return lines[0] if lines else ''
 
 
+def copy_without_redirect(repo, out, key_id=None):
+    """A copy of a Flatpak repository whose summary carries no "moved" note (same commits, rebuilt summary).
+
+    WHY the config line too: build-update-repo --redirect-url also saves the address in the repository's own config
+    ([flatpak] redirect-url), so rebuilding the summary alone brings the note back (found by CI, 2026-10-25).
+    """
+    out = Path(out)
+    shutil.copytree(repo, out, symlinks=True)
+    subprocess.run(['ostree', 'config', f'--repo={out}', 'unset', 'flatpak.redirect-url'], capture_output=True)
+    run('flatpak', 'build-update-repo', *([f'--gpg-sign={key_id}'] if key_id else []), '--title=Swipe Keyboard', str(out))
+    return out
+
+
 def build_flatpak(release, site, version_release, key_id):
     n = names(version_release)
     repo = site / 'repo'
@@ -242,8 +255,7 @@ def verify(site, keyring, armored, bundle=None, key_id=None):
         if not key_id:
             raise SystemExit('with the moved note on, verify needs --key-id to check the apps on a copy without it')
         flatpak_site = Path(tempfile.mkdtemp(prefix='swipekb-noredirect-'))
-        shutil.copytree(site / 'repo', flatpak_site / 'repo', symlinks=True)
-        run('flatpak', 'build-update-repo', f'--gpg-sign={key_id}', '--title=Swipe Keyboard', str(flatpak_site / 'repo'))
+        copy_without_redirect(site / 'repo', flatpak_site / 'repo', key_id)
     with tempfile.TemporaryDirectory() as home:
         env = {'HOME': home, 'PATH': '/usr/bin:/bin'}
         run('flatpak', 'remote-add', '--user', f'--gpg-import={keyring}', 'verify-repo', f'file://{flatpak_site}/repo', env=env)
