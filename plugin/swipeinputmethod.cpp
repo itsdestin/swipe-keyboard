@@ -978,7 +978,7 @@ void SwipeInputMethod::followContextLocale()
     auto *ic = inputContext();
     // WHY also check the engine's current method is this one: a stale method that is no longer the active one must not
     // reload models for a keyboard the person is not using.
-    if (!ic || ic->inputEngine()->inputMethod() != this) return;
+    if (!ic || !ic->inputEngine() || ic->inputEngine()->inputMethod() != this) return;
     // WHY only from the placeholder: a method that was given a real language (tests and the language switcher do this
     // directly) keeps it; only "C"/"POSIX" ("no language yet") is replaced, and only by a real language.
     const auto placeholder = isPlaceholderLocale;
