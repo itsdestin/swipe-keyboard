@@ -22,6 +22,11 @@ std::vector<std::string> toStd(const QStringList &l)
 }
 }
 
+swipekb::SwapParams tapBackParams(const QString &language)
+{
+    return swipekb::SwapParams::forLanguage(language.toStdString()).forTapBack();
+}
+
 std::vector<swipekb::SwapCandidate> gather(swipekb::LanguageEngine &engine, const QString &word,
                                            const RecentSwipes::Keys &keys, const QStringList &before,
                                            const QStringList &after, const RecentSwipes::Trace &trace,

@@ -36,10 +36,16 @@ struct Rules {
     Personalize personalize;
 };
 
-// WHY 32: a gathered list is at most SwapParams::pool (24) words plus 12 neighbours. The worker scores one word per
-// network lookup, so the list sent is bounded; the words cut are the ones the path and n-gram already ranked lowest,
-// which never reach the three places shown in practice.
+// WHY 32: a gathered list is at most SwapParams::pool (24) words plus 12 neighbours (plus up to 16 sentence words on a
+// tap-back list). The worker scores one word per network lookup, so the list sent is bounded; the words cut are the
+// ones the path and n-gram already ranked lowest, which rarely reach the three places shown (the swap bench cuts the
+// same way, so its numbers include that loss).
 inline constexpr int kMaxScored = 32;
+
+// The settings for a tap-back list in `language`: the language's tuned SwapParams with the tap-back rules (sentence
+// words, rarer words; SwapParams::forTapBack). WHY one function: both front ends must build tap-back lists alike, and
+// the bar right after a swipe (afterSwipeList) never uses these rules.
+swipekb::SwapParams tapBackParams(const QString &language);
 
 // Step 1. `keys` = the key rectangles the trace was drawn on (or the current layout's, for a typed word; empty when
 // no swipe has measured the layout yet). WHY a fallback: with no usable path (no keys yet, or a word with a digit)

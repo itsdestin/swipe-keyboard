@@ -113,6 +113,16 @@ private slots:
         QFETCH(QString, after); QFETCH(QStringList, words);
         QCOMPARE(swapflow::wordsAfter(after), words);
     }
+    // WHY (card #500, 2026-10-25): only tap-back lists use the looser rare-word rule; the bar after a swipe keeps the
+    // strict one.
+    void onlyTapBackListsUseTheTapBackRule() {
+        for (const char *lang : {"en", "de"}) {
+            const auto tb = swapflow::tapBackParams(QString::fromLatin1(lang));
+            QVERIFY(tb.tapBack);
+            QCOMPARE(tb.tapBackMinFrequency, swipekb::SwapParams::forLanguage(lang).tapBackMinFrequency);
+        }
+        QVERIFY(!swapflow::afterSwipeList("good", {cand("food", 0)}, {}, 5, rules()).pending.params.tapBack);
+    }
     void thePostSwipeListIsNotDressedLikeTheFirstGuess() {
         // WHY: after a swipe the first guess is the dictionary's spelling ("I", German "Haus"); its capitals say
         // nothing about the alternatives, and the swipe session applies Shift/Caps itself.
