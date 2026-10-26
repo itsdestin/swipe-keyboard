@@ -105,12 +105,8 @@ TEST(Swap, ForLanguageGivesTheTunedWeights) {
         EXPECT_FLOAT_EQ(p.ncPath, 0.f); EXPECT_FLOAT_EQ(p.ncBefore, 0.f); EXPECT_FLOAT_EQ(p.ncNeural, 0.f);
         EXPECT_FALSE(p.noContext);
     }
-    // The no-sentence floor is the one per-language setting (tuned 2026-10-25, swap.hpp).
-    EXPECT_EQ(SwapParams::forLanguage("en").ncMinFrequency, 0);
-    EXPECT_EQ(SwapParams::forLanguage("xx").ncMinFrequency, 0);
-    EXPECT_EQ(SwapParams::forLanguage("fr").ncMinFrequency, 80);
-    EXPECT_EQ(SwapParams::forLanguage("es").ncMinFrequency, 80);
-    EXPECT_EQ(SwapParams::forLanguage("de").ncMinFrequency, 66);
+    // The no-sentence floor is off in every language (2026-10-25: it did not hold on HeliBoard, see swap.hpp).
+    for (const char *lang : {"en", "fr", "de", "es", "xx"}) EXPECT_EQ(SwapParams::forLanguage(lang).ncMinFrequency, 0) << lang;
 }
 TEST(Swap, SyntheticTraceVisitsKeyCentres) {
     const auto keys = qwertyRects(0, 0, 1);

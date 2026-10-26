@@ -66,7 +66,7 @@ struct SwapParams {
     // No-sentence lists only: words rarer than this frequency (0..255) are not gathered (learned and texting words
     // always are); 0 = no floor beyond the usual rare-word rule. WHY a floor: outside English the swap search has no
     // rare-word cutoff (as recognize(), where one cost 2-5 points), and with no sentence to say otherwise the search
-    // order offers rare words that fit the path well. Values per language: see forLanguage().
+    // order offers rare words that fit the path well. Tuned values and why they are all 0: see forLanguage().
     int ncMinFrequency = 0;
     bool noContext = false;
     int pool = 24;           // beam candidates considered
@@ -134,15 +134,13 @@ struct SwapParams {
     //     12.2 / 8.8 % -> 4.6 / 3.3 % (today 10.0 / 4.1). Every floor from 60 to 66 scores the same, 68 loses 4.3.
     //     Tap-back with the swipe's guesses stays one swipe below today's keyboard in in-3 (48.94 against 51.06 %),
     //     as without the floor.
-    //   Spanish has no tuning slice: it takes French's 80 (its word list matches French's frequency by rank).
-    //   English keeps none: its usual cutoff (80) already applies (AlternativeParams::minFrequency).
-    static SwapParams forLanguage(const std::string &lang)
-    {
-        SwapParams p;
-        if (lang.rfind("fr", 0) == 0 || lang.rfind("es", 0) == 0) p.ncMinFrequency = 80;
-        else if (lang.rfind("de", 0) == 0) p.ncMinFrequency = 66;
-        return p;
-    }
+    //   Spanish has no tuning slice: it would take French's 80 (its word list matches French's frequency by rank).
+    // WHY 0 in every language anyway (owner's decision, 2026-10-25): tuned on only 48 / 47 sentence cases, the floor
+    // did not hold on the HeliBoard test sets (single words, many of them rarer): the right word was found less often
+    // than by today's keyboard in Spanish and French (after a swipe es 26.73/35.72 -> 23.48/30.47 %, fr 29.88/42.51 ->
+    // 26.47/37.21) and less than without the floor in German (23.19/29.48 -> 21.03/26.59). The knob stays so it can be
+    // re-tuned on a bigger non-English single-word tuning set.
+    static SwapParams forLanguage(const std::string &lang) { (void)lang; return SwapParams{}; }
 };
 
 // Best-first, at most topK, never `tapped` itself (case-insensitive). Score = wPath*path + ln(10)*(wBefore*before +
