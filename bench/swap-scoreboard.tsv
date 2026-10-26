@@ -319,3 +319,27 @@ date	commit	label	set	mode	n	measure	first	in3	extra
 2026-10-25	43b9e56	one brain swap (2026-10-25, junk by rank, no-sentence floor)	heliboard-en	new	5000	junk-tapback-notrace			9.98
 2026-10-25	43b9e56	one brain swap (2026-10-25, junk by rank, no-sentence floor)	heliboard-en	new	5000	speed			11.76
 2026-10-25	43b9e56	one brain swap (2026-10-25, junk by rank, no-sentence floor)	heliboard-en	new	5000	speed-after-swipe			7.05
+2026-10-25	2170b6c	one brain swap (2026-10-25, junk by rank, no floor)	heliboard-es	new	5000	after-swipe	29.98	40.72	cases 1201
+2026-10-25	2170b6c	one brain swap (2026-10-25, junk by rank, no floor)	heliboard-es	new	5000	tapback-trace	29.98	45.30	cases 1201
+2026-10-25	2170b6c	one brain swap (2026-10-25, junk by rank, no floor)	heliboard-es	new	5000	tapback-notrace	10.91	18.90	cases 1201
+2026-10-25	2170b6c	one brain swap (2026-10-25, junk by rank, no floor)	heliboard-es	new	5000	junk			40.13
+2026-10-25	2170b6c	one brain swap (2026-10-25, junk by rank, no floor)	heliboard-es	new	5000	junk-tapback-trace			41.48
+2026-10-25	2170b6c	one brain swap (2026-10-25, junk by rank, no floor)	heliboard-es	new	5000	junk-tapback-notrace			37.55
+2026-10-25	2170b6c	one brain swap (2026-10-25, junk by rank, no floor)	heliboard-es	new	5000	speed			8.87
+2026-10-25	2170b6c	one brain swap (2026-10-25, junk by rank, no floor)	heliboard-es	new	5000	speed-after-swipe			6.00
+2026-10-25	2170b6c	one brain swap (2026-10-25, junk by rank, no floor)	heliboard-fr	new	5000	after-swipe	32.79	47.69	cases 1583
+2026-10-25	2170b6c	one brain swap (2026-10-25, junk by rank, no floor)	heliboard-fr	new	5000	tapback-trace	32.79	54.64	cases 1583
+2026-10-25	2170b6c	one brain swap (2026-10-25, junk by rank, no floor)	heliboard-fr	new	5000	tapback-notrace	12.51	23.18	cases 1583
+2026-10-25	2170b6c	one brain swap (2026-10-25, junk by rank, no floor)	heliboard-fr	new	5000	junk			38.44
+2026-10-25	2170b6c	one brain swap (2026-10-25, junk by rank, no floor)	heliboard-fr	new	5000	junk-tapback-trace			38.99
+2026-10-25	2170b6c	one brain swap (2026-10-25, junk by rank, no floor)	heliboard-fr	new	5000	junk-tapback-notrace			35.48
+2026-10-25	2170b6c	one brain swap (2026-10-25, junk by rank, no floor)	heliboard-fr	new	5000	speed			9.53
+2026-10-25	2170b6c	one brain swap (2026-10-25, junk by rank, no floor)	heliboard-fr	new	5000	speed-after-swipe			6.33
+2026-10-25	2170b6c	one brain swap (2026-10-25, junk by rank, no floor)	heliboard-de	new	5000	after-swipe	23.19	29.48	cases 1764
+2026-10-25	2170b6c	one brain swap (2026-10-25, junk by rank, no floor)	heliboard-de	new	5000	tapback-trace	23.19	31.46	cases 1764
+2026-10-25	2170b6c	one brain swap (2026-10-25, junk by rank, no floor)	heliboard-de	new	5000	tapback-notrace	9.92	15.25	cases 1764
+2026-10-25	2170b6c	one brain swap (2026-10-25, junk by rank, no floor)	heliboard-de	new	5000	junk			17.23
+2026-10-25	2170b6c	one brain swap (2026-10-25, junk by rank, no floor)	heliboard-de	new	5000	junk-tapback-trace			18.11
+2026-10-25	2170b6c	one brain swap (2026-10-25, junk by rank, no floor)	heliboard-de	new	5000	junk-tapback-notrace			18.64
+2026-10-25	2170b6c	one brain swap (2026-10-25, junk by rank, no floor)	heliboard-de	new	5000	speed			9.24
+2026-10-25	2170b6c	one brain swap (2026-10-25, junk by rank, no floor)	heliboard-de	new	5000	speed-after-swipe			6.10
