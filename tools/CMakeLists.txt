@@ -54,6 +54,11 @@ target_include_directories(swapmeasures PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 add_executable(tst_swapmeasures tests/tst_swapmeasures.cpp)
 target_link_libraries(tst_swapmeasures PRIVATE swapmeasures Qt6::Core Qt6::Test)
 add_test(NAME tools_swapmeasures COMMAND tst_swapmeasures)
+# The junk rule both scoreboards share (benchdata.h): its English thresholds are pinned against the shipped list.
+add_executable(tst_junkrule tests/tst_junkrule.cpp)
+target_link_libraries(tst_junkrule PRIVATE swipekb_engine Qt6::Core Qt6::Test)
+add_test(NAME tools_junkrule COMMAND tst_junkrule)
+set_tests_properties(tools_junkrule PROPERTIES ENVIRONMENT "SWIPEKB_ASSETS=${SWIPEKB_ASSETS}")
 # swipekb-swap-bench: the swap scoreboard's engine (card #500). Baseline mode runs the shipped WordSwap::build itself.
 add_executable(swipekb-swap-bench swipekb-swap-bench.cpp)
 target_link_libraries(swipekb-swap-bench PRIVATE swipekb_engine swipekb_session swipekb_swapflow swipekb_language swapmeasures Qt6::Core)

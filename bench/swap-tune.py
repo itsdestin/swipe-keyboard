@@ -14,7 +14,9 @@ Objective: the mean of the three "right word among the options" (in3) rates for 
 (after-swipe, tap-back with the swipe's guesses, tap-back without them). Hard reject: junk in the bar after a swipe
 (measure 4) more than 1 point above today's keyboard (--mode baseline) on the same swipes, or junk among the tap-back
 options (measure 4b, with or without the swipe's guesses) more than 3 points above it (the card #500 limits; before
-2026-10-25 only the first was enforced here). Several --set are pooled (counts added up).
+2026-10-25 only the first was enforced here). Several --set are pooled (counts added up) for the objective, but the
+junk limits hold for EACH set on its own (WHY, 2026-10-25: pooled, the 7,198 English swipes outweighed French and
+German, so weights that raised their junk by 10 points still passed).
 
 Usage: bench/swap-tune.py --set trv8k [--set ...] [-j 3] [--bench PATH] [--log FILE] [--out FILE]
                           [--fixed JSON] [--pools 16,24,32] [--weights wPath,wBefore,wAfter,wNeural] [--start JSON]
@@ -156,6 +158,7 @@ def main():
         out = []
         for i, p in enumerate(params_list):
             r = pooled([blocks[i] for blocks in per_set])
+            r["per_set"] = {s: pooled([blocks[i]]) for s, blocks in zip(a.set, per_set)}
             r["params"] = p
             out.append(r)
             if log:
@@ -163,17 +166,24 @@ def main():
                 log.flush()
         return out
 
-    base = pooled([b[0] for b in ex.map(lambda s: run_bench(a.bench, s, "baseline", None), a.set)])
-    limit = base["junk"] + 1.0
-    tap_limits = {k: base[k] + 3.0 for k in ["tap-junk-trace", "tap-junk-notrace"]}
-    print(f"baseline: objective {base['objective']:.2f} junk {base['junk']:.2f}% (reject above {limit:.2f}%), tap-back "
-          f"junk {base['tap-junk-trace']:.2f}% / {base['tap-junk-notrace']:.2f}% (reject above "
-          f"{tap_limits['tap-junk-trace']:.2f}% / {tap_limits['tap-junk-notrace']:.2f}%)", flush=True)
+    base_blocks = [b[0] for b in ex.map(lambda s: run_bench(a.bench, s, "baseline", None), a.set)]
+    base = pooled(base_blocks)
+    base["per_set"] = {s: pooled([b]) for s, b in zip(a.set, base_blocks)}
+    # Per set: bar junk at most +1 point, tap-back junk at most +3 points over today's keyboard on the same swipes.
+    limits = {s: {"junk": b["junk"] + 1.0, "tap-junk-trace": b["tap-junk-trace"] + 3.0,
+                  "tap-junk-notrace": b["tap-junk-notrace"] + 3.0} for s, b in base["per_set"].items()}
+    print(f"baseline: objective {base['objective']:.2f}", flush=True)
+    for s, b in base["per_set"].items():
+        print(f"  {s}: objective {b['objective']:.2f} junk {b['junk']:.2f}% tap-back {b['tap-junk-trace']:.2f}% / "
+              f"{b['tap-junk-notrace']:.2f}% (reject above {limits[s]['junk']:.2f} / {limits[s]['tap-junk-trace']:.2f} / "
+              f"{limits[s]['tap-junk-notrace']:.2f})", flush=True)
+
+    def ok(r):
+        return all(r["per_set"][s][k] <= v + 1e-9 for s, lim in limits.items() for k, v in lim.items())
 
     def search(pool):
         cur = dict(fixed, **{w: start.get(w, 1) for w in weights}, pool=pool)
         best = grade([cur])[0]
-        ok = lambda r: r["junk"] <= limit and all(r[k] <= v for k, v in tap_limits.items())
         rounds = 0
         while rounds < 12:
             rounds += 1
@@ -193,11 +203,11 @@ def main():
     pools_list = [int(x) for x in a.pools.split(",")]
     with cf.ThreadPoolExecutor(max_workers=len(pools_list)) as pools:
         finals = list(pools.map(search, pools_list))
-    winners = [f for f in finals if f["junk"] <= limit and all(f[k] <= v for k, v in tap_limits.items())]
+    winners = [f for f in finals if ok(f)]
     # WHY lower junk breaks a tie: two weight sets that find the right word equally often differ only in how many
     # nonsense words they show.
     win = max(winners, key=lambda r: (r["objective"], -r["junk"])) if winners else None
-    result = {"sets": a.set, "fixed": fixed, "baseline": base, "per_pool": finals, "winner": win}
+    result = {"sets": a.set, "fixed": fixed, "baseline": base, "limits": limits, "per_pool": finals, "winner": win}
     text = json.dumps(result, indent=1)
     print(text)
     if a.out:

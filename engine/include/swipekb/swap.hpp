@@ -58,10 +58,16 @@ struct SwapParams {
     //   search order (0/0/0)    trv8k 38.72/50.15 | 39.02/54.90 | 24.78/41.10 (48.72); FR+DE 50.18
     //     (FR+DE 40.00/57.90 | 40.00/60.00 | 22.11/32.63, against 38.95/52.63 | 38.95/56.84 | 8.42/23.16).
     // A weighted mix of path, `before` and `neural` cannot reach it: the search's word prior and `before` disagree
-    // (French "données" after a swipe: -32.4 against -10.0 nats), so `before` is no stand-in for it. Junk (pooled over the three sets, as the tuner grades): bar 9.00 %
-    // (today 8.60, limit +1), tap-back 11.56 / 10.48 % (today 11.45 / 15.87, limit +3). French and German alone have
-    // more junk among tap-back options (27.8 / 20.8 % against 21.5 / 7.3 %): rarer words that fit the path well.
+    // (French "données" after a swipe: -32.4 against -10.0 nats), so `before` is no stand-in for it.
+    // Re-tuned per language on 2026-10-25 (grid ncPath {0 .. 2} x ncBefore x ncNeural {0 .. 1}, each language on its
+    // own no-sentence slice, junk limits per language): 0/0/0 stayed best for French and German too; every weighted
+    // mix that kept their junk within the limits lost "right word in 3" (French at best 46.5 against 52.1).
     float ncPath = 0.f, ncBefore = 0.f, ncNeural = 0.f;
+    // No-sentence lists only: words rarer than this frequency (0..255) are not gathered (learned and texting words
+    // always are); 0 = no floor beyond the usual rare-word rule. WHY a floor: outside English the swap search has no
+    // rare-word cutoff (as recognize(), where one cost 2-5 points), and with no sentence to say otherwise the search
+    // order offers rare words that fit the path well. Values per language: see forLanguage().
+    int ncMinFrequency = 0;
     bool noContext = false;
     int pool = 24;           // beam candidates considered
     int minFrequency = 80;   // same junk rule as AlternativeParams
@@ -112,13 +118,31 @@ struct SwapParams {
         q.noContext = !wordsBefore && !wordsAfter;
         return q;
     }
-    // The tuned weights for a language ("en", "fr", ...).
+    // The tuned settings for a language ("en", "fr", ...).
     // WHY one set for every language: French and German were tuned too (FUTO swipe-5 validation sessions, AZERTY
     // 262 swipes + German layout 386, only 75 wrong first guesses together). Their own best weights (wBefore .25,
     // pool 16) scored 46.22 there against 44.89 for the English weights: 1.3 points, about one swipe per measure, below
     // the 3-point margin set before looking. So the English weights are used everywhere (Spanish has no tuning data
     // and shares the French/German choice). Today's keyboard scores 43.11 on those French/German swipes.
-    static SwapParams forLanguage(const std::string &lang) { (void)lang; return SwapParams{}; }
+    // The no-sentence floor (ncMinFrequency) is per language (2026-10-25, each language's no-sentence tuning slice,
+    // 48 French / 47 German wrong first guesses, so one swipe is about 2 points; objective = mean in-3 of the three
+    // lists; junk = the scoreboards' rule, tools/benchdata.h):
+    //   French 80: objective 54.86 -> 52.08 (today's keyboard 47.22), every first and in-3 at or above today's
+    //     keyboard; tap-back junk 37.5 / 26.3 % -> 16.2 / 10.1 % (today 27.7 / 8.1, limits +3). 76 and lower break
+    //     the tap-back junk limit; 78 ties 80, 85 loses 2.8 points.
+    //   German 66: objective 45.39 unchanged (today 41.13), first guesses better (bar 36.17 -> 38.30 %); tap-back junk
+    //     12.2 / 8.8 % -> 4.6 / 3.3 % (today 10.0 / 4.1). Every floor from 60 to 66 scores the same, 68 loses 4.3.
+    //     Tap-back with the swipe's guesses stays one swipe below today's keyboard in in-3 (48.94 against 51.06 %),
+    //     as without the floor.
+    //   Spanish has no tuning slice: it takes French's 80 (its word list matches French's frequency by rank).
+    //   English keeps none: its usual cutoff (80) already applies (AlternativeParams::minFrequency).
+    static SwapParams forLanguage(const std::string &lang)
+    {
+        SwapParams p;
+        if (lang.rfind("fr", 0) == 0 || lang.rfind("es", 0) == 0) p.ncMinFrequency = 80;
+        else if (lang.rfind("de", 0) == 0) p.ncMinFrequency = 66;
+        return p;
+    }
 };
 
 // Best-first, at most topK, never `tapped` itself (case-insensitive). Score = wPath*path + ln(10)*(wBefore*before +

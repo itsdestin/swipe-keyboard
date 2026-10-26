@@ -18,6 +18,7 @@
 #include <cctype>
 #include <cstdlib>
 #include <fstream>
+#include <functional>
 #include <map>
 #include <sstream>
 #include <string>
@@ -104,13 +105,29 @@ inline std::vector<BenchSwipe> readSwipes(const std::string &jsonl, size_t limit
 
 // WHY one shared junk rule: the swipe scoreboard and the swap scoreboard both report "junk", and the two numbers must
 // mean the same thing, so the rule lives here once. A shown alternative is "junk" when the person would hardly ever
-// mean it: stretched (a letter three times in a row), rare (dictionary frequency under 80 of 255) or a rarely used
-// name (written with a capital in the dictionary, under 120; not in German, where all nouns are capitalised).
-// Fixed before tuning.
+// mean it: stretched (a letter three times in a row), rare (not among the language's top rareRank() words) or a
+// rarely used name (written with a capital in the dictionary and not among its top kNameRank words; not in German,
+// where all nouns are capitalised). Fixed before tuning.
+// WHY a rank and not a frequency (2026-10-25): the rule began as "frequency under 80 of 255, names under 120",
+// fitted on English. Measured on the word lists, a frequency means the same rank in all four (frequency 80 is about
+// the 31,000th word in en/es/fr/de alike), so the rank form keeps that meaning and states it. What differs is how
+// much of real typing lies beyond that rank: of the words people actually typed in the TUNING slices (FUTO trv8k
+// English, swipe-5 validation French and German), English 3.4 %, French 3.7 % but German 6.8 % (compound and
+// inflected words). So German's rank is set where 3.4 % of its typed words lie beyond it too (about 48,000; from
+// 367 typed words, so roughly 40,000-60,000). Spanish has no tuning slice and keeps English's rank, as French
+// (a Romance language) measured the same as English. English is unchanged: its 31,456th word has frequency 80,
+// and its 4,388th has 120.
 class JunkRule
 {
 public:
-    // Reads the dictionary file again for its own capitals, which the engine shows in lower case (en, es, fr).
+    // English: the number of words in its list with frequency 80 or more (the rule's original meaning).
+    static constexpr size_t kEnglishRareRank = 31456;
+    // Names: the number of English words with frequency 120 or more; every language.
+    static constexpr size_t kNameRank = 4388;
+    static size_t rareRank(const std::string &language) { return language.rfind("de", 0) == 0 ? 48000 : kEnglishRareRank; }
+
+    // Reads the dictionary file again for its own capitals, which the engine shows in lower case (en, es, fr), and
+    // for its frequencies in rank order.
     JunkRule(const std::string &dictPath, const std::string &language)
         : m_germanLike(language.rfind("de", 0) == 0)
     {
@@ -125,6 +142,13 @@ public:
             const std::string low = w.toLower().toStdString();
             if (!best.count(low) || fr > best[low]) { best[low] = fr; m_capitalised[low] = !w.isEmpty() && w.front().isUpper(); }
         }
+        std::vector<int> byRank;
+        for (const auto &[w, f] : best) byRank.push_back(f);
+        std::sort(byRank.begin(), byRank.end(), std::greater<int>());
+        // A word is among the top N when its frequency is at least the N-th word's (ties all count as inside).
+        auto at = [&](size_t rank) { return byRank.empty() ? 0 : byRank[std::min(rank, byRank.size()) - 1]; };
+        m_rareBelow = at(rareRank(language));
+        m_nameBelow = at(kNameRank);
     }
     bool operator()(const swipekb::LanguageEngine &engine, const std::string &word) const
     {
@@ -132,8 +156,11 @@ public:
         const std::string low = QString::fromStdString(word).toLower().toStdString();
         const auto it = m_capitalised.find(low);
         const bool name = !m_germanLike && it != m_capitalised.end() && it->second;
-        return stretched(word) || f < 80 || (name && f < 120);
+        return stretched(word) || f < m_rareBelow || (name && f < m_nameBelow);
     }
+    // The frequencies the ranks came to for this word list (English: 80 and 120).
+    int rareBelow() const { return m_rareBelow; }
+    int nameBelow() const { return m_nameBelow; }
 
 private:
     static bool stretched(const std::string &w)
@@ -144,6 +171,7 @@ private:
         return false;
     }
     bool m_germanLike;
+    int m_rareBelow = 80, m_nameBelow = 120;
     std::map<std::string, bool> m_capitalised;
 };
 

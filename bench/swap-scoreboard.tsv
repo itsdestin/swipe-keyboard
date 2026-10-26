@@ -9,9 +9,12 @@
 #   list on tapping back while the swipe's guesses are remembered; tapback-notrace = the same without them.
 #   For these three, only swipes whose FIRST guess was wrong count (their number is "cases" in extra); first = the right
 #   word is the first option, in3 = among the first three (best-first order, not the bar's middle-first layout).
-# junk: first guess right; extra = share of the bar's other places that are stretched, rare (frequency under 80 of
-#   255) or rare names (capitalised, under 120) — the swipe scoreboard's rule. junk-tapback-trace / junk-tapback-notrace:
-#   the same share among the three tap-back options (with / without the swipe's guesses).
+# junk: first guess right; extra = share of the bar's other places that are stretched, rare (not among the language's
+#   top 31,456 words, German 48,000; for English that is frequency under 80 of 255) or rare names (capitalised, not
+#   among the top 4,388; English: under 120) — the swipe scoreboard's rule (tools/benchdata.h JunkRule; rows
+#   whose label lacks "junk by rank" measured es/fr/de with "under 80 / under 120"; English is the same either way).
+#   junk-tapback-trace / junk-tapback-notrace: the same share among the three tap-back options (with / without the
+#   swipe's guesses).
 # speed: extra = ms to build one tap-back list; speed-after-swipe (new mode): average ms to build the bar after a swipe
 #   (input thread). skipped: swipes left out for want of a layout file. (Rows before 2026-10-25 have no tap-back junk.)
 date	commit	label	set	mode	n	measure	first	in3	extra

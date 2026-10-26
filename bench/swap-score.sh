@@ -89,9 +89,12 @@ if [ ! -f "$BOARD" ]; then
 #   list on tapping back while the swipe's guesses are remembered; tapback-notrace = the same without them.
 #   For these three, only swipes whose FIRST guess was wrong count (their number is "cases" in extra); first = the right
 #   word is the first option, in3 = among the first three (best-first order, not the bar's middle-first layout).
-# junk: first guess right; extra = share of the bar's other places that are stretched, rare (frequency under 80 of
-#   255) or rare names (capitalised, under 120) — the swipe scoreboard's rule. junk-tapback-trace / junk-tapback-notrace:
-#   the same share among the three tap-back options (with / without the swipe's guesses).
+# junk: first guess right; extra = share of the bar's other places that are stretched, rare (not among the language's
+#   top 31,456 words, German 48,000; for English that is frequency under 80 of 255) or rare names (capitalised, not
+#   among the top 4,388; English: under 120) — the swipe scoreboard's rule (tools/benchdata.h JunkRule; rows
+#   whose label lacks "junk by rank" measured es/fr/de with "under 80 / under 120"; English is the same either way).
+#   junk-tapback-trace / junk-tapback-notrace: the same share among the three tap-back options (with / without the
+#   swipe's guesses).
 # speed: extra = ms to build one tap-back list; speed-after-swipe (new mode): average ms to build the bar after a swipe
 #   (input thread). skipped: swipes left out for want of a layout file.
 date	commit	label	set	mode	n	measure	first	in3	extra
@@ -105,6 +108,11 @@ want=6; [ "$mode" = new ] && want=7 && rows=$((rows + $(grep -c '^after-swipe li
 # WHY recorded: swipes without a layout are left out of every measure, so the numbers cover fewer swipes than n says.
 skipped=$(sed -nE 's/^\(([0-9]+) swipes had no readable layout.*/\1/p' <<<"$out")
 commit=$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo none)
+# WHY a "-dirty" mark: a row measured with uncommitted changes to tracked files is not what that commit holds. The
+# scoreboard itself is left out (every run appends to it).
+if [ "$commit" != none ] && [ -n "$(git -C "$ROOT" status --porcelain --untracked-files=no -- . ':(exclude)bench/swap-scoreboard.tsv' 2>/dev/null)" ]; then
+    commit="$commit-dirty"
+fi
 day=$(date +%F)
 awk -v d="$day" -v c="$commit" -v l="$label" -v s="$set_name" -v m="$mode" -v n="$n" '
     /^(after-swipe|tapback-trace|tapback-notrace): / { f=$5; i=$7; gsub("%","",f); gsub("%","",i)

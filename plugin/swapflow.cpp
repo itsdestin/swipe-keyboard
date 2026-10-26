@@ -181,7 +181,9 @@ AfterSwipeList buildAfterSwipe(swipekb::LanguageEngine &engine, const QString &f
                                const QStringList &context, const RecentSwipes::Trace &trace, const QString &otherSpelling,
                                quint64 sessionSerial, const Rules &rules)
 {
-    const auto params = swipekb::SwapParams::forLanguage(rules.language.toStdString());
+    // WHY forContext before gathering too: with no words before, the search uses the no-sentence rare-word floor
+    // (SwapParams::ncMinFrequency), as afterSwipeList ranks with the no-sentence weights.
+    const auto params = swipekb::SwapParams::forLanguage(rules.language.toStdString()).forContext(!context.isEmpty(), false);
     // WHY the last word before: the same word pair the swipe's own guesses were personalized with (swipePrev).
     Rules own = rules;
     own.prev = context.isEmpty() ? QString() : context.last();

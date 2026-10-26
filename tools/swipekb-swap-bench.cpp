@@ -19,7 +19,7 @@
 // (the swap search and tidy-up the keyboard runs right after committing a swipe; the sentence scores run on a worker).
 // `--params F`: SwapParams as JSON {wPath, wBefore, wAfter, wNeural, pool, minFrequency, beam, searchPrior,
 // junkFilter, neighbours, neighbourFloor, syntheticTemperature,
-// tapBackSentenceWords, tapBackMinFrequency, tapBackRareWithin, ncPath, ncBefore, ncNeural} (missing keys keep the
+// tapBackSentenceWords, tapBackMinFrequency, tapBackRareWithin, ncPath, ncBefore, ncNeural, ncMinFrequency} (missing keys keep the
 // defaults), or an ARRAY of such objects: then every set is graded in one pass and each report is printed after a
 // line "== params N" (bench/swap-tune.py uses this; WHY: the swipe and the swap searches are the slow part, and they
 // do not depend on the weights, so one pass can grade many weight sets).
@@ -38,7 +38,7 @@
 // Usage:
 //   swipekb-swap-bench --mode baseline|new --dict D --model M [--ngram N --vocab V --nwp W] [--context | --no-context] --language L
 //                      (--layout F | --layouts-dir DIR) [--locale en_US] [--limit N] [--match ascii|lookup] [--params F]
-//                      [--diagnose | --diagnose-out FILE]
+//                      [--diagnose | --diagnose-out FILE] [--junk-out FILE]
 //                      swipes.jsonl
 // Output: Report::format() lines (bench/swap-score.sh reads them), then "setup: <engine mode> ngram=0|1 nwp=0|1 n=N".
 #include <QFile>
@@ -116,6 +116,7 @@ std::vector<SwapParams> readParams(const std::string &path, std::string &error)
         p.ncPath = float(o.value("ncPath").toDouble(p.ncPath));
         p.ncBefore = float(o.value("ncBefore").toDouble(p.ncBefore));
         p.ncNeural = float(o.value("ncNeural").toDouble(p.ncNeural));
+        p.ncMinFrequency = o.value("ncMinFrequency").toInt(p.ncMinFrequency);
         out.push_back(p);
     }
     if (out.empty()) error = path + ": no parameter sets";
@@ -128,7 +129,7 @@ int main(int argc, char **argv)
     LanguageEngineSetup setup;
     std::string layout, layoutsDir, input, match = "ascii", mode, vocab, nwp, params, locale = "en_US";
     bool useContext = false, noContext = false, diagnose = false;
-    std::string diagnoseFile;
+    std::string diagnoseFile, junkOut;
     size_t limit = 0;
     for (int i = 1; i < argc; ++i) {
         const std::string a = argv[i];
@@ -153,6 +154,7 @@ int main(int argc, char **argv)
         else if (a == "--params") params = val();
         else if (a == "--diagnose") diagnose = true;
         else if (a == "--diagnose-out") { diagnose = true; diagnoseFile = val(); }
+        else if (a == "--junk-out") junkOut = val();
         else if (a[0] != '-') input = a;
         else { std::fprintf(stderr, "unknown option %s\n", a.c_str()); return 2; }
     }
@@ -196,7 +198,16 @@ int main(int argc, char **argv)
 
     // WHY the shared rule (tools/benchdata.h): measure 4 must mean the same as the swipe scoreboard's "junk".
     const benchdata::JunkRule junkRule(setup.dictionary, setup.language);
-    auto junk = [&](const std::string &w) { return junkRule(engine, w); };
+    // --junk-out: every option shown for a word whose first guess was right, one line each (list, word, frequency,
+    // junk 0/1), first parameter set only. WHY: a junk definition can then be judged by reading the words it calls
+    // junk, and an alternative definition re-scored from the file without replaying the swipes.
+    std::FILE *junkLog = junkOut.empty() ? nullptr : std::fopen(junkOut.c_str(), "w");
+    if (!junkOut.empty() && !junkLog) { std::fprintf(stderr, "cannot write %s\n", junkOut.c_str()); return 1; }
+    auto junk = [&](const std::string &w, const char *list = nullptr) {
+        const bool j = junkRule(engine, w);
+        if (junkLog && list) std::fprintf(junkLog, "%s\t%s\t%d\t%d\n", list, w.c_str(), engine.frequency(w), j ? 1 : 0);
+        return j;
+    };
     const auto norm = [&](const std::string &s) { return benchdata::norm(s, match); };
     // Baseline mode's tidy-up of the dictionary neighbours, as the keyboard did before card #500: swear words are
     // dropped unless the tapped word is one itself (offeredUnprompted), then the regional spelling order
@@ -297,7 +308,7 @@ int main(int argc, char **argv)
             // they are built once per such pair and every weight set reuses them.
             struct Lists { std::vector<SwapCandidate> afterSwipe, trace, noTrace; };
             // WHY every gathering knob in the key: each changes which words are found; the weights do not.
-            using GatherKey = std::tuple<int, int, int, int, bool, int, float, float, int, int, float>;
+            using GatherKey = std::tuple<int, int, int, int, bool, int, float, float, int, int, float, int>;
             std::map<GatherKey, Lists> cache;
             auto withNeural = [&](std::vector<SwapCandidate> c) {
                 // WHY one call per list, all words at once: the keyboard's worker answers for the whole list, so
@@ -311,16 +322,22 @@ int main(int argc, char **argv)
                 }
                 return c;
             };
+            // WHY forContext per list, as the keyboard does (swapflow::afterSwipeList / tapBackParams): the bar after a
+            // swipe never has words after; a tap-back list has the recorded words after. With none on either side the
+            // list is ranked with the no-sentence weights, and gathered with the no-sentence rare-word floor (ncMinFrequency).
+            const bool hasBefore = !context.empty();
+            auto barParams = [&](const SwapParams &p) { return p.forContext(hasBefore, false); };
+            auto tapParams = [&](const SwapParams &p) { return p.forTapBack().forContext(hasBefore, !next.empty()); };
             double traceMs = -1;   // the first tap-back-with-trace search and its sentence scores (speed, below)
             auto listsFor = [&](const SwapParams &p) -> const Lists & {
                 const GatherKey key{p.pool, p.minFrequency, p.beam, p.searchPrior, p.junkFilter, p.neighbours,
                                     p.neighbourFloor, p.syntheticTemperature, p.tapBackSentenceWords,
-                                    p.tapBackMinFrequency, p.tapBackRareWithin};
+                                    p.tapBackMinFrequency, p.tapBackRareWithin, p.ncMinFrequency};
                 auto it = cache.find(key);
                 if (it != cache.end()) return it->second;
                 Lists l;
                 const auto ta = Clock::now();
-                auto afterCands = engine.swapCandidates(ws, keys, context, {}, s.trace, p);
+                auto afterCands = engine.swapCandidates(ws, keys, context, {}, s.trace, barParams(p));
                 // Timed as the keyboard builds the after-swipe list on the input thread: the search and the tidy-up
                 // (the first weight set's, once per swipe), without the sentence scores (a worker does those).
                 if (cache.empty()) {
@@ -334,7 +351,7 @@ int main(int argc, char **argv)
                 const auto t0 = Clock::now();
                 // WHY forTapBack: the keyboard builds tap-back lists with it (its rare-word rule), the bar after a
                 // swipe without.
-                const SwapParams tb = p.forTapBack();
+                const SwapParams tb = tapParams(p);
                 l.trace = withNeural(engine.swapCandidates(ws, keys, context, next, s.trace, tb));
                 if (traceMs < 0) traceMs = std::chrono::duration<double, std::milli>(Clock::now() - t0).count();
                 l.noTrace = withNeural(engine.swapCandidates(ws, keys, context, next, {}, tb));
@@ -358,12 +375,6 @@ int main(int argc, char **argv)
                 }
                 return kept;
             };
-            // WHY forContext per list, as the keyboard does (swapflow::afterSwipeList / tapBackParams): the bar after a
-            // swipe never has words after; a tap-back list has the recorded words after. With none on either side the
-            // list is ranked with the no-sentence weights.
-            const bool hasBefore = !context.empty();
-            auto barParams = [&](const SwapParams &p) { return p.forContext(hasBefore, false); };
-            auto tapParams = [&](const SwapParams &p) { return p.forTapBack().forContext(hasBefore, !next.empty()); };
             auto shownQ = [&](const std::vector<SwapCandidate> &c, const SwapParams &p, int k, bool dress) {
                 return swapflow::tidySwapList(w, asKeyboard(c, p), p, k, swapRules, dress);
             };
@@ -388,7 +399,7 @@ int main(int argc, char **argv)
                 r.add(Measure::AfterSwipe, wrongFirst, s.word, bar, norm);
                 if (!wrongFirst) {
                     size_t j = 0;
-                    for (const auto &a : bar) j += junk(a);
+                    for (const auto &a : bar) j += junk(a, i == 0 ? "bar" : nullptr);
                     r.addJunk(bar.size(), j);
                 }
                 const auto tapTrace = i == 0 ? first : shown(l.trace, tapParams(p), 3, true);
@@ -398,8 +409,8 @@ int main(int argc, char **argv)
                 if (!wrongFirst) {
                     // Measure 4b: junk among the tap-back options of a word that was already right.
                     size_t jt = 0, jn = 0;
-                    for (const auto &a : tapTrace) jt += junk(a);
-                    for (const auto &a : tapNoTrace) jn += junk(a);
+                    for (const auto &a : tapTrace) jt += junk(a, i == 0 ? "trace" : nullptr);
+                    for (const auto &a : tapNoTrace) jn += junk(a, i == 0 ? "notrace" : nullptr);
                     r.addTapJunk(0, tapTrace.size(), jt);
                     r.addTapJunk(1, tapNoTrace.size(), jn);
                 }
@@ -494,7 +505,7 @@ int main(int argc, char **argv)
         report.add(Measure::AfterSwipe, wrongFirst, s.word, after, norm);
         if (!wrongFirst) {
             size_t j = 0;
-            for (const auto &a : after) j += junk(a);
+            for (const auto &a : after) j += junk(a, "bar");
             report.addJunk(after.size(), j);
         }
         if (w.isEmpty()) {
@@ -528,8 +539,8 @@ int main(int argc, char **argv)
         // Measure 4b for today's keyboard too, so new-mode tap-back junk has a baseline to be judged against.
         if (!wrongFirst) {
             size_t jt = 0, jn = 0;
-            for (const auto &a : list) jt += junk(a.toStdString());
-            for (const auto &a : listNoTrace) jn += junk(a.toStdString());
+            for (const auto &a : list) jt += junk(a.toStdString(), "trace");
+            for (const auto &a : listNoTrace) jn += junk(a.toStdString(), "notrace");
             report.addTapJunk(0, size_t(list.size()), jt);
             report.addTapJunk(1, size_t(listNoTrace.size()), jn);
         }
@@ -562,10 +573,13 @@ int main(int argc, char **argv)
         }
     }
     if (diagOut) std::fclose(diagOut);
+    if (junkLog) std::fclose(junkLog);
     // bench/swap-score.sh records the average as its "speed-after-swipe" row (budget 20 ms on the input thread).
     if (newMode && afterLists)
         std::printf("after-swipe list time: avg %.2f ms, max %.2f ms over %zu lists (swap search + tidy-up, input thread)\n",
                     afterMsTotal / double(afterLists), afterMsMax, afterLists);
+    // WHY printed: the junk rule's frequency cut-offs come from a rank in this word list (benchdata.h).
+    std::printf("junk rule: rare below frequency %d, names below %d\n", junkRule.rareBelow(), junkRule.nameBelow());
     std::printf("setup: %s ngram=%d nwp=%d n=%zu\n", engine.mode(), haveNgram ? 1 : 0, haveNgram && !nwp.empty() ? 1 : 0, n);
     if (noLayout) std::printf("(%zu swipes had no readable layout file; skipped)\n", noLayout);
     return 0;

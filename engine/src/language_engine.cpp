@@ -546,8 +546,10 @@ std::vector<SwapCandidate> LanguageEngine::swapCandidates(const std::string &wor
         // word in the top 3" there (see init()). A tap-back list (SwapParams::tapBack) may go down to
         // tapBackMinFrequency, for a word between the two cutoffs only when its path is within tapBackRareWithin of
         // the tapped word's (see swap.hpp).
-        const int minFreq = std::min(sp.minFrequency, d_->alt.minFrequency);
-        const int lowFreq = sp.tapBack ? std::min(minFreq, sp.tapBackMinFrequency) : minFreq;
+        // A list for a word with no sentence around it (sp.noContext) never goes below sp.ncMinFrequency (see swap.hpp).
+        const int floor = sp.noContext ? sp.ncMinFrequency : 0;
+        const int minFreq = std::max(std::min(sp.minFrequency, d_->alt.minFrequency), floor);
+        const int lowFreq = sp.tapBack ? std::max(std::min(minFreq, sp.tapBackMinFrequency), floor) : minFreq;
         const auto offered = [&](const std::string &w, float path) {
             if (!sp.junkFilter) return true;
             int f = 0;

@@ -7,6 +7,7 @@
 #include <QtTest>
 
 #include "swapflow.h"
+#include "swipekb/language_engine.hpp"
 
 using swipekb::SwapCandidate;
 
@@ -170,6 +171,12 @@ private slots:
         QVERIFY(!swapflow::tapBackParams("en", {}, QStringList{"is"}).noContext);
         QVERIFY(swapflow::afterSwipeList("good", {cand("food", 0)}, {}, 5, rules(), false).pending.params.noContext);
         QVERIFY(!swapflow::afterSwipeList("good", {cand("food", 0)}, {}, 5, rules(), true).pending.params.noContext);
+        // buildAfterSwipe, the call the keyboard makes: a swipe with no words before it gets the no-sentence settings
+        // (weights and the no-sentence rare-word floor). WHY an engine with no files: nothing is gathered, but the
+        // list's settings are still decided, and that wiring is what is tested here.
+        swipekb::LanguageEngine engine;
+        QVERIFY(swapflow::buildAfterSwipe(engine, "good", {}, {}, {}, {}, 1, rules()).pending.params.noContext);
+        QVERIFY(!swapflow::buildAfterSwipe(engine, "good", {}, QStringList{"the"}, {}, {}, 1, rules()).pending.params.noContext);
     }
     void thePostSwipeListIsNotDressedLikeTheFirstGuess() {
         // WHY: after a swipe the first guess is the dictionary's spelling ("I", German "Haus"); its capitals say

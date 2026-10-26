@@ -105,6 +105,12 @@ TEST(Swap, ForLanguageGivesTheTunedWeights) {
         EXPECT_FLOAT_EQ(p.ncPath, 0.f); EXPECT_FLOAT_EQ(p.ncBefore, 0.f); EXPECT_FLOAT_EQ(p.ncNeural, 0.f);
         EXPECT_FALSE(p.noContext);
     }
+    // The no-sentence floor is the one per-language setting (tuned 2026-10-25, swap.hpp).
+    EXPECT_EQ(SwapParams::forLanguage("en").ncMinFrequency, 0);
+    EXPECT_EQ(SwapParams::forLanguage("xx").ncMinFrequency, 0);
+    EXPECT_EQ(SwapParams::forLanguage("fr").ncMinFrequency, 80);
+    EXPECT_EQ(SwapParams::forLanguage("es").ncMinFrequency, 80);
+    EXPECT_EQ(SwapParams::forLanguage("de").ncMinFrequency, 66);
 }
 TEST(Swap, SyntheticTraceVisitsKeyCentres) {
     const auto keys = qwertyRects(0, 0, 1);
@@ -548,4 +554,30 @@ TEST(LanguageEngineSwap, TapBackListsMayOfferRareWordsThatFitThePath)
     const auto kept = rare(c);
     for (const auto &x : kept) EXPECT_GE(x.path, it->path - 1e-3f) << x.word;
     EXPECT_LT(kept.size(), all.size()) << list(c);
+}
+
+// WHY (2026-10-25): a list for a word with no sentence around it never gathers words under ncMinFrequency, and a list
+// with a sentence is not touched by it (swap.hpp). English files, with the floor set by hand.
+TEST(LanguageEngineSwap, NoSentenceFloorOnlyCutsListsWithNoWordsAround)
+{
+    if (!haveEnglish()) GTEST_SKIP() << "set SWIPEKB_ASSETS to a fetched asset tree";
+    LanguageEngine e;
+    ASSERT_TRUE(e.init(english()));
+    const auto keys = qwertyRects(0, 0, 1);
+    const auto trace = traceThrough("were", keys);
+    SwapParams p = SwapParams{}.forTapBack();
+    p.tapBackSentenceWords = 0;
+    p.tapBackRareWithin = 1e9f;   // rare words may come in, so a floor has something to cut
+    p.ncMinFrequency = 120;
+    const auto below = [&](const std::vector<SwapCandidate> &c) {
+        size_t n = 0;
+        for (const auto &x : c) n += e.frequency(x.word) < 120;
+        return n;
+    };
+    const auto withSentence = e.swapCandidates("were", keys, {"we"}, {}, trace, p.forContext(true, false));
+    EXPECT_GT(below(withSentence), 0u) << list(withSentence);
+    const auto none = e.swapCandidates("were", keys, {}, {}, trace, p.forContext(false, false));
+    ASSERT_FALSE(none.empty());
+    // The other spelling ("we're") is never filtered; every other word is at or above the floor.
+    for (const auto &x : none) if (x.word != "we're") EXPECT_GE(e.frequency(x.word), 120) << x.word;
 }
