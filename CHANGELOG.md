@@ -11,8 +11,14 @@
 - **Tap-back lists may show rarer real words** when they fit your swipe well; the bar right after a swipe keeps the
   stricter rule.
 - **Measured** (`bench/swap-scoreboard.tsv`, only swipes whose first guess was wrong, first option / among three):
-  TODO(controller): fill in from the scoreboard rows after the final run — bench-2000 and test-extra-10000 after-swipe,
-  tap-back with and without the swipe, HeliBoard es/fr/de, junk and list time — with today's 0.5.0 numbers beside them.
+  English, when the first guess was wrong, baseline 0.5.0 -> now. bench-2000 (198 cases): after a swipe 19.70 / 30.81
+  -> 24.24 / 36.36, tap-back with the swipe 19.70 / 33.33 -> 36.36 / 42.42, tap-back without 12.12 / 16.67 -> 26.26 /
+  32.32. test-extra-10000 (957 cases): 24.66 / 32.60 -> 28.63 / 36.36, 24.76 / 34.38 -> 35.01 / 42.01, 10.76 / 15.57 ->
+  26.44 / 31.87. Rare or stretched words among the options go down (test-extra-10000 bar 6.29 % -> 4.90 %). Spanish,
+  French and German also find the right word more often (HeliBoard, in-3 after a swipe: es 35.72 -> 40.72, fr 42.51 ->
+  47.69, de 23.64 -> 29.48), but their tap-back lists show more rare words than before (es +4.68 and +9.03 points, fr
+  +3.72 and +8.97, de +1.04 and +5.14, with and without the swipe), beyond our +3-point limit. A tap-back list takes
+  about 9 ms (limit 20). Details: `docs/active/investigations/2026-10-24-swap-results.md`.
 - **Learned words:** words the keyboard learned from you still move up in the bar after a swipe (at half strength, as
   before). Tap-back lists are ordered by the swipe and the sentence only; forgotten words never appear in either.
 
