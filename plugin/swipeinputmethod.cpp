@@ -1251,7 +1251,8 @@ void SwipeInputMethod::observeWordSwap(const EditorSnapshot &editor)
     const QStringList after = policy.source == PredictionPolicySource::RawBridge
         ? swapflow::wordsAfter(editor.text.mid(span->start + span->length, 256)) : QStringList();
     // WHY tapBackParams: a tap-back list may offer rarer words that fit the path well (the person asked for options).
-    const auto params = swapflow::tapBackParams(snapshot.effectiveLanguage);
+    // WHY the words before and after too: with none on either side the list gets the no-sentence weights.
+    const auto params = swapflow::tapBackParams(snapshot.effectiveLanguage, sentence, after);
     auto cands = swapflow::gather(*m_engine, span->word, remembered ? remembered->second : m_layoutKeys, sentence, after,
                                   remembered ? remembered->first : RecentSwipes::Trace{}, params);
     m_lastSwapUsedPath = remembered.has_value();

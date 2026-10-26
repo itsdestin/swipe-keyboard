@@ -19,6 +19,12 @@ std::vector<std::string> rankSwap(const std::string &tapped, const std::vector<S
 {
     const QString tappedLow = QString::fromUtf8(tapped.c_str()).toLower();
     constexpr float kLn10 = 2.302585093f;
+    // WHY other weights with no sentence (SwapParams::forContext, swap.hpp): then `before` and `neural` only say how
+    // common a word is, and at the sentence weights they outvote the finger path. With the tuned 0 / 0 / 0 every score
+    // is equal and the stable sort below keeps the swap search's own order.
+    const float wPath = p.noContext ? p.ncPath : p.wPath;
+    const float wBefore = p.noContext ? p.ncBefore : p.wBefore;
+    const float wNeural = p.noContext ? p.ncNeural : p.wNeural;
     struct Scored { const SwapCandidate *c; float score; };
     std::vector<Scored> s;
     std::unordered_set<QString> seen;
@@ -31,9 +37,9 @@ std::vector<std::string> rankSwap(const std::string &tapped, const std::vector<S
         // instead: the neural score already blends that same n-gram (so the tuned wBefore is 0), and without a
         // stand-in the list shown before the worker answers would ignore the words before entirely (measured on
         // the tuning set, 2026-10-24: see swap.hpp).
-        const float lm = (p.wBefore + (c.hasNeural ? 0.f : p.wNeural)) * c.before + p.wAfter * c.after
-            + (c.hasNeural ? p.wNeural * c.neural : 0.f);
-        s.push_back({&c, p.wPath * c.path + kLn10 * lm});
+        const float lm = (wBefore + (c.hasNeural ? 0.f : wNeural)) * c.before + p.wAfter * c.after
+            + (c.hasNeural ? wNeural * c.neural : 0.f);
+        s.push_back({&c, wPath * c.path + kLn10 * lm});
     }
     // WHY stable: equal scores keep the caller's order (the beam's own order).
     std::stable_sort(s.begin(), s.end(), [](const Scored &a, const Scored &b) { return a.score > b.score; });

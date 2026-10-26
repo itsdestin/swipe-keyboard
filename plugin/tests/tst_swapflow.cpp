@@ -74,7 +74,7 @@ private slots:
         };
         r.prev = "the";   // what buildAfterSwipe sets from the words before
         const std::vector<SwapCandidate> c{cand("food", 0), cand("wood", -1), cand("hood", -2)};
-        auto after = swapflow::afterSwipeList("good", c, {}, 1, r);
+        auto after = swapflow::afterSwipeList("good", c, {}, 1, r, true);
         QCOMPARE(after.candidates, (QStringList{"good", "hood", "food"}));
         QCOMPARE(calls.last(), (QPair<QString, double>{"the", swapflow::kAfterSwipeBoost}));
         // The worker's scores re-rank the bar: still lifted.
@@ -151,7 +151,7 @@ private slots:
     // strict one.
     void onlyTapBackListsUseTheTapBackRule() {
         for (const char *lang : {"en", "de"}) {
-            const auto tb = swapflow::tapBackParams(QString::fromLatin1(lang));
+            const auto tb = swapflow::tapBackParams(QString::fromLatin1(lang), QStringList{"a"}, QStringList{});
             QVERIFY(tb.tapBack);
             // WHY these: the tap-back rule must really be looser than the bar's (rarer words allowed) and add
             // sentence words; otherwise "only tap-back lists" would test nothing.
@@ -159,24 +159,34 @@ private slots:
             QVERIFY(tb.tapBackSentenceWords > 0);
             QCOMPARE(tb.minFrequency, swipekb::SwapParams::forLanguage(lang).minFrequency);
         }
-        QVERIFY(!swapflow::afterSwipeList("good", {cand("food", 0)}, {}, 5, rules()).pending.params.tapBack);
+        QVERIFY(!swapflow::afterSwipeList("good", {cand("food", 0)}, {}, 5, rules(), true).pending.params.tapBack);
+    }
+    // WHY (2026-10-25): a word with no sentence around it (the first word of a message, HeliBoard-like) is ranked
+    // with the no-sentence weights; both front ends get that through tapBackParams and buildAfterSwipe.
+    void listsWithNoWordsAroundUseTheNoSentenceWeights() {
+        QVERIFY(swapflow::tapBackParams("en", {}, {}).noContext);
+        QVERIFY(swapflow::tapBackParams("en", {}, {}).tapBack);
+        QVERIFY(!swapflow::tapBackParams("en", QStringList{"the"}, {}).noContext);
+        QVERIFY(!swapflow::tapBackParams("en", {}, QStringList{"is"}).noContext);
+        QVERIFY(swapflow::afterSwipeList("good", {cand("food", 0)}, {}, 5, rules(), false).pending.params.noContext);
+        QVERIFY(!swapflow::afterSwipeList("good", {cand("food", 0)}, {}, 5, rules(), true).pending.params.noContext);
     }
     void thePostSwipeListIsNotDressedLikeTheFirstGuess() {
         // WHY: after a swipe the first guess is the dictionary's spelling ("I", German "Haus"); its capitals say
         // nothing about the alternatives, and the swipe session applies Shift/Caps itself.
-        const auto i = swapflow::afterSwipeList("I", {cand("in", 0), cand("it", -1), cand("i", -2)}, {}, 5, rules());
+        const auto i = swapflow::afterSwipeList("I", {cand("in", 0), cand("it", -1), cand("i", -2)}, {}, 5, rules(), true);
         QCOMPARE(i.candidates, (QStringList{"I", "in", "it"}));
-        const auto haus = swapflow::afterSwipeList("Haus", {cand("aus", 0), cand("Maus", -1)}, {}, 5, rules("de", "de_DE"));
+        const auto haus = swapflow::afterSwipeList("Haus", {cand("aus", 0), cand("Maus", -1)}, {}, 5, rules("de", "de_DE"), true);
         QCOMPARE(haus.candidates, (QStringList{"Haus", "aus", "Maus"}));
         QVERIFY(!haus.pending.dress);
         QCOMPARE(haus.pending.limit, 2);
         QCOMPARE(haus.pending.sessionSerial, quint64(5));
         QVERIFY(!haus.pending.waiting);   // armed only when a scoring job is sent
         // Nothing gathered: the bar keeps the swipe's own guesses.
-        QVERIFY(swapflow::afterSwipeList("Haus", {}, {}, 5, rules("de", "de_DE")).candidates.isEmpty());
+        QVERIFY(swapflow::afterSwipeList("Haus", {}, {}, 5, rules("de", "de_DE"), true).candidates.isEmpty());
     }
     void scoresGoToTheListTheyWereAskedFor() {
-        auto after = swapflow::afterSwipeList("its", {cand("ita", 0), cand("is", -1), cand("itd", -2)}, "it's", 9, rules());
+        auto after = swapflow::afterSwipeList("its", {cand("ita", 0), cand("is", -1), cand("itd", -2)}, "it's", 9, rules(), true);
         QVERIFY(after.pending.arm({1, 0, 4}));
         swapflow::PendingSwap tap;
         tap.tapped = "good";

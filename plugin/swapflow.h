@@ -54,9 +54,10 @@ inline constexpr double kTapBackBoost = 0.0;
 inline constexpr int kMaxScored = 32;
 
 // The settings for a tap-back list in `language`: the language's tuned SwapParams with the tap-back rules (sentence
-// words, rarer words; SwapParams::forTapBack). WHY one function: both front ends must build tap-back lists alike, and
-// the bar right after a swipe (afterSwipeList) never uses these rules.
-swipekb::SwapParams tapBackParams(const QString &language);
+// words, rarer words; SwapParams::forTapBack), and the no-sentence weights when there are no words `before` the tapped
+// word and none `after` it (SwapParams::forContext). WHY one function: both front ends must build tap-back lists
+// alike, and the bar right after a swipe (afterSwipeList) never uses the tap-back rules.
+swipekb::SwapParams tapBackParams(const QString &language, const QStringList &before, const QStringList &after);
 
 // Step 1. `keys` = the key rectangles the trace was drawn on (or the current layout's, for a typed word; empty when
 // no swipe has measured the layout yet). WHY a fallback: with no usable path (no keys yet, or a word with a digit)
@@ -145,9 +146,10 @@ struct AfterSwipeList {
     PendingSwap pending;
 };
 // From gathered candidates (no engine needed; tested on its own). Personalized with kAfterSwipeBoost after
-// `rules.prev` (buildAfterSwipe sets it to the last word before).
+// `rules.prev` (buildAfterSwipe sets it to the last word before). `wordsBefore` false = the swiped word starts the
+// text (no sentence): the no-sentence weights (SwapParams::forContext; the bar never has words after).
 AfterSwipeList afterSwipeList(const QString &first, std::vector<swipekb::SwapCandidate> cands, const QString &otherSpelling,
-                              quint64 sessionSerial, const Rules &rules);
+                              quint64 sessionSerial, const Rules &rules, bool wordsBefore);
 // The whole post-swipe build: gather (no words after: they do not exist yet) + afterSwipeList.
 AfterSwipeList buildAfterSwipe(swipekb::LanguageEngine &engine, const QString &first, const RecentSwipes::Keys &keys,
                                const QStringList &context, const RecentSwipes::Trace &trace, const QString &otherSpelling,

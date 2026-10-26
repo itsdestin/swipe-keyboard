@@ -22,9 +22,11 @@ std::vector<std::string> toStd(const QStringList &l)
 }
 }
 
-swipekb::SwapParams tapBackParams(const QString &language)
+swipekb::SwapParams tapBackParams(const QString &language, const QStringList &before, const QStringList &after)
 {
-    return swipekb::SwapParams::forLanguage(language.toStdString()).forTapBack();
+    // WHY forContext here: the words before and after are known only to the front end, and both front ends call this,
+    // so a list for a word with no sentence around it gets the no-sentence weights in both.
+    return swipekb::SwapParams::forLanguage(language.toStdString()).forTapBack().forContext(!before.isEmpty(), !after.isEmpty());
 }
 
 std::vector<swipekb::SwapCandidate> gather(swipekb::LanguageEngine &engine, const QString &word,
@@ -153,10 +155,11 @@ std::optional<QStringList> PendingSwap::answer(const PredictionStamp &got, const
 }
 
 AfterSwipeList afterSwipeList(const QString &first, std::vector<swipekb::SwapCandidate> cands, const QString &otherSpelling,
-                              quint64 sessionSerial, const Rules &rules)
+                              quint64 sessionSerial, const Rules &rules, bool wordsBefore)
 {
     AfterSwipeList out;
-    const auto params = swipekb::SwapParams::forLanguage(rules.language.toStdString());
+    // WHY forContext: a swipe that starts the text has no sentence; there the no-sentence weights rank the bar.
+    const auto params = swipekb::SwapParams::forLanguage(rules.language.toStdString()).forContext(wordsBefore, false);
     Rules own = rules;
     own.personalBoost = kAfterSwipeBoost;
     // WHY 2: the bar shows the typed word's two other places (three with the other spelling), as before.
@@ -182,7 +185,8 @@ AfterSwipeList buildAfterSwipe(swipekb::LanguageEngine &engine, const QString &f
     // WHY the last word before: the same word pair the swipe's own guesses were personalized with (swipePrev).
     Rules own = rules;
     own.prev = context.isEmpty() ? QString() : context.last();
-    return afterSwipeList(first, gather(engine, first, keys, context, {}, trace, params), otherSpelling, sessionSerial, own);
+    return afterSwipeList(first, gather(engine, first, keys, context, {}, trace, params), otherSpelling, sessionSerial, own,
+                          !context.isEmpty());
 }
 
 ScoredList handleScores(PendingSwap &tapBack, PendingSwap &afterSwipe, bool tapBackOpen, bool afterSwipeOpen,

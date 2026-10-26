@@ -45,6 +45,49 @@ TEST(Swap, WithoutNeuralTheNgramBeforeStandsIn) {
     std::vector<SwapCandidate> both{{"rare", -1, -4, 0, -1, true}, {"usual", -1, -1, 0, -2, true}};
     EXPECT_EQ(rankSwap("x", both, p, 1).front(), "rare");
 }
+// WHY (2026-10-25): with no words before and none after, `before` and `neural` only say how common a word is; at the
+// sentence weights they outvoted the finger path (HeliBoard sets, no sentences, worse than today's keyboard). Such a
+// list uses the no-sentence weights; a list with any words around it keeps the sentence weights.
+TEST(Swap, NoContextUsesTheNoSentenceWeights) {
+    SwapParams p; p.wPath = 1; p.wBefore = 0; p.wAfter = 1; p.wNeural = 1;
+    p.ncPath = 1; p.ncBefore = 0; p.ncNeural = 0;
+    // "common" fits the path worse but is the more common word; "swiped" fits better.
+    const std::vector<SwapCandidate> scored{{"common", -3, -1, 0, -1, true}, {"swiped", -1, -4, 0, -4, true}};
+    EXPECT_EQ(rankSwap("x", scored, p, 1).front(), "common");                          // default: sentence weights
+    EXPECT_EQ(rankSwap("x", scored, p.forContext(true, false), 1).front(), "common");  // words before
+    EXPECT_EQ(rankSwap("x", scored, p.forContext(false, true), 1).front(), "common");  // words after
+    EXPECT_EQ(rankSwap("x", scored, p.forContext(false, false), 1).front(), "swiped"); // none: the path decides
+    // Before the worker answers, `before` stands in with ncBefore + ncNeural (here 0: the path decides too).
+    const std::vector<SwapCandidate> bare{{"common", -3, -1}, {"swiped", -1, -4}};
+    EXPECT_EQ(rankSwap("x", bare, p.forContext(true, false), 1).front(), "common");
+    EXPECT_EQ(rankSwap("x", bare, p.forContext(false, false), 1).front(), "swiped");
+    SwapParams q = p; q.ncBefore = 1;
+    EXPECT_EQ(rankSwap("x", bare, q.forContext(false, false), 1).front(), "common");
+    q = p; q.ncNeural = 1;
+    EXPECT_EQ(rankSwap("x", bare, q.forContext(false, false), 1).front(), "common");
+}
+// WHY pinned (2026-10-25, swap.hpp): with no sentence the tuned no-sentence weights are all 0, so a list keeps the
+// swap search's own order (the recognizer's score), whatever the n-gram and neural scores say.
+TEST(Swap, NoContextKeepsTheSearchOrderByDefault) {
+    const SwapParams p = SwapParams::forLanguage("en").forContext(false, false);
+    const std::vector<SwapCandidate> c{{"first", -9, -6, 0, -6, true}, {"second", -1, -1, 0, -1, true},
+                                       {"third", -2, -2}};
+    EXPECT_EQ(rankSwap("x", c, p, 3), (std::vector<std::string>{"first", "second", "third"}));
+    // With words before, the same list is ranked by its scores.
+    EXPECT_EQ(rankSwap("x", c, SwapParams::forLanguage("en").forContext(true, false), 1).front(), "second");
+}
+TEST(Swap, ForContextOnlyMarksListsWithNoWordsAround) {
+    const SwapParams p = SwapParams::forLanguage("en");
+    EXPECT_FALSE(p.noContext);
+    EXPECT_TRUE(p.forContext(false, false).noContext);
+    EXPECT_FALSE(p.forContext(true, false).noContext);
+    EXPECT_FALSE(p.forContext(false, true).noContext);
+    EXPECT_FALSE(p.forContext(false, false).forContext(true, true).noContext);
+    // Nothing else changes, and the tap-back rules survive.
+    const SwapParams t = p.forTapBack().forContext(false, false);
+    EXPECT_TRUE(t.tapBack);
+    EXPECT_FLOAT_EQ(t.wNeural, p.wNeural); EXPECT_FLOAT_EQ(t.ncNeural, p.ncNeural); EXPECT_EQ(t.pool, p.pool);
+}
 // WHY pinned: these are the tuned weights (bench/swap-tune.py, 2026-10-24); changing them needs a new tuning run,
 // not a quiet edit. Every language uses the English values (see swap.hpp).
 TEST(Swap, ForLanguageGivesTheTunedWeights) {
@@ -59,6 +102,8 @@ TEST(Swap, ForLanguageGivesTheTunedWeights) {
         EXPECT_FALSE(p.tapBack);
         EXPECT_EQ(p.tapBackSentenceWords, 16); EXPECT_EQ(p.tapBackMinFrequency, 0);
         EXPECT_FLOAT_EQ(p.tapBackRareWithin, 1.f);
+        EXPECT_FLOAT_EQ(p.ncPath, 0.f); EXPECT_FLOAT_EQ(p.ncBefore, 0.f); EXPECT_FLOAT_EQ(p.ncNeural, 0.f);
+        EXPECT_FALSE(p.noContext);
     }
 }
 TEST(Swap, SyntheticTraceVisitsKeyCentres) {

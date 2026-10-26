@@ -19,7 +19,7 @@
 // (the swap search and tidy-up the keyboard runs right after committing a swipe; the sentence scores run on a worker).
 // `--params F`: SwapParams as JSON {wPath, wBefore, wAfter, wNeural, pool, minFrequency, beam, searchPrior,
 // junkFilter, neighbours, neighbourFloor, syntheticTemperature,
-// tapBackSentenceWords, tapBackMinFrequency, tapBackRareWithin} (missing keys keep the
+// tapBackSentenceWords, tapBackMinFrequency, tapBackRareWithin, ncPath, ncBefore, ncNeural} (missing keys keep the
 // defaults), or an ARRAY of such objects: then every set is graded in one pass and each report is printed after a
 // line "== params N" (bench/swap-tune.py uses this; WHY: the swipe and the swap searches are the slow part, and they
 // do not depend on the weights, so one pass can grade many weight sets).
@@ -29,10 +29,14 @@
 // but ranked too low. Prints a table and 20 example misses after the report; `--diagnose-out FILE` also writes one JSON
 // line per case and measure. WHY kept in the tool: it is how the next change to the swap lists should be chosen.
 // HeliBoard input has no sentence. WHY that matters: tap-back lists are then ranked with no words before the word,
-// the same as a word at the very start of a sentence.
+// the same as a word at the very start of a sentence. Every list is ranked as the keyboard ranks it: with no words
+// before and none after, with the no-sentence weights (SwapParams::forContext).
+// `--no-context` drops the sentence even when `--context` is given (the swipes are read without it). WHY: the
+// no-sentence weights are tuned on the tuning sets with their sentences removed (bench/swap-tune.py trv8k-nocontext),
+// which is how HeliBoard records and the first word of a message look.
 //
 // Usage:
-//   swipekb-swap-bench --mode baseline|new --dict D --model M [--ngram N --vocab V --nwp W] [--context] --language L
+//   swipekb-swap-bench --mode baseline|new --dict D --model M [--ngram N --vocab V --nwp W] [--context | --no-context] --language L
 //                      (--layout F | --layouts-dir DIR) [--locale en_US] [--limit N] [--match ascii|lookup] [--params F]
 //                      [--diagnose | --diagnose-out FILE]
 //                      swipes.jsonl
@@ -109,6 +113,9 @@ std::vector<SwapParams> readParams(const std::string &path, std::string &error)
         p.tapBackSentenceWords = o.value("tapBackSentenceWords").toInt(p.tapBackSentenceWords);
         p.tapBackMinFrequency = o.value("tapBackMinFrequency").toInt(p.tapBackMinFrequency);
         p.tapBackRareWithin = float(o.value("tapBackRareWithin").toDouble(p.tapBackRareWithin));
+        p.ncPath = float(o.value("ncPath").toDouble(p.ncPath));
+        p.ncBefore = float(o.value("ncBefore").toDouble(p.ncBefore));
+        p.ncNeural = float(o.value("ncNeural").toDouble(p.ncNeural));
         out.push_back(p);
     }
     if (out.empty()) error = path + ": no parameter sets";
@@ -120,7 +127,7 @@ int main(int argc, char **argv)
 {
     LanguageEngineSetup setup;
     std::string layout, layoutsDir, input, match = "ascii", mode, vocab, nwp, params, locale = "en_US";
-    bool useContext = false, diagnose = false;
+    bool useContext = false, noContext = false, diagnose = false;
     std::string diagnoseFile;
     size_t limit = 0;
     for (int i = 1; i < argc; ++i) {
@@ -140,6 +147,7 @@ int main(int argc, char **argv)
         else if (a == "--layout") layout = val();
         else if (a == "--layouts-dir") layoutsDir = val();
         else if (a == "--context") useContext = true;
+        else if (a == "--no-context") noContext = true;
         else if (a == "--limit") limit = size_t(std::atoll(val().c_str()));
         else if (a == "--match") match = val();
         else if (a == "--params") params = val();
@@ -150,7 +158,7 @@ int main(int argc, char **argv)
     }
     if (mode.empty() || setup.dictionary.empty() || (layout.empty() && layoutsDir.empty()) || input.empty()) {
         std::fprintf(stderr, "usage: swipekb-swap-bench --mode baseline|new --dict D --model M [--ngram N --vocab V --nwp W]"
-                             " [--context] --language L (--layout F | --layouts-dir DIR) [--locale en_US] [--limit N]"
+                             " [--context | --no-context] --language L (--layout F | --layouts-dir DIR) [--locale en_US] [--limit N]"
                              " [--match ascii|lookup] [--params F] swipes.jsonl\n");
         return 2;
     }
@@ -167,7 +175,7 @@ int main(int argc, char **argv)
     if (!newMode && paramSets.size() > 1) { std::fprintf(stderr, "several --params sets need --mode new\n"); return 2; }
 
     std::string readError;
-    const std::vector<BenchSwipe> swipes = benchdata::readSwipes(input, limit, useContext, &readError);
+    const std::vector<BenchSwipe> swipes = benchdata::readSwipes(input, limit, useContext && !noContext, &readError);
     if (!readError.empty()) { std::fprintf(stderr, "%s\n", readError.c_str()); return 1; }
     LanguageEngine engine;
     if (!engine.init(setup)) { std::fprintf(stderr, "cannot load the dictionary %s\n", setup.dictionary.c_str()); return 1; }
@@ -350,6 +358,12 @@ int main(int argc, char **argv)
                 }
                 return kept;
             };
+            // WHY forContext per list, as the keyboard does (swapflow::afterSwipeList / tapBackParams): the bar after a
+            // swipe never has words after; a tap-back list has the recorded words after. With none on either side the
+            // list is ranked with the no-sentence weights.
+            const bool hasBefore = !context.empty();
+            auto barParams = [&](const SwapParams &p) { return p.forContext(hasBefore, false); };
+            auto tapParams = [&](const SwapParams &p) { return p.forTapBack().forContext(hasBefore, !next.empty()); };
             auto shownQ = [&](const std::vector<SwapCandidate> &c, const SwapParams &p, int k, bool dress) {
                 return swapflow::tidySwapList(w, asKeyboard(c, p), p, k, swapRules, dress);
             };
@@ -361,7 +375,7 @@ int main(int argc, char **argv)
             // a worker in the keyboard, so this is an upper bound for the input thread.
             const Lists &firstLists = listsFor(paramSets.front());
             const auto t0 = Clock::now();
-            const auto first = shown(firstLists.trace, paramSets.front(), 3, true);
+            const auto first = shown(firstLists.trace, tapParams(paramSets.front()), 3, true);
             const double ms = traceMs + std::chrono::duration<double, std::milli>(Clock::now() - t0).count();
             for (size_t i = 0; i < paramSets.size(); ++i) {
                 const SwapParams &p = paramSets[i];
@@ -370,15 +384,15 @@ int main(int argc, char **argv)
                 // WHY through swapflow::afterSwipeCandidates: the keyboard's bar after a swipe is the first guess, its
                 // other spelling ("it's" after "its") when there is one, then the swap list; the bench grades the
                 // same other places (as baseline mode grades candidates.mid(1)).
-                const auto bar = toStd(swapflow::afterSwipeCandidates(w, shownQ(l.afterSwipe, p, 2, false), otherSpelling).mid(1));
+                const auto bar = toStd(swapflow::afterSwipeCandidates(w, shownQ(l.afterSwipe, barParams(p), 2, false), otherSpelling).mid(1));
                 r.add(Measure::AfterSwipe, wrongFirst, s.word, bar, norm);
                 if (!wrongFirst) {
                     size_t j = 0;
                     for (const auto &a : bar) j += junk(a);
                     r.addJunk(bar.size(), j);
                 }
-                const auto tapTrace = i == 0 ? first : shown(l.trace, p, 3, true);
-                const auto tapNoTrace = shown(l.noTrace, p, 3, true);
+                const auto tapTrace = i == 0 ? first : shown(l.trace, tapParams(p), 3, true);
+                const auto tapNoTrace = shown(l.noTrace, tapParams(p), 3, true);
                 r.add(Measure::TapBackTrace, wrongFirst, s.word, tapTrace, norm);
                 r.add(Measure::TapBackNoTrace, wrongFirst, s.word, tapNoTrace, norm);
                 if (!wrongFirst) {
@@ -423,7 +437,8 @@ int main(int argc, char **argv)
                     };
                     for (size_t k = 0; k < kPools.size(); ++k) d.inPool[k] += variant([&](SwapParams &q) { q.pool = kPools[k]; });
                     // The rank after ordering and tidy-up, in the full list.
-                    const auto tidied = toStd(swapflow::tidySwapList(w, asKeyboard(pool0, p0), p0, int(pool0.size()), swapRules, m != int(Measure::AfterSwipe)));
+                    const SwapParams pr = m == int(Measure::AfterSwipe) ? barParams(p0) : tapParams(p0);
+                    const auto tidied = toStd(swapflow::tidySwapList(w, asKeyboard(pool0, pr), pr, int(pool0.size()), swapRules, m != int(Measure::AfterSwipe)));
                     int rank = -1;
                     for (size_t j = 0; j < tidied.size(); ++j) if (norm(tidied[j]) == target) { rank = int(j); break; }
                     const bool gathered = has(pool0);

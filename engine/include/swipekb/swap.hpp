@@ -42,6 +42,27 @@ struct SwapCandidate {
 // (2026-10-24): on trv8k that list went from 34.63 (junk 6.96 %, over the junk limit) to 37.03 (junk 4.36 %).
 struct SwapParams {
     float wPath = 1.f, wBefore = 0.f, wAfter = 1.f, wNeural = 1.f;
+    // A list for a word with no words before it and none after it (`noContext`, set by forContext()): the first word
+    // of a message or field, or a field the keyboard may not read. Then `before` and `neural` hold nothing but how
+    // common each word is (at a sentence start), so they get their own weights: rankSwap uses ncPath / ncBefore /
+    // ncNeural instead of wPath / wBefore / wNeural (there is no `after` to weigh).
+    // WHY all three 0 = the swap search's own order (rankSwap's sort is stable, so equal scores keep the gathered
+    // order: other spellings, then the searched words best first by the search's score, then neighbours). That score
+    // is the swipe recognizer's own (path + its word prior), which is exactly how recognize() orders the guess bar's
+    // alternatives when there are no words before (it adds no sentence weight then). Tuned 2026-10-25 by
+    // bench/swap-tune.py on TUNING data only, the sets with their sentence removed (trv8k-nocontext: 7,198 swipes, 674
+    // wrong first guesses; tune-fr/de-nocontext: 95). first / in-3 (%), after-swipe | tap-back with | without the swipe:
+    //   today's keyboard        trv8k 38.87/49.26 | 38.87/50.89 |  9.50/21.51 (objective 40.55); FR+DE 44.21
+    //   sentence weights (1/0/1) trv8k 34.27/48.07 | 36.05/53.12 | 19.29/36.50 (45.90); FR+DE 41.75
+    //   best weights (path 1, before 0, neural .5): trv8k 47.63, FR+DE 40.35; path alone: 44.51, FR+DE 37.89
+    //   search order (0/0/0)    trv8k 38.72/50.15 | 39.02/54.90 | 24.78/41.10 (48.72); FR+DE 50.18
+    //     (FR+DE 40.00/57.90 | 40.00/60.00 | 22.11/32.63, against 38.95/52.63 | 38.95/56.84 | 8.42/23.16).
+    // A weighted mix of path, `before` and `neural` cannot reach it: the search's word prior and `before` disagree
+    // (French "données" after a swipe: -32.4 against -10.0 nats), so `before` is no stand-in for it. Junk (pooled over the three sets, as the tuner grades): bar 9.00 %
+    // (today 8.60, limit +1), tap-back 11.56 / 10.48 % (today 11.45 / 15.87, limit +3). French and German alone have
+    // more junk among tap-back options (27.8 / 20.8 % against 21.5 / 7.3 %): rarer words that fit the path well.
+    float ncPath = 0.f, ncBefore = 0.f, ncNeural = 0.f;
+    bool noContext = false;
     int pool = 24;           // beam candidates considered
     int minFrequency = 80;   // same junk rule as AlternativeParams
     // How the swap search gathers its words (card #500 hill-climb, 2026-10-24; see above). searchPrior and
@@ -82,6 +103,15 @@ struct SwapParams {
     float tapBackRareWithin = 1.f;
     // The same settings for a tap-back list.
     SwapParams forTapBack() const { SwapParams q = *this; q.tapBack = true; return q; }
+    // The same settings for a word with (or without) words before and after it: no words on either side = the
+    // no-sentence weights (ncPath, ncBefore, ncNeural). WHY both sides: words after are real sentence evidence
+    // (`after`), and the with-sentence weights were tuned with them; the bar right after a swipe never has words after.
+    SwapParams forContext(bool wordsBefore, bool wordsAfter) const
+    {
+        SwapParams q = *this;
+        q.noContext = !wordsBefore && !wordsAfter;
+        return q;
+    }
     // The tuned weights for a language ("en", "fr", ...).
     // WHY one set for every language: French and German were tuned too (FUTO swipe-5 validation sessions, AZERTY
     // 262 swipes + German layout 386, only 75 wrong first guesses together). Their own best weights (wBefore .25,
@@ -93,7 +123,8 @@ struct SwapParams {
 
 // Best-first, at most topK, never `tapped` itself (case-insensitive). Score = wPath*path + ln(10)*(wBefore*before +
 // wAfter*after + wNeural*neural); with hasNeural false, `before` stands in for the neural score (weight
-// wBefore + wNeural), never 0.
+// wBefore + wNeural), never 0. With p.noContext, ncPath / ncBefore / ncNeural take the places of wPath / wBefore /
+// wNeural (same rule, same stand-in).
 std::vector<std::string> rankSwap(const std::string &tapped, const std::vector<SwapCandidate> &cands,
                                   const SwapParams &p, int topK = 3);
 

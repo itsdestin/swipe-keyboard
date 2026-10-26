@@ -13,6 +13,8 @@
 #   --set    bench-2000 | test-extra-10000 (real English swipes, public MIT test split, never tuned on)
 #            | heliboard-es|fr|de|en (HeliBoard Gesture Data, CC BY-SA: test only, no sentences, per-swipe key boxes)
 #            | trv8k (FUTO English TUNING slice: its rows are labelled "[tuning]" and are never quoted as results)
+#            | trv8k-nocontext (the same tuning swipes with their sentence removed, as HeliBoard records and the first
+#              word of a message look; "[tuning]" too)
 #   --check  exit 1 against the newest rows with that label for the same set and n (any mode, so a new-mode run is
 #            judged against the baseline): any first or in3 lower, junk in the bar after a swipe more than 1 point
 #            higher, junk in a tap-back list more than 3 points higher, or a different number of skipped swipes.
@@ -49,6 +51,10 @@ case "$set_name" in
         lang=en; locale=en_US
         input="$EVAL/$set_name.jsonl"; [ "$set_name" = trv8k ] && input="$TUNE_EN"
         where=(--layout "$LAYOUT" --match ascii --context) ;;
+    trv8k-nocontext)
+        # WHY its own set: the no-sentence weights (SwapParams ncPath/ncBefore/ncNeural) are tuned on these swipes.
+        lang=en; locale=en_US; input="$TUNE_EN"
+        where=(--layout "$LAYOUT" --match ascii --no-context) ;;
     heliboard-es|heliboard-fr|heliboard-de|heliboard-en)
         lang="${set_name#heliboard-}"
         case "$lang" in es) locale=es_ES ;; fr) locale=fr_FR ;; de) locale=de_DE ;; en) locale=en_US ;; esac
@@ -59,7 +65,7 @@ case "$set_name" in
 esac
 dict="$L/$lang.combined"; [ "$lang" = en ] && dict="$L/en_swipe.combined"
 # WHY "[tuning]" forced on: tuning rows must never be quoted as results.
-if [ "$set_name" = trv8k ] && [[ "$label" != *tuning* ]]; then label="[tuning] $label"; fi
+if [[ "$set_name" = trv8k* ]] && [[ "$label" != *tuning* ]]; then label="[tuning] $label"; fi
 [ -s "$input" ] || { echo "swap-score.sh: missing swipes $input" >&2; exit 1; }
 
 lim=(); [ -n "$limit" ] && lim=(--limit "$limit")
