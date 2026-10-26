@@ -91,8 +91,8 @@ if [ ! -f "$BOARD" ]; then
 #   word is the first option, in3 = among the first three (best-first order, not the bar's middle-first layout).
 # junk: first guess right; extra = share of the bar's other places that are stretched, rare (not among the language's
 #   top 31,456 words, German 48,000; for English that is frequency under 80 of 255) or rare names (capitalised, not
-#   among the top 4,388; English: under 120) — the swipe scoreboard's rule (tools/benchdata.h JunkRule; rows
-#   whose label lacks "junk by rank" measured es/fr/de with "under 80 / under 120"; English is the same either way).
+#   among the top 4,388; English: under 120) — the swipe scoreboard's rule (tools/benchdata.h JunkRule, from
+#   commit 43b9e56; earlier rows measured es/fr/de junk as "under 80 / under 120"; English is the same either way).
 #   junk-tapback-trace / junk-tapback-notrace: the same share among the three tap-back options (with / without the
 #   swipe's guesses).
 # speed: extra = ms to build one tap-back list; speed-after-swipe (new mode): average ms to build the bar after a swipe
