@@ -21,7 +21,8 @@
 # Env: SWIPEKB_ASSETS (assets/; language files in its language-files/), SWIPEKB_EVAL (assets/eval),
 #      HELI (~/.cache/swipe-keyboard-train/heliboard/out), SWIPEKB_TUNE_EN (~/.cache/swipe-keyboard-train/shape/futo/trv8k.jsonl),
 #      SWIPEKB_LAYOUT (scripts/swipe/layouts/qwerty.tsv), SWAP_SCOREBOARD (bench/swap-scoreboard.tsv),
-#      SWIPEKB_SWAP_BENCH (build/tools/swipekb-swap-bench), SWIPEKB_SWAP_FLAGS (extra flags, e.g. "--params FILE"; say so in the label)
+#      SWIPEKB_SWAP_BENCH (build/tools/swipekb-swap-bench), SWIPEKB_SWAP_FLAGS (extra flags, e.g. "--params FILE"; say so in the label),
+#      SWAP_BENCH_OUT (also save the bench's whole output to this file; bench/ux-score.sh uses it)
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 A="${SWIPEKB_ASSETS:-$ROOT/assets}"
@@ -73,6 +74,9 @@ lim=(); [ -n "$limit" ] && lim=(--limit "$limit")
 out=$("$BENCH" --mode "$mode" --dict "$dict" --model "$L/swipe-model.bin" --ngram "$L/$lang.ngram" \
       --vocab "$L/$lang.vocab.tsv" --nwp "$L/$lang.nwp.bin" --language "$lang" --locale "$locale" "${where[@]}" \
       "${lim[@]}" ${SWIPEKB_SWAP_FLAGS:-} "$input" 2>&1) || { echo "swap-score.sh: swipekb-swap-bench failed:" >&2; tail -20 <<<"$out" >&2; exit 1; }
+# WHY SWAP_BENCH_OUT: bench/ux-score.sh reads the bench's "ux:" line from the same run, so the set's files and flags
+# are chosen in this one place.
+if [ -n "${SWAP_BENCH_OUT:-}" ]; then printf '%s\n' "$out" > "$SWAP_BENCH_OUT"; fi
 n=$(sed -nE 's/^setup: .* n=([0-9]+).*/\1/p' <<<"$out")
 [ -n "$n" ] || { echo "swap-score.sh: could not read swipekb-swap-bench output:" >&2; tail -20 <<<"$out" >&2; exit 1; }
 
