@@ -49,4 +49,30 @@ std::string Report::format() const {
     out += buf;
     return out;
 }
+
+Ux UxTally::add(bool firstRight, const std::string &target, const std::vector<std::string> &bar,
+                const std::vector<std::string> &tapBack, bool inWordList, size_t letters,
+                const std::function<std::string(const std::string &)> &norm)
+{
+    const std::string want = norm(target);
+    auto holds = [&](const std::vector<std::string> &list) {
+        for (const auto &w : list) if (norm(w) == want) return true;
+        return false;
+    };
+    // WHY this order: a person takes the cheapest fix there is; the first guess beats the bar, the bar beats tapping
+    // back. Retyping is all that is left.
+    const Ux u = firstRight ? Ux::Right0 : holds(bar) ? Ux::Right1 : holds(tapBack) ? Ux::Fixed2
+                 : inWordList ? Ux::RetypeInList : Ux::RetypeNotInList;
+    ++n[int(u)];
+    taps += tapsFor(u, letters);
+    return u;
+}
+
+std::string UxTally::format() const
+{
+    char buf[200];
+    std::snprintf(buf, sizeof buf, "ux: swipes=%zu right0=%zu right1=%zu fixed2=%zu retype_notinlist=%zu retype_inlist=%zu taps=%zu\n",
+                  swipes(), n[0], n[1], n[2], n[3], n[4], taps);
+    return buf;
+}
 }

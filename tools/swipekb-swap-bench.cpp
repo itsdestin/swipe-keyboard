@@ -31,6 +31,11 @@
 // HeliBoard input has no sentence. WHY that matters: tap-back lists are then ranked with no words before the word,
 // the same as a word at the very start of a sentence. Every list is ranked as the keyboard ranks it: with no words
 // before and none after, with the no-sentence weights (SwapParams::forContext).
+// Every run also prints one "ux:" line (swapmeasures.h UxTally, bench/ux-score.sh): for EVERY swipe, whether the person
+// needed no tap (first guess right), one tap (the word on the bar after the swipe), two taps (tapping the word later,
+// with this swipe remembered) or had to retype it, and in that case whether the word list has the word at all.
+// WHY here: these are the very lists the swap measures grade, built once; the user-experience scoreboard must not
+// rebuild them with copied logic.
 // `--no-context` drops the sentence even when `--context` is given (the swipes are read without it). WHY: the
 // no-sentence weights are tuned on the tuning sets with their sentences removed (bench/swap-tune.py trv8k-nocontext),
 // which is how HeliBoard records and the first word of a message look.
@@ -229,6 +234,18 @@ int main(int argc, char **argv)
     // One report per parameter set (baseline: one).
     std::vector<swapbench::Report> reports(paramSets.size());
     swapbench::Report &report = reports.front();
+    // The "ux:" line (first parameter set only). WHY the trimmed word: recorded sentence words keep their punctuation
+    // ("slipping."); the word list is asked about the word itself, and a person retyping it types its letters.
+    swapbench::UxTally ux;
+    size_t uxKeptOwnGuesses = 0;
+    auto uxAdd = [&](const BenchSwipe &s, bool firstRight, const std::vector<std::string> &bar,
+                     const std::vector<std::string> &tapBack) {
+        QString core = QString::fromStdString(s.word);
+        while (!core.isEmpty() && !core.front().isLetter()) core.remove(0, 1);
+        while (!core.isEmpty() && !core.back().isLetter()) core.chop(1);
+        const bool inList = !core.isEmpty() && engine.hasWord(core.toStdString());
+        ux.add(firstRight, s.word, bar, tapBack, inList, size_t(core.size()), norm);
+    };
     auto keysFor = [&](const BenchSwipe &s) {
         return benchdata::readLayout(layoutsDir.empty() ? layout : layoutsDir + "/" + s.board + ".tsv", s.w, s.h);
     };
@@ -289,6 +306,7 @@ int main(int argc, char **argv)
                 for (auto &r : reports)
                     for (auto k : {Measure::AfterSwipe, Measure::TapBackTrace, Measure::TapBackNoTrace})
                         r.add(k, wrongFirst, s.word, {}, norm);
+                uxAdd(s, false, {}, {});
                 continue;
             }
             const std::string ws = w.toStdString();
@@ -404,6 +422,14 @@ int main(int argc, char **argv)
                 }
                 const auto tapTrace = i == 0 ? first : shown(l.trace, tapParams(p), 3, true);
                 const auto tapNoTrace = shown(l.noTrace, tapParams(p), 3, true);
+                if (i == 0) {
+                    // WHY the swipe's own guesses when the swap list came out empty: the keyboard then keeps the bar it
+                    // already shows (swapflow::afterSwipeList / handleScores: "an emptier bar would be worse"). The
+                    // after-swipe measure above grades the swap list alone, as it always has.
+                    const bool emptySwap = shownQ(l.afterSwipe, barParams(p), 2, false).isEmpty();
+                    uxKeptOwnGuesses += emptySwap;
+                    uxAdd(s, !wrongFirst, emptySwap ? toStd(candidates.mid(1)) : bar, tapTrace);
+                }
                 r.add(Measure::TapBackTrace, wrongFirst, s.word, tapTrace, norm);
                 r.add(Measure::TapBackNoTrace, wrongFirst, s.word, tapNoTrace, norm);
                 if (!wrongFirst) {
@@ -511,6 +537,7 @@ int main(int argc, char **argv)
         if (w.isEmpty()) {
             report.add(Measure::TapBackTrace, wrongFirst, s.word, {}, norm);
             report.add(Measure::TapBackNoTrace, wrongFirst, s.word, {}, norm);
+            uxAdd(s, false, {}, {});
             continue;
         }
 
@@ -533,6 +560,7 @@ int main(int argc, char **argv)
         // needs the ranked order, best first.
         auto rankedOrder = [](QStringList l) { if (l.size() == 3) l.swapItemsAt(0, 1); return l; };
         report.add(Measure::TapBackTrace, wrongFirst, s.word, toStd(rankedOrder(list)), norm);
+        uxAdd(s, !wrongFirst, after, toStd(list));
         // 7. The same word with no remembered swipe guesses.
         const QStringList listNoTrace = WordSwap::build(w, {}, neighbours, ranked, 3);
         report.add(Measure::TapBackNoTrace, wrongFirst, s.word, toStd(rankedOrder(listNoTrace)), norm);
@@ -578,6 +606,8 @@ int main(int argc, char **argv)
     if (newMode && afterLists)
         std::printf("after-swipe list time: avg %.2f ms, max %.2f ms over %zu lists (swap search + tidy-up, input thread)\n",
                     afterMsTotal / double(afterLists), afterMsMax, afterLists);
+    std::printf("%s", ux.format().c_str());
+    if (uxKeptOwnGuesses) std::printf("ux note: %zu bars kept the swipe's own guesses (empty swap list)\n", uxKeptOwnGuesses);
     // WHY printed: the junk rule's frequency cut-offs come from a rank in this word list (benchdata.h).
     std::printf("junk rule: rare below frequency %d, names below %d\n", junkRule.rareBelow(), junkRule.nameBelow());
     std::printf("setup: %s ngram=%d nwp=%d n=%zu\n", engine.mode(), haveNgram ? 1 : 0, haveNgram && !nwp.empty() ? 1 : 0, n);
