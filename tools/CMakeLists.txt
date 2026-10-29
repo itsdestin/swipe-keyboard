@@ -62,3 +62,14 @@ set_tests_properties(tools_junkrule PROPERTIES ENVIRONMENT "SWIPEKB_ASSETS=${SWI
 # swipekb-swap-bench: the swap scoreboard's engine (card #500). Baseline mode runs the shipped WordSwap::build itself.
 add_executable(swipekb-swap-bench swipekb-swap-bench.cpp)
 target_link_libraries(swipekb-swap-bench PRIVATE swipekb_engine swipekb_session swipekb_swapflow swipekb_language swapmeasures Qt6::Core)
+
+# The user-experience scoreboard's typing half (bench/ux-score.sh): the typing simulator is plain counting, tested with
+# made-up bars; swipekb-typing-bench feeds it the bar both front ends build (plugin/barflow.h).
+add_library(typingsim STATIC typingsim.cpp)
+target_include_directories(typingsim PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(typingsim PUBLIC swipekb_engine Qt6::Core)
+add_executable(tst_typingsim tests/tst_typingsim.cpp)
+target_link_libraries(tst_typingsim PRIVATE typingsim Qt6::Test)
+add_test(NAME tools_typingsim COMMAND tst_typingsim)
+add_executable(swipekb-typing-bench swipekb-typing-bench.cpp)
+target_link_libraries(swipekb-typing-bench PRIVATE typingsim swipekb_swapflow swipekb_language swipekb_engine Qt6::Core)
