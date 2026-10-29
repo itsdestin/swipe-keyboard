@@ -4,6 +4,79 @@ Every number is traced to a file in the repository in an HTML comment next to it
 
 Models trained and released by Destin Moss via youcoded.ai, 2026. Project: https://github.com/itsdestin/swipe-keyboard. Model cards: [docs/models/](models/README.md).
 
+## What a typist feels
+
+The headline numbers. Everything further down this page (first guess, top 3, swap options when the guess was wrong) explains them; these say what using the keyboard is like. Written by `bench/ux-score.sh` into `bench/ux-scoreboard.tsv`.
+
+### Swiping: how much fixing each swiped word needs
+
+Every swipe is replayed through the keyboard's own code and lands in exactly one of these, cheapest first:
+
+| Bucket | What the person did |
+|---|---|
+| **0 taps** | Nothing: the first guess was the word. |
+| **1 tap** | Tapped the word on the bar shown right after the swipe (the bar the keyboard really shows, with its "it's after its" rule). |
+| **2 taps** | Tapped the word in the text later, then the right option in the list that opens (while the keyboard still remembers that swipe). |
+| **Retype, not in the word list** | None of the above, and the word is not in the keyboard's word list at all, so no list could have offered it. |
+| **Retype, in the word list** | None of the above, although the keyboard knows the word. These are the swipes to work on. |
+
+**Average taps per swiped word**: 0, 1 or 2 as above; a retype counts as the word's letters plus 1 (one Backspace deletes the wrong word, then every letter; the space is already there). It is a plain rule: it ignores the moment spent noticing the mistake, and a person may also give up and pick another word.
+
+Run for today's 0.5.0 keyboard (`--mode baseline`) and the tap-to-swap keyboard (`--mode new`) on the same swipes: bench-2000 and test-extra-10000 (real English swipes with their sentences) and the four HeliBoard sets (no sentence around the word, so every word is treated like the first word of a message).
+
+Limits: the people who recorded these swipes did not see our bar, so "1 tap" assumes they would have spotted the word there. The 2-tap list assumes the keyboard still remembers the swipe (it does for recent words, not for text typed long ago). No learning is switched on.
+
+### Typing: taps saved by the suggestions
+
+Each test sentence is typed letter by letter on the keyboard's three-slot bar, built by the very functions both front ends use (`plugin/barflow.h`): before a word the next-word suggestions, after each letter the completions (one slot always shows the letters typed). When the word is on the bar the person taps it (one tap; the keyboard adds the space), otherwise they type the next letter. **Taps saved** is the share of taps saved against typing every letter plus a space. We also report when the word came from the bar: before any letter, after 1, 2, or 3 or more letters, or never (typed to the end).
+
+Limits: punctuation and numbers are typed the same either way and are left out of both counts; Shift is not counted (the keyboard capitalises sentence starts itself); the person is assumed to look at the bar after every letter, which real people do not always do, so this is the most the bar can save, not what everyone saves. The first 300 sentences of each set are used (later sentences of these sets were used for tuning). Web and Tatoeba sets are partly home ground (see [Test sets](#test-sets)).
+
+### Your own swipes
+
+`bench/ux-score.sh --recordings ~/.local/share/swipe-keyboard/traces/swipes.jsonl --language en` gives the same buckets for the owner's own recordings (only when recording was switched on). It only reads the file, prints counts and never words, and saves nothing. The true word is taken honestly: a word picked on the bar is the word meant; a swipe the person moved on from is **assumed** right (they may not have noticed); a swipe deleted with Backspace was wrong, but the word typed instead was never recorded, so it is counted, not replayed; a swipe with no outcome (fixed later by tapping the word, or the cursor moved) is counted as unknown. The replay therefore leaves out the hardest swipes and reads better than reality.
+
+### Latest numbers
+
+<!-- bench/ux-scoreboard.tsv, label "ux scoreboard first run (2026-10-28)", commit e2275ad -->
+Swiping, percent of all swipes (0.5.0 = today's keyboard; new = tap-to-swap, card #500):
+
+| Set | Keyboard | 0 taps | 1 tap | 2 taps | Retype, not in list | Retype, in list | Taps per word |
+|---|---|---|---|---|---|---|---|
+| bench-2000 (2,000) | 0.5.0 | 90.10 | 3.05 | 0.35 | 2.20 | 4.30 | 0.493 |
+| | new | 90.10 | 3.60 | 0.65 | 2.20 | 3.45 | 0.442 |
+| test-extra-10000 (10,000) | 0.5.0 | 90.43 | 3.12 | 0.24 | 2.30 | 3.91 | 0.446 |
+| | new | 90.43 | 3.48 | 0.57 | 2.30 | 3.22 | 0.407 |
+| HeliBoard es (5,000, no sentence) | 0.5.0 | 75.98 | 8.58 | 0.16 | 9.54 | 5.74 | 1.595 |
+| | new | 75.98 | 9.78 | 1.10 | 9.54 | 3.60 | 1.427 |
+| HeliBoard fr | 0.5.0 | 68.34 | 13.46 | 0.66 | 7.76 | 9.78 | 1.729 |
+| | new | 68.34 | 15.10 | 2.20 | 7.76 | 6.60 | 1.501 |
+| HeliBoard de | 0.5.0 | 64.72 | 8.34 | 0.30 | 20.00 | 6.64 | 3.267 |
+| | new | 64.72 | 10.40 | 0.70 | 20.00 | 4.18 | 3.010 |
+| HeliBoard en | 0.5.0 | 80.76 | 8.30 | 0.58 | 0.00 | 10.36 | 0.976 |
+| | new | 80.76 | 9.66 | 1.84 | 0.00 | 7.74 | 0.779 |
+
+The first guess is the same in both (tap-to-swap changes only the lists); the gain is fewer retypes. One German swipe in five is a word our German list does not have, which no list can fix.
+
+Typing, first 300 sentences per set:
+
+| Set | Taps saved | From the bar before any letter | after 1 | after 2 | after 3+ | Typed to the end | Words |
+|---|---|---|---|---|---|---|---|
+| en everyday | 47.98 | 26.57 | 26.17 | 13.92 | 24.69 | 8.66 | 2,507 |
+| en web | 52.22 | 30.72 | 23.54 | 15.03 | 23.25 | 7.46 | 4,971 |
+| en tatoeba | 57.95 | 38.82 | 28.19 | 13.64 | 13.16 | 6.19 | 2,295 |
+| es everyday | 46.32 | 24.97 | 26.23 | 15.12 | 22.82 | 10.86 | 2,375 |
+| es web | 55.03 | 32.11 | 25.63 | 14.61 | 20.40 | 7.27 | 5,354 |
+| es tatoeba | 51.63 | 29.74 | 30.10 | 15.37 | 16.45 | 8.34 | 2,219 |
+| fr everyday | 43.69 | 19.80 | 27.96 | 14.60 | 23.97 | 13.67 | 2,253 |
+| fr web | 54.41 | 31.13 | 24.78 | 14.25 | 21.76 | 8.07 | 4,757 |
+| fr tatoeba | 54.01 | 30.90 | 32.00 | 13.16 | 16.68 | 7.26 | 2,272 |
+| de everyday | 48.11 | 23.24 | 25.67 | 18.27 | 22.91 | 9.91 | 2,392 |
+| de web | 48.11 | 23.38 | 24.34 | 15.19 | 24.10 | 13.00 | 4,162 |
+| de tatoeba | 53.44 | 28.11 | 29.84 | 18.22 | 17.30 | 6.52 | 2,376 |
+
+Everyday is the fairest set (never trained on); web and Tatoeba are partly home ground and read higher.
+
 ## Why this page exists
 
 We say our next-word and swipe models are good in some places and not in others. That is only believable if you can see exactly what was counted, on which text, against what, and what we got wrong along the way. This page is that account. It includes a measurement error we made and retracted ([the devhold incident](#the-devhold-contamination-incident)).
