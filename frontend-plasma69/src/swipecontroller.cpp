@@ -84,19 +84,15 @@ SwipeController::SwipeController(EditorPort *editor, QObject *parent, NextWordWo
     connect(&m_worker, &NextWordWorker::requestSettled, this, &SwipeController::predictionWorkSettled);
     connect(&m_worker, &NextWordWorker::resultReady, this, [this](PredictionStamp stamp, const QStringList &words) {
         observePredictionEcho();
-        // WHY next words only: a swear word is never offered out of the blue (Destin, 2026-10-22), unless the person
-        // uses it themselves with learning on.
+        // WHY barflow::nextWordOffer (shared with the legacy front end and the typing bench): personal words, no swear
+        // word out of the blue (Destin, 2026-10-22) unless the person uses it themselves with learning on, regional order.
         auto *pm = personal();
         const auto typedByPerson = [pm](const QString &key) {
             return pm && pm->usedByPerson(key.toStdString());
         };
-        QStringList offered;
-        for (const auto &word : personalize(words, m_nextPrev, QString(), true, 12)) {
-            if (swipekb::offeredUnprompted(word, m_profile.effectiveLanguage, typedByPerson)) {
-                offered << word;
-            }
-        }
-        if (m_nextWord.accept(stamp, swipekb::rankRegionalCandidates(offered, m_profile.requestedLocale, 12))) {
+        const auto offered = barflow::nextWordOffer(words, m_profile.effectiveLanguage, m_profile.requestedLocale,
+            [this](const QStringList &l) { return personalize(l, m_nextPrev, QString(), true, 12); }, typedByPerson);
+        if (m_nextWord.accept(stamp, offered)) {
             refreshBar();
         }
     });
@@ -120,14 +116,15 @@ SwipeController::SwipeController(EditorPort *editor, QObject *parent, NextWordWo
         if (!m_typedPress.isEmpty() || m_typedWord.token() != prefix || !(m_typedWord.stamp() == stamp)) {
             return;
         }
-        // WHY sentence-ranked words first, dictionary after (same as the legacy front end).
-        QStringList words = ranked;
+        // WHY barflow::completionOffer (shared with the legacy front end and the typing bench): sentence-ranked words
+        // first, dictionary after, then the person's own words, cut to three.
+        QStringList dictionary;
         for (const auto &c : m_engine->complete(prefix.toStdString(), 12)) {
-            words << QString::fromStdString(c.word);
+            dictionary << QString::fromStdString(c.word);
         }
-        words = personalize(words, m_completionPrev, prefix, true, 12);
         const auto old = m_typedWord.candidates();
-        m_typedWord.suggest(swipekb::rankRegionalCandidates(words, m_profile.requestedLocale, 3));
+        m_typedWord.suggest(barflow::completionOffer(ranked, dictionary, m_profile.requestedLocale,
+            [this, &prefix](const QStringList &l) { return personalize(l, m_completionPrev, prefix, true, 12); }));
         if (old != m_typedWord.candidates()) {
             refreshBar();
         }
@@ -1040,12 +1037,14 @@ void SwipeController::refreshTypedSuggestions(const EditorSnapshot &editor)
     if (token.isEmpty() || !ready()) {
         return;
     }
-    QStringList words;
+    QStringList dictionary;
     for (const auto &c : m_engine->complete(token.toStdString(), 12)) {
-        words << QString::fromStdString(c.word);
+        dictionary << QString::fromStdString(c.word);
     }
-    words = personalize(words, prevBeforeToken(editor, token), token, true, 12);
-    m_typedWord.suggest(swipekb::rankRegionalCandidates(words, m_profile.requestedLocale, 3));
+    // WHY completionOffer with no sentence-ranked words: the dictionary's list shows at once (shared rule).
+    const QString prev = prevBeforeToken(editor, token);
+    m_typedWord.suggest(barflow::completionOffer({}, dictionary, m_profile.requestedLocale,
+        [this, &prev, &token](const QStringList &l) { return personalize(l, prev, token, true, 12); }));
 }
 
 void SwipeController::invalidatePredictions()

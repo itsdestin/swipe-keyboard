@@ -43,8 +43,9 @@ target_link_libraries(swipekb_session PUBLIC Qt6::Core swipekb_engine)
 
 # The swap flow (card #500): gathering, tidy-up and re-ranking of swap lists, shared by both front ends and the swap
 # bench. WHY its own library: it needs the language text rules (swear words, regional spellings) and the engine, which
-# the pure text rules above do not.
-add_library(swipekb_swapflow STATIC swapflow.cpp)
+# the pure text rules above do not. barflow.cpp (the next-word and completion lists, shared with the typing bench)
+# needs the same rules, so it lives here too.
+add_library(swipekb_swapflow STATIC swapflow.cpp barflow.cpp)
 target_include_directories(swipekb_swapflow PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(swipekb_swapflow PUBLIC swipekb_session swipekb_language swipekb_engine)
 qt_add_executable(tst_swapflow tests/tst_swapflow.cpp)

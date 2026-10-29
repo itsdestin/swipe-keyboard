@@ -34,6 +34,7 @@
 #include "swipesession.h"
 #include "typedwordsession.h"
 #include "wordswap.h"
+#include "barflow.h"
 #include "swapflow.h"
 
 class EditorPort;

@@ -19,6 +19,7 @@
 #include "languageruntime.h"
 #include "profilediagnostics.h"
 #include "wordswap.h"
+#include "barflow.h"
 #include "swapflow.h"
 #include <QPointer>
 #include <QRegularExpression>
@@ -76,18 +77,14 @@ SwipeInputMethod::SwipeInputMethod(QObject *parent, NextWordWorker::Inference in
             QPointer<SwipeInputMethod> self(this);
             observePredictionEcho();
             if (!self) return;
-            // WHY next words only: a swear word is never offered out of the blue, but swiping or completing
-            // one from typed letters still works (Destin, 2026-10-22).
-            QStringList offered;
-            // WHY learned pairs join here: a word the person usually types after this one can lead the list, even
-            // when the n-gram file did not list it. Forgotten words are dropped inside personalize().
+            // WHY barflow::nextWordOffer (shared with the other front end and the typing bench): personal words,
+            // no swear word out of the blue (unless the person uses it: "i swipe 'fuck' often"), regional order.
             auto *pm=personal();
             const auto typedByPerson=[pm](const QString &key) { return pm && pm->usedByPerson(key.toStdString()); };
-            // WHY a swear word they typed or swiped themselves passes (owner: "i swipe 'fuck' often"); one they never
-            // used still never appears unprompted.
-            for (const auto &word:personalize(words, m_nextPrev, QString(), true, 12))
-                if (swipekb::offeredUnprompted(word, m_profiles.snapshot().effectiveLanguage, typedByPerson)) offered << word;
-            if (m_nextWord.accept(stamp, swipekb::rankRegionalCandidates(offered, m_profiles.snapshot().requestedLocale, 12))) refreshGuessBar();
+            const auto offered=barflow::nextWordOffer(words, m_profiles.snapshot().effectiveLanguage,
+                m_profiles.snapshot().requestedLocale,
+                [this](const QStringList &l) { return personalize(l, m_nextPrev, QString(), true, 12); }, typedByPerson);
+            if (m_nextWord.accept(stamp, offered)) refreshGuessBar();
         });
     connect(&m_predictionWorker, &NextWordWorker::wordScoresReady, this,
         [this](PredictionStamp stamp, const QStringList &words, const QVector<float> &scores) {
@@ -111,15 +108,13 @@ SwipeInputMethod::SwipeInputMethod(QObject *parent, NextWordWorker::Inference in
             // WHY the same unchanged word only, and never while a suggestion is held down: a list that
             // changes under the finger would type a different word than the one pressed.
             if (!m_typedPress.isEmpty() || m_typedWord.token()!=prefix || !(m_typedWord.stamp()==stamp)) return;
-            // WHY context-ranked words first, dictionary after: the sentence picks among words that start with
-            // the typed letters; the dictionary still offers one-letter-off corrections when nothing matches.
-            QStringList words=ranked;
-            for (const auto &candidate:m_engine->complete(prefix.toStdString(),12)) words<<QString::fromStdString(candidate.word);
-            // WHY after both lists are joined: the person's own words (names, favourites after this word) are weighed
-            // against the n-gram's order and the dictionary's, never replacing them wholesale.
-            words=personalize(words, m_completionPrev, prefix, true, 12);
+            // WHY barflow::completionOffer (shared with the other front end and the typing bench): sentence-ranked
+            // words first, the dictionary's after, then the person's own words, cut to three.
+            QStringList dictionary;
+            for (const auto &candidate:m_engine->complete(prefix.toStdString(),12)) dictionary<<QString::fromStdString(candidate.word);
             const auto old=m_typedWord.candidates();
-            m_typedWord.suggest(swipekb::rankRegionalCandidates(words,m_profiles.snapshot().requestedLocale,3));
+            m_typedWord.suggest(barflow::completionOffer(ranked, dictionary, m_profiles.snapshot().requestedLocale,
+                [this,&prefix](const QStringList &l) { return personalize(l, m_completionPrev, prefix, true, 12); }));
             if (old!=m_typedWord.candidates()) refreshGuessBar();
         });
 }
@@ -1614,10 +1609,13 @@ void SwipeInputMethod::refreshTypedSuggestions(const EditorSnapshot &editor)
 {
     const QString token=m_typedWord.token();
     if (token.isEmpty() || !isReady()) return;
-    QStringList words;
-    for (const auto &candidate:m_engine->complete(token.toStdString(),12)) words<<QString::fromStdString(candidate.word);
-    words=personalize(words, prevBeforeToken(editor, token), token, true, 12);
-    m_typedWord.suggest(swipekb::rankRegionalCandidates(words,m_profiles.snapshot().requestedLocale,3));
+    QStringList dictionary;
+    for (const auto &candidate:m_engine->complete(token.toStdString(),12)) dictionary<<QString::fromStdString(candidate.word);
+    // WHY completionOffer with no sentence-ranked words: the dictionary's list shows at once, the same way the bench
+    // grades it before the worker answers.
+    const QString prev=prevBeforeToken(editor, token);
+    m_typedWord.suggest(barflow::completionOffer({}, dictionary, m_profiles.snapshot().requestedLocale,
+        [this,&prev,&token](const QStringList &l) { return personalize(l, prev, token, true, 12); }));
 }
 
 bool SwipeInputMethod::selectionListRemoveItem(Type type, int index)

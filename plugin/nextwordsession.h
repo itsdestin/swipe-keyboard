@@ -33,6 +33,18 @@ struct EditorSnapshot {
     bool operator==(const EditorSnapshot &) const = default;
 };
 
+// The guess bar's display rules, shared by the sessions below (and TypedWordSession) and by the typing bench
+// (tools/swipekb-typing-bench). WHY free functions: the bench must show the very three slots a typist sees, without a
+// live editor or the stamps that guard it.
+namespace barrules {
+// NextWordSession::accept: at most three plain words (letters, inner ' ’ -; 64 characters at most), each once
+// whatever its case, the strongest in the middle.
+QStringList nextWordShown(const QStringList &words);
+// TypedWordSession::suggest: the best words for the typed letters `token`, in the token's capitals, with the letters
+// themselves always one of the three slots, the strongest in the middle. Empty when `token` is.
+QStringList typedShown(const QString &token, const QStringList &ranked);
+}
+
 // Owns only bounded, memory-only state. No editor object crosses the worker boundary.
 class NextWordSession {
 public:

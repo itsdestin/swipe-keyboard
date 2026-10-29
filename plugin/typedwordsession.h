@@ -45,21 +45,8 @@ public:
     QString selectionToken()const {
         return m_candidates.isEmpty()?QString():QStringLiteral("typed:%1:%2:%3").arg(m_stamp.profileEpoch).arg(m_stamp.editorEpoch).arg(m_stamp.requestId);
     }
-    void suggest(const QStringList &ranked) {
-        if(m_token.isEmpty())return;
-        QStringList words;for(auto word:ranked) {
-            // WHY two letters: one capital is a sentence start or a name ("H" -> "How"), not typing in capitals.
-            if(m_token.size()>1&&m_token==m_token.toUpper())word=word.toUpper();
-            else if(m_token.front().isUpper())word=word.left(1).toUpper()+word.mid(1);
-            if(!words.contains(word,Qt::CaseInsensitive))words<<word;
-            if(words.size()==3)break;
-        }
-        // Literal spelling is always a selectable escape hatch, never silently corrected.
-        const int literal=words.indexOf(m_token);
-        if(literal<0){while(words.size()>2)words.removeLast();words<<m_token;}
-        if(words.size()==3)words.swapItemsAt(0,1);
-        m_candidates=words;
-    }
+    // WHY shared (barrules::typedShown, nextwordsession.cpp): the typing bench grades the same three slots.
+    void suggest(const QStringList &ranked) { if(!m_token.isEmpty()) m_candidates=barrules::typedShown(m_token,ranked); }
     CommitPlan take(int index,const QString &pressed,const EditorSnapshot &e,const PredictionPolicy &p,quint64 epoch) {
         const auto token=selectionToken();observe(e,p,epoch);
         CommitPlan out;

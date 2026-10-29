@@ -105,17 +105,7 @@ void NextWordSession::editorChanged(const EditorSnapshot &e, const PredictionPol
 bool NextWordSession::accept(PredictionStamp stamp, const QStringList &words)
 {
     if (!m_requested || stamp != m_stamp) return false;
-    m_candidates.clear();
-    static const QRegularExpression lexical(QStringLiteral("^[\\p{L}]+(?:['’\\-][\\p{L}]+)*$"));
-    for (const auto &word : words) {
-        if (word.size() <= 64 && lexical.match(word).hasMatch() && !m_candidates.contains(word, Qt::CaseInsensitive))
-            m_candidates << word;
-        if (m_candidates.size() == 3) break;
-    }
-    // WHY one displayed list is also the selection authority: rank two goes left,
-    // strongest in the middle, rank three right; labels and callbacks cannot diverge.
-    // A genuinely short beam stays short, never padded with invented suggestions.
-    if (m_candidates.size()==3) m_candidates.swapItemsAt(0,1);
+    m_candidates = barrules::nextWordShown(words);
     return true;
 }
 
@@ -133,3 +123,39 @@ CommitPlan NextWordSession::takePrediction(int i, PredictionStamp displayedSet, 
     invalidate();
     return plan;
 }
+
+namespace barrules {
+QStringList nextWordShown(const QStringList &words)
+{
+    QStringList shown;
+    static const QRegularExpression lexical(QStringLiteral("^[\\p{L}]+(?:['’\\-][\\p{L}]+)*$"));
+    for (const auto &word : words) {
+        if (word.size() <= 64 && lexical.match(word).hasMatch() && !shown.contains(word, Qt::CaseInsensitive))
+            shown << word;
+        if (shown.size() == 3) break;
+    }
+    // WHY one displayed list is also the selection authority: rank two goes left,
+    // strongest in the middle, rank three right; labels and callbacks cannot diverge.
+    // A genuinely short beam stays short, never padded with invented suggestions.
+    if (shown.size() == 3) shown.swapItemsAt(0, 1);
+    return shown;
+}
+
+QStringList typedShown(const QString &token, const QStringList &ranked)
+{
+    if (token.isEmpty()) return {};
+    QStringList words;
+    for (auto word : ranked) {
+        // WHY two letters: one capital is a sentence start or a name ("H" -> "How"), not typing in capitals.
+        if (token.size() > 1 && token == token.toUpper()) word = word.toUpper();
+        else if (token.front().isUpper()) word = word.left(1).toUpper() + word.mid(1);
+        if (!words.contains(word, Qt::CaseInsensitive)) words << word;
+        if (words.size() == 3) break;
+    }
+    // Literal spelling is always a selectable escape hatch, never silently corrected.
+    const int literal = words.indexOf(token);
+    if (literal < 0) { while (words.size() > 2) words.removeLast(); words << token; }
+    if (words.size() == 3) words.swapItemsAt(0, 1);
+    return words;
+}
+} // namespace barrules

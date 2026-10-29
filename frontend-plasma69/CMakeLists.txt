@@ -41,7 +41,7 @@ add_library(swipekb69_core STATIC
     # WHY swap.cpp: LanguageEngine::swapCandidates (tap-to-swap) uses its made-up finger path for typed words.
     ${_engine}/swap.cpp
     ${_plugin}/languageprofile.cpp ${_plugin}/languageruntime.cpp ${_plugin}/languagetextrules.cpp ${_plugin}/language-assets.qrc
-    ${_plugin}/swipesession.cpp ${_plugin}/nextwordsession.cpp ${_plugin}/predictionpolicy.cpp ${_plugin}/wordswap.cpp ${_plugin}/swapflow.cpp
+    ${_plugin}/swipesession.cpp ${_plugin}/nextwordsession.cpp ${_plugin}/predictionpolicy.cpp ${_plugin}/wordswap.cpp ${_plugin}/swapflow.cpp ${_plugin}/barflow.cpp
     ${_plugin}/nextwordworker.cpp ${_plugin}/nextwordworker.h ${_plugin}/learningmanager.cpp ${_plugin}/learningmanager.h
     # The front end's own logic, also linked by the unit tests (no QML or KDE needed).
     src/swipecontroller.h src/swipecontroller.cpp src/editorport.h src/editorport.cpp)
