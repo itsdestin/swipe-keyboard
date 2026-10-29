@@ -34,6 +34,8 @@ struct BenchSwipe {
     std::vector<swipekb::TracePoint> trace;
     // Sentence words before and after the swiped word (empty unless the sentence was asked for).
     std::vector<std::string> before, after;
+    // The swipe's own key rectangles (the owner's recordings, tools/recordings.h); empty = read the layout file.
+    std::vector<swipekb::KeyRect> keys;
 };
 
 // Key rectangles in canvas pixels from a layout file (0..1 of the letter area), or empty when unreadable.

@@ -36,6 +36,11 @@
 // with this swipe remembered) or had to retype it, and in that case whether the word list has the word at all.
 // WHY here: these are the very lists the swap measures grade, built once; the user-experience scoreboard must not
 // rebuild them with copied logic.
+// `--recordings FILE`: the swipes are the owner's own opt-in recordings (traces/swipes.jsonl; tools/recordings.h says
+// which word each one is taken to be, and which cannot be replayed), on the keys recorded with each swipe, with the
+// words that were before it. Prints a "recorded:" line of counts too. WHY so strict: the file holds what the owner
+// typed. With it the tool only reads: every option that writes a file or prints words (--diagnose, --diagnose-out,
+// --junk-out) is refused, and the output is counts only.
 // `--no-context` drops the sentence even when `--context` is given (the swipes are read without it). WHY: the
 // no-sentence weights are tuned on the tuning sets with their sentences removed (bench/swap-tune.py trv8k-nocontext),
 // which is how HeliBoard records and the first word of a message look.
@@ -45,6 +50,7 @@
 //                      (--layout F | --layouts-dir DIR) [--locale en_US] [--limit N] [--match ascii|lookup] [--params F]
 //                      [--diagnose | --diagnose-out FILE] [--junk-out FILE]
 //                      swipes.jsonl
+//   swipekb-swap-bench --mode baseline|new --dict D ... --language L --recordings ~/.local/share/swipe-keyboard/traces/swipes.jsonl
 // Output: Report::format() lines (bench/swap-score.sh reads them), then "setup: <engine mode> ngram=0|1 nwp=0|1 n=N".
 #include <QFile>
 #include <QJsonArray>
@@ -67,6 +73,7 @@
 #include <vector>
 
 #include "benchdata.h"
+#include "recordings.h"
 #include "languagetextrules.h"
 #include "swapmeasures.h"
 #include "swipekb/language_engine.hpp"
@@ -133,7 +140,7 @@ int main(int argc, char **argv)
 {
     LanguageEngineSetup setup;
     std::string layout, layoutsDir, input, match = "ascii", mode, vocab, nwp, params, locale = "en_US";
-    bool useContext = false, noContext = false, diagnose = false;
+    bool useContext = false, noContext = false, diagnose = false, fromRecordings = false, matchGiven = false;
     std::string diagnoseFile, junkOut;
     size_t limit = 0;
     for (int i = 1; i < argc; ++i) {
@@ -155,15 +162,22 @@ int main(int argc, char **argv)
         else if (a == "--context") useContext = true;
         else if (a == "--no-context") noContext = true;
         else if (a == "--limit") limit = size_t(std::atoll(val().c_str()));
-        else if (a == "--match") match = val();
+        else if (a == "--match") { match = val(); matchGiven = true; }
         else if (a == "--params") params = val();
         else if (a == "--diagnose") diagnose = true;
         else if (a == "--diagnose-out") { diagnose = true; diagnoseFile = val(); }
         else if (a == "--junk-out") junkOut = val();
+        else if (a == "--recordings") { fromRecordings = true; input = val(); }
         else if (a[0] != '-') input = a;
         else { std::fprintf(stderr, "unknown option %s\n", a.c_str()); return 2; }
     }
-    if (mode.empty() || setup.dictionary.empty() || (layout.empty() && layoutsDir.empty()) || input.empty()) {
+    // WHY refused outright, before anything is opened: these options write files or print words, and the owner's
+    // recordings must only ever be read and summed up.
+    if (fromRecordings && (diagnose || !diagnoseFile.empty() || !junkOut.empty())) {
+        std::fprintf(stderr, "--recordings prints counts only: --diagnose, --diagnose-out and --junk-out are refused\n");
+        return 2;
+    }
+    if (mode.empty() || setup.dictionary.empty() || (layout.empty() && layoutsDir.empty() && !fromRecordings) || input.empty()) {
         std::fprintf(stderr, "usage: swipekb-swap-bench --mode baseline|new --dict D --model M [--ngram N --vocab V --nwp W]"
                              " [--context | --no-context] --language L (--layout F | --layouts-dir DIR) [--locale en_US] [--limit N]"
                              " [--match ascii|lookup] [--params F] swipes.jsonl\n");
@@ -182,7 +196,15 @@ int main(int argc, char **argv)
     if (!newMode && paramSets.size() > 1) { std::fprintf(stderr, "several --params sets need --mode new\n"); return 2; }
 
     std::string readError;
-    const std::vector<BenchSwipe> swipes = benchdata::readSwipes(input, limit, useContext && !noContext, &readError);
+    recordings::Counts recorded;
+    std::vector<BenchSwipe> swipes = fromRecordings ? recordings::read(input, recorded, &readError)
+                                                    : benchdata::readSwipes(input, limit, useContext && !noContext, &readError);
+    if (fromRecordings) {
+        if (noContext) for (auto &s : swipes) s.before.clear();
+        if (limit && swipes.size() > limit) swipes.resize(limit);
+        // WHY "lookup" unless told otherwise: the owner's words keep their accents and apostrophes.
+        if (!matchGiven) match = "lookup";
+    }
     if (!readError.empty()) { std::fprintf(stderr, "%s\n", readError.c_str()); return 1; }
     LanguageEngine engine;
     if (!engine.init(setup)) { std::fprintf(stderr, "cannot load the dictionary %s\n", setup.dictionary.c_str()); return 1; }
@@ -247,6 +269,7 @@ int main(int argc, char **argv)
         ux.add(firstRight, s.word, bar, tapBack, inList, size_t(core.size()), norm);
     };
     auto keysFor = [&](const BenchSwipe &s) {
+        if (!s.keys.empty()) return s.keys;
         return benchdata::readLayout(layoutsDir.empty() ? layout : layoutsDir + "/" + s.board + ".tsv", s.w, s.h);
     };
     // The sentence as the keyboard reads it from the text (swipekb::textContextWords, at most 20 words).
@@ -607,6 +630,7 @@ int main(int argc, char **argv)
         std::printf("after-swipe list time: avg %.2f ms, max %.2f ms over %zu lists (swap search + tidy-up, input thread)\n",
                     afterMsTotal / double(afterLists), afterMsMax, afterLists);
     std::printf("%s", ux.format().c_str());
+    if (fromRecordings) std::printf("%s", recorded.format().c_str());
     if (uxKeptOwnGuesses) std::printf("ux note: %zu bars kept the swipe's own guesses (empty swap list)\n", uxKeptOwnGuesses);
     // WHY printed: the junk rule's frequency cut-offs come from a rank in this word list (benchdata.h).
     std::printf("junk rule: rare below frequency %d, names below %d\n", junkRule.rareBelow(), junkRule.nameBelow());
