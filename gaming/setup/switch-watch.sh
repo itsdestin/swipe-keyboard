@@ -55,12 +55,31 @@ current_word() {
     if command -v pgrep >/dev/null 2>&1; then
         pid="$(pgrep -o -x steam 2>/dev/null | head -n 1)"
         if [ -n "$pid" ] && [ -e "/proc/$pid" ]; then
+            started="$(process_start "$pid")"
             while IFS= read -r d; do
-                [ -e "$d/$MARKER_NAME" ] && [ "$d/$MARKER_NAME" -nt "/proc/$pid" ] && { echo restart; return; }
+                # WHY not "-nt /proc/PID": that folder's time is when the kernel first listed it, which can be long after
+                # Steam started, so a file made after Steam's start could look older and the reminder was skipped
+                # (found on openSUSE, 2026-10-30). WHY -ge: in the same second we cannot tell; asking for a restart is safe.
+                [ -e "$d/$MARKER_NAME" ] && [ -n "$started" ] \
+                    && [ "$(date -r "$d/$MARKER_NAME" +%s 2>/dev/null || echo 0)" -ge "$started" ] && { echo restart; return; }
             done <<< "$dirs"
         fi
     fi
     echo ok
+}
+
+process_start() { # PID -> when it started, in seconds since 1970, from the kernel's own record (or nothing)
+    local stat boot='' key value hz=100
+    stat="$(cat "/proc/$1/stat" 2>/dev/null)" || return 0
+    # WHY after the last ")": the program name in field 2 may itself contain spaces or brackets. What follows starts
+    # at field 3, so the start time (field 22, in clock ticks since boot) is the 20th word.
+    # shellcheck disable=SC2086
+    set -- ${stat##*)}
+    while read -r key value _; do [ "$key" = btime ] && boot="$value"; done < /proc/stat
+    # WHY 100 when getconf is missing: Linux reports these times in 100ths of a second on every common build.
+    command -v getconf >/dev/null 2>&1 && hz="$(getconf CLK_TCK 2>/dev/null || echo 100)"
+    [ -n "${20:-}" ] && [ -n "$boot" ] && [ "${hz:-0}" -gt 0 ] 2>/dev/null && echo $(( boot + ${20} / hz ))
+    return 0
 }
 
 write_word() { # only touches our own state folder, and only when the word changed

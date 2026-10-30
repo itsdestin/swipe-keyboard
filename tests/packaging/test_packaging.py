@@ -4,6 +4,7 @@
 
 """Packaging contract tests; stage fixtures exercise the real CMake installer."""
 import pathlib
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -120,6 +121,9 @@ class Packaging(unittest.TestCase):
         self.assertIn('custom:TATOEBA-CC-BY-2.0-FR.txt',texts[0])
         self.assertTrue((ROOT/'packaging/language-models/TATOEBA-CC-BY-2.0-FR.txt').is_file())
 
+    # WHY skip without git: a distro build environment need not have it (openSUSE's rpmbuild on a minimal system, card
+    # #502); CI's package jobs install git, so the check still runs on every release build.
+    @unittest.skipUnless(shutil.which('git'), 'needs git')
     def test_source_archive_holds_tracked_files_only(self):
         import shutil
         import tarfile
