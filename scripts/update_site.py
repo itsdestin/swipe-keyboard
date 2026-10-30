@@ -13,6 +13,8 @@ DIR holds the verified release files (the same bytes the release published). The
   repo/                       Flatpak repository with both Deck apps, every commit and the summary signed
   fedora/<arch>/repodata/     dnf metadata, repomd.xml signed; the packages themselves stay on the release page
   arch/latest.json(.sig)      what the Arch updater reads: version, URL and SHA256 of the package
+  deb/<target>/, opensuse/<target>/latest.json(.sig)  the same for Kubuntu/Debian and openSUSE (card #502), one folder
+                              per distro release, written only when that release's package is among the files
   swipe-keyboard.gpg/.asc     the public update key, plus .flatpakrepo/.flatpakref files carrying it
 Signing uses the key already imported into gpg (CI imports it from the secret; the rehearsal uses a throwaway key).
 """
@@ -66,13 +68,43 @@ def sign(path, key_id, armor=False):
     return out
 
 
-def arch_index(release, tag, version_release, downloads):
-    package = release / names(version_release)['arch']
+def package_index(package, tag, version, downloads):
+    """What an index-based updater reads (integration/update.py): the version and the package's URL, SHA256 and size."""
     return {
-        'schema': 1, 'package': 'swipe-keyboard', 'version': version_release,
+        'schema': 1, 'package': 'swipe-keyboard', 'version': version,
         'files': {'x86_64': {'url': f'{downloads}/{tag}/{package.name}', 'sha256': sha256(package),
                              'size': package.stat().st_size}},
     }
+
+
+def arch_index(release, tag, version_release, downloads):
+    return package_index(release / names(version_release)['arch'], tag, version_release, downloads)
+
+
+def distro_packages(version_release):
+    """(folder on the site, package version, file name) for each Kubuntu/Debian/openSUSE target (card #502).
+    WHY the target in the version: each is built against one distro release, and the updater must only ever install
+    that release's build (packaging/debian/build.sh, packaging/opensuse/swipe-keyboard.spec)."""
+    out = []
+    for target in ('kubuntu-26.10', 'debian-testing'):
+        version = f"{version_release}.{target.replace('-', '')}"
+        out.append((f'deb/{target}', version, f'swipe-keyboard_{version}_amd64.deb'))
+    version = f'{version_release}.tumbleweed'
+    out.append(('opensuse/tumbleweed', version, f'swipe-keyboard-{version}.x86_64.rpm'))
+    return out
+
+
+def build_distro_indexes(release, site, tag, version_release, key_id, downloads):
+    # WHY only when present: these packages are not release producers until the OpenSwipe rename (card #501), so a
+    # release without them must still build its site. Once they are producers, the release gate guarantees the files.
+    for folder, version, name in distro_packages(version_release):
+        package = release / name
+        if not package.is_file():
+            continue
+        (site / folder).mkdir(parents=True)
+        index = site / folder / 'latest.json'
+        index.write_text(json.dumps(package_index(package, tag, version, downloads), indent=1) + '\n')
+        sign(index, key_id)
 
 
 def build_arch(release, site, tag, version_release, key_id, downloads):
@@ -165,6 +197,7 @@ def build(release, tag, key_id, out, base_url=BASE_URL, downloads=DOWNLOADS, tes
     site.mkdir(parents=True)
     write_key_files(site, key_id, base_url, test_key)
     build_arch(release, site, tag, version_release, key_id, downloads)
+    build_distro_indexes(release, site, tag, version_release, key_id, downloads)
     build_fedora(release, site, tag, version_release, key_id, downloads)
     build_flatpak(release, site, version_release, key_id)
     (site / 'index.html').write_text(
