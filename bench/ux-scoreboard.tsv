@@ -161,3 +161,27 @@ date	commit	label	kind	set	mode	n	measure	value
 2026-10-28	e2275ad	ux scoreboard first run (2026-10-28)	typing	de-tatoeba	-	2376	bar2	18.22
 2026-10-28	e2275ad	ux scoreboard first run (2026-10-28)	typing	de-tatoeba	-	2376	bar3plus	17.30
 2026-10-28	e2275ad	ux scoreboard first run (2026-10-28)	typing	de-tatoeba	-	2376	typedout	6.52
+2026-10-30	fa4dbde	joint step 1: neural re-scoring of swipes on (--rescore; off in the keyboard)	swipe	bench-2000	baseline	2000	right0	90.95
+2026-10-30	fa4dbde	joint step 1: neural re-scoring of swipes on (--rescore; off in the keyboard)	swipe	bench-2000	baseline	2000	right1	2.30
+2026-10-30	fa4dbde	joint step 1: neural re-scoring of swipes on (--rescore; off in the keyboard)	swipe	bench-2000	baseline	2000	fixed2	0.30
+2026-10-30	fa4dbde	joint step 1: neural re-scoring of swipes on (--rescore; off in the keyboard)	swipe	bench-2000	baseline	2000	retype_notinlist	2.20
+2026-10-30	fa4dbde	joint step 1: neural re-scoring of swipes on (--rescore; off in the keyboard)	swipe	bench-2000	baseline	2000	retype_inlist	4.25
+2026-10-30	fa4dbde	joint step 1: neural re-scoring of swipes on (--rescore; off in the keyboard)	swipe	bench-2000	baseline	2000	avg_taps	0.478
+2026-10-30	fa4dbde	joint step 1: neural re-scoring of swipes on (--rescore; off in the keyboard)	swipe	bench-2000	new	2000	right0	90.95
+2026-10-30	fa4dbde	joint step 1: neural re-scoring of swipes on (--rescore; off in the keyboard)	swipe	bench-2000	new	2000	right1	2.80
+2026-10-30	fa4dbde	joint step 1: neural re-scoring of swipes on (--rescore; off in the keyboard)	swipe	bench-2000	new	2000	fixed2	0.60
+2026-10-30	fa4dbde	joint step 1: neural re-scoring of swipes on (--rescore; off in the keyboard)	swipe	bench-2000	new	2000	retype_notinlist	2.20
+2026-10-30	fa4dbde	joint step 1: neural re-scoring of swipes on (--rescore; off in the keyboard)	swipe	bench-2000	new	2000	retype_inlist	3.45
+2026-10-30	fa4dbde	joint step 1: neural re-scoring of swipes on (--rescore; off in the keyboard)	swipe	bench-2000	new	2000	avg_taps	0.431
+2026-10-30	fa4dbde	joint step 1: neural re-scoring of swipes on (--rescore; off in the keyboard)	swipe	test-extra-10000	baseline	10000	right0	91.07
+2026-10-30	fa4dbde	joint step 1: neural re-scoring of swipes on (--rescore; off in the keyboard)	swipe	test-extra-10000	baseline	10000	right1	2.62
+2026-10-30	fa4dbde	joint step 1: neural re-scoring of swipes on (--rescore; off in the keyboard)	swipe	test-extra-10000	baseline	10000	fixed2	0.21
+2026-10-30	fa4dbde	joint step 1: neural re-scoring of swipes on (--rescore; off in the keyboard)	swipe	test-extra-10000	baseline	10000	retype_notinlist	2.30
+2026-10-30	fa4dbde	joint step 1: neural re-scoring of swipes on (--rescore; off in the keyboard)	swipe	test-extra-10000	baseline	10000	retype_inlist	3.80
+2026-10-30	fa4dbde	joint step 1: neural re-scoring of swipes on (--rescore; off in the keyboard)	swipe	test-extra-10000	baseline	10000	avg_taps	0.434
+2026-10-30	fa4dbde	joint step 1: neural re-scoring of swipes on (--rescore; off in the keyboard)	swipe	test-extra-10000	new	10000	right0	91.07
+2026-10-30	fa4dbde	joint step 1: neural re-scoring of swipes on (--rescore; off in the keyboard)	swipe	test-extra-10000	new	10000	right1	2.83
+2026-10-30	fa4dbde	joint step 1: neural re-scoring of swipes on (--rescore; off in the keyboard)	swipe	test-extra-10000	new	10000	fixed2	0.60
+2026-10-30	fa4dbde	joint step 1: neural re-scoring of swipes on (--rescore; off in the keyboard)	swipe	test-extra-10000	new	10000	retype_notinlist	2.30
+2026-10-30	fa4dbde	joint step 1: neural re-scoring of swipes on (--rescore; off in the keyboard)	swipe	test-extra-10000	new	10000	retype_inlist	3.20
+2026-10-30	fa4dbde	joint step 1: neural re-scoring of swipes on (--rescore; off in the keyboard)	swipe	test-extra-10000	new	10000	avg_taps	0.401
