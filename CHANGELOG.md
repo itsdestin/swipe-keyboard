@@ -10,16 +10,18 @@
 - **Measured** (real English swipes with their sentences, never tuned on; first guess / right word in the top 3):
   bench-2000 90.10 / 93.10 -> 90.95 / 93.25 (17 more swipes right first time of 2,000), test-extra-10000 90.45 / 93.57
   -> 91.09 / 93.71 (64 more of 10,000). On the 1,946 swipes FUTO's engine was compared on, 91.47 -> 92.34 first guess
-  (FUTO's engine: 93.32). About one swipe in 120-150 that needed a tap on the bar now comes out right; top 3 barely
-  moves, because most of the words it fixes were already second or third. Swipes without a sentence (HeliBoard sets)
+  (FUTO's engine: 93.32). About one swipe in 118 to 156 that needed a tap on the bar now comes out right; top 3 barely
+  moves, because most of the words it fixes were already second or third (so the misses that remain are
+  harder: the share of them whose right word is still among the alternatives falls, 30.30 -> 25.41 % on
+  bench-2000 and 32.67 -> 29.41 % on test-extra-10000). Swipes without a sentence (HeliBoard sets)
   are unchanged. Spanish has no sentence test set, so its gain is not measured; French and German tuning swipes:
   88.55 -> 90.84 and 88.34 -> 90.16.
 - **No extra memory and no slower swipe you can notice:** the sentence model is the one already loaded for the
-  suggestion bar, borrowed for about half a millisecond. A swipe takes about 4.5 ms (worst measured 6 ms, 10 ms with
+  suggestion bar, borrowed for about 0.7 ms (worst measured 1.25 ms), which adds about 0.55 ms to a swipe. A swipe takes about 4.5 ms (worst measured 6 ms, 10 ms with
   the suggestion bar kept busy on purpose the whole time). If that model is busy for more than 5 ms, missing or damaged,
   the swipe simply ranks as before.
-- **Words you taught the keyboard keep their place:** a word the sentence model does not know is ranked as before,
-  not pushed down.
+- **Words you taught the keyboard keep their place:** a word the sentence model does not know keeps its
+  usual score instead of being pushed to the bottom.
 
 ### Better words to swap in
 

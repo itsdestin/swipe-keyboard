@@ -4,6 +4,7 @@
 
 #include "nextwordworker.h"
 #include "swipekb/prediction.hpp"
+#include <QDeadlineTimer>
 #include <QElapsedTimer>
 #include <algorithm>
 
@@ -51,10 +52,16 @@ std::vector<float> NextWordWorker::scoreForSwipe(const PredictionJob &like, cons
     const QString identity = identityOf(like);
     QElapsedTimer waited;
     waited.start();
-    QMutexLocker gate(&m_swipeGate);   // the worker starts no new model call until this swipe is done
-    // WHY tryLock with a limit: the swipe must stay quick even if a model call runs long; past the limit the swipe
-    // simply keeps its n-gram ranking (the word is still typed, only without the sentence model's opinion).
-    const bool locked = m_modelMutex.tryLock(qMax(0, maxWaitMs));
+    // WHY one deadline for both locks: the swipe must stay quick even if a model call runs long, or the worker is
+    // paused by a busy machine while passing the gate; past the limit the swipe simply keeps its n-gram ranking (the
+    // word is still typed, only without the sentence model's opinion).
+    const QDeadlineTimer deadline(qMax(0, maxWaitMs));
+    if (!m_swipeGate.tryLock(deadline)) {   // the worker starts no new model call until this swipe is done
+        if (waitedMs) *waitedMs = double(waited.nsecsElapsed()) / 1e6;
+        return {};
+    }
+    struct GateRelease { QMutex &m; ~GateRelease() { m.unlock(); } } gate{m_swipeGate};
+    const bool locked = m_modelMutex.tryLock(deadline);
     if (waitedMs) *waitedMs = double(waited.nsecsElapsed()) / 1e6;
     if (!locked) return {};
     std::vector<float> scores;
