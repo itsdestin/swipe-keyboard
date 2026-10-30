@@ -63,6 +63,11 @@ set_tests_properties(tools_junkrule PROPERTIES ENVIRONMENT "SWIPEKB_ASSETS=${SWI
 add_executable(swipekb-swap-bench swipekb-swap-bench.cpp)
 target_link_libraries(swipekb-swap-bench PRIVATE swipekb_engine swipekb_session swipekb_swapflow swipekb_language swapmeasures Qt6::Core)
 
+# swipekb-rescore-bench: joint-model experiment step 1 (headroom of re-ranking a swipe, tuning dumps and the speed of
+# re-scoring swipes with the neural next-word model; ContextRescore).
+add_executable(swipekb-rescore-bench swipekb-rescore-bench.cpp)
+target_link_libraries(swipekb-rescore-bench PRIVATE swipekb_engine swipekb_language Qt6::Core)
+
 # The user-experience scoreboard's typing half (bench/ux-score.sh): the typing simulator is plain counting, tested with
 # made-up bars; swipekb-typing-bench feeds it the bar both front ends build (plugin/barflow.h).
 add_library(typingsim STATIC typingsim.cpp)

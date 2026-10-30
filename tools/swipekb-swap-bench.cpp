@@ -41,6 +41,9 @@
 // words that were before it. Prints a "recorded:" line of counts too. WHY so strict: the file holds what the owner
 // typed. With it the tool only reads: every option that writes a file or prints words (--diagnose, --diagnose-out,
 // --junk-out) is refused, and the output is counts only.
+// `--rescore [--rescore-weights NEURAL,NGRAM]`: the swipe's own guesses are re-scored by the neural next-word model
+// (ContextRescore, joint-model experiment; off in the keyboard), in both modes. WHY here too: the user-experience
+// scoreboard (bench/ux-score.sh, through SWIPEKB_SWAP_FLAGS) then shows what it does to every swipe.
 // `--no-context` drops the sentence even when `--context` is given (the swipes are read without it). WHY: the
 // no-sentence weights are tuned on the tuning sets with their sentences removed (bench/swap-tune.py trv8k-nocontext),
 // which is how HeliBoard records and the first word of a message look.
@@ -140,8 +143,8 @@ int main(int argc, char **argv)
 {
     LanguageEngineSetup setup;
     std::string layout, layoutsDir, input, match = "ascii", mode, vocab, nwp, params, locale = "en_US";
-    bool useContext = false, noContext = false, diagnose = false, fromRecordings = false, matchGiven = false;
-    std::string diagnoseFile, junkOut;
+    bool useContext = false, noContext = false, diagnose = false, fromRecordings = false, matchGiven = false, rescore = false;
+    std::string diagnoseFile, junkOut, rescoreWeights;
     size_t limit = 0;
     for (int i = 1; i < argc; ++i) {
         const std::string a = argv[i];
@@ -167,6 +170,8 @@ int main(int argc, char **argv)
         else if (a == "--diagnose") diagnose = true;
         else if (a == "--diagnose-out") { diagnose = true; diagnoseFile = val(); }
         else if (a == "--junk-out") junkOut = val();
+        else if (a == "--rescore") rescore = true;
+        else if (a == "--rescore-weights") { rescore = true; rescoreWeights = val(); }
         else if (a == "--recordings") { fromRecordings = true; input = val(); }
         else if (a[0] != '-') input = a;
         else { std::fprintf(stderr, "unknown option %s\n", a.c_str()); return 2; }
@@ -222,6 +227,20 @@ int main(int argc, char **argv)
     const bool haveNgram = !setup.ngram.empty() && !vocab.empty()
         && predictor.init(setup.ngram, vocab, nwp, false) && predictor.ready();
     if (!setup.ngram.empty() && !haveNgram) { std::fprintf(stderr, "cannot load the sentence model %s\n", setup.ngram.c_str()); return 1; }
+    if (rescore) {
+        if (!haveNgram || nwp.empty()) { std::fprintf(stderr, "--rescore needs --ngram, --vocab and --nwp\n"); return 1; }
+        ContextRescore r = ContextRescore::forLanguage(setup.language);
+        if (!rescoreWeights.empty()) {
+            const auto parts = QString::fromStdString(rescoreWeights).split(u',');
+            if (parts.size() != 2) { std::fprintf(stderr, "--rescore-weights NEURAL,NGRAM\n"); return 2; }
+            r.neuralWeight = parts[0].toFloat();
+            r.ngramWeight = parts[1].toFloat();
+        }
+        // WHY the same Predictor as the swap lists: one thread, one model, as a front end would share it.
+        r.scorer = [&predictor](const std::vector<std::string> &c, const std::vector<std::string> &w) { return predictor.scoreWords(c, w); };
+        engine.setContextRescore(r);
+        std::fprintf(stderr, "rescore: neural %.3f ngram %.3f pool %d\n", r.neuralWeight, r.ngramWeight, r.pool);
+    }
 
     // WHY the shared rule (tools/benchdata.h): measure 4 must mean the same as the swipe scoreboard's "junk".
     const benchdata::JunkRule junkRule(setup.dictionary, setup.language);

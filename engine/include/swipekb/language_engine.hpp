@@ -23,6 +23,7 @@
 // Threading: one instance per thread; call every member from the thread that owns the instance.
 #pragma once
 
+#include <functional>
 #include <memory>
 #include <string>
 #include <utility>
@@ -56,6 +57,34 @@ struct AlternativeParams {
     int nameMinFrequency = 100; // the same for words the dictionary writes with a capital (names), except German
     float margin = 1e9f;        // an alternative may score at most this far (nats) below the first guess (off)
     bool dropStretched = true;  // drop words with one letter three times in a row ("youuuuu") as alternatives
+};
+
+// Optional: the neural next-word model's opinion added to the swipe ranking (joint-model experiment, step 1).
+// OFF unless `scorer` is set: the keyboard sets none, so what it guesses is unchanged. The swipe engine's best `pool`
+// words are re-scored: score + (ngramWeight - 1) * their n-gram prior + neuralWeight * ln(10) * neural, where neural =
+// scorer(previous words, words), log10 (Predictor::scoreWords). The search itself is not changed (its pruning still
+// uses the n-gram prior), so only words it found can move up.
+// WHY a function and not a Predictor: the engine stays free of the next-word model; the bench tools hand it
+// Predictor::scoreWords, and a front end could hand it whatever worker owns the model.
+struct ContextRescore {
+    std::function<std::vector<float>(const std::vector<std::string> &context, const std::vector<std::string> &words)> scorer;
+    float neuralWeight = 0.f;    // multiplies ln(10) * the neural log10 score (nats)
+    float ngramWeight = 1.f;     // how much of the search's own n-gram prior is kept (1 = all, 0 = none)
+    int pool = 30;               // the swipe engine's best N words that are re-scored
+    // WHY only with words before (default): with none, the neural model only says how common a word is at a
+    // sentence start, which the n-gram prior already says; HeliBoard sets (single words) are then unchanged.
+    bool needWordsBefore = true;
+    // The weights tuned per language on tuning swipes only (tools/swipekb-rescore-bench, bench/rescore-tune.py); see
+    // the .cpp. The scorer is left empty: the caller must still set it.
+    static ContextRescore forLanguage(const std::string &language);
+};
+
+// One word the swipe search found, with the parts of its score (for measurement tools: swipekb-rescore-bench).
+struct RawSwipeCandidate {
+    std::string word;   // display spelling
+    float score = 0;    // what recognize() ranks by before any re-scoring: path + prior - geometry (nats)
+    float ctc = 0;      // path alone (nats)
+    float prior = 0;    // the sentence (n-gram) or frequency prior inside `score` (nats)
 };
 
 class LanguageEngine {
@@ -131,6 +160,13 @@ public:
     void setCapitals(std::shared_ptr<const Capitals> capitals);
     // Replaces the alternative-guess rules (see AlternativeParams); for measurement tools.
     void setAlternativeParams(const AlternativeParams &params);
+    // Turns the neural re-scoring of swipes on (a scorer set) or off (no scorer, the default). See ContextRescore.
+    void setContextRescore(ContextRescore rescore);
+    // The swipe search's own list for this swipe, best first, at most topN, before re-scoring or the alternative
+    // rules. `beamWidth` > 0 searches that wide for this call only (the recognizer's own width is put back).
+    // For measurement tools (how far down the right word is, and whether a wider search finds it).
+    std::vector<RawSwipeCandidate> rawCandidates(const std::vector<TracePoint> &trace, const std::vector<KeyRect> &keys,
+                                                 const std::vector<std::string> &context, int topN, int beamWidth = 0);
     // The dictionary frequency (0..255) of this spelling (learned and texting words included); 0 = unknown.
     int frequency(const std::string &word) const;
 

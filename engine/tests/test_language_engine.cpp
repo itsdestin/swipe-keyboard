@@ -346,3 +346,52 @@ TEST(LanguageEngineEnglish, ApostrophePackLetsTheSentenceChooseTheSpelling)
     EXPECT_EQ(e.recognize(traceThrough("were", keys), keys, {"they"}, 3).front().word, "were");
     EXPECT_EQ(e.recognize(traceThrough("is", keys), keys, {"yes"}, 3).front().word, "is");
 }
+
+// ContextRescore (joint-model experiment): off unless a scorer is set; with one, the neural score can move a found
+// word to first place; a broken scorer, or no words before (by default), leaves the guesses exactly as they were.
+TEST(LanguageEngine, ContextRescoreIsOffByDefaultAndNeverBreaksASwipe)
+{
+    Dict d(kEnglish);
+    LanguageEngine e;
+    ASSERT_TRUE(open(e, d));
+    const auto keys = qwertyRects(0, 0, 1);
+    const auto trace = traceThrough("help", keys);
+    const std::vector<std::string> before{"please"};
+    const auto plain = words(e.recognize(trace, keys, before, 3));
+    ASSERT_FALSE(plain.empty());
+    ASSERT_EQ(plain.front(), "help");
+    // The search's own list starts with the same first guess.
+    const auto raw = e.rawCandidates(trace, keys, before, 30);
+    ASSERT_FALSE(raw.empty());
+    EXPECT_EQ(raw.front().word, "help");
+    // Pick a found word other than the first and make the scorer favour it strongly.
+    std::string other;
+    for (const auto &c : raw) if (c.word != "help") { other = c.word; break; }
+    ASSERT_FALSE(other.empty());
+    ContextRescore r;
+    r.neuralWeight = 100.f;
+    r.scorer = [&](const std::vector<std::string> &, const std::vector<std::string> &w) {
+        std::vector<float> s;
+        for (const auto &x : w) s.push_back(x == other ? 0.f : -10.f);
+        return s;
+    };
+    e.setContextRescore(r);
+    EXPECT_EQ(e.recognize(trace, keys, before, 3).front().word, other);
+    // No words before: not re-scored (needWordsBefore), the guesses are as without it.
+    e.setContextRescore({});
+    const auto plainNoContext = words(e.recognize(trace, keys, {}, 3));
+    e.setContextRescore(r);
+    EXPECT_EQ(words(e.recognize(trace, keys, {}, 3)), plainNoContext);
+    // A scorer that throws or answers for the wrong number of words changes nothing.
+    r.scorer = [](const std::vector<std::string> &, const std::vector<std::string> &) -> std::vector<float> { throw 1; };
+    e.setContextRescore(r);
+    EXPECT_EQ(words(e.recognize(trace, keys, before, 3)), plain);
+    r.scorer = [](const std::vector<std::string> &, const std::vector<std::string> &) { return std::vector<float>{0.f}; };
+    e.setContextRescore(r);
+    EXPECT_EQ(words(e.recognize(trace, keys, before, 3)), plain);
+    // Neutral weights (no neural, all of the n-gram prior) change nothing either.
+    r.neuralWeight = 0.f;
+    r.scorer = [](const std::vector<std::string> &, const std::vector<std::string> &w) { return std::vector<float>(w.size(), -3.f); };
+    e.setContextRescore(r);
+    EXPECT_EQ(words(e.recognize(trace, keys, before, 3)), plain);
+}

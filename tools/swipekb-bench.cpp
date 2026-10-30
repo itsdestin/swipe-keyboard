@@ -9,11 +9,14 @@
 // Usage:
 //   swipekb-bench --dict LANG.combined (--layout keys.tsv | --layouts-dir DIR) [--model swipe-model.bin]
 //                 [--ngram LANG.ngram] [--context] [--language en] [--limit N] [--match ascii|lookup|exact] [--list]
+//                 [--rescore --vocab LANG.vocab.tsv --nwp LANG.nwp.bin [--rescore-weights NEURAL,NGRAM]]
 //                 [--alt-pool N --alt-weight W --alt-min-freq F --alt-name-freq F --alt-margin M --alt-stretch 0|1 | --alt-off] swipes.jsonl
 // Also prints how often a shown alternative is junk and how often the alternatives hold the word when the first guess missed.
 // Swipes: one JSON object per line with "word", "data" [{x,y,t}] in 0..1 of the letter area, "canvas_width",
 // "canvas_height" and (with --layouts-dir) "layout"; "sentence" + "word_idx" give the previous words (--context).
 // Layouts: "letter<TAB>cx<TAB>cy<TAB>half_w<TAB>half_h" (scripts/swipe/layouts/qwerty.tsv).
+// --rescore: the neural next-word model re-scores each swipe's best words (ContextRescore, joint-model experiment;
+// off in the keyboard). WHY timed in ms/swipe: the model's pass is part of the swipe then.
 // Output: "  top-1: a / n = x%" and "  top-3: ..." lines (bench/score.sh reads them), then one summary line.
 #include <QFile>
 #include <QJsonArray>
@@ -35,6 +38,7 @@
 
 #include "benchdata.h"
 #include "swipekb/language_engine.hpp"
+#include "swipekb/prediction.hpp"
 
 using namespace swipekb;
 using Clock = std::chrono::steady_clock;
@@ -46,8 +50,8 @@ using benchdata::readSwipes;
 int main(int argc, char **argv)
 {
     LanguageEngineSetup setup;
-    std::string layout, layoutsDir, input, match = "ascii";
-    bool useContext = false, list = false;
+    std::string layout, layoutsDir, input, match = "ascii", vocab, nwp, rescoreWeights;
+    bool useContext = false, list = false, rescore = false;
     AlternativeParams alt;
     bool altSet = false;
     size_t limit = 0;
@@ -65,6 +69,10 @@ int main(int argc, char **argv)
         else if (a == "--layouts-dir") layoutsDir = val();
         else if (a == "--context") useContext = true;
         else if (a == "--list") list = true;
+        else if (a == "--vocab") vocab = val();
+        else if (a == "--nwp") nwp = val();
+        else if (a == "--rescore") rescore = true;
+        else if (a == "--rescore-weights") { rescore = true; rescoreWeights = val(); }
         else if (a == "--limit") limit = size_t(std::atoll(val().c_str()));
         else if (a == "--match") match = val();
         // WHY these: tuning and checking the rules for the guesses after the first (AlternativeParams).
@@ -90,6 +98,24 @@ int main(int argc, char **argv)
     LanguageEngine engine;
     if (!engine.init(setup)) { std::fprintf(stderr, "cannot load the dictionary %s\n", setup.dictionary.c_str()); return 1; }
     if (altSet) engine.setAlternativeParams(alt);
+    // --rescore: the language's tuned ContextRescore weights (or --rescore-weights), scored by the next-word model.
+    Predictor predictor;
+    if (rescore) {
+        if (setup.ngram.empty() || vocab.empty() || nwp.empty() || !predictor.init(setup.ngram, vocab, nwp, false)) {
+            std::fprintf(stderr, "--rescore needs --ngram, --vocab and --nwp that load\n");
+            return 1;
+        }
+        ContextRescore r = ContextRescore::forLanguage(setup.language);
+        if (!rescoreWeights.empty()) {
+            const auto parts = QString::fromStdString(rescoreWeights).split(u',');
+            if (parts.size() != 2) { std::fprintf(stderr, "--rescore-weights NEURAL,NGRAM\n"); return 2; }
+            r.neuralWeight = parts[0].toFloat();
+            r.ngramWeight = parts[1].toFloat();
+        }
+        r.scorer = [&predictor](const std::vector<std::string> &c, const std::vector<std::string> &w) { return predictor.scoreWords(c, w); };
+        engine.setContextRescore(r);
+        std::fprintf(stderr, "rescore: neural %.3f ngram %.3f pool %d\n", r.neuralWeight, r.ngramWeight, r.pool);
+    }
     // WHY the shared rule (tools/benchdata.h): the swap scoreboard's junk must mean the same as this one.
     const benchdata::JunkRule junkRule(setup.dictionary, setup.language);
     auto junk = [&](const std::string &w) { return junkRule(engine, w); };

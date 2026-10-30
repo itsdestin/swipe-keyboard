@@ -128,6 +128,7 @@ struct LanguageEngine::Impl {
     std::string bestShape;
 
     AlternativeParams alt;
+    ContextRescore rescore;   // off unless a scorer is set (setContextRescore)
     std::shared_ptr<const Capitals> capitals;
     QString displayForm(const QString &w) const
     {
@@ -327,6 +328,35 @@ struct LanguageEngine::Impl {
         }
     }
 
+    // The prior the search added to this word's score: the sentence (n-gram) prior, or plain frequency without a pack
+    // (the search's own fallback, BeamParams::freqWeight = EngineParams::freqWeight).
+    float priorOf(uint32_t w) const { return prior ? (*prior)(w) : engine.params.freqWeight * float(engine.lexicon().freq(w)); }
+
+    // ContextRescore: re-scores the first `rescore.pool` found words with the neural next-word model, re-sorts them,
+    // and cuts the list to `keep` (the size recognize() would have asked for without re-scoring).
+    // WHY cut back to `keep`: the guesses after the first are chosen from that many words (AlternativeParams::pool),
+    // so re-scoring must not quietly widen that choice too.
+    // WHY a failed or short answer leaves the list as found: swiping must never break because of the extra model.
+    void rescoreFound(std::vector<SwipeCandidate> &found, const std::vector<std::string> &context, size_t keep) const
+    {
+        constexpr float kLn10 = 2.302585093f;
+        const size_t n = std::min(found.size(), size_t(std::max(0, rescore.pool)));
+        std::vector<std::string> words;
+        words.reserve(n);
+        for (size_t i = 0; i < n; ++i) words.push_back(engine.lexicon().text(found[i].word));
+        std::vector<float> neural;
+        try { neural = rescore.scorer(context, words); } catch (...) { neural.clear(); }
+        if (n > 0 && neural.size() == n) {
+            for (size_t i = 0; i < n; ++i)
+                found[i].score += (rescore.ngramWeight - 1.f) * priorOf(found[i].word) + rescore.neuralWeight * kLn10 * neural[i];
+            // WHY stable and only the re-scored part: equal scores keep the search's order, and words past the pool
+            // have no neural score, so they stay behind the re-scored ones.
+            std::stable_sort(found.begin(), found.begin() + std::ptrdiff_t(n),
+                             [](const SwipeCandidate &a, const SwipeCandidate &b) { return a.score > b.score; });
+        }
+        if (found.size() > keep) found.resize(keep);
+    }
+
     // May this found word be offered as an alternative (recognize) or a swap? `f` = its frequency (0 = unknown).
     // WHY shared: the swap list and the guess bar must agree on which words are junk.
     bool mayOffer(const std::string &w, int minFrequency, int &f) const
@@ -428,7 +458,12 @@ std::vector<Candidate> LanguageEngine::recognize(const std::vector<TracePoint> &
         d_->setSentencePrior(context);
         std::vector<Candidate> out;
         float bestCtc = -1e30f;
-        const auto found = d_->engine.decode(pts, aspect, std::max(topK, d_->alt.pool));
+        // ContextRescore (off by default): re-score the search's best words with the neural next-word model. WHY only
+        // with words before unless told otherwise: see ContextRescore::needWordsBefore.
+        const int want = std::max(topK, d_->alt.pool);
+        const bool rescoring = bool(d_->rescore.scorer) && (!d_->rescore.needWordsBefore || !context.empty());
+        auto found = d_->engine.decode(pts, aspect, rescoring ? std::max(want, d_->rescore.pool) : want);
+        if (rescoring) d_->rescoreFound(found, context, size_t(want));
         for (const auto &c : found) {
             const std::string &w = d_->engine.lexicon().text(c.word);
             if (!w.empty() && c.ctc > bestCtc) { bestCtc = c.ctc; d_->bestShape = w; }
@@ -804,6 +839,51 @@ void LanguageEngine::liftWords(const std::vector<std::pair<std::string, int>> &w
 }
 
 void LanguageEngine::setAlternativeParams(const AlternativeParams &params) { d_->alt = params; }
+
+void LanguageEngine::setContextRescore(ContextRescore rescore) { d_->rescore = std::move(rescore); }
+
+// WHY these weights (2026-10-29, bench/rescore-tune.py, grid neural {0 .. 3} x n-gram {0 .. 1}, TUNING swipes only;
+// right first guesses, the UX scoreboard's "no tap"):
+//   English (FUTO trv8k, 7,198 swipes, 6,457 with words before): today 92.94 % -> 93.61 % (+48 swipes) at neural 1,
+//     n-gram 0: the next-word model's score (which already blends the same n-gram, Predictor::scoreWords) takes the
+//     n-gram prior's place; keeping both counts the n-gram twice (neural 1, n-gram 1: +4 swipes).
+//   French + German (FUTO swipe-5 validation, 648 swipes, 575 with words before): 88.43 % -> 90.43 % (+13) at
+//     neural 1, n-gram 0.25 (a flat top: 1.5 / 0 and 2 / 0.5 score within one swipe). Spanish has no tuning set and
+//     takes these.
+ContextRescore ContextRescore::forLanguage(const std::string &language)
+{
+    ContextRescore r;
+    r.neuralWeight = 1.f;
+    r.ngramWeight = language.rfind("en", 0) == 0 ? 0.f : 0.25f;
+    return r;
+}
+
+std::vector<RawSwipeCandidate> LanguageEngine::rawCandidates(const std::vector<TracePoint> &trace, const std::vector<KeyRect> &rects,
+                                                             const std::vector<std::string> &context, int topN, int beamWidth)
+{
+    if (!d_->ok || trace.size() < 2 || topN <= 0) return {};
+    try {
+        std::vector<SwipePoint> pts;
+        float aspect = 0;
+        if (!d_->toSwipePoints(trace, rects, pts, aspect)) return {};
+        d_->setSentencePrior(context);
+        // WHY a guard object: the recognizer must get its own search width back even if the search throws.
+        struct Restore {
+            SwipeEngine &e;
+            const int beam;
+            ~Restore() { e.params.beam.beam = beam; }
+        } restore{d_->engine, d_->engine.params.beam.beam};
+        if (beamWidth > 0) d_->engine.params.beam.beam = beamWidth;
+        std::vector<RawSwipeCandidate> out;
+        for (const auto &c : d_->engine.decode(pts, aspect, topN)) {
+            const std::string &w = d_->engine.lexicon().text(c.word);
+            if (!w.empty()) out.push_back({w, c.score, c.ctc, d_->priorOf(c.word)});
+        }
+        return out;
+    } catch (...) {
+        return {};
+    }
+}
 
 int LanguageEngine::frequency(const std::string &word) const
 {
