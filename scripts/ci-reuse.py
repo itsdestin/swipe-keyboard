@@ -29,8 +29,17 @@ ARTIFACTS = {t + suffix for t in ('source', 'arch', 'fedora', 'fedora-arm64', 'f
              for suffix in ('-files', '-evidence')}
 
 
-def api(path):
-    return json.loads(subprocess.check_output(['gh', 'api', path], text=True))
+def api(path, tries=4, pause=15):
+    # WHY retries: on 2026-10-30 one GitHub "Server Error (HTTP 502)" on this call stopped the v0.5.1-1 release.
+    # A read of run data is safe to repeat; a real fault (wrong run, no access) still fails after the last try.
+    for attempt in range(tries):
+        try:
+            return json.loads(subprocess.check_output(['gh', 'api', path], text=True))
+        except subprocess.CalledProcessError:
+            if attempt == tries - 1:
+                raise
+            print(f'gh api {path} failed, retrying in {pause}s', file=sys.stderr)
+            time.sleep(pause)
 
 
 def candidates(runs, sha, repo):
