@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: MIT
 
 Name: swipe-keyboard
-Version: 0.5.0
+Version: 0.5.1
 Release: 1%{?dist}
 Summary: English, Spanish, French and German swipe typing, completions and next-word suggestions for Plasma Keyboard
 # WHY these licences (owner decision 2026-10-23: MIT where possible; each data file keeps its own, see REUSE.toml):

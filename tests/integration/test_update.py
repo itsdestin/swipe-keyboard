@@ -176,6 +176,24 @@ class ArchUpdater(unittest.TestCase):
         self.assertEqual(self.run_updater('check'), 0)
         self.assertEqual(self.installs(), [])
 
+    def test_until_the_rename_the_old_site_answers_when_the_new_one_does_not(self):
+        # WHY (card #501): this version tries the OpenSwipe site first; before the rename it does not exist yet
+        name = self.publish('0.4.2-1')
+        self.env['SWIPEKB_UPDATE_SITE'] = f'{(self.tmp / "openswipe-not-there-yet").as_uri()} {self.site.as_uri()}'
+        self.assertEqual(self.run_updater('check'), 0)
+        self.assertEqual(len(self.installs()), 1)
+        self.assertIn(name, self.installs()[0])
+
+    def test_a_bad_index_on_the_first_site_is_refused_not_swapped_for_the_second(self):
+        # WHY: only an unreachable site moves on; an answer that fails the signature check stops everything
+        good = self.tmp / 'good-site'
+        self.publish('0.4.2-1')
+        shutil.copytree(self.site, good)
+        (self.site / 'arch/latest.json.sig').write_bytes(b'not a signature')
+        self.env['SWIPEKB_UPDATE_SITE'] = f'{self.site.as_uri()} {good.as_uri()}'
+        self.assertEqual(self.run_updater('check'), 1)
+        self.assertEqual(self.installs(), [])
+
     def test_no_site_published_yet_is_not_an_error(self):
         # WHY: every 0.4.1 install checks before the first site exists; a daily failed unit would be noise.
         self.assertEqual(self.run_updater('check'), 0)        # setUp made an empty site: latest.json is missing
@@ -211,9 +229,11 @@ class ArchUpdater(unittest.TestCase):
             spec = importlib.util.spec_from_file_location('swipekb_update_plain', UPDATE)
             module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(module)
-        self.assertEqual(module.SITE, 'https://itsdestin.github.io/swipe-keyboard')
+        # WHY both, new first: the bridge to the OpenSwipe rename (card #501)
+        self.assertEqual(module.SITES, ('https://itsdestin.github.io/openswipe', 'https://itsdestin.github.io/swipe-keyboard'))
         self.assertEqual(module.KEYRING, UPDATE.parent / 'update-key.gpg')
-        self.assertEqual(module.RELEASE_DOWNLOADS, 'https://github.com/itsdestin/swipe-keyboard/releases/download/')
+        self.assertEqual(module.RELEASE_DOWNLOADS, ('https://github.com/itsdestin/openswipe/releases/download/',
+                                                    'https://github.com/itsdestin/swipe-keyboard/releases/download/'))
 
     def test_a_failed_pacman_run_is_reported(self):
         self.publish('0.4.2-1')
@@ -236,7 +256,7 @@ class Units(unittest.TestCase):
     def test_the_fedora_repository_requires_a_signed_index_and_never_blocks_other_updates(self):
         repo = (ROOT / 'packaging/updates/swipe-keyboard.repo').read_text()
         for line in ('repo_gpgcheck=1', 'skip_if_unavailable=1',
-                     'baseurl=https://itsdestin.github.io/swipe-keyboard/fedora/$basearch/',
+                     'baseurl=https://itsdestin.github.io/openswipe/fedora/$basearch/ https://itsdestin.github.io/swipe-keyboard/fedora/$basearch/',
                      'gpgkey=file:///usr/share/swipe-keyboard/integration/update-key.asc'):
             self.assertIn(line, repo)
 

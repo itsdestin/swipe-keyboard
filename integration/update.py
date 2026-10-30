@@ -39,12 +39,21 @@ def setting(name, default):
     return default
 
 
-SITE = str(setting('SWIPEKB_UPDATE_SITE', 'https://itsdestin.github.io/swipe-keyboard')).rstrip('/')
+# WHY two sites, the new one first (Destin, 2026-10-24, card #501: the project is being renamed to OpenSwipe): GitHub
+# does not forward a project's web address after a rename, so the old address dies at the rename. This version already
+# knows the new one, and falls back to the old one until the rename happens. Same key, same checks, on both.
+# (In test mode SWIPEKB_UPDATE_SITE may list several, separated by spaces, to prove the fallback.)
+SITES = tuple(str(site).rstrip('/') for site in (
+    str(setting('SWIPEKB_UPDATE_SITE', '')).split()
+    or ('https://itsdestin.github.io/openswipe', 'https://itsdestin.github.io/swipe-keyboard')))
 KEYRING = Path(setting('SWIPEKB_UPDATE_KEYRING', HERE / 'update-key.gpg'))
 OFF_FLAG = Path(setting('SWIPEKB_UPDATE_OFF_FLAG', '/etc/swipe-keyboard/auto-update-off'))
 PACKAGE = 'swipe-keyboard'
 # WHY a fixed prefix: even a correctly signed index must not be able to send the updater to another site.
-RELEASE_DOWNLOADS = setting('SWIPEKB_UPDATE_DOWNLOADS', 'https://github.com/itsdestin/swipe-keyboard/releases/download/')
+# WHY both names: after the rename the signed index names openswipe downloads; before it, swipe-keyboard ones.
+RELEASE_DOWNLOADS = ((setting('SWIPEKB_UPDATE_DOWNLOADS', ''),) if setting('SWIPEKB_UPDATE_DOWNLOADS', '')
+                     else ('https://github.com/itsdestin/openswipe/releases/download/',
+                           'https://github.com/itsdestin/swipe-keyboard/releases/download/'))
 MAX_PACKAGE_BYTES = 200 * 1024 * 1024
 # WHY a whole-download deadline: a socket timeout alone lets a slow server drip bytes for hours and hold the update.
 FETCH_DEADLINE_SECONDS = 15 * 60
@@ -117,8 +126,18 @@ def newer(candidate, installed):
 def verified_index(work):
     """Download arch/latest.json and refuse it unless the update key signed it."""
     index, signature = work / 'latest.json', work / 'latest.json.sig'
-    index.write_bytes(fetch(f'{SITE}/arch/latest.json', 64 * 1024))
-    signature.write_bytes(fetch(f'{SITE}/arch/latest.json.sig', 64 * 1024))
+    unreachable = None
+    for site in SITES:
+        # WHY only "unreachable" moves on to the next site: a site that answers with a bad or unsigned index is refused
+        # outright below, never quietly swapped for another one.
+        try:
+            index.write_bytes(fetch(f'{site}/arch/latest.json', 64 * 1024))
+            signature.write_bytes(fetch(f'{site}/arch/latest.json.sig', 64 * 1024))
+            break
+        except Unreachable as error:
+            unreachable = error
+    else:
+        raise unreachable
     if not KEYRING.is_file():
         raise UpdateError(f'update key missing: {KEYRING}')
     check = run(['gpgv', '--keyring', str(KEYRING), str(signature), str(index)])

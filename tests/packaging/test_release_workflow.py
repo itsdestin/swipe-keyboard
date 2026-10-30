@@ -455,3 +455,49 @@ exit "$result"
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class DeckRedirectTests(unittest.TestCase):
+    """The Steam Deck's "this has moved" note for the OpenSwipe rename (card #501)."""
+
+    def load(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('update_site', ROOT / 'scripts/update_site.py')
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_it_points_decks_at_the_openswipe_site(self):
+        # WHY exactly this address: once a Deck follows the note it never asks the old site again, so a typo would
+        # strand every Deck. It must be the renamed project's own site (on from 0.5.1-1; emptied after the rename).
+        self.assertEqual(self.load().flatpak_redirect(), 'https://itsdestin.github.io/openswipe/repo/')
+
+    def test_only_one_https_address_is_accepted(self):
+        import tempfile
+        module = self.load()
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'r.txt'
+            path.write_text('# note\nhttps://itsdestin.github.io/openswipe/repo/\n')
+            self.assertEqual(module.flatpak_redirect(path), 'https://itsdestin.github.io/openswipe/repo/')
+            for bad in ('http://example.org/\n', 'https://a/\nhttps://b/\n'):
+                path.write_text(bad)
+                with self.assertRaises(SystemExit):
+                    module.flatpak_redirect(path)
+
+    def test_the_check_copy_really_drops_the_moved_note(self):
+        # WHY: Flatpak also saves the note in the repository's config; a rebuilt summary brought it back (CI, 2026-10-25)
+        import shutil, subprocess, tempfile
+        if not (shutil.which('ostree') and shutil.which('flatpak')):
+            self.skipTest('needs ostree and flatpak')
+        module = self.load()
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / 'repo'
+            subprocess.run(['ostree', 'init', '--mode=archive-z2', f'--repo={repo}'], check=True)
+            subprocess.run(['flatpak', 'build-update-repo', '--redirect-url=https://example.org/moved/', str(repo)],
+                           check=True, capture_output=True)
+            view = lambda r: subprocess.run(['ostree', 'summary', '--view', f'--repo={r}'], check=True,
+                                            capture_output=True, text=True).stdout
+            self.assertIn('xa.redirect-url', view(repo))
+            copy = module.copy_without_redirect(repo, Path(tmp) / 'copy')
+            self.assertNotIn('xa.redirect-url', view(copy))
+            self.assertIn('xa.redirect-url', view(repo))   # the real site is untouched

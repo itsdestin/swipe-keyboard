@@ -8,14 +8,14 @@ Gaming Mode is new and has been tested on a virtual Steam Deck, not yet on a rea
 
 Gaming Mode works through a developer switch that Valve provides in Steam. Steam's Subscriber Agreement says you may not modify software accessed through Steam without Valve's consent. Whether this counts is unclear. We change no Steam file and do not touch games or anti-cheat, and a popular community tool (Decky Loader) uses the same switch, but Valve has not approved this and could stop it. With the switch on, other programs on your Deck can control Steam's screens. We are not lawyers; use it only if you are comfortable with that.
 
-## The two installer questions
+## The installer's one question
 
-**Question 1: Gaming Mode at all?** Enter picks the Desktop Mode keyboard only: nothing about Steam or your network changes and no password is asked. Choosing 2 turns on the Valve developer switch and needs one Steam restart. (A later release will make Gaming Mode the default answer.)
+The installer lists every change, then asks **Also swipe in Gaming Mode? [Y/n]**.
 
-**Question 2 (only for Gaming Mode): who may reach the developer switch?** SteamOS opens port 8081 to your whole Wi-Fi or home network. Unless you block it, other devices there can control Steam's screens too.
+- **Yes (Enter):** turns on Valve's developer switch, and blocks other devices on your network from reaching it. SteamOS opens that switch to your whole Wi-Fi or home network (port 8081); blocking asks for the Deck's administrator password once (if you never set one, run `passwd` in Konsole first) and writes one small file in `/etc/systemd/system`. If blocking fails, the installer asks what to do and never turns Gaming Mode on with the door open unless you say so. Steam needs one restart.
+- **No:** the Desktop Mode keyboard only. Nothing about Steam or your network changes and no password is asked.
 
-- **Block (Enter, recommended):** asks for the Deck's administrator password once (if you never set one, run `passwd` in Konsole first), writes one small file in `/etc/systemd/system`, and stops network tools on other computers from using the switch. If blocking fails, the installer asks again and never turns Gaming Mode on with the door open unless you say so.
-- **Leave open:** no password, but anyone on the same network can control Steam on your Deck. Never use it on public or shared Wi-Fi.
+If you said no before, running the installer again keeps no as the default. **Leave the network door open on purpose** (for developer tools on another computer): `bash install.sh --gaming --leave-open`. No password, but anyone on the same network can then control Steam on your Deck; never on public or shared Wi-Fi.
 
 ## Passwords
 
@@ -31,14 +31,14 @@ If you, another tool or Steam turns the switch off, Gaming Mode swipe stops and 
 
 ## Changing your mind
 
-Run `bash install.sh` again to add or remove Gaming Mode, or to switch between blocked and open. `bash uninstall.sh` removes only what the installer added.
+Run `bash install.sh` again to add or remove Gaming Mode. `--block-outside` or `--leave-open` switches the network choice. `bash uninstall.sh` removes only what the installer added.
 
 ## Desktop Mode only, without the installer (no automatic updates)
 
-[Download the Flatpak](https://github.com/itsdestin/swipe-keyboard/releases/download/v0.5.0-1/swipe-keyboard-0.5.0-1-x86_64.flatpak), then in Konsole:
+[Download the Flatpak](https://github.com/itsdestin/swipe-keyboard/releases/download/v0.5.1-1/swipe-keyboard-0.5.1-1-x86_64.flatpak), then in Konsole:
 
 ```sh
-flatpak install --user ~/Downloads/swipe-keyboard-0.5.0-1-x86_64.flatpak
+flatpak install --user ~/Downloads/swipe-keyboard-0.5.1-1-x86_64.flatpak
 ```
 
 Then select Swipe Keyboard in **System Settings → Virtual Keyboard**. To update, install a newer file. Remove with `flatpak uninstall --user org.itsdestin.SwipeKeyboard`. Before choosing it, you can read what changes with `flatpak run --user --command=swipe-keyboard-setup org.itsdestin.SwipeKeyboard` (read-only; the installer's route does not require it).

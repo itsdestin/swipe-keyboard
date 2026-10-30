@@ -195,12 +195,13 @@ class InstallTests(unittest.TestCase):
         f = Fixture(self)
         out = f.run('install.sh', '--dry-run', stdin='').stdout
         for phrase in ('developer switch', 'other devices', '8081', 'has not approved this', 'Subscriber Agreement',
-                       'administrator password', 'Second question', 'Block other devices', 'Leave it open', 'The keyboard itself never uses the internet', 'automatic updates', 'Gaming Mode', 'uninstall.sh',
+                       'administrator password', 'passwd', 'if you say yes below', 'The keyboard itself never uses the internet', 'automatic updates', 'Gaming Mode', 'uninstall.sh',
                        'restart Steam'):
             self.assertIn(phrase, out)
 
-    def test_answering_no_or_nothing_changes_nothing(self):
-        for answer in ('n\n', '\n', '', 'maybe\n', 'N\n'):
+    def test_an_unclear_answer_or_no_answer_at_all_changes_nothing(self):
+        # WHY: Enter means yes (card #201), but closed input is nobody pressing Enter, and an unclear answer is not a yes
+        for answer in ('', 'maybe\n'):
             with self.subTest(answer=answer):
                 f = Fixture(self)
                 before = f.snapshot()
@@ -436,9 +437,9 @@ class ChoiceTests(unittest.TestCase):
     def gaming_state_file(self, f):
         return f.home / '.local/state/swipekb-gaming/outside-access'
 
-    def test_a_first_install_with_no_choice_is_desktop_only_and_asks_for_nothing(self):
-        # WHY: pressing Enter, or running with --yes, must never switch on a Valve developer feature or ask for a password.
-        for args, stdin in (((), '\ny\n'), (('--yes',), '')):
+    def test_a_scripted_first_install_is_desktop_only_and_asks_for_nothing(self):
+        # WHY: --yes (no person at the keyboard) must never switch on a Valve developer feature or ask for a password.
+        for args, stdin in ((('--yes',), ''),):
             with self.subTest(args=args):
                 f = Fixture(self)
                 result = f.run('install.sh', *args, stdin=stdin)
@@ -582,8 +583,9 @@ class ChoiceTests(unittest.TestCase):
         self.assertTrue((f.steam / MARKER).is_file())
 
     def test_interactive_answers_map_to_the_right_choices(self):
-        cases = (('2\n1\ny\n', True, 'blocked'), ('2\n2\ny\n', True, 'open'), ('2\n\ny\n', True, 'blocked'),
-                 ('1\ny\n', False, None), ('\ny\n', False, None))
+        # WHY Enter = yes with other devices blocked (Destin, card #201, 2026-10-24)
+        cases = (('\n', True, 'blocked'), ('y\n', True, 'blocked'), ('Yes\n', True, 'blocked'),
+                 ('n\n', False, None), ('N\n', False, None))
         for stdin, gaming, outside in cases:
             with self.subTest(stdin=stdin):
                 f = Fixture(self)
@@ -594,10 +596,32 @@ class ChoiceTests(unittest.TestCase):
                     self.assertEqual(f.record()['outside_access'], outside)
                     self.assertEqual(door_open(f), outside == 'open')
 
-    def test_the_second_question_only_appears_for_gaming_mode(self):
+    def test_a_person_is_asked_exactly_one_question(self):
+        out = Fixture(self).run('install.sh', stdin='\n').stdout
+        self.assertEqual(out.count('Also swipe in Gaming Mode? [Y/n]'), 1, out)
+        self.assertNotIn('Continue?', out)
+        self.assertIn('If you answer yes to Gaming Mode', out)   # the plan says what yes adds before asking
+
+    def test_someone_who_said_no_keeps_no_as_the_default_on_a_rerun(self):
+        # WHY: running a newer download to upgrade must not turn on a Valve developer feature they turned down
         f = Fixture(self)
-        self.assertNotIn('Second question', f.run('install.sh', '--desktop-only', '--yes').stdout)
-        self.assertIn('Second question', Fixture(self).run('install.sh', '--gaming', '--leave-open', '--yes').stdout)
+        f.run('install.sh', stdin='n\n')
+        result = f.run('install.sh', stdin='\n')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('Also swipe in Gaming Mode? [y/N]', result.stdout)
+        self.assertFalse((f.steam / MARKER).exists())
+        self.assertEqual(f.record()['gaming'], 'no')
+        result = f.run('install.sh', stdin='y\n')
+        self.assertTrue((f.steam / MARKER).exists(), result.stdout + result.stderr)
+
+    def test_turning_gaming_off_by_answering_no_on_a_rerun(self):
+        f = Fixture(self)
+        f.run('install.sh', stdin='\n')
+        result = f.run('install.sh', stdin='n\n')
+        self.assertIn('If you answer no, Gaming Mode is turned off instead', result.stdout)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse((f.steam / MARKER).exists())
+        self.assertEqual(f.record()['gaming'], 'no')
 
     def test_a_rerun_can_turn_gaming_mode_off_and_keeps_the_desktop_keyboard(self):
         f = Fixture(self)
@@ -664,7 +688,8 @@ class ChoiceTests(unittest.TestCase):
         f = Fixture(self)
         before = f.snapshot()
         out = f.run('install.sh', '--dry-run', stdin='').stdout
-        for phrase in ('If you choose 2', 'administrator password', str(f.dropin), str(f.steam / MARKER), 'Second question'):
+        # WHY no 'if you answer yes' header: a dry run with no choice shows the default, which is now Gaming Mode on
+        for phrase in ('administrator password', str(f.dropin), str(f.steam / MARKER)):
             self.assertIn(phrase, out)
         self.assertEqual(f.snapshot(), before)
         self.assertEqual(f.calls(), [])

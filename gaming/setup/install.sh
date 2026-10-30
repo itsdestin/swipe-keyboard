@@ -8,7 +8,7 @@
 # Gaming Mode part asks for the Deck's administrator password ONCE, to close SteamOS's outside door (see below).
 # Plan: docs/active/plans/2026-10-22-gaming-mode.md, Sections 5 and 9.
 #
-#   bash install.sh                  show the choice, ask, show what will change, ask again, then do it
+#   bash install.sh                  show what will change, ask "Also swipe in Gaming Mode? [Y/n]", then do it
 #   bash install.sh --desktop-only   Desktop Mode keyboard only (turns Gaming Mode off if it was on)
 #   bash install.sh --gaming         Desktop Mode keyboard AND Gaming Mode swipe
 #   bash install.sh --block-outside  with --gaming: close SteamOS's door to other devices on your network
@@ -301,45 +301,43 @@ done
 if [ "$CHOICE" = gaming ] && [ -n "$GAMING_BLOCKED" ]; then die "$GAMING_BLOCKED Nothing was changed."; fi
 
 # --- 2. The choice ---------------------------------------------------------------------------------
-# WHY the safer default: pressing Enter without reading must never switch on a Valve developer feature or ask for
-# an administrator password. A first install, or --yes without a choice, gets the Desktop keyboard only; someone
-# who already has Gaming Mode keeps it.
-DEFAULT_CHOICE=desktop
-[ "$CURRENT_GAMING" = yes ] && DEFAULT_CHOICE=gaming
+# WHY one question with yes as the answer to Enter (Destin, card #201, 2026-10-24: "make gaming mode a first-class thing
+# for the deck, not a separate item from the desktop mode keyboard"): the Deck download is one keyboard for both modes.
+# The installer shows everything it will change, then asks only "Also swipe in Gaming Mode? [Y/n]"; Enter = yes, with
+# other devices on the network blocked (the safe side; it asks for the Deck's password once). The old two numbered
+# questions are gone; --leave-open still exists for people who want the network door open on purpose.
+# WHY someone who said no keeps no as the default: running the installer again (to upgrade) must not turn on a Valve
+# developer feature they turned down. And --yes (scripted use) never asks for a password: without --gaming it keeps what
+# you have, and a first install gets the Desktop keyboard only.
+DEFAULT_CHOICE=gaming
+[ "$CURRENT_GAMING" = no ] && [ -f "$RECORD" ] && DEFAULT_CHOICE=desktop
+[ "$ASSUME_YES" = 1 ] && [ "$CURRENT_GAMING" != yes ] && DEFAULT_CHOICE=desktop
 [ -z "$GAMING_BLOCKED" ] || DEFAULT_CHOICE=desktop
+
+# Ask (below, after the plan) only when nobody chose yet, it is a real run with a person at the keyboard, and Gaming Mode is possible
+ASK_GAMING=0
+if [ -z "$CHOICE" ]; then
+    if [ "$DRY_RUN" = 0 ] && [ "$ASSUME_YES" = 0 ] && [ -z "$GAMING_BLOCKED" ]; then ASK_GAMING=1
+    else CHOICE="$DEFAULT_CHOICE"; fi
+fi
 
 cat <<TEXT
 Swipe Keyboard for Steam Deck, version $VERSION
 
-You have two choices. You can change your mind later: run this installer again.
+Swipe typing and word suggestions for Desktop Mode and, if you say yes below, for Gaming Mode too. You can change
+your mind later: run this installer again, or remove everything with uninstall.sh.
 
-  1) Desktop Mode keyboard only
-     Swipe typing and word suggestions in Desktop Mode. Nothing about Steam or your network changes, and no
-     administrator password is needed. Steam's Gaming Mode keyboard stays exactly as it is.
-
-  2) Desktop Mode keyboard AND Gaming Mode swipe
-     Adds swipe typing and word suggestions on top of Steam's own on-screen keyboard in Gaming Mode, over Steam
-     and over games. Steam's keyboard stays as it is underneath; if anything goes wrong you simply have Steam's
-     normal keyboard.
-
-     How it works: Steam has a hidden developer switch. We turn it on and use it to attach to Steam's keyboard.
-
-     What you get:
-       + Swipe typing and suggestions in Gaming Mode.
-       + Everything can be undone: run this installer again and choose 1, or run uninstall.sh.
-
-     What it costs, and the risks:
-       - Steam's Subscriber Agreement says you may not modify or create derivative works of software accessed
-         through Steam without Valve's written consent. Whether this counts is unclear. We change no Steam file, we
-         do not touch games or anti-cheat, and a popular community tool (Decky Loader) uses the same switch, but
-         Valve has not approved this and could stop it or object at any time. This is not legal advice.
-       - On SteamOS this developer switch can also be reached from other devices on your Wi-Fi or home network
-         (SteamOS opens a second door, port 8081). If you choose 2, the next question lets you block that.
-       - Valve can change Steam at any time and break this. Then Gaming Mode swipe switches itself off and Steam's
-         keyboard keeps working.
-       - Steam needs one restart before it notices the switch. This installer never restarts it for you.
-       - Passwords: inside Steam's own password boxes the keyboard layer does nothing. Over games and other programs
-         Steam does not say whether a box is a password box, so nothing is learned or saved there.
+How Gaming Mode works, and what to know first (details: https://github.com/itsdestin/swipe-keyboard/blob/main/docs/steam-deck.md):
+  - It adds swipe on top of Steam's own keyboard, over Steam and over games, through a hidden Steam developer
+    switch. If anything goes wrong you simply have Steam's normal keyboard.
+  - Valve has not approved this and could stop it or object at any time. Steam's Subscriber Agreement says you may
+    not modify software accessed through Steam without Valve's written consent; whether this counts is unclear. We
+    change no Steam file and do not touch games or anti-cheat. This is not legal advice.
+  - SteamOS lets other devices on your network reach that switch too (port 8081). The installer blocks them, which
+    asks for your Deck's administrator password once. Never set one? Press Ctrl+C, open Konsole and run: passwd
+  - Steam needs one restart before it notices the switch. This installer never restarts it for you.
+  - Passwords: inside Steam's own password boxes it does nothing. Over games Steam does not say which box is a
+    password box, so nothing is learned or saved there.
 
 TEXT
 if [ -n "$GAMING_BLOCKED" ]; then
@@ -347,30 +345,7 @@ if [ -n "$GAMING_BLOCKED" ]; then
     echo
 fi
 
-if [ -z "$CHOICE" ]; then
-    if [ "$DRY_RUN" = 1 ] || [ "$ASSUME_YES" = 1 ]; then
-        CHOICE="$DEFAULT_CHOICE"
-    else
-        if [ -n "$GAMING_BLOCKED" ]; then
-            CHOICE=desktop
-        else
-            [ "$DEFAULT_CHOICE" = gaming ] && default_label="2 (keep Gaming Mode on)" || default_label="1 (Desktop only)"
-            [ "$CURRENT_GAMING" = yes ] && echo "Gaming Mode is on now. Choosing 1 turns it off and keeps the Desktop keyboard."
-            printf 'Type 1 or 2 and press Enter. Just pressing Enter picks %s: ' "$default_label"
-            answer=""
-            read -r answer || answer=""
-            case "$answer" in
-                "") CHOICE="$DEFAULT_CHOICE" ;;
-                1) CHOICE=desktop ;;
-                2) CHOICE=gaming ;;
-                *) echo "Nothing was changed."; exit 1 ;;
-            esac
-        fi
-    fi
-fi
-
-# Second question, only for Gaming Mode: who else may reach Steam's developer switch? Its own choice because some people
-# want network access on purpose (developer tools on another computer). Enter = Block, the safer reading.
+# Who else may reach Steam's developer switch: blocked unless you already chose open, or pass --leave-open
 CURRENT_OUTSIDE="$(record_value outside_access)"; [ -n "$CURRENT_OUTSIDE" ] || CURRENT_OUTSIDE=blocked
 # WHY on unless you said no: owner decision (2026-10-23), updates install by themselves on every platform. A record
 # from before this choice existed gets it on too; an explicit earlier "no" is kept.
@@ -384,49 +359,11 @@ for unit in "${UPDATE_UNITS[@]}"; do
     fi
 done
 DEFAULT_OUTSIDE=blocked; [ "$CURRENT_GAMING" = yes ] && DEFAULT_OUTSIDE="$CURRENT_OUTSIDE"
-outside_text() {
-    cat <<TEXT
-Second question: should other devices on your network be blocked from Steam's developer switch?
-
-On SteamOS the switch can also be reached from other devices on your Wi-Fi or home network (SteamOS opens a second
-door, port 8081, to the whole network). Anyone there could control Steam's screens and run programs on your Deck.
-
-  1) Block other devices (recommended)
-     + Only this Deck can use the switch. Safe on shared or public Wi-Fi.
-     - Asks for your Deck's administrator password once. If you have never set one, open Konsole and run: passwd
-     - Tools on another computer that use the switch over the network stop working until you run this again and
-       choose 2.
-
-  2) Leave it open
-     + No password needed. Keeps network access for people who use it on purpose (for example developer tools on
-       another computer).
-     - Anyone on the same network can control Steam on your Deck. Do not choose this on public or shared Wi-Fi.
-
-TEXT
-}
-if [ "$CHOICE" = gaming ] || { [ "$DRY_RUN" = 1 ] && [ "$CHOICE_FROM_FLAG" = 0 ] && [ -z "$GAMING_BLOCKED" ]; }; then
-    outside_text
-    if [ -z "$OUTSIDE" ]; then
-        if [ "$CHOICE" = gaming ] && [ "$DRY_RUN" = 0 ] && [ "$ASSUME_YES" = 0 ]; then
-            [ "$DEFAULT_OUTSIDE" = open ] && default_label="2 (leave open)" || default_label="1 (block)"
-            printf 'Type 1 or 2 and press Enter. Just pressing Enter picks %s: ' "$default_label"
-            answer=""; read -r answer || answer=""
-            case "$answer" in
-                "") OUTSIDE="$DEFAULT_OUTSIDE" ;;
-                1) OUTSIDE=blocked ;;
-                2) OUTSIDE=open ;;
-                *) echo "Nothing was changed."; exit 1 ;;
-            esac
-        else
-            OUTSIDE="$DEFAULT_OUTSIDE"
-        fi
-    fi
-fi
 [ -n "$OUTSIDE" ] || OUTSIDE="$DEFAULT_OUTSIDE"
 
 # --- 3. Say exactly what will happen ---------------------------------------------------------------
 # A dry run with no choice given shows both plans, so you can see what each option would do.
-SHOW_GAMING=0; { [ "$CHOICE" = gaming ] || { [ "$DRY_RUN" = 1 ] && [ "$CHOICE_FROM_FLAG" = 0 ] && [ -z "$GAMING_BLOCKED" ]; }; } && SHOW_GAMING=1
+SHOW_GAMING=0; { [ "$CHOICE" = gaming ] || [ "$ASK_GAMING" = 1 ] || { [ "$DRY_RUN" = 1 ] && [ "$CHOICE_FROM_FLAG" = 0 ] && [ -z "$GAMING_BLOCKED" ]; }; } && SHOW_GAMING=1
 echo "The exact changes:"
 if [ "$SKIP_FLATPAKS" = 0 ]; then
     echo "  - add the Flathub source for your user if missing, and install the keyboard app for your user only:"
@@ -434,7 +371,7 @@ if [ "$SKIP_FLATPAKS" = 0 ]; then
     echo "    Flatpak may download its supporting components (the KDE runtime) from Flathub once, if not already here."
 fi
 if [ "$SHOW_GAMING" = 1 ]; then
-    [ "$DRY_RUN" = 1 ] && [ "$CHOICE" != gaming ] && echo "  If you choose 2, these are added:"
+    [ "$CHOICE" != gaming ] && echo "  If you answer yes to Gaming Mode, these are added:"
     if [ "$OUTSIDE" = blocked ]; then
         echo "  - ask for your Deck's administrator password once, then close the outside door: write one small file"
         echo "      $DROPIN"
@@ -458,7 +395,9 @@ if [ "$SHOW_GAMING" = 1 ]; then
     echo "  - write $WATCH_SCRIPT. Once a minute it only checks that the developer-switch file still exists and never changes"
     echo "    Steam's folder. If the file ever disappears, it shows a desktop notification (in Desktop Mode) with a"
     echo "    'Turn it back on' button; Gaming Mode cannot show notifications, so there Steam's normal keyboard is used."
-elif [ "$CURRENT_GAMING" = yes ]; then
+fi
+if [ "$CURRENT_GAMING" = yes ] && [ "$CHOICE" != gaming ]; then
+    [ "$ASK_GAMING" = 1 ] && echo "  If you answer no, Gaming Mode is turned off instead:"
     echo "  - turn Gaming Mode off: stop and delete the two background services, delete the developer-switch file if this"
     echo "    installer created it (kept if Decky Loader is installed, because it relies on that file), remove the Gaming Mode helper app if this installer added it, and remove the outside-door"
     echo "    block (asks for the administrator password once). The Desktop keyboard stays."
@@ -493,7 +432,20 @@ if [ "$DRY_RUN" = 1 ]; then
 fi
 
 # --- 4. Ask ----------------------------------------------------------------------------------------
-if [ "$ASSUME_YES" = 0 ]; then
+if [ "$ASK_GAMING" = 1 ]; then
+    # WHY this is the only question: the plan above already said what both answers do; Ctrl+C is the way out
+    [ "$DEFAULT_CHOICE" = gaming ] && prompt='[Y/n]' || prompt='[y/N]'
+    printf '\nAlso swipe in Gaming Mode? %s (Ctrl+C cancels; nothing has changed yet) ' "$prompt"
+    answer=""
+    # WHY no answer at all (input closed, not a person) changes nothing: Enter means yes, but only when someone pressed it
+    read -r answer || { echo; echo "Nothing was changed."; exit 1; }
+    case "$answer" in
+        "") CHOICE="$DEFAULT_CHOICE" ;;
+        y|Y|yes|YES|Yes) CHOICE=gaming ;;
+        n|N|no|NO|No) CHOICE=desktop ;;
+        *) echo "Nothing was changed."; exit 1 ;;
+    esac
+elif [ "$ASSUME_YES" = 0 ]; then
     printf '\nContinue? [y/N] '
     answer=""
     read -r answer || answer=""
@@ -664,7 +616,7 @@ if [ "$CHOICE" = desktop ]; then
     else
         write_record
         echo
-        echo "Done. The Desktop Mode keyboard is installed. To add Gaming Mode later, run this installer again and choose 2."
+        echo "Done. The Desktop Mode keyboard is installed. To add Gaming Mode later, run this installer again and answer yes."
     fi
     exit 0
 fi
@@ -759,6 +711,6 @@ systemctl --user enable --now "${UNITS[@]}"
 cat <<TEXT
 
 Done. Switch to Gaming Mode and touch a text field. If Steam was already running, restart Steam once.
-To undo: bash uninstall.sh. To turn Gaming Mode off but keep the Desktop keyboard: run this installer again and choose 1.
+To undo: bash uninstall.sh. To turn Gaming Mode off but keep the Desktop keyboard: run this installer again and answer no.
 TEXT
 exit "$EXIT_CODE"
