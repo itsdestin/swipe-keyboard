@@ -30,3 +30,4 @@ date	commit	label	n	top1	top3	avg_us
 2026-10-30	8477c00	[engine] joint step 2: neural re-scoring of swipes on in the keyboard (en.ngram, previous words, --rescore neural 1 / n-gram 0; shipped dictionary and swipe-model.bin)	2000	90.95	93.25	4290.0
 2026-10-30	f3fd80b	[engine] joint step 3: learned re-ranker of swipes on in the keyboard (en.ngram, previous words, --rescore = built-in SwipeReranker; shipped dictionary and swipe-model.bin)	2000	91.45	93.30	4700.0
 2026-10-30	55bda0f	[engine] joint step 3 + review fixes: learned re-ranker on, taught words protected, alternatives' sentence weight x0.5 (en.ngram, previous words, --rescore = built-in SwipeReranker; shipped dictionary and swipe-model.bin)	2000	91.45	93.45	4230.0
+2026-10-30	14ad981	[engine] full-verify 14ad981, keyboard setup: en.ngram, previous words, --rescore	2000	91.45	93.45	3860.0

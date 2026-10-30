@@ -135,7 +135,8 @@ add_library(feature_inputmethod STATIC ${ROOT}/plugin/swipeinputmethod.cpp ${ROO
     ${ROOT}/plugin/learningmanager.cpp ${ROOT}/plugin/learningmanager.h
     ${ROOT}/plugin/nextwordsession.cpp ${ROOT}/plugin/nextwordworker.cpp ${ROOT}/plugin/nextwordworker.h
     ${ROOT}/plugin/predictionpolicy.cpp ${ROOT}/plugin/predictiondiagnostics.cpp ${ROOT}/plugin/wordswap.cpp
-    ${ROOT}/plugin/swapflow.cpp)
+    # WHY barflow.cpp: nextwordworker builds its next-word and completion lists through it (shared with the typing bench).
+    ${ROOT}/plugin/swapflow.cpp ${ROOT}/plugin/barflow.cpp)
 target_include_directories(feature_inputmethod PUBLIC ${ROOT}/plugin)
 target_link_libraries(feature_inputmethod PUBLIC feature_engine language_rules Qt6::Qml Qt6::Quick Qt6::VirtualKeyboard)
 set(_im_env "QT_QPA_PLATFORM=offscreen;QT_IM_MODULE=qtvirtualkeyboard;QT_VIRTUALKEYBOARD_DESKTOP_DISABLE=1")

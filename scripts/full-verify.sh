@@ -78,8 +78,22 @@ if [ "$skip_bench" = 0 ]; then
     # WHY copies: the scoreboards append rows; the lane must not edit tracked files. Copy rows back by hand
     # when a release records its numbers.
     cp "$ROOT/bench/history.tsv" "$WORK/history.tsv"; cp "$ROOT/bench/scoreboard.tsv" "$WORK/scoreboard.tsv"
-    step "English real swipes (--check)" env SWIPEKB_ASSETS="$A" SWIPEKB_EVAL="${SWIPEKB_EVAL:-$A/eval}" SWIPEKB_BENCH="$WORK/tools/swipekb-bench" \
-        BENCH_HISTORY="$WORK/history.tsv" nice -n 10 "$ROOT/bench/score.sh" --label "full-verify $(git -C "$ROOT" rev-parse --short HEAD)" --check
+    # WHY these folders: the real-swipe test data is not a pinned asset; it sits in assets/eval of the main checkout,
+    # which a work copy (git worktree) does not have. 2026-10-30 the lane looked only in $A/eval and never ran.
+    EVAL="${SWIPEKB_EVAL:-}"
+    if [ -z "$EVAL" ]; then
+        for d in "$A/eval" "$ROOT/assets/eval" "$(cd "$ROOT" && cd "$(git rev-parse --git-common-dir)/.." && pwd)/assets/eval"; do
+            [ -f "$d/test.jsonl" ] && { EVAL="$d"; break; }
+        done
+    fi
+    # WHY these flags: score the swipes the way the keyboard ranks them (sentence pack, previous words, learned
+    # re-ranker). Without them the run measured the engine with the sentence model off (89.20 %) and --check
+    # compared that with keyboard-setup rows (91.45 %), a false alarm.
+    LF="$A/language-files"
+    step "English real swipes (--check)" env SWIPEKB_ASSETS="$A" SWIPEKB_EVAL="${EVAL:-$A/eval}" SWIPEKB_BENCH="$WORK/tools/swipekb-bench" \
+        SWIPEKB_BENCH_FLAGS="${SWIPEKB_BENCH_FLAGS:---ngram $LF/en.ngram --vocab $LF/en.vocab.tsv --nwp $LF/en.nwp.bin --context --rescore}" \
+        BENCH_HISTORY="$WORK/history.tsv" nice -n 10 "$ROOT/bench/score.sh" \
+        --label "full-verify $(git -C "$ROOT" rev-parse --short HEAD), keyboard setup: en.ngram, previous words, --rescore" --check
     step "next word, all languages (--check)" env SWIPEKB_NEXTWORD_EVAL="$WORK/features/swipekb-nextword-eval" \
         SWIPEKB_PACKS="$A/language-packs" SCOREBOARD="$WORK/scoreboard.tsv" \
         nice -n 10 "$ROOT/bench/scoreboard.sh" --label "full-verify $(git -C "$ROOT" rev-parse --short HEAD)" --check
