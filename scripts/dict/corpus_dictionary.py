@@ -12,8 +12,9 @@ training sentences, CC BY 2.0 FR). Output: AOSP-layout `.combined` dictionaries.
   corpus_dictionary.py --lang en --counts en.counts.tsv --base en_US_wordlist.combined --casing en_wordlist.combined
                        --out en_swipe.combined [--max 250000] [--typo-ratio 20] [--min-pages 3]
       English: every word of the AOSP base (Apache-2.0) exactly as before, then corpus words AOSP lacks.
-  corpus_dictionary.py --lang es|fr|de --counts X.counts.tsv --out X.combined [--max 100000]
-      Other languages: the most frequent words of the counts, after the junk filters below.
+  corpus_dictionary.py --lang es|fr|de --counts X.counts.tsv --out X.combined [--max 100000] [--drop shadows.txt]
+      Other languages: the most frequent words of the counts, after the junk filters below, minus the --drop words
+      (rare words that would steal a common word's swipe; tools/swipekb-shadow-words finds them).
   Both take --foreign OTHER.counts.tsv ... (the other languages' counts, for the foreign-word filter).
 
 Junk filters (all for the same reason: web text contains misspellings and page debris that must not become
@@ -172,15 +173,28 @@ def make_typo_test(counts, alphabet, ratio, total, max_zipf=TYPO_MAX_ZIPF):
     return looks_like_typo
 
 
-def language_entries(counts_path, language, alphabet, clean, maximum, min_pages=3, typo_ratio=LANGUAGE_TYPO_RATIO, foreign=()):
-    """es/fr/de: [(word, f)] most frequent first. `clean(word, language)` is language_pack.clean_word."""
+def read_drop(path):
+    """Spellings to leave out, one per line before any tab (swipekb-shadow-words output); '#' lines are comments."""
+    if not path:
+        return frozenset()
+    with open(path, encoding="utf-8") as f:
+        return frozenset(line.split("\t", 1)[0].rstrip("\n") for line in f if line.strip() and not line.startswith("#"))
+
+
+def language_entries(counts_path, language, alphabet, clean, maximum, min_pages=3, typo_ratio=LANGUAGE_TYPO_RATIO, foreign=(),
+                     drop=frozenset()):
+    """es/fr/de: [(word, f)] most frequent first. `clean(word, language)` is language_pack.clean_word.
+
+    `drop`: exact spellings to leave out. WHY they still count toward `maximum`: the list must stop at the same
+    counted word as the list the drop file was made from; filling the gap would add words nobody checked.
+    """
     total, rows = read_counts(counts_path)
     typo = make_typo_test(rows, alphabet, typo_ratio, total)
     is_foreign = make_foreign_test(foreign, total)
     table = {key: count for key, count, _, _ in rows}
-    out, seen = [], set()
+    out, seen, kept = [], set(), 0
     for key, count, pages, spelling in rows:
-        if len(out) >= maximum:
+        if kept >= maximum:
             break
         if pages < min_pages or key in WEB_DEBRIS or key in seen or is_foreign(key, count):
             continue
@@ -194,7 +208,9 @@ def language_entries(counts_path, language, alphabet, clean, maximum, min_pages=
         if word is None or typo(key):
             continue
         seen.add(key)
-        out.append((word, f_language(zipf(count, total))))
+        kept += 1
+        if word not in drop:
+            out.append((word, f_language(zipf(count, total))))
     return out
 
 
@@ -254,6 +270,7 @@ def main():
     ap.add_argument("--typo-ratio", type=float, help="default 20 for English, 100 for the others")
     ap.add_argument("--min-pages", type=int, default=3)
     ap.add_argument("--foreign", nargs="*", default=[])
+    ap.add_argument("--drop", help="es/fr/de: spellings to leave out (swipekb-shadow-words output)")
     a = ap.parse_args()
     if a.lang == "en":
         if not a.base:
@@ -263,7 +280,7 @@ def main():
         print("%s: %d words" % (a.out, len(entries)))
         return
     import language_pack
-    data = language_pack.dictionary_from_counts(a.counts, a.lang, a.max or 100000, a.min_pages, LANGUAGE_TYPO_RATIO if a.typo_ratio is None else a.typo_ratio, a.foreign)
+    data = language_pack.dictionary_from_counts(a.counts, a.lang, a.max or 100000, a.min_pages, LANGUAGE_TYPO_RATIO if a.typo_ratio is None else a.typo_ratio, a.foreign, read_drop(a.drop))
     with open(a.out, "wb") as f:
         f.write(data)
     print("%s: %d bytes" % (a.out, len(data)))

@@ -83,6 +83,13 @@ precedence = "override"
 SPDX-FileCopyrightText = ["Hugging Face (FineWeb, FineWeb-2; derived from Common Crawl)", "2026 Destin Moss <https://youcoded.ai>"]
 SPDX-License-Identifier = "ODC-By-1.0"
 
+# Words left out of the bigger word lists, found in lists counted from FineWeb / FineWeb-2 (scripts/dict/swipe-shadows).
+[[annotations]]
+path = "scripts/dict/swipe-shadows/*.txt"
+precedence = "override"
+SPDX-FileCopyrightText = ["Hugging Face (FineWeb, FineWeb-2; derived from Common Crawl)", "2026 Destin Moss <https://youcoded.ai>"]
+SPDX-License-Identifier = "ODC-By-1.0"
+
 # Patch to KDE's plasma-keyboard: it changes files under KDE's standard licence, and so carries that licence.
 [[annotations]]
 path = "scripts/patches/plasma-prediction-policy.patch"
