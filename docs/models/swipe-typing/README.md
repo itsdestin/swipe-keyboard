@@ -42,7 +42,7 @@ model-index:
 
 # youcoded/swipe-typing ("T1"): swipe-typing decoder for English, Spanish, French and German
 
-> **Headline:** in the keyboard, on 1,946 real English swipes typed inside sentences, the first guess is right 91.47 % of the time against 93.32 % for FUTO's engine measured the same way: 1.85 points behind (top 3: 94.55 % against 96.56 %). In the next release, where a small learned re-ranker (with the suggestion bar's sentence model as one of its inputs) orders each swipe's candidate words, the same swipes give 92.86 % (0.46 points behind) and top 3 94.76 % (1.80 behind). No Gboard swipe comparison was made (Gboard swipe typing was not measured).
+> **Headline:** in the keyboard, on 1,946 real English swipes typed inside sentences, the first guess is right 91.47 % of the time against 93.32 % for FUTO's engine measured the same way: 1.85 points behind (top 3: 94.55 % against 96.56 %). In the next release, where a small learned re-ranker (with the suggestion bar's sentence model as one of its inputs) orders each swipe's candidate words, the same swipes give 92.86 % (0.46 points behind) and top 3 94.91 % (1.65 behind). No Gboard swipe comparison was made (Gboard swipe typing was not measured).
 
 A small neural network that turns the path of a finger across an on-screen keyboard into a ranked list of words, for the Swipe Keyboard: an open-source swipe-typing and word-prediction add-on for KDE Plasma's on-screen keyboard. One model serves all four languages and any layout, because the keys are given to it as positions.
 
@@ -136,8 +136,9 @@ FUTO-scorable 92.34 / 94.71; test-extra-10000 all 91.09 / 93.71, FUTO-scorable 9
 unchanged (no previous words, or no sentence pack: no re-ranking). Details: `docs/methods.md`.
 Joint-model step 3 (same day, unreleased): a small learned re-ranker (`SwipeReranker`, 2.4 KB of weights built into
 the engine, trained on 10,002 FUTO English swipes this model never trained on) replaces those fixed weights and also
-orders swipes with no previous words. "Previous words", first / top 3: bench-2000 all 91.45 / 93.30, FUTO-scorable
-92.86 / 94.76; test-extra-10000 all 91.48 / 93.64, FUTO-scorable 93.08 / 95.26. No previous words: bench-2000 all
+orders swipes with no previous words. "Previous words", first / top 3: bench-2000 all 91.45 / 93.45, FUTO-scorable
+92.86 / 94.91; test-extra-10000 all 91.48 / 93.73, FUTO-scorable 93.08 / 95.35 (after the review fix of places 2-3,
+`docs/methods.md`; before it the top 3 was 93.30, 94.76, 93.64 and 95.26). No previous words: bench-2000 all
 89.45 / 93.05 (was 88.15 / 92.70). The "no sentence pack" column was not re-measured (the learned model also acts there; untested, and no shipped language lacks a pack).
 
 ### The model alone (its own benchmark tool and word list, 2026-10-23; not the shipped setup)
@@ -244,6 +245,18 @@ Required credits when redistributing:
 - The release notice `MODELS-NOTICE.md` (release `models-2026-10-23`).
 
 The word lists the model is used with carry their own attribution terms (FineWeb / FineWeb-2: ODC-By 1.0; Tatoeba: CC BY 2.0 France; for English also the Android LatinIME word list, Apache-2.0). They are separate files and not part of the model.
+
+### The learned re-ranker built into the engine
+
+`engine/src/swipe_rerank_weights.inc` (about 250 numbers, 2.4 KB of text, compiled into the engine; read by
+`SwipeReranker`): **MIT**. It orders the 30 words this model and the search find for a swipe (`docs/methods.md`, "Swipe in
+the keyboard with the learned re-ranker"). Trained 2026-10-30 by `scripts/swipe/train_rerank.py` on 10,002 real English
+swipes from FUTO's swipe.futo.org data that this model never trained on (the held-back `trv8k` slice of `swipe-1` and the
+`dev.jsonl` sessions held out for validation), validated on 3,833 more from other sessions; FUTO's swipe-5 French and
+German validation slices were only checked. No HeliBoard data, no test set, no synthetic swipes, no FUTO model weights.
+The training data is FUTO's (MIT, Copyright (c) 2025 FUTO), so the same credits as for the model file apply: keep
+FUTO's MIT notice (`FUTO-SWIPE-DATA-LICENSE.txt`, installed in the licence folder) with these weights. Sources:
+`docs/models/SOURCES.md`, "Learned swipe re-ranker".
 
 ## Credit
 

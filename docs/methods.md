@@ -72,7 +72,10 @@ sets have no sentence, so their rows are unchanged.
 <!-- bench/ux-scoreboard.tsv, label "joint step 3: learned re-ranker of swipes on in both front ends (--rescore)", commit f3fd80b -->
 "New + learned re-ranker" (unreleased, joint-model step 3): a small learned model orders each swipe's candidate words
 (see "Swipe in the keyboard with the learned re-ranker" below), with or without words before, so the HeliBoard sets
-move too: 2.1 to 3.1 more swipes in 100 need no tap there. One German swipe in five is a word our German list does not have, which no list can fix.
+move too: 2.08 to 3.14 more swipes in 100 need no tap there. The review fix of places 2-3 (below; label "joint step 3 +
+review fixes", commit 55bda0f) leaves these "new" rows exactly as they are (with tap-to-swap the swap list fills those
+places); on a 0.5.0-style bar it gives bench-2000 1 tap 1.80 -> 2.00 %, taps per word 0.476 -> 0.464, test-extra-10000
+2.17 -> 2.24 %, 0.432 -> 0.428. One German swipe in five is a word our German list does not have, which no list can fix.
 
 Typing, first 300 sentences per set:
 
@@ -330,27 +333,52 @@ found words of the same swipe), on swipes the swipe model T1 never trained on: F
 T1 held out, split by session into 10,002 training swipes (382 sessions) and 3,833 validation swipes (229 sessions).
 Model form and strength chosen on that validation part only (the simplest within one swipe in 1,000 of the best);
 French and German FUTO swipe-5 validation swipes (262 and 386, too few sessions to split) were only checked, never
-trained on. No HeliBoard data, no test set, and no synthetic swipes were used for training.
+trained on. No HeliBoard data, no test set, and no synthetic swipes were used for training. That T1 never trained on
+these swipes rests on T1's own training log, which lists exactly these files as its validation sets (its full command
+line was not recorded); T1's checkpoint was also picked on their validation loss (its last epoch was its best, so the
+effect is small).
 
 Validation (first guess, engine path, `tools/swipekb-bench`; fixed = step 2's weights):
-English 3,833 swipes with their sentences 93.27 (0.5.0) / 93.97 (fixed) / 94.23 (learned), top 3 95.51 / 95.72 / 95.56;
+English 3,833 swipes with their sentences 93.27 (0.5.0) / 93.97 (fixed) / 94.23 (learned), top 3 95.51 / 95.72 / 95.64
+(95.56 before the review fix below);
 the same without sentences 91.21 -> 92.64 (top 3 95.12 -> 95.36); French with sentences 88.55 / 90.84 / 91.98, without
 81.68 -> 84.73; German 88.34 / 90.16 / 90.93, without 87.82 -> 89.38.
 
-Test sets, scored once at the end (first / top 3; 0.5.0 -> step 2 fixed weights -> learned):
+Places 2 and 3 on the bar (review fix, 2026-10-30). After the first guess, the next places are ordered by the word's
+score plus an extra weight on the sentence prior (AlternativeParams). That weight was tuned when scores were in the
+prior's own units; the learned model's scores spread only a few units, so at full weight the prior decided places 2-3
+on its own. Two changes: (1) a word the person taught (which the sentence models have never seen, so its prior is the
+floor) takes the list's best prior in that ordering, so it is never placed lower than the model puts it ("i met" + a
+clean swipe of a taught "brynn": the model puts it 2nd; the bar had shown "bryn, ben, by"); unit test with a hand-made
+pack and a test with the real English files and ten taught names and slang words; (2) the extra weight is scaled by
+0.5 for the learned scores, chosen on the English validation part only (grid 0 to 1, rule fixed before looking: best
+top 3, and within 2 swipes of it the least junk among shown alternatives): top 3 / junk 95.56 % / 3.32 % at 1,
+95.64 % / 3.85 % at 0.5, 95.70 % / 4.60 % at 0.1 (the best top 3), 95.67 % / 4.84 % at 0; fixed weights 95.72 % / 4.84 %,
+0.5.0 95.51 % / 4.74 %. First guesses do not change (94.23 % at every value). It acts only with words before and only
+in English (the other languages use no extra weight), so the no-sentence and HeliBoard rows below are unchanged
+(re-run: identical).
+
+Test sets, scored once at the end and once more after the review fix (first / top 3; 0.5.0 -> step 2 fixed weights ->
+learned):
 
 | Set | Swipes | Previous words | No previous words |
 |---|---|---|---|
-| bench-2000, all | 2,000 | 90.10 / 93.10 -> 90.95 / 93.25 -> 91.45 / 93.30 | 88.15 / 92.70 -> 89.45 / 93.05 |
-| bench-2000, FUTO-scorable | 1,946 | 91.47 / 94.55 -> 92.34 / 94.71 -> 92.86 / 94.76 | not measured |
-| test-extra-10000, all | 10,000 | 90.45 / 93.57 -> 91.09 / 93.71 -> 91.48 / 93.64 | not measured |
-| test-extra-10000, FUTO-scorable | 9,719 | 92.03 / 95.21 -> 92.68 / 95.35 -> 93.08 / 95.26 | not measured |
+| bench-2000, all | 2,000 | 90.10 / 93.10 -> 90.95 / 93.25 -> 91.45 / 93.45 | 88.15 / 92.70 -> 89.45 / 93.05 |
+| bench-2000, FUTO-scorable | 1,946 | 91.47 / 94.55 -> 92.34 / 94.71 -> 92.86 / 94.91 | not measured |
+| test-extra-10000, all | 10,000 | 90.45 / 93.57 -> 91.09 / 93.71 -> 91.48 / 93.73 | not measured |
+| test-extra-10000, FUTO-scorable | 9,719 | 92.03 / 95.21 -> 92.68 / 95.35 -> 93.08 / 95.35 | not measured |
 | HeliBoard en / es / fr / de | 5,000 each | (no sentences) | 80.78 / 89.00 -> 83.96 / 90.00; 75.98 / 84.68 -> 78.12 / 85.42; 68.34 / 82.00 -> 70.78 / 83.04; 64.72 / 73.12 -> 66.80 / 73.70 |
 
 (HeliBoard here through `tools/swipekb-bench`, all 5,000 records; the 0.5.0 HeliBoard rows of the table above come
-from `tools/swipekb-language-bench` with its own denominators.) Top 3 on test-extra-10000 is 0.07 points below the
-fixed weights (7 swipes), above 0.5.0. Shown alternatives that are junk: test-extra-10000 5.04 -> 3.31 %, HeliBoard
-fr 38.77 -> 29.19 %. Like-for-like with FUTO's engine: 92.86 vs 93.32 first guess (0.46 behind), 94.76 vs 96.56 top 3.
+from `tools/swipekb-language-bench` with its own denominators.) Before the review fix, top 3 with previous words was
+93.30 (bench-2000), 94.76, 93.64 (test-extra-10000, 7 swipes below the fixed weights) and 95.26; first guesses are the
+same. Top 3 on test-extra-10000 is now 0.02 points above the fixed weights (2 swipes), bench-2000 0.20 (4 swipes); on
+English validation it is still 0.08 below them (3 of 3,833). Shown alternatives that are junk (fixed -> learned):
+test-extra-10000 5.04 -> 3.89 % (3.31 % before the review fix), bench-2000 4.77 -> 3.90 % (3.43 %), HeliBoard fr
+38.77 -> 29.19 %. When the first guess is wrong, the right word is among the alternatives less often than with the
+fixed weights: bench-2000 25.41 -> 23.39 % (21.64 % before the review fix), test-extra-10000 29.41 -> 26.41 % (25.35 %);
+the model fixes the easier misses itself. Like-for-like with FUTO's engine: 92.86 vs 93.32 first guess (0.46 behind),
+94.91 vs 96.56 top 3 (1.65 behind).
 Speed (`tools/swipekb-rescore-bench --speed`, bench-2000): 4.23 ms per swipe with the learned model, 4.25 with the
 fixed weights, 3.48 vs 3.50 ms without words before (no measurable cost); real worker path (`--product`) median
 4.60 ms, worst 6.28 ms. Memory: none beyond the 2.4 KB of weights.

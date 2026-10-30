@@ -306,9 +306,18 @@ def model_text(chosen):
 
 def cmd_export(a):
     text = open(a.model).read()
-    lines = ["// SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>", "//", "// SPDX-License-Identifier: MIT", "",
+    # WHY FUTO's line and the credit: the numbers are learned from FUTO's swipe data (MIT, Copyright (c) 2025 FUTO), whose
+    # notice must travel with anything trained on it (docs/models/SOURCES.md, "Learned swipe re-ranker").
+    # REUSE-IgnoreStart (these are the header lines written into the .inc, not this script's own licence)
+    lines = ["// SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>",
+             "// SPDX-FileCopyrightText: 2025 FUTO (training data: swipe.futo.org swipes, MIT)", "//",
+             "// SPDX-License-Identifier: MIT", "",
              "// Built-in SwipeReranker weights (swipe_rerank.cpp includes this inside an unnamed namespace).",
+             "// Models trained and released by Destin Moss via youcoded.ai, 2026.",
+             "// Trained on FUTO's swipe.futo.org swipes (MIT, Copyright (c) 2025 FUTO); keep FUTO's MIT notice with these weights",
+             "// (FUTO-SWIPE-DATA-LICENSE.txt, installed in the licence folder). Provenance: docs/models/SOURCES.md.",
              "// Written by scripts/swipe/train_rerank.py export; see that script and swipe_rerank.hpp for how they were made.",
+             # REUSE-IgnoreEnd
              f"// {a.note}" if a.note else "//",
              "const std::vector<std::pair<std::string, std::string>> kBuiltInRerankers = {",
              f'    {{"{a.lang}", R"SWKBRR({text})SWKBRR"}},', "};", ""]

@@ -1,8 +1,12 @@
 // SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+// SPDX-FileCopyrightText: 2025 FUTO (training data: swipe.futo.org swipes, MIT)
 //
 // SPDX-License-Identifier: MIT
 
 // Built-in SwipeReranker weights (swipe_rerank.cpp includes this inside an unnamed namespace).
+// Models trained and released by Destin Moss via youcoded.ai, 2026.
+// Trained on FUTO's swipe.futo.org swipes (MIT, Copyright (c) 2025 FUTO); keep FUTO's MIT notice with these weights
+// (FUTO-SWIPE-DATA-LICENSE.txt, installed in the licence folder). Provenance: docs/models/SOURCES.md.
 // Written by scripts/swipe/train_rerank.py export; see that script and swipe_rerank.hpp for how they were made.
 // Trained 2026-10-30 on 10,002 FUTO English swipes T1 never trained on (trv8k + held-out dev sessions, 382 sessions); shared by every language (no French/German/Spanish training data).
 const std::vector<std::pair<std::string, std::string>> kBuiltInRerankers = {

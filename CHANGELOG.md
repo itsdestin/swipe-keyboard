@@ -10,20 +10,25 @@
   thinks) instead of adding up two of them with fixed weights. It works with and without words before, so the first
   word of a message or a field, and single words, get better too. Both Plasma front ends; Gaming Mode orders swipes
   without words before the same way (it has no sentence model, so swipes after words are unchanged there).
-- **Measured** (scored once, never trained or tuned on; first guess / right word in the top 3; "before" = the
-  previous release's ranking with the sentence re-scoring below, "no sentence" rows = 0.5.0):
-  bench-2000 with sentences 90.95 / 93.25 -> 91.45 / 93.30 (10 more of 2,000 right first time), test-extra-10000
-  91.09 / 93.71 -> 91.48 / 93.64 (39 more of 10,000; top 3 7 fewer). On the 1,946 swipes FUTO's engine was compared on,
-  92.34 -> 92.86 first guess (FUTO's engine: 93.32). Without a sentence: bench-2000 88.15 / 92.70 -> 89.45 / 93.05;
+- **Measured** (test sets never trained or tuned on; first guess / right word in the top 3; 0.5.0 -> the sentence
+  re-scoring of the next entry, also unreleased -> this; "no sentence" rows: 0.5.0 -> this):
+  bench-2000 with sentences 90.10 / 93.10 -> 90.95 / 93.25 -> 91.45 / 93.45 (10 more of 2,000 right first time than
+  the re-scoring alone, 4 more in the top 3), test-extra-10000 90.45 / 93.57 -> 91.09 / 93.71 -> 91.48 / 93.73 (39 more
+  of 10,000 first time, 2 more in the top 3). On the 1,946 swipes FUTO's engine was compared on, 92.34 / 94.71 ->
+  92.86 / 94.91 (FUTO's engine: 93.32 / 96.56). Without a sentence: bench-2000 88.15 / 92.70 -> 89.45 / 93.05;
   single words on other people's phones (HeliBoard sets, 5,000 each) English 80.78 / 89.00 -> 83.96 / 90.00, Spanish
   75.98 / 84.68 -> 78.12 / 85.42, French 68.34 / 82.00 -> 70.78 / 83.04, German 64.72 / 73.12 -> 66.80 / 73.70. Fewer
-  rare or stretched words among the other guesses on the bar (test-extra-10000 5.04 -> 3.31 %).
+  rare or stretched words among the other guesses on the bar (test-extra-10000 5.04 -> 3.89 %, bench-2000 4.77 ->
+  3.90 %). When the first guess is still wrong, the right word is on the bar less often than with the re-scoring alone
+  (bench-2000 25.41 -> 23.39 %, test-extra-10000 29.41 -> 26.41 %): the model fixes the easy misses first, so the misses
+  left are harder.
 - **Same speed, no extra memory:** the model is 2.4 KB of numbers built into the keyboard; its cost per swipe is
   below what we can measure (under 0.05 ms; a swipe takes about 3.5-4.6 ms on this laptop).
 - **It learned only from English swipes** (no French, German or Spanish training swipes exist that the swipe model
   had not already seen); those languages use the same model and gained on their own checks, but less is known there.
-- **Words you taught the keyboard keep their place:** a word the sentence model does not know is judged by its
-  sentence probability from the word list's own model, as before.
+- **Words you taught the keyboard keep their place:** a taught word the model puts first, second or third stays on
+  the bar after words before it too; the sentence models, which have never seen it, cannot push it off (tested with ten
+  taught names and slang words, each swiped cleanly with and without "i met" before it).
 
 ### Swipes inside a sentence pick the right word a little more often
 
