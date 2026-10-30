@@ -74,3 +74,29 @@ class Find(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class Api(unittest.TestCase):
+    """GitHub's API sometimes answers 502 for a moment; one blip must not stop a release (2026-10-30, v0.5.1-1)."""
+
+    def call(self, outcomes):
+        import subprocess
+        from unittest import mock
+        calls = []
+
+        def fake(cmd, text):
+            calls.append(cmd)
+            out = outcomes[len(calls) - 1]
+            if out is None:
+                raise subprocess.CalledProcessError(1, cmd)
+            return out
+        with mock.patch.object(reuse.subprocess, 'check_output', fake), mock.patch.object(reuse.time, 'sleep'):
+            return reuse.api('repos/x/runs/1/jobs'), len(calls)
+
+    def test_a_passing_blip_is_retried(self):
+        self.assertEqual(self.call([None, '{"jobs": []}']), ({'jobs': []}, 2))
+
+    def test_a_lasting_fault_still_fails(self):
+        import subprocess
+        with self.assertRaises(subprocess.CalledProcessError):
+            self.call([None, None, None, None])
