@@ -127,6 +127,12 @@ swipekb::LanguageEngine *Engine::recognizer(const QString &locale, const QString
         // give the same words in both keyboards. The daemon never learns words, so there is no learned set.
         r->liftWords(swipekb::textingWordPairs(rt->profile.effectiveLanguage));
         r->setCapitals(swipekb::capitalsFor(rt->profile.effectiveLanguage));   // same capitals as the keyboards
+        // Joint-model step 3: the learned re-ranker without a sentence scorer, so a swipe with no words before is ordered
+        // exactly as in the keyboards (their "no sentence" weights need no neural model); one with words before keeps
+        // the search's order here (the daemon loads no neural model; unchanged from before).
+        auto rescore = swipekb::ContextRescore::forLanguage(rt->profile.effectiveLanguage.toStdString());
+        rescore.scorer = nullptr;
+        if (rescore.reranker) r->setContextRescore(rescore);
         rt->recognizer = std::move(r);
         logEvent("recognizer_loaded_ms", msSince(t));
     }

@@ -9,11 +9,17 @@
 // Usage:
 //   swipekb-bench --dict LANG.combined (--layout keys.tsv | --layouts-dir DIR) [--model swipe-model.bin]
 //                 [--ngram LANG.ngram] [--context] [--language en] [--limit N] [--match ascii|lookup|exact] [--list]
-//                 [--alt-pool N --alt-weight W --alt-min-freq F --alt-name-freq F --alt-margin M --alt-stretch 0|1 | --alt-off] swipes.jsonl
+//                 [--rescore --vocab LANG.vocab.tsv --nwp LANG.nwp.bin [--rescore-weights NEURAL,NGRAM]
+//                  [--reranker FILE | --no-reranker]]
+//                 [--alt-pool N --alt-weight W --alt-min-freq F --alt-name-freq F --alt-margin M --alt-stretch 0|1 --alt-learned-scale S | --alt-off] swipes.jsonl
 // Also prints how often a shown alternative is junk and how often the alternatives hold the word when the first guess missed.
 // Swipes: one JSON object per line with "word", "data" [{x,y,t}] in 0..1 of the letter area, "canvas_width",
 // "canvas_height" and (with --layouts-dir) "layout"; "sentence" + "word_idx" give the previous words (--context).
 // Layouts: "letter<TAB>cx<TAB>cy<TAB>half_w<TAB>half_h" (scripts/swipe/layouts/qwerty.tsv).
+// --rescore: the neural next-word model re-scores each swipe's best words (ContextRescore, joint-model experiment;
+// off in the keyboard). WHY timed in ms/swipe: the model's pass is part of the swipe then.
+// --reranker FILE: the learned re-ranker in that file orders the found words (joint-model step 3, SwipeReranker; also
+// swipes without words before); --no-reranker: the fixed weights even when the language has built-in learned ones.
 // Output: "  top-1: a / n = x%" and "  top-3: ..." lines (bench/score.sh reads them), then one summary line.
 #include <QFile>
 #include <QJsonArray>
@@ -33,57 +39,23 @@
 #include <string>
 #include <vector>
 
+#include "benchdata.h"
 #include "swipekb/language_engine.hpp"
+#include "swipekb/prediction.hpp"
 
 using namespace swipekb;
 using Clock = std::chrono::steady_clock;
-
-namespace {
-
-struct Swipe {
-    std::string word, board;
-    float w = 1, h = 1;
-    std::vector<TracePoint> trace;
-    std::vector<std::string> context;
-};
-
-// Key rectangles in canvas pixels from a layout file (0..1 of the letter area), or empty when unreadable.
-std::vector<KeyRect> readLayout(const std::string &path, float w, float h)
-{
-    std::ifstream in(path);
-    std::vector<KeyRect> keys;
-    std::string line;
-    if (!in || !std::getline(in, line)) return {};
-    while (std::getline(in, line)) {
-        std::istringstream f(line);
-        std::string letter;
-        float cx, cy, hw, hh;
-        if (!(f >> letter >> cx >> cy >> hw >> hh)) continue;
-        const auto u = QString::fromStdString(letter).toUcs4();
-        if (u.size() != 1) continue;
-        keys.push_back({char32_t(u[0]), (cx - hw) * w, (cy - hh) * h, 2 * hw * w, 2 * hh * h});
-    }
-    return keys;
-}
-
-// How a guess is compared with the target: "ascii" = a-z only (the original English benchmark),
-// "lookup" = lower-cased with accents kept (apostrophes/hyphens dropped), "exact" = byte for byte.
-std::string norm(const std::string &s, const std::string &mode)
-{
-    if (mode == "exact") return s;
-    if (mode == "lookup") return QString::fromStdString(s).toLower().remove(QLatin1Char('\'')).remove(QChar(0x2019)).remove(QLatin1Char('-')).toStdString();
-    std::string o;
-    for (unsigned char c : s) if (std::isalpha(c)) o.push_back(char(std::tolower(c)));
-    return o;
-}
-
-} // namespace
+using benchdata::BenchSwipe;
+using benchdata::norm;
+using benchdata::readLayout;
+using benchdata::readSwipes;
 
 int main(int argc, char **argv)
 {
     LanguageEngineSetup setup;
-    std::string layout, layoutsDir, input, match = "ascii";
-    bool useContext = false, list = false;
+    std::string layout, layoutsDir, input, match = "ascii", vocab, nwp, rescoreWeights, rerankerFile;
+    bool noReranker = false;
+    bool useContext = false, list = false, rescore = false;
     AlternativeParams alt;
     bool altSet = false;
     size_t limit = 0;
@@ -101,6 +73,12 @@ int main(int argc, char **argv)
         else if (a == "--layouts-dir") layoutsDir = val();
         else if (a == "--context") useContext = true;
         else if (a == "--list") list = true;
+        else if (a == "--vocab") vocab = val();
+        else if (a == "--nwp") nwp = val();
+        else if (a == "--rescore") rescore = true;
+        else if (a == "--rescore-weights") { rescore = true; rescoreWeights = val(); }
+        else if (a == "--reranker") { rescore = true; rerankerFile = val(); }
+        else if (a == "--no-reranker") noReranker = true;
         else if (a == "--limit") limit = size_t(std::atoll(val().c_str()));
         else if (a == "--match") match = val();
         // WHY these: tuning and checking the rules for the guesses after the first (AlternativeParams).
@@ -110,6 +88,8 @@ int main(int argc, char **argv)
         else if (a == "--alt-name-freq") { alt.nameMinFrequency = std::atoi(val().c_str()); altSet = true; }
         else if (a == "--alt-margin") { alt.margin = float(std::atof(val().c_str())); altSet = true; }
         else if (a == "--alt-stretch") { alt.dropStretched = val() == "1"; altSet = true; }
+        // WHY: tunes the sentence weight's scale for the learned re-ranker's scores (AlternativeParams::learnedScale).
+        else if (a == "--alt-learned-scale") { alt.learnedScale = float(std::atof(val().c_str())); altSet = true; }
         else if (a == "--alt-off") { alt = AlternativeParams{16, 0.f, 0, 0, 1e9f, false}; altSet = true; }
         else if (a[0] != '-') input = a;
         else { std::fprintf(stderr, "unknown option %s\n", a.c_str()); return 2; }
@@ -119,77 +99,50 @@ int main(int argc, char **argv)
                              " [--ngram LANG.ngram] [--context] [--language en] [--limit N] [--match ascii|lookup|exact] swipes.jsonl\n");
         return 2;
     }
-    std::vector<Swipe> swipes;
-    QFile f(QString::fromStdString(input));
-    if (!f.open(QIODevice::ReadOnly)) { std::fprintf(stderr, "cannot read %s\n", input.c_str()); return 1; }
-    while (!f.atEnd() && (!limit || swipes.size() < limit)) {
-        const auto o = QJsonDocument::fromJson(f.readLine()).object();
-        if (o.isEmpty()) continue;
-        Swipe s;
-        s.word = o["word"].toString().toStdString();
-        s.board = o["layout"].toString().toStdString();
-        s.w = float(o["canvas_width"].toDouble(1));
-        s.h = float(o["canvas_height"].toDouble(1));
-        if (useContext && o.contains("sentence") && o.contains("word_idx")) {
-            const auto toks = o["sentence"].toString().split(' ', Qt::SkipEmptyParts);
-            for (int k = 0; k < std::min<int>(o["word_idx"].toInt(), int(toks.size())); ++k) s.context.push_back(toks[k].toStdString());
-        }
-        double t0 = -1;
-        for (const auto &p : o["data"].toArray()) {
-            const auto po = p.toObject();
-            const double t = po["t"].toDouble();
-            if (t0 < 0) t0 = t;
-            s.trace.push_back({float(po["x"].toDouble()) * s.w, float(po["y"].toDouble()) * s.h, float(t - t0)});
-        }
-        if (!s.trace.empty()) swipes.push_back(std::move(s));
-    }
+    // WHY shared reader: the swap benchmark reads swipes through the same code (tools/benchdata.h).
+    std::string readError;
+    const std::vector<BenchSwipe> swipes = readSwipes(input, limit, useContext, &readError);
+    if (!readError.empty()) { std::fprintf(stderr, "%s\n", readError.c_str()); return 1; }
     LanguageEngine engine;
     if (!engine.init(setup)) { std::fprintf(stderr, "cannot load the dictionary %s\n", setup.dictionary.c_str()); return 1; }
     if (altSet) engine.setAlternativeParams(alt);
-    // WHY the dictionary read again here: the "junk alternative" measure needs the dictionary's own capitals, which
-    // the engine shows in lower case (English, Spanish, French).
-    std::map<std::string, bool> capitalised;
-    {
-        std::ifstream d(setup.dictionary);
-        std::map<std::string, int> best;
-        for (std::string line; std::getline(d, line);) {
-            if (line.rfind(" word=", 0) != 0) continue;
-            const auto c = line.find(',', 6), fp = line.find(",f=");
-            if (c == std::string::npos || fp == std::string::npos) continue;
-            const QString w = QString::fromStdString(line.substr(6, c - 6));
-            const int fr = std::atoi(line.c_str() + fp + 3);
-            const std::string low = w.toLower().toStdString();
-            if (!best.count(low) || fr > best[low]) { best[low] = fr; capitalised[low] = !w.isEmpty() && w.front().isUpper(); }
+    // --rescore: the language's tuned ContextRescore weights (or --rescore-weights), scored by the next-word model.
+    Predictor predictor;
+    if (rescore) {
+        if (setup.ngram.empty() || vocab.empty() || nwp.empty() || !predictor.init(setup.ngram, vocab, nwp, false)) {
+            std::fprintf(stderr, "--rescore needs --ngram, --vocab and --nwp that load\n");
+            return 1;
         }
+        ContextRescore r = ContextRescore::forLanguage(setup.language);
+        if (!rescoreWeights.empty()) {
+            const auto parts = QString::fromStdString(rescoreWeights).split(u',');
+            if (parts.size() != 2) { std::fprintf(stderr, "--rescore-weights NEURAL,NGRAM\n"); return 2; }
+            r.neuralWeight = parts[0].toFloat();
+            r.ngramWeight = parts[1].toFloat();
+        }
+        if (!benchdata::applyReranker(r, rerankerFile, noReranker)) return 2;
+        // WHY markUnknown: as the keyboard asks (NextWordWorker::scoreForSwipe), so a word the vocabulary lacks keeps its prior.
+        r.scorer = [&predictor](const std::vector<std::string> &c, const std::vector<std::string> &w) { return predictor.scoreWords(c, w, true); };
+        engine.setContextRescore(r);
+        std::fprintf(stderr, "rescore: %s neural %.3f ngram %.3f pool %d\n", benchdata::rerankerName(r), r.neuralWeight, r.ngramWeight, r.pool);
     }
-    auto stretchedWord = [](const std::string &w) {
-        const auto u = QString::fromStdString(w).toLower().toUcs4();
-        int run = 1;
-        for (qsizetype i = 1; i < u.size(); ++i) { run = u[i] == u[i - 1] ? run + 1 : 1; if (run >= 3) return true; }
-        return false;
-    };
-    // A shown alternative is "junk" when the person would hardly ever mean it: stretched, rare (dictionary
-    // frequency under 80 of 255) or a rarely used name (written with a capital, under 120). Fixed before tuning.
-    auto junk = [&](const std::string &w) {
-        const int f = engine.frequency(w);
-        const std::string low = QString::fromStdString(w).toLower().toStdString();
-        const bool name = setup.language.rfind("de", 0) != 0 && capitalised.count(low) && capitalised[low];
-        return stretchedWord(w) || f < 80 || (name && f < 120);
-    };
+    // WHY the shared rule (tools/benchdata.h): the swap scoreboard's junk must mean the same as this one.
+    const benchdata::JunkRule junkRule(setup.dictionary, setup.language);
+    auto junk = [&](const std::string &w) { return junkRule(engine, w); };
     size_t shownAlts = 0, junkAlts = 0, firstWrong = 0, rescued = 0;
     size_t n = 0, top1 = 0, top3 = 0, inDict = 0, dict1 = 0, dict3 = 0, noLayout = 0;
     double ms = 0;
     // WHY a warm-up swipe: the first recognize() builds the word list for the layout (seconds), which is not a swipe.
     for (const auto &s : swipes) {
         const auto keys = readLayout(layoutsDir.empty() ? layout : layoutsDir + "/" + s.board + ".tsv", s.w, s.h);
-        if (!keys.empty()) { engine.recognize(s.trace, keys, s.context, 3); break; }
+        if (!keys.empty()) { engine.recognize(s.trace, keys, s.before, 3); break; }
     }
     for (const auto &s : swipes) {
         ++n;
         const auto keys = readLayout(layoutsDir.empty() ? layout : layoutsDir + "/" + s.board + ".tsv", s.w, s.h);
         if (keys.empty()) { ++noLayout; continue; }
         const auto a = Clock::now();
-        const auto c = engine.recognize(s.trace, keys, s.context, 3);
+        const auto c = engine.recognize(s.trace, keys, s.before, 3);
         ms += std::chrono::duration<double, std::milli>(Clock::now() - a).count();
         const std::string truth = norm(s.word, match);
         const bool h1 = !c.empty() && norm(c[0].word, match) == truth;

@@ -400,3 +400,18 @@ Each section lists the passages of one document that quote a number or a factual
   - source: docs/active/specs/2026-10-23-own-swipe-engine.md section 6 "Final scoring of T1" and "FUTO reference on bench-2000"
 - (paragraph above)
   - source: spec section 6, T1 final scoring HeliBoard sentence and "Today's FUTO engine (old packs)" sentence
+
+## Learned swipe re-ranker (`engine/src/swipe_rerank_weights.inc`; swipe-typing card, "The learned re-ranker built into the engine"; methods.md, "Swipe in the keyboard with the learned re-ranker")
+
+Models trained and released by Destin Moss via youcoded.ai, 2026.
+
+- What it is: the weights of `SwipeReranker` (two sets: with words before, linear; without, one hidden layer of 8 units), about 250 numbers, 2.4 KB of text, compiled into the engine; licence MIT (its file header names the MIT licence, with copyright lines for Destin Moss and for FUTO's training data)
+  - source: engine/src/swipe_rerank_weights.inc; engine/src/swipe_rerank.cpp; written by `scripts/swipe/train_rerank.py export` (2026-10-30, feature/joint-model commit f3fd80b)
+- Training data: real English swipes from FUTO's swipe.futo.org collections, **MIT, Copyright (c) 2025 FUTO**; FUTO's MIT notice (`FUTO-SWIPE-DATA-LICENSE.txt`, pinned in packaging/assets.lock.json and installed in the licence folder) travels with the weights, as with `swipe-model.bin`. No FUTO model weights or code.
+  - source: packaging/NOTICE "Trained models"; packaging/assets.lock.json (FUTO-SWIPE-DATA-LICENSE.txt)
+- Which swipes: `trv8k` (7,198 swipes, 540 sessions; the 5 % session-level `trv` slice of FUTO `train.jsonl` held back from the swipe model T1) and `devs-val.jsonl` (6,637 swipes, 71 sessions: the `dev.jsonl` sessions T1 held out for validation), split by session into 10,002 training swipes (382 sessions) and 3,833 validation swipes (229 sessions). French and German swipe-5 validation slices (262 and 386) only checked, never trained on. No HeliBoard data (CC BY-SA), no test set, no synthetic swipes.
+  - source: scripts/swipe/train_rerank.py (split / dump / train; the five input files are hard-coded); ~/.cache/swipe-keyboard-train/rerank/ (en-train.jsonl, en-val.jsonl, train-result-v3.json); T1's validation sets in ~/.cache/swipe-keyboard-train/shape/T1/log.txt; scripts/swipe/assemble_public_swipes.py (trv slice); independent overlap check in the step-3 review (0 shared sessions, keys or traces with bench-2000, test-extra-10000, FUTO test.jsonl and the HeliBoard test files)
+- Model choice (form and strength) on the English validation part only; the alternatives' sentence-weight scale (AlternativeParams::learnedScale = 0.5) on the same validation part only: grid and results as quoted in methods.md
+  - source: ~/.cache/swipe-keyboard-train/rerank/train-result-v3.json; tools/swipekb-bench --alt-learned-scale on rerank/en-val.jsonl (2026-10-30); engine/include/swipekb/language_engine.hpp AlternativeParams::learnedScale comment
+- Test-set numbers (first / top 3, junk among shown alternatives, right word among the alternatives when the first guess is wrong)
+  - source: bench/swipe-scoreboard.tsv rows "joint step 3" (f3fd80b) and "joint step 3 + review fixes" (55bda0f); bench/history.tsv; bench/ux-scoreboard.tsv labels "joint step 3: ..." and "joint step 3 + review fixes: ..."

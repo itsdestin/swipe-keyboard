@@ -12,6 +12,7 @@
 #include <QLoggingCategory>
 #include <QRegularExpression>
 #include <QStandardPaths>
+#include <QTimer>
 
 #include <cmath>
 
@@ -65,10 +66,10 @@ std::vector<swipekb::KeyRect> measuredKeys(const QVariantList &keys)
 }
 } // namespace
 
-SwipeController::SwipeController(EditorPort *editor, QObject *parent, NextWordWorker::Inference inference)
+SwipeController::SwipeController(EditorPort *editor, QObject *parent, NextWordWorker::Inference inference, NextWordWorker::Scorer scorer)
     : QObject(parent)
     , m_editor(editor)
-    , m_worker(std::move(inference))
+    , m_worker(std::move(inference), std::move(scorer))
     , m_learning([] {
         return dataDir();
     })
@@ -83,28 +84,27 @@ SwipeController::SwipeController(EditorPort *editor, QObject *parent, NextWordWo
     connect(&m_worker, &NextWordWorker::requestSettled, this, &SwipeController::predictionWorkSettled);
     connect(&m_worker, &NextWordWorker::resultReady, this, [this](PredictionStamp stamp, const QStringList &words) {
         observePredictionEcho();
-        // WHY next words only: a swear word is never offered out of the blue (Destin, 2026-10-22), unless the person
-        // uses it themselves with learning on.
+        // WHY barflow::nextWordOffer (shared with the legacy front end and the typing bench): personal words, no swear
+        // word out of the blue (Destin, 2026-10-22) unless the person uses it themselves with learning on, regional order.
         auto *pm = personal();
         const auto typedByPerson = [pm](const QString &key) {
             return pm && pm->usedByPerson(key.toStdString());
         };
-        QStringList offered;
-        for (const auto &word : personalize(words, m_nextPrev, QString(), true, 12)) {
-            if (swipekb::offeredUnprompted(word, m_profile.effectiveLanguage, typedByPerson)) {
-                offered << word;
-            }
-        }
-        if (m_nextWord.accept(stamp, swipekb::rankRegionalCandidates(offered, m_profile.requestedLocale, 12))) {
+        const auto offered = barflow::nextWordOffer(words, m_profile.effectiveLanguage, m_profile.requestedLocale,
+            [this](const QStringList &l) { return personalize(l, m_nextPrev, QString(), true, 12); }, typedByPerson);
+        if (m_nextWord.accept(stamp, offered)) {
             refreshBar();
         }
     });
-    connect(&m_worker, &NextWordWorker::alternativesReady, this, [this](PredictionStamp stamp, const QStringList &ranked) {
+    connect(&m_worker, &NextWordWorker::wordScoresReady, this, [this](PredictionStamp stamp, const QStringList &words, const QVector<float> &scores) {
+        // Card #500: the sentence model's scores for a shown swap list arrived; the list is re-ranked with them
+        // (swapflow::handleScores, shared with the Qt Virtual Keyboard front end).
         // WHY the same word and no finger down: a list that changes under a pressed finger would swap in another word.
-        if (!m_swap.active() || !(stamp == m_swapStamp) || !m_swapPress.isEmpty()) {
-            return;
-        }
-        if (m_swap.setRanked(ranked)) {
+        const bool tapBackOpen = m_swap.active() && stamp == m_swapStamp && m_swapPress.isEmpty() && !m_barPressed;
+        const bool afterSwipeOpen = afterSwipeScoring() && !m_barPressed;
+        const auto r = swapflow::handleScores(m_swapPending, m_afterSwipePending, tapBackOpen, afterSwipeOpen, stamp, words, scores, swapRules());
+        if ((r.target == swapflow::ScoredList::TapBack && m_swap.setList(r.list))
+            || (r.target == swapflow::ScoredList::AfterSwipe && m_session.replaceAlternatives(r.list))) {
             refreshBar();
         }
     });
@@ -116,14 +116,15 @@ SwipeController::SwipeController(EditorPort *editor, QObject *parent, NextWordWo
         if (!m_typedPress.isEmpty() || m_typedWord.token() != prefix || !(m_typedWord.stamp() == stamp)) {
             return;
         }
-        // WHY sentence-ranked words first, dictionary after (same as the legacy front end).
-        QStringList words = ranked;
+        // WHY barflow::completionOffer (shared with the legacy front end and the typing bench): sentence-ranked words
+        // first, dictionary after, then the person's own words, cut to three.
+        QStringList dictionary;
         for (const auto &c : m_engine->complete(prefix.toStdString(), 12)) {
-            words << QString::fromStdString(c.word);
+            dictionary << QString::fromStdString(c.word);
         }
-        words = personalize(words, m_completionPrev, prefix, true, 12);
         const auto old = m_typedWord.candidates();
-        m_typedWord.suggest(swipekb::rankRegionalCandidates(words, m_profile.requestedLocale, 3));
+        m_typedWord.suggest(barflow::completionOffer(ranked, dictionary, m_profile.requestedLocale,
+            [this, &prefix](const QStringList &l) { return personalize(l, m_completionPrev, prefix, true, 12); }));
         if (old != m_typedWord.candidates()) {
             refreshBar();
         }
@@ -179,6 +180,7 @@ void SwipeController::loadLanguage(const QString &locale)
     reset();
     ++m_epoch;
     m_engine.reset();
+    m_layoutKeys.clear(); // WHY: another layout's key positions would give a typed word a wrong made-up path
     // WHY the same profile authority as the Qt Virtual Keyboard front end: one lock-verified set of files per language.
     m_profile = swipekb::resolveProfile(locale, m_physicalLayout, QStringLiteral("Latin"), swipekb::languageModelRoot(locale, modelDir()), m_epoch);
     swipekb::LanguageEngineSetup setup;
@@ -190,6 +192,11 @@ void SwipeController::loadLanguage(const QString &locale)
             m_engine->liftWords(swipekb::textingWordPairs(m_profile.effectiveLanguage));
             // WHY: "I", "Paris", "Monday" shown with their capital (English, Spanish, French; German keeps its own).
             m_engine->setCapitals(swipekb::capitalsFor(m_profile.effectiveLanguage));
+            // Joint-model step 2: a swipe with words before is re-ranked with the sentence model the guess bar uses,
+            // borrowed from the next-word worker (no second copy in memory; see NextWordWorker::scoreForSwipe).
+            // WHY job(): the very files and checksums of a next-word job, so the worker's model is used only when it
+            // is exactly this profile's; without a verified neural file this stays off.
+            m_engine->setContextRescore(swipeContextRescore(&m_worker, job({}, {}), m_profile.effectiveLanguage, m_swipeRescore));
         } else {
             m_profile.capabilities = {};
             m_profile.unavailableReason = QStringLiteral("Language engine initialization failed");
@@ -461,11 +468,13 @@ void SwipeController::finishSwipe(const QVariantList &points, const QVariantList
     const QString swipePrev = contextWords.isEmpty() ? QString() : contextWords.last();
     candidates = personalize(candidates, swipePrev, QString(), false, int(candidates.size()), 0.5);
     candidates = swipekb::rankRegionalCandidates(candidates, m_profile.requestedLocale, 3, rawShape);
+    QString otherSpelling;
     if (!candidates.isEmpty()) {
         // WHY: one swipe shape is both "its" and "it's"; the other spelling sits one tap away.
         const auto others = m_engine->otherSpellings(candidates.front().toStdString());
         if (!others.empty()) {
-            candidates = SwipeSession::withOtherSpelling(candidates, QString::fromStdString(others.front()));
+            otherSpelling = QString::fromStdString(others.front());
+            candidates = SwipeSession::withOtherSpelling(candidates, otherSpelling);
         }
     }
     const bool urlOrEmail = m_editor->hints() & (Qt::ImhUrlCharactersOnly | Qt::ImhEmailCharactersOnly);
@@ -502,10 +511,17 @@ void SwipeController::finishSwipe(const QVariantList &points, const QVariantList
         m_afterSwipeCursorAfter = cursorBefore + int(plan.text.size());
         // Remember this swipe's guesses so tapping the word later offers them (memory only). WHY also in owned-history
         // fields: there tap-to-swap offers only the keyboard's own words, and this is one.
-        if (tapSwapAllowed(editorSnapshot())) {
-            m_recentSwipes.remember(before + (plan.text.startsWith(QLatin1Char(' ')) ? QStringLiteral(" ") : QString()), plan.text.trimmed(), candidates,
-                                    contextWords);
+        const bool predictionField = tapSwapAllowed(editorSnapshot());
+        if (predictionField) {
+            m_recentSwipes.remember(before + (plan.text.startsWith(QLatin1Char(' ')) ? QStringLiteral(" ") : QString()), plan.text.trimmed(), trace,
+                                    rects, contextWords);
         }
+        m_layoutKeys = rects;
+        // Card #500: the row's other places come from the swap search for the committed word, built a moment later.
+        // WHY after the commit, not before: the word appears exactly as fast as before, and the row shows the swipe's
+        // own other guesses until the swap list replaces them (no empty row in between).
+        buildAfterSwipeList(m_session.serial(), m_generation, m_epoch, candidates.front(), rects, contextWords, trace, otherSpelling,
+                            predictionField);
     }
     refreshBar();
     notifyState();
@@ -578,7 +594,7 @@ void SwipeController::keyPressed(int key, const QString &rawText)
                     if (!context.isEmpty() && context.last() == unfinished.toLower()) {
                         context.removeLast();
                     }
-                    m_recentSwipes.remember(previous.text.left(previous.cursor - unfinished.size()), unfinished, {}, context);
+                    m_recentSwipes.remember(previous.text.left(previous.cursor - unfinished.size()), unfinished, {}, {}, context); // typed: no path
                 }
                 m_ownedHistory.word(previous, previous, pol, m_epoch, unfinished, true);
                 m_ownedHistory.observe(previous, pol, m_epoch);
@@ -815,7 +831,7 @@ void SwipeController::observePredictionEcho()
             m_nextWord.invalidate();
             m_worker.invalidate();
         }
-    } else if (!m_nextWord.pendingOrVisible() && m_typedWord.token().isEmpty() && !m_swap.active()) {
+    } else if (!m_nextWord.pendingOrVisible() && m_typedWord.token().isEmpty() && !m_swap.active() && !afterSwipeScoring()) {
         m_worker.invalidate();
     }
     if (completionWanted) {
@@ -866,43 +882,124 @@ void SwipeController::observeWordSwap(const EditorSnapshot &editor)
     if (m_swap.active() && m_swap.start() == span->start && m_swap.word() == span->word) {
         return;
     }
-    QStringList neighbours;
-    for (const auto &o : m_engine->otherSpellings(span->word.toLower().toStdString())) {
-        neighbours << QString::fromStdString(o);
-    }
-    for (const auto &c : m_engine->similar(span->word.toStdString(), 12)) {
-        neighbours << QString::fromStdString(c.word);
-    }
-    // WHY: a clean word is never answered with a swear word it merely resembles.
-    if (swipekb::offeredUnprompted(span->word, m_profile.effectiveLanguage)) {
-        QStringList clean;
-        for (const auto &n : std::as_const(neighbours)) {
-            if (swipekb::offeredUnprompted(n, m_profile.effectiveLanguage)) {
-                clean << n;
-            }
+    // Card #500 (one brain): the options are the words whose swipe looks like this word's. WHY the remembered swipe
+    // when there is one: re-scoring the person's own finger path finds what they meant; a typed word gets a made-up
+    // path through its keys on the current layout.
+    const QString textBefore = editor.text.left(span->start);
+    const bool ownSpan = owned && owned->span == *span;
+    std::optional<std::pair<RecentSwipes::Trace, RecentSwipes::Keys>> remembered;
+    if (ownSpan) {
+        if (!owned->trace.empty()) {
+            remembered = std::make_pair(owned->trace, owned->keys);
         }
-        neighbours = clean;
+    } else {
+        remembered = m_recentSwipes.traceFor(textBefore, span->word);
     }
-    neighbours = personalize(neighbours, QString(), QString(), false, 12, 0.0);
-    neighbours = swipekb::rankRegionalCandidates(neighbours, m_profile.requestedLocale, 12);
-    const auto swiped = owned && owned->span == *span ? owned->candidates : m_recentSwipes.candidatesFor(editor.text.left(span->start), span->word);
-    if (!m_swap.begin(editor.text, editor.cursor, swiped, neighbours)) {
+    // WHY the remembered words in owned-history fields: there the sentence is known only from the keyboard's own words.
+    const QStringList sentence = ownedOnly ? (owned ? owned->context : QStringList()) : swipekb::textContextWords(textBefore.right(4096));
+    // WHY words after the tapped word only in readable fields: owned-history fields may be read only for the
+    // keyboard's own words, so there the list is built from the words before alone.
+    const QStringList after =
+        pol.source == PredictionPolicySource::RawBridge ? swapflow::wordsAfter(editor.text.mid(span->start + span->length, 256)) : QStringList();
+    // WHY tapBackParams: a tap-back list may offer rarer words that fit the path well (the person asked for options).
+    // WHY the words before and after too: with none on either side the list gets the no-sentence weights.
+    const auto params = swapflow::tapBackParams(m_profile.effectiveLanguage, sentence, after);
+    auto cands = swapflow::gather(*m_engine,
+                                  span->word,
+                                  remembered ? remembered->second : m_layoutKeys,
+                                  sentence,
+                                  after,
+                                  remembered ? remembered->first : RecentSwipes::Trace{},
+                                  params);
+    m_lastSwapUsedPath = remembered.has_value();
+    m_lastSwapWordsAfter = int(after.size());
+    if (!m_swap.begin(editor.text, editor.cursor, swapflow::tidySwapList(span->word, cands, params, 3, swapRules(), true))) {
         clearWordSwap();
         return;
     }
     m_swapPress.clear();
     ++m_swapStamp.requestId;
     m_swapStamp.profileEpoch = m_epoch;
+    m_swapPending.clear();
     refreshBar();
     if (!predictionCapable()) {
         return;
     }
-    // WHY the remembered words in owned-history fields: there the sentence is known only from the keyboard's own words.
-    const QStringList sentence = ownedOnly ? (owned ? owned->context : QStringList()) : swipekb::textContextWords(editor.text.left(span->start).right(4096));
-    auto j = job(m_swapStamp, sentence, span->word.left(1).toLower());
-    j.alternatives = true;
-    j.topK = 64;
+    m_swapPending.tapped = span->word;
+    m_swapPending.cands = std::move(cands);
+    m_swapPending.params = params;
+    m_swapPending.limit = 3;
+    if (!m_swapPending.arm(m_swapStamp)) {
+        m_swapPending.clear();
+        return;
+    }
+    auto j = job(m_swapStamp, sentence, QString());
+    j.scoreWords = m_swapPending.scoreList();
     m_worker.submit(j);
+}
+
+swapflow::Rules SwipeController::swapRules()
+{
+    // WHY the list's own boost (swapflow::Rules::personalBoost): a tap-back list only drops forgotten words and taught
+    // words no longer wanted (boost 0, order kept); the bar after a swipe also lifts learned words at half strength.
+    return {m_profile.effectiveLanguage, m_profile.requestedLocale,
+            [this](const QStringList &l, const QString &prev, double boost) {
+                return personalize(l, prev, QString(), false, int(l.size()), boost);
+            }};
+}
+
+bool SwipeController::afterSwipeScoring() const
+{
+    return m_afterSwipePending.waiting && m_session.isActive() && m_session.serial() == m_afterSwipePending.sessionSerial;
+}
+
+void SwipeController::buildAfterSwipeList(quint64 sessionSerial,
+                                          int generation,
+                                          quint64 profileEpoch,
+                                          const QString &first,
+                                          const RecentSwipes::Keys &keys,
+                                          const QStringList &context,
+                                          const RecentSwipes::Trace &trace,
+                                          const QString &otherSpelling,
+                                          bool predictionField)
+{
+    m_afterSwipePending.clear();
+    // WHY deferred to the next turn of the event loop: the swap search takes several milliseconds, and the swiped
+    // word must reach the app first. WHY every check again when it runs: by then the person may have picked a guess,
+    // typed, swiped again, or left the field, and a list for a word no longer shown must be dropped.
+    QPointer<SwipeController> self(this);
+    QTimer::singleShot(0, this, [self, sessionSerial, generation, profileEpoch, first, keys, context, trace, otherSpelling, predictionField] {
+        if (!self) {
+            return;
+        }
+        auto *c = self.data();
+        if (!c->m_session.isActive() || c->m_session.serial() != sessionSerial || generation != c->m_generation || profileEpoch != c->m_epoch
+            || !c->ready() || c->m_barPressed) {
+            return;
+        }
+        auto built = swapflow::buildAfterSwipe(*c->m_engine, first, keys, context, trace, otherSpelling, sessionSerial, c->swapRules());
+        ++c->m_afterSwipeLists;
+        // An empty list keeps the swipe's own guesses (swapflow::AfterSwipeList).
+        if (built.candidates.isEmpty()) {
+            return;
+        }
+        if (c->m_session.replaceAlternatives(built.candidates)) {
+            c->refreshBar();
+        }
+        // WHY these conditions: swapflow::mayScoreAfterSwipe (prediction fields only; never over a wanted word list).
+        if (!swapflow::mayScoreAfterSwipe(predictionField, c->predictionCapable(), c->m_nextWord.pendingOrVisible() || !c->m_typedWord.token().isEmpty())) {
+            return;
+        }
+        // WHY one id counter with tap-back: the two kinds of answer can then never be mistaken for each other.
+        const PredictionStamp stamp{c->m_epoch, 0, ++c->m_swapStamp.requestId};
+        if (!built.pending.arm(stamp)) {
+            return;
+        }
+        c->m_afterSwipePending = std::move(built.pending);
+        auto j = c->job(stamp, context, QString());
+        j.scoreWords = c->m_afterSwipePending.scoreList();
+        c->m_worker.submit(j);
+    });
 }
 
 bool SwipeController::tapSwapAllowed(const EditorSnapshot &editor) const
@@ -945,12 +1042,14 @@ void SwipeController::refreshTypedSuggestions(const EditorSnapshot &editor)
     if (token.isEmpty() || !ready()) {
         return;
     }
-    QStringList words;
+    QStringList dictionary;
     for (const auto &c : m_engine->complete(token.toStdString(), 12)) {
-        words << QString::fromStdString(c.word);
+        dictionary << QString::fromStdString(c.word);
     }
-    words = personalize(words, prevBeforeToken(editor, token), token, true, 12);
-    m_typedWord.suggest(swipekb::rankRegionalCandidates(words, m_profile.requestedLocale, 3));
+    // WHY completionOffer with no sentence-ranked words: the dictionary's list shows at once (shared rule).
+    const QString prev = prevBeforeToken(editor, token);
+    m_typedWord.suggest(barflow::completionOffer({}, dictionary, m_profile.requestedLocale,
+        [this, &prev, &token](const QStringList &l) { return personalize(l, prev, token, true, 12); }));
 }
 
 void SwipeController::invalidatePredictions()
@@ -969,6 +1068,7 @@ void SwipeController::clearWordSwap()
     const bool was = m_swap.active();
     m_swap.clear();
     m_swapPress.clear();
+    m_swapPending.clear();
     ++m_swapStamp.requestId; // a late ranking answer for the old word is refused
     if (was) {
         m_worker.invalidate();
@@ -1022,6 +1122,7 @@ void SwipeController::reset()
     m_typedWord.clear();
     m_typedPress.clear();
     m_press = {};
+    m_barPressed = false; // WHY: a press on another field's row never ends here; it must not freeze this field's row
     clearWordSwap();
     invalidatePredictions();
     // WHY: points collected before a focus/privacy/language reset must never authorize a later commit.
@@ -1091,6 +1192,7 @@ quint64 SwipeController::pressCandidate(const QString &token)
     // WHY freeze the pressed set: if the row changes under the finger, the release is refused rather than inserting a
     // word the person did not see.
     ++m_pressId;
+    m_barPressed = true;
     m_typedPress = !token.isEmpty() && token == m_typedWord.selectionToken() ? token : QString();
     m_swapPress = m_swap.active() && !token.isEmpty() && token == m_swap.token() ? token : QString();
     m_predictionTap = !m_swap.active() && !token.isEmpty() && token == selectionToken() ? m_nextWord.candidateStamp() : std::nullopt;
@@ -1103,6 +1205,7 @@ void SwipeController::releaseCandidate(quint64 pressId)
         m_predictionTap.reset();
         m_typedPress.clear();
         m_swapPress.clear();
+        m_barPressed = false;
     }
 }
 
@@ -1167,7 +1270,8 @@ void SwipeController::selectCandidate(int index)
         m_recentSwipes.forget(editor.text.left(oldStart), oldWord);
         // WHY remembered again: the swapped-in word is the keyboard's own too, so tapping it again still works.
         if (owned && owned->span.start == oldStart) {
-            m_recentSwipes.remember(editor.text.left(oldStart), plan.text, owned->candidates, owned->context);
+            // WHY the same path: the swapped-in word came from the same finger stroke, so a second tap re-scores it.
+            m_recentSwipes.remember(editor.text.left(oldStart), plan.text, owned->trace, owned->keys, owned->context);
         }
         m_worker.invalidate();
         clearAfterSwipe();
@@ -1298,6 +1402,14 @@ QVariantMap SwipeController::diagnostics() const
     out.insert(QStringLiteral("nextWord"), predictionCapable());
     out.insert(QStringLiteral("unavailableReason"), m_profile.unavailableReason);
     out.insert(QStringLiteral("swipes"), m_swipesAnswered);
+    // WHY a flag and a count only (never words): shows which evidence the last tap-to-swap list used.
+    out.insert(QStringLiteral("swapUsedPath"), m_lastSwapUsedPath);
+    out.insert(QStringLiteral("swapWordsAfter"), m_lastSwapWordsAfter);
+    out.insert(QStringLiteral("afterSwipeLists"), m_afterSwipeLists);
+    // WHY counts and times only: whether swipes were re-ranked by the sentence model, and how long they waited for it.
+    out.insert(QStringLiteral("swipeRescoreAsked"), m_swipeRescore->asked);
+    out.insert(QStringLiteral("swipeRescoreScored"), m_swipeRescore->scored);
+    out.insert(QStringLiteral("swipeRescoreMaxWaitMs"), m_swipeRescore->maxWaitMs);
     out.insert(QStringLiteral("policy"), policy().source == PredictionPolicySource::RawBridge ? QStringLiteral("app-declared") : QStringLiteral("owned-history"));
     const bool learning = self->m_learning.enabled();
     out.insert(QStringLiteral("learning"), learning);

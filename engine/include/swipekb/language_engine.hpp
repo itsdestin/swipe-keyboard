@@ -23,12 +23,15 @@
 // Threading: one instance per thread; call every member from the thread that owns the instance.
 #pragma once
 
+#include <functional>
 #include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "swipekb/spellings.hpp"
+#include "swipekb/swap.hpp"
+#include "swipekb/swipe_rerank.hpp"
 #include "swipekb/text.hpp"
 
 namespace swipekb {
@@ -55,6 +58,57 @@ struct AlternativeParams {
     int nameMinFrequency = 100; // the same for words the dictionary writes with a capital (names), except German
     float margin = 1e9f;        // an alternative may score at most this far (nats) below the first guess (off)
     bool dropStretched = true;  // drop words with one letter three times in a row ("youuuuu") as alternatives
+    // Multiplies sentenceWeight when the words' scores come from the learned re-ranker (ContextRescore::reranker).
+    // WHY its own factor: sentenceWeight was tuned when scores were in nats, the same scale as the prior; the
+    // re-ranker's scores spread only a few units across the list, so a full weight let the sentence prior decide places
+    // 2-3 on its own and pushed rare and learned words off the bar (review I1, 2026-10-30).
+    // Value tuned 2026-10-30 on validation swipes only (rerank en-val, 3,833 English swipes with words before, sessions
+    // the re-ranker never trained on; grid 0 / 0.05 / 0.1 / 0.2 / 0.3 / 0.5 / 0.75 / 1; rule fixed before looking: the
+    // best top 3, and within 2 swipes of it the least junk among shown alternatives). Top 3 / junk: 1 -> 95.56 % / 3.32 %,
+    // 0.5 -> 95.64 % / 3.85 %, 0.1 -> 95.70 % / 4.60 % (best top 3), 0 -> 95.67 % / 4.84 %; fixed weights (step 2)
+    // 95.72 % / 4.84 %. The first guess is not affected (94.23 % at every value).
+    float learnedScale = 0.5f;
+};
+
+// Optional: the neural next-word model's opinion added to the swipe ranking (joint-model, steps 1-2).
+// The fixed weights below are used only when `scorer` is set and there is no `reranker` (step 3, below; the Gaming
+// Mode daemon sets a reranker but no scorer, so it re-orders only swipes without words before). The swipe engine's best `pool`
+// words are re-scored: score + (ngramWeight - 1) * their n-gram prior + neuralWeight * ln(10) * neural, where neural =
+// scorer(previous words, words), log10 (Predictor::scoreWords); NaN = no opinion on that word, which then takes its own
+// n-gram prior in the neural score's place. The search itself is not changed (its pruning still uses the n-gram prior),
+// so only words it found can move up. The keyboard's two Plasma front ends set it (NextWordWorker::scoreForSwipe).
+// WHY a function and not a Predictor: the engine stays free of the next-word model; the bench tools hand it
+// Predictor::scoreWords, and a front end could hand it whatever worker owns the model.
+struct ContextRescore {
+    std::function<std::vector<float>(const std::vector<std::string> &context, const std::vector<std::string> &words)> scorer;
+    float neuralWeight = 0.f;    // multiplies ln(10) * the neural log10 score (nats)
+    float ngramWeight = 1.f;     // how much of the search's own n-gram prior is kept (1 = all, 0 = none)
+    int pool = 30;               // the swipe engine's best N words that are re-scored
+    // WHY only with words before (default): with none, the neural model only says how common a word is at a
+    // sentence start, which the n-gram prior already says; HeliBoard sets (single words) are then unchanged.
+    bool needWordsBefore = true;
+    // Joint-model step 3 (optional): a small learned model (SwipeReranker) orders the pool instead of the two fixed
+    // weights above. With it, a swipe with no words before is re-ordered too (its "no sentence" weights; the scorer is
+    // not asked), and needWordsBefore is ignored. A swipe with words before whose scorer gives no usable answer keeps
+    // the search's order, as without the model. nullptr (or a model lacking that weight set) = the fixed weights.
+    std::shared_ptr<const SwipeReranker> reranker;
+    // The weights tuned per language on tuning swipes only (tools/swipekb-rescore-bench, bench/rescore-tune.py); see
+    // the .cpp. The scorer is left empty: the caller must still set it.
+    static ContextRescore forLanguage(const std::string &language);
+};
+
+// One found word and the facts the learned re-ranker sees about it (measurement tools: swipekb-rescore-bench --features).
+struct RerankCandidate {
+    std::string word;   // display spelling
+    RerankRow features;
+};
+
+// One word the swipe search found, with the parts of its score (for measurement tools: swipekb-rescore-bench).
+struct RawSwipeCandidate {
+    std::string word;   // display spelling
+    float score = 0;    // what recognize() ranks by before any re-scoring: path + prior - geometry (nats)
+    float ctc = 0;      // path alone (nats)
+    float prior = 0;    // the sentence (n-gram) or frequency prior inside `score` (nats)
 };
 
 class LanguageEngine {
@@ -79,6 +133,27 @@ public:
                                      const std::vector<std::string> &context, int topK);
     // The guess of the last recognize() whose path fits the swipe best, before the sentence prior ("" if none).
     std::string bestShapeWord() const;
+
+    // Candidates to swap `word` with (tap-to-swap), scored on path and the n-gram (before/after), not yet ranked
+    // (rankSwap()). They are the swipe search's words for this path (rare, stretched and name junk dropped as for
+    // alternatives, SwapParams::minFrequency as the rare cutoff) plus the word's other spellings, at most
+    // SwapParams::pool, then up to SwapParams::neighbours one-edit dictionary words (similar()) the search did not
+    // find, with their own fit to the path; never `word` itself. `path` = the path's natural-log fit (ctc), other spellings get the tapped
+    // word's; `before`/`after` = log10 n-gram evidence from the words before and up to two words after (without a
+    // pack: before = the frequency prior on the same scale, after = 0). `trace`: the swipe that produced the word,
+    // empty for a typed word or a forgotten swipe (a made-up path through the word's keys is used). `after` may be
+    // empty (no words follow, or the field cannot be read past the word). Empty when not ready or unusable,
+    // and for a typed word with a character that is on no key (a digit): it has no path.
+    // WHY not const: like recognize(), it sets the search's sentence prior and uses its scratch space.
+    std::vector<SwapCandidate> swapCandidates(const std::string &word, const std::vector<KeyRect> &keys,
+                                              const std::vector<std::string> &before,
+                                              const std::vector<std::string> &after,
+                                              const std::vector<TracePoint> &trace, const SwapParams &p);
+
+    // Path fit (ctc, the scale of SwapCandidate::path) of each word against this swipe, found by the search or not.
+    // Empty without a network (geometry only) or for an unusable path. For measurement tools (swap bench --diagnose).
+    std::vector<float> pathFits(const std::vector<std::string> &words, const std::vector<KeyRect> &keys,
+                                const std::vector<TracePoint> &trace);
 
     // Dictionary words that start with the typed letters, most frequent first, followed by close corrections
     // (one letter replaced, missing, extra or two swapped; a missing double letter costs least). Never a word
@@ -109,6 +184,18 @@ public:
     void setCapitals(std::shared_ptr<const Capitals> capitals);
     // Replaces the alternative-guess rules (see AlternativeParams); for measurement tools.
     void setAlternativeParams(const AlternativeParams &params);
+    // Turns the neural re-scoring of swipes on (a scorer set) or off (no scorer, the default). See ContextRescore.
+    void setContextRescore(ContextRescore rescore);
+    // The swipe search's own list for this swipe, best first, at most topN, before re-scoring or the alternative
+    // rules. `beamWidth` > 0 searches that wide for this call only (the recognizer's own width is put back).
+    // For measurement tools (how far down the right word is, and whether a wider search finds it).
+    std::vector<RawSwipeCandidate> rawCandidates(const std::vector<TracePoint> &trace, const std::vector<KeyRect> &keys,
+                                                 const std::vector<std::string> &context, int topN, int beamWidth = 0);
+    // The words recognize() would re-order for this swipe (the search's best ContextRescore::pool, in its order) with
+    // the re-ranker's features, exactly as recognize() computes them; the neural score comes from the ContextRescore
+    // scorer that is set (asked only with words before). Empty when not ready or unusable. For the training script.
+    std::vector<RerankCandidate> rerankCandidates(const std::vector<TracePoint> &trace, const std::vector<KeyRect> &keys,
+                                                  const std::vector<std::string> &context);
     // The dictionary frequency (0..255) of this spelling (learned and texting words included); 0 = unknown.
     int frequency(const std::string &word) const;
 

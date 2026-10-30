@@ -72,6 +72,13 @@ public:
     CommitPlan takeBackspace(const QString &textBeforeCursor, bool hasSelection);
     // The guesses not currently typed, best first, with the session's capitalization.
     QStringList alternatives() const;
+    // Replaces the guesses shown beside the typed word (card #500: the swap list built right after the swipe).
+    // `candidates` must start with the typed word's guess; refused (false) once an alternative was picked, when the
+    // first guess differs, or when nothing would change. The typed word and its undo are untouched.
+    bool replaceAlternatives(const QStringList &candidates);
+    // Changes whenever this session starts, ends or swaps the typed word (not when its alternatives are replaced).
+    // WHY: a list built a moment after the swipe must land only on the very swipe it was built for.
+    quint64 serial() const { return m_serial; }
     // False once the user has typed or moved the cursor away from the swiped word.
     bool cursorStillAfterWord(const QString &textBeforeCursor) const;
     void clear();
@@ -85,4 +92,5 @@ private:
     QString m_typedWord;
     QString m_beforeSwipe;
     bool m_insertedSeparator = false;
+    quint64 m_serial = 0;
 };

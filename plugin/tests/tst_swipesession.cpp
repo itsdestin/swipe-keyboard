@@ -194,6 +194,25 @@ private slots:
         QCOMPARE(s.commitSwipe(QString(), {"hello"}, CaseMode::AllCaps).text, QStringLiteral("HELLO"));
         QCOMPARE(s.commitSwipe(QString(), {"I"}, CaseMode::AsIs).text, QStringLiteral("I")); // dictionary casing kept
     }
+    void theSwapListReplacesOnlyTheOtherGuesses()
+    {
+        // Card #500: right after a swipe the bar's other places are rebuilt from the swap search; the typed word,
+        // its spacing and its one-shot undo stay exactly as they were.
+        SwipeSession s;
+        s.commitSwipe(QStringLiteral("I said"), {"hello", "hells", "hollow"}, CaseMode::Capitalize);
+        const auto serial = s.serial();
+        QVERIFY(!s.replaceAlternatives({"hells", "jello"}));          // must start with the typed word's guess
+        QVERIFY(!s.replaceAlternatives({"hello", "hells", "hollow"})); // nothing would change
+        QVERIFY(s.replaceAlternatives({"hello", "jello", "cello"}));
+        QCOMPARE(s.alternatives(), (QStringList{"Jello", "Cello"}));
+        QCOMPARE(s.serial(), serial);                                   // same swipe
+        QVERIFY(s.cursorStillAfterWord(QStringLiteral("I said Hello")));
+        QCOMPARE(s.swapToAlternative(1).text, QStringLiteral("Cello"));
+        QVERIFY(s.serial() != serial);                                  // a pick is a new state: late lists drop
+        QVERIFY(!s.replaceAlternatives({"hello", "x"}));               // and none lands after a pick
+        s.clear();
+        QVERIFY(!s.replaceAlternatives({"hello", "x"}));
+    }
     void swapReplacesOnlyTheWord()
     {
         SwipeSession s;

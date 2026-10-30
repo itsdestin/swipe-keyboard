@@ -41,6 +41,17 @@ target_include_directories(swipekb_session PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 # WHY the engine: SwipeSession::contextWords forwards to swipekb::contextWords (one shared implementation).
 target_link_libraries(swipekb_session PUBLIC Qt6::Core swipekb_engine)
 
+# The swap flow (card #500): gathering, tidy-up and re-ranking of swap lists, shared by both front ends and the swap
+# bench. WHY its own library: it needs the language text rules (swear words, regional spellings) and the engine, which
+# the pure text rules above do not. barflow.cpp (the next-word and completion lists, shared with the typing bench)
+# needs the same rules, so it lives here too.
+add_library(swipekb_swapflow STATIC swapflow.cpp barflow.cpp)
+target_include_directories(swipekb_swapflow PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(swipekb_swapflow PUBLIC swipekb_session swipekb_language swipekb_engine)
+qt_add_executable(tst_swapflow tests/tst_swapflow.cpp)
+target_link_libraries(tst_swapflow PRIVATE swipekb_swapflow Qt6::Test)
+add_test(NAME plugin_swapflow COMMAND tst_swapflow)
+
 qt_add_executable(tst_swipesession tests/tst_swipesession.cpp)
 target_link_libraries(tst_swipesession PRIVATE swipekb_session Qt6::Test)
 add_test(NAME plugin_session COMMAND tst_swipesession)
@@ -121,7 +132,7 @@ qt_add_qml_module(swipekeyboard
     SOURCES swipeinputmethod.h swipeinputmethod.cpp nextwordworker.h nextwordworker.cpp windowblur.h windowblur.cpp
             learningmanager.h learningmanager.cpp
 )
-target_link_libraries(swipekeyboard PRIVATE Qt6::Quick Qt6::VirtualKeyboard KF6::WindowSystem swipekb_session swipekb_recorder swipekb_engine swipekb_language)
+target_link_libraries(swipekeyboard PRIVATE Qt6::Quick Qt6::VirtualKeyboard KF6::WindowSystem swipekb_session swipekb_swapflow swipekb_recorder swipekb_engine swipekb_language)
 # WHY PUBLIC include of the engine headers: swipekeyboard links the engine PRIVATE, so tests that include the plugin's
 # learningmanager.h (which includes swipekb/learning.hpp) could not find it and the full build stopped at the first
 # of them (the lighter tests/features project adds this include by hand).
@@ -288,10 +299,16 @@ set(_swipekb_backend_import_args)
 if(SWIPEKB_BACKEND_QML_DIR)
     list(APPEND _swipekb_backend_import_args --backend-qml-dir ${SWIPEKB_BACKEND_QML_DIR})
 endif()
-add_test(NAME plugin_stock_layout
-    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/check-stock-layout.py
-        $<TARGET_FILE:tst_stocklayout>
-        --qml-dir ${SWIPEKB_QML_DIR} --model-data ${SWIPEKB_ASSETS}
-        --stock-layouts ${SWIPEKB_STOCK_LAYOUTS} ${_swipekb_backend_import_args})
-# WHY 150: the real-layout suite (incl. the spacebar-slide check) takes about 45 s alone, more on a busy machine.
-set_tests_properties(plugin_stock_layout PROPERTIES TIMEOUT 150)
+# WHY three parts (tests/testshard.h; the script passes SWIPEKB_TEST_SHARD through): every test and every row of
+# productionCallbacks builds a real stock keyboard with the English files, so the whole suite took about 50 s alone and
+# went past the script's own 120 s limit on a busy machine. Each part runs a third of it, side by side. Installed and CI
+# checks run the script without SWIPEKB_TEST_SHARD: everything, in one go, as before.
+foreach(_shard 0 1 2)
+    add_test(NAME plugin_stock_layout_${_shard}
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/check-stock-layout.py
+            $<TARGET_FILE:tst_stocklayout>
+            --qml-dir ${SWIPEKB_QML_DIR} --model-data ${SWIPEKB_ASSETS}
+            --stock-layouts ${SWIPEKB_STOCK_LAYOUTS} ${_swipekb_backend_import_args})
+    # WHY 150: a part takes about 20 s alone; the margin is for a busy machine.
+    set_tests_properties(plugin_stock_layout_${_shard} PROPERTIES TIMEOUT 150 ENVIRONMENT "SWIPEKB_TEST_SHARD=${_shard}/3")
+endforeach()

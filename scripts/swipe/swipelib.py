@@ -125,12 +125,57 @@ def trace_to_input(xs, ys, ts, aspect, layout, steps=T_STEPS):
     return feats.astype(np.float32), pos.astype(np.float32)
 
 
+# ---------------------------------------------------------------- previous words (joint-model step 4)
+CTX_CHARS = 24        # the last this many characters of the previous words feed the joint net
+CTX_WORDS = 3         # at most this many previous words
+CTX_VOCAB = 30        # 0 = padding, 1-26 = a-z (accents folded), 27 = apostrophe, 28 = space between words, 29 = other letter
+
+
+def _ctx_char(ch):
+    c = ch.lower()
+    if c in "'\u2019":
+        return 27
+    base = {"\u00e6": "a", "\u0153": "o", "\u00f8": "o", "\u00df": "s"}.get(c) or unicodedata.normalize("NFD", c)[0]
+    if "a" <= base <= "z":
+        return ord(base) - 96
+    return 29 if c.isalpha() else -1
+
+
+def context_ids(words):
+    """Previous words of the sentence -> CTX_CHARS character ids (right-aligned, padded with 0 on the left).
+
+    WHY characters and not a word list: one small table serves every language and every word, including words a
+    dictionary lacks; the last few letters of the previous words are what predicts the next word's spelling most.
+    Only letters and apostrophes are kept (punctuation and digits dropped), words are joined by one space; at most the
+    last CTX_WORDS words. The C++ runner must reproduce this exactly."""
+    kept = []
+    for w in words:
+        ids = [i for i in (_ctx_char(ch) for ch in w) if i >= 0]
+        if ids:
+            kept.append(ids)
+    out = []
+    for ids in kept[-CTX_WORDS:]:
+        if out:
+            out.append(28)
+        out.extend(ids)
+    out = out[-CTX_CHARS:]
+    return [0] * (CTX_CHARS - len(out)) + out
+
+
+def words_before(record):
+    """The words before the swiped one, from a FUTO record's sentence and word position (empty when unknown)."""
+    sent, idx = record.get("sentence"), record.get("word_idx")
+    if not sent or idx is None:
+        return []
+    return sent.split()[:int(idx)]
+
+
 # ---------------------------------------------------------------- network
 def build_net(cfg=None, dropout=0.0):
     import torch
     from torch import nn
 
-    cfg = {**dict(conv=[64, 64], kernel=5, hidden=96, layers=2, pointer=32), **(cfg or {})}
+    cfg = {**dict(conv=[64, 64], kernel=5, hidden=96, layers=2, pointer=32, ctx=0, ctx_emb=16), **(cfg or {})}
 
     class SwipeNet(nn.Module):
         def __init__(self):
@@ -141,7 +186,16 @@ def build_net(cfg=None, dropout=0.0):
                 nn.Conv1d(chans[i], chans[i + 1], cfg["kernel"], padding=cfg["kernel"] // 2) for i in range(len(cfg["conv"])))
             # Dropout exists only while training (nothing to export): it fights memorising the few real swipes.
             self.drop = nn.Dropout(dropout)
-            self.gru = nn.GRU(chans[-1], cfg["hidden"], num_layers=cfg["layers"], bidirectional=True, batch_first=True,
+            # Joint-model step 4 (cfg ctx > 0): a small character GRU reads the previous words (context_ids) and its
+            # final state joins every time step's input to the path reader, so each step's key evidence can depend on
+            # the sentence. WHY at the GRU input: the path reader can then use the context to settle ambiguous parts
+            # of the path, rather than adding a fixed per-key bias. Padding id 0 is a zero vector: no words before
+            # gives one fixed state, the same as an empty sentence.
+            C = cfg["ctx"]
+            if C:
+                self.ctx_emb = nn.Embedding(CTX_VOCAB, cfg["ctx_emb"], padding_idx=0)
+                self.ctx_gru = nn.GRU(cfg["ctx_emb"], C, batch_first=True)
+            self.gru = nn.GRU(chans[-1] + C, cfg["hidden"], num_layers=cfg["layers"], bidirectional=True, batch_first=True,
                               dropout=dropout if cfg["layers"] > 1 else 0.0)
             H2 = 2 * cfg["hidden"]
             P = cfg["pointer"]
@@ -150,15 +204,22 @@ def build_net(cfg=None, dropout=0.0):
             self.w = nn.Linear(P, 1)                # pointer -> key logit
             self.blank = nn.Linear(H2, 1)
 
-        def forward(self, feats, pos, keys, key_mask=None):
+        def forward(self, feats, pos, keys, key_mask=None, ctx=None):
             """feats (B,T,F_IN), pos (B,T,2), keys (B,K,4) -> log-probs (B,T,1+K) with blank at index 0.
 
             key_mask (B,K) bool: False marks padding keys (batches mixing layouts of different sizes); they can
-            never be output."""
+            never be output. ctx (B,CTX_CHARS) long: previous words (context_ids), only for a cfg with ctx > 0
+            (None = no words before)."""
             h = feats.transpose(1, 2)
             for c in self.convs:
                 h = self.drop(torch.relu(c(h)))
-            h, _ = self.gru(h.transpose(1, 2))
+            h = h.transpose(1, 2)
+            if cfg["ctx"]:
+                if ctx is None:
+                    ctx = torch.zeros(h.shape[0], CTX_CHARS, dtype=torch.long, device=h.device)
+                _, c_last = self.ctx_gru(self.ctx_emb(ctx))
+                h = torch.cat([h, c_last[-1][:, None, :].expand(-1, h.shape[1], -1)], -1)
+            h, _ = self.gru(h)
             h = self.drop(h)
             a = self.A(h)                                                    # (B,T,P)
             dx = pos[:, :, None, 0] - keys[:, None, :, 0]                    # (B,T,K) key-width units
@@ -181,6 +242,9 @@ def export_model(net, path, dtype="f32"):
     import struct
 
     cfg = net.cfg
+    if cfg.get("ctx"):
+        # WHY refuse: the "SKNN" v1 runner has no context reader; a joint model gets its own format only once it wins.
+        return 0
     sd = {k: v.detach().cpu().numpy().astype(np.float32) for k, v in net.state_dict().items()}
     out = bytearray()
     out += b"SKNN"

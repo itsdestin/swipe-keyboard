@@ -7,6 +7,7 @@
 #include <QTemporaryDir>
 #include <QFile>
 #include <atomic>
+#include <cmath>
 #include "nextwordworker.h"
 
 class NextWordWorkerTest : public QObject {
@@ -90,6 +91,124 @@ private slots:
         worker.submit({{1, 1, 1}, "a", "b", {"hello"}});
         QTRY_COMPARE_WITH_TIMEOUT(spy.size(), 1, 15000);
         QVERIFY(spy.at(0).at(1).toStringList().isEmpty());
+    }
+    // Tap-to-swap (one brain): a "score these words" job answers with one score per word on its own signal, from the
+    // same loaded next-word model, and never with a word list.
+    void scoreJobAnswersWithOneScorePerWord() {
+        const QString assets = qEnvironmentVariable("SWIPEKB_TEST_ASSETS");
+        QVERIFY(!assets.isEmpty());
+        NextWordWorker worker;
+        QSignalSpy scores(&worker, &NextWordWorker::wordScoresReady), next(&worker, &NextWordWorker::resultReady),
+            completion(&worker, &NextWordWorker::completionReady);
+        PredictionJob job{{1, 1, 1}, assets + "/language-packs/en.ngram", assets + "/language-packs/en.vocab.tsv",
+                          {"i", "can"}, "en"};
+        job.scoreWords = {"see", "sea", "sew"};
+        worker.submit(job);
+        QTRY_COMPARE_WITH_TIMEOUT(scores.size(), 1, 15000);
+        QCOMPARE(qvariant_cast<PredictionStamp>(scores.at(0).at(0)).requestId, quint64(1));
+        QCOMPARE(scores.at(0).at(1).toStringList(), (QStringList{"see", "sea", "sew"}));
+        const auto got = qvariant_cast<QVector<float>>(scores.at(0).at(2));
+        QCOMPARE(got.size(), 3);
+        QVERIFY2(got[0] > got[1], "after \"i can\", \"see\" must score above \"sea\"");
+        // No model: the job still answers on its own signal, with no scores.
+        job.stamp = {1, 1, 2};
+        job.model = job.vocab = "/missing";
+        job.modelIdentity = "missing";
+        worker.submit(job);
+        QTRY_COMPARE_WITH_TIMEOUT(scores.size(), 2, 15000);
+        QVERIFY(qvariant_cast<QVector<float>>(scores.at(1).at(2)).isEmpty());
+        QCOMPARE(next.size() + completion.size(), 0);
+    }
+    void onlyNewestScoreJobSurvives() {
+        QSemaphore started, finish;
+        NextWordWorker worker({}, [&](const PredictionJob &j) {
+            if (j.stamp.requestId == 1) { started.release(); finish.acquire(); }
+            return QVector<float>(j.scoreWords.size(), float(j.stamp.requestId));
+        });
+        QSignalSpy scores(&worker, &NextWordWorker::wordScoresReady);
+        PredictionJob job{{1, 1, 1}, "a", "b", {"hello"}};
+        job.scoreWords = {"x", "y"};
+        worker.submit(job);
+        QVERIFY(started.tryAcquire(1, 15000));
+        job.stamp = {1, 1, 2}; worker.submit(job);
+        job.stamp = {1, 1, 3}; worker.submit(job);
+        finish.release();
+        QTRY_COMPARE_WITH_TIMEOUT(scores.size(), 1, 15000);
+        QCOMPARE(qvariant_cast<PredictionStamp>(scores.at(0).at(0)).requestId, quint64(3));
+        QCOMPARE(qvariant_cast<QVector<float>>(scores.at(0).at(2)), (QVector<float>{3.f, 3.f}));
+    }
+    // Joint-model step 2: the swipe borrows the worker's loaded model (scoreForSwipe). It answers only for exactly the
+    // model the swipe's profile names and only when the neural file is in use; otherwise it answers nothing, and the
+    // swipe keeps its n-gram ranking.
+    void swipeScoringUsesOnlyTheLoadedNeuralModelOfThisProfile() {
+        const QString assets = qEnvironmentVariable("SWIPEKB_TEST_ASSETS");
+        QVERIFY(!assets.isEmpty());
+        const QString packs = assets + "/language-packs";
+        PredictionJob like{{1, 1, 1}, packs + "/en.ngram", packs + "/en.vocab.tsv", {"i", "can"}, "en"};
+        like.nwp = packs + "/en.nwp.bin";
+        const std::vector<std::string> context{"i", "can"}, words{"see", "sea", "zqxwvj"};
+        NextWordWorker worker;
+        QSignalSpy settled(&worker, &NextWordWorker::requestSettled);
+        double waited = -1;
+        // Nothing loaded yet: no answer. (No bound on `waited` here: a timing check would fail on a busy machine.)
+        QVERIFY(worker.scoreForSwipe(like, context, words, 5, &waited).empty());
+        QVERIFY(waited >= 0);
+        worker.submit(like);   // a next-word job loads the model, as typing does
+        QTRY_COMPARE_WITH_TIMEOUT(settled.size(), 1, 15000);
+        const auto got = worker.scoreForSwipe(like, context, words, 5, &waited);
+        QCOMPARE(got.size(), size_t(3));
+        QVERIFY2(got[0] > got[1], "after \"i can\", \"see\" must score above \"sea\"");
+        // A word the vocabulary lacks: "no opinion", so the swipe keeps that word's own prior (a learned word).
+        QVERIFY(std::isnan(got[2]));
+        // The same numbers as a queued score job (the swap list): one model, one opinion.
+        QSignalSpy scores(&worker, &NextWordWorker::wordScoresReady);
+        PredictionJob ask = like;
+        ask.stamp = {1, 1, 2};
+        ask.scoreWords = {"see", "sea"};
+        worker.submit(ask);
+        QTRY_COMPARE_WITH_TIMEOUT(scores.size(), 1, 15000);
+        const auto queued = qvariant_cast<QVector<float>>(scores.at(0).at(2));
+        QCOMPARE(queued.size(), 2);
+        QCOMPARE(queued[0], got[0]);
+        QCOMPARE(queued[1], got[1]);
+        // Another profile's files (here: another checksum string) are never scored with this model.
+        PredictionJob other = like;
+        other.modelIdentity = "fr";
+        QVERIFY(worker.scoreForSwipe(other, context, words, 5).empty());
+        // No answer for no words.
+        QVERIFY(worker.scoreForSwipe(like, context, {}, 5).empty());
+    }
+    void swipeScoringIsOffWithoutTheNeuralFile() {
+        const QString assets = qEnvironmentVariable("SWIPEKB_TEST_ASSETS");
+        QVERIFY(!assets.isEmpty());
+        const QString packs = assets + "/language-packs";
+        QTemporaryDir dir;
+        // A damaged neural file: the worker still loads the n-gram (the bar keeps its words) but the swipe gets no
+        // scores, so it ranks exactly as without the neural model.
+        const QString damaged = dir.filePath("en.nwp.bin");
+        { QFile f(damaged); QVERIFY(f.open(QIODevice::WriteOnly)); f.write("not a model"); }
+        PredictionJob like{{1, 1, 1}, packs + "/en.ngram", packs + "/en.vocab.tsv", {"i", "can"}, "en-damaged"};
+        like.nwp = damaged;
+        NextWordWorker worker;
+        QSignalSpy next(&worker, &NextWordWorker::resultReady);
+        worker.submit(like);
+        QTRY_COMPARE_WITH_TIMEOUT(next.size(), 1, 15000);
+        QVERIFY(!next.at(0).at(1).toStringList().isEmpty());
+        QVERIFY(worker.scoreForSwipe(like, {"i", "can"}, {"see", "sea"}, 5).empty());
+        // No verified neural file in the profile at all: the re-scoring is not even switched on.
+        PredictionJob none = like;
+        none.nwp.clear();
+        QVERIFY(!swipeContextRescore(&worker, none, "en").scorer);
+        // Joint-model step 3: the learned re-ranker stays (its "no sentence" weights need no neural model).
+        QVERIFY(bool(swipeContextRescore(&worker, none, "en").reranker));
+        // With one, it is on, with the English weights tuned in step 1 (neural 1, n-gram 0).
+        none.nwp = packs + "/en.nwp.bin";
+        const auto on = swipeContextRescore(&worker, none, "en");
+        QVERIFY(bool(on.scorer));
+        QVERIFY(bool(on.reranker));
+        QCOMPARE(on.neuralWeight, 1.f);
+        QCOMPARE(on.ngramWeight, 0.f);
+        QCOMPARE(swipeContextRescore(&worker, none, "fr").ngramWeight, 0.25f);
     }
     // WHY: the next-word files spell some words as web text does ("Banco", "Hall"); the capitals list must decide what
     // the bar shows, as for a swipe ("I", "Paris"), and no list (German) leaves the words as they are.

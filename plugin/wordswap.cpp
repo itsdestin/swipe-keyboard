@@ -110,20 +110,26 @@ bool RecentSwipes::anchored(const Item &it, const QString &before)
     return before.right(it.tail.size()) == it.tail && (!it.whole || before.size() == it.tail.size());
 }
 
-void RecentSwipes::remember(const QString &textBeforeWord, const QString &word, const QStringList &candidates,
+void RecentSwipes::remember(const QString &textBeforeWord, const QString &word, Trace trace, Keys keys,
                             const QStringList &context)
 {
     if (word.isEmpty()) return;
     forget(textBeforeWord, word);
-    m_items.push_back({textBeforeWord.right(kTail), textBeforeWord.size() <= kTail, word, candidates, context});
+    m_items.push_back({textBeforeWord.right(kTail), textBeforeWord.size() <= kTail, word, std::move(trace),
+                       std::move(keys), context});
     while (int(m_items.size()) > kMax) m_items.pop_front();
 }
 
-QStringList RecentSwipes::candidatesFor(const QString &textBeforeWord, const QString &word) const
+std::optional<std::pair<RecentSwipes::Trace, RecentSwipes::Keys>> RecentSwipes::traceFor(const QString &textBeforeWord,
+                                                                                         const QString &word) const
 {
     for (auto it = m_items.rbegin(); it != m_items.rend(); ++it)
-        if (it->word == word && anchored(*it, textBeforeWord)) return it->candidates;
-    return {};
+        if (it->word == word && anchored(*it, textBeforeWord)) {
+            // WHY nothing for a typed word: there is no finger path to score other words against.
+            if (it->trace.empty()) return std::nullopt;
+            return std::make_pair(it->trace, it->keys);
+        }
+    return std::nullopt;
 }
 
 std::optional<RecentSwipes::Owned> RecentSwipes::ownedAt(const QString &text, int cursor) const
@@ -138,7 +144,7 @@ std::optional<RecentSwipes::Owned> RecentSwipes::ownedAt(const QString &text, in
             if (start > 0 && letter(text.at(start - 1))) continue;
             if (start + n < text.size() && letter(text.at(start + n))) continue;
             if (!anchored(*it, text.left(start))) continue;
-            return Owned{{start, n, it->word}, it->candidates, it->context};
+            return Owned{{start, n, it->word}, it->trace, it->keys, it->context};
         }
     }
     return std::nullopt;
@@ -149,27 +155,36 @@ void RecentSwipes::forget(const QString &textBeforeWord, const QString &word)
     std::erase_if(m_items, [&](const Item &it) { return it.word == word && anchored(it, textBeforeWord); });
 }
 
-bool WordSwapSession::begin(const QString &text, int cursor, const QStringList &swipeCandidates,
-                            const QStringList &neighbours)
+QStringList WordSwapSession::barOrder(const QStringList &list) const
+{
+    QStringList out;
+    for (const auto &w : list)
+        if (!w.isEmpty() && w.compare(m_span.word, Qt::CaseInsensitive) != 0 && !out.contains(w, Qt::CaseInsensitive)) out << w;
+    while (out.size() > 3) out.removeLast();
+    // WHY the strongest in the middle: the guess bar's layout for three words (the same as next-word predictions).
+    if (out.size() == 3) out.swapItemsAt(0, 1);
+    return out;
+}
+
+bool WordSwapSession::begin(const QString &text, int cursor, const QStringList &list)
 {
     const auto span = WordSwap::wordAt(text, cursor);
     if (!span) { clear(); return false; }
     m_span = *span;
     m_hash = qHash(text); m_size = text.size();
-    m_swipe = swipeCandidates; m_neighbours = neighbours; m_ranked.clear();
-    m_candidates = WordSwap::build(m_span.word, m_swipe, m_neighbours, m_ranked);
+    m_candidates = barOrder(list);
     m_active = !m_candidates.isEmpty();
     if (!m_active) { clear(); return false; }
     m_version = ++s_next;
     return true;
 }
 
-bool WordSwapSession::setRanked(const QStringList &ranked)
+bool WordSwapSession::setList(const QStringList &list)
 {
     if (!m_active) return false;
-    m_ranked = ranked;
-    const auto next = WordSwap::build(m_span.word, m_swipe, m_neighbours, m_ranked);
-    if (next == m_candidates) return false;
+    const auto next = barOrder(list);
+    // WHY an empty answer keeps the shown list: an empty bar would be worse than the list before the re-rank.
+    if (next.isEmpty() || next == m_candidates) return false;
     m_candidates = next;
     m_version = ++s_next;
     return true;
@@ -203,7 +218,7 @@ void WordSwapSession::clear()
     m_active = false;
     m_span = {};
     m_hash = 0; m_size = 0;
-    m_swipe.clear(); m_neighbours.clear(); m_ranked.clear(); m_candidates.clear();
+    m_candidates.clear();
 }
 
 quint64 WordSwapSession::s_next = 0;

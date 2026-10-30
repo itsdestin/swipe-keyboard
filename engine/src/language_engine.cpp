@@ -18,6 +18,7 @@
 
 #include "swipekb/ngram.hpp"
 #include "swipekb/spellings.hpp"
+#include "swipekb/swap.hpp"
 #include "swipekb/swipe_engine.hpp"
 #include "swipekb/swipe_lm.hpp"
 
@@ -39,6 +40,10 @@ constexpr size_t kMaxLetters = 48;
 // spelling that can win a swipe is exactly one that is also offered as the alternative ("we're" for "were"), and
 // rare junk sharing a common word's path ("I's" for "is", 121 points apart) never can.
 constexpr int kSpellingWithin = 80;
+// Sentence words for tap-back lists (SwapParams::tapBackSentenceWords), see swapCandidates(). WHY caps: the list is built on
+// the input thread.
+constexpr size_t kSentenceScan = 200000;      // continuations looked at (all of them in practice)
+constexpr size_t kSentenceShortlist = 256;    // the best of them by the words before, scored with the words after
 
 QString nfc(const std::string &s) { return QString::fromStdString(s).normalized(QString::NormalizationForm_C); }
 
@@ -123,6 +128,7 @@ struct LanguageEngine::Impl {
     std::string bestShape;
 
     AlternativeParams alt;
+    ContextRescore rescore;   // off unless a scorer is set (setContextRescore)
     std::shared_ptr<const Capitals> capitals;
     QString displayForm(const QString &w) const
     {
@@ -289,6 +295,248 @@ struct LanguageEngine::Impl {
         return true;
     }
 
+    // The finger path in the engine's 0..1 units, after making the engine match these keys; `aspect` = height/width.
+    // False when the keys or the path are unusable.
+    // WHY shared by recognize() and swapCandidates(): a swap list must see a swipe exactly as recognition did.
+    bool toSwipePoints(const std::vector<TracePoint> &trace, const std::vector<KeyRect> &rects,
+                       std::vector<SwipePoint> &pts, float &aspect)
+    {
+        float x0, y0, W, H;
+        if (!prepare(rects, x0, y0, W, H)) return false;
+        pts.clear();
+        pts.reserve(trace.size());
+        for (const auto &p : trace) {
+            if (!std::isfinite(p.x) || !std::isfinite(p.y)) return false;
+            pts.push_back({(p.x - x0) / W, (p.y - y0) / H, double(p.t_ms)});
+        }
+        aspect = H / W;
+        return true;
+    }
+
+    // Gives the search the sentence prior for these previous words (word frequency when there is no n-gram pack).
+    void setSentencePrior(const std::vector<std::string> &context)
+    {
+        if (prior) {
+            // WHY the model's own form: the n-gram file stores lower-case words, letters only or with apostrophes.
+            std::vector<std::string> previous;
+            for (const auto &w : context) { const auto a = lm.form(w); if (!a.empty()) previous.push_back(a); }
+            prior->setContext(previous);
+            NgramWordPrior *pr = prior.get();
+            engine.setPrior([pr](uint32_t w) { return (*pr)(w); }, prior->hints());
+        } else {
+            engine.setPrior({}, {});
+        }
+    }
+
+    // The prior the search added to this word's score: the sentence (n-gram) prior, or plain frequency without a pack
+    // (the search's own fallback, BeamParams::freqWeight = EngineParams::freqWeight).
+    float priorOf(uint32_t w) const { return prior ? (*prior)(w) : engine.params.freqWeight * float(engine.lexicon().freq(w)); }
+
+    // How a swipe's found words are re-ordered (ContextRescore): not at all, by the two fixed weights (steps 1-2), or by
+    // the learned SwipeReranker (step 3). WHY one place: recognize() and rerankCandidates() must agree exactly.
+    enum class RescoreMode { None, Fixed, Learned };
+    RescoreMode rescoreMode(const std::vector<std::string> &context) const
+    {
+        const auto &rr = rescore.reranker;
+        if (rr) {
+            // WHY no scorer is needed without words before: the "no sentence" weights use no neural score.
+            if (context.empty()) return rr->has(SwipeReranker::NoSentence) ? RescoreMode::Learned : RescoreMode::None;
+            if (!rescore.scorer) return RescoreMode::None;
+            return rr->has(SwipeReranker::WithSentence) ? RescoreMode::Learned : RescoreMode::Fixed;
+        }
+        return rescore.scorer && (!rescore.needWordsBefore || !context.empty()) ? RescoreMode::Fixed : RescoreMode::None;
+    }
+
+    // The neural scores (log10) of the first n found words, or empty when the scorer fails or answers short.
+    std::vector<float> askScorer(const std::vector<SwipeCandidate> &found, size_t n, const std::vector<std::string> &context) const
+    {
+        std::vector<std::string> words;
+        words.reserve(n);
+        for (size_t i = 0; i < n; ++i) words.push_back(engine.lexicon().text(found[i].word));
+        std::vector<float> neural;
+        try { neural = rescore.scorer(context, words); } catch (...) { neural.clear(); }
+        if (n == 0 || neural.size() != n) neural.clear();
+        return neural;
+    }
+
+    // The re-ranker's facts about found[0..n) (see RerankFeature in swipe_rerank.hpp). `neural` may be empty (no
+    // sentence) or hold NaN (the next-word vocabulary lacks that word). Every value is clipped, so always finite.
+    std::vector<RerankRow> rerankFeatures(const std::vector<SwipeCandidate> &found, size_t n, const std::vector<float> &neural,
+                                          const std::vector<SwipePoint> &pts, float aspect) const
+    {
+        constexpr float kLn10 = 2.302585093f;
+        std::vector<RerankRow> rows(n);
+        if (n == 0) return rows;
+        const SwipeLayout &layout = engine.layout();
+        const SwipeLexicon &lex = engine.lexicon();
+        // WHY key widths: the same distance means the same on a narrow phone-like board and a wide tablet one
+        // (x is 0..1 of the letter area; y is scaled by the area's height / width).
+        const float unit = layout.unit();
+        const auto dist = [&](float x0, float y0, float x1, float y1) {
+            const float dx = (x1 - x0) * unit, dy = (y1 - y0) * aspect * unit;
+            return std::sqrt(dx * dx + dy * dy);
+        };
+        float swipeLength = 0;
+        for (size_t k = 1; k < pts.size(); ++k) swipeLength += dist(pts[k - 1].x, pts[k - 1].y, pts[k].x, pts[k].y);
+        float bestPath = -1e30f, bestPrior = -1e30f;
+        std::vector<float> priors(n);
+        for (size_t i = 0; i < n; ++i) {
+            priors[i] = priorOf(found[i].word);
+            bestPath = std::max(bestPath, found[i].ctc);
+            bestPrior = std::max(bestPrior, priors[i]);
+        }
+        // The neural opinion of each word in nats (see RerankRow): the model's score, else the word's n-gram probability
+        // in this sentence, else (no n-gram pack) the average of the words that have one. Empty `neural` = no sentence.
+        std::vector<float> nat(n, 0.f);
+        float bestNeural = 0.f;
+        if (!neural.empty()) {
+            double sum = 0;
+            size_t known = 0;
+            for (size_t i = 0; i < n; ++i)
+                if (i < neural.size() && std::isfinite(neural[i])) { nat[i] = kLn10 * neural[i]; sum += nat[i]; ++known; }
+            const float average = known ? float(sum / double(known)) : 0.f;
+            bestNeural = -1e30f;
+            for (size_t i = 0; i < n; ++i) {
+                if (!(i < neural.size() && std::isfinite(neural[i]))) nat[i] = prior ? priors[i] : average;
+                bestNeural = std::max(bestNeural, nat[i]);
+            }
+        }
+        const auto clip = [](float v, float lo, float hi) { return std::isfinite(v) ? std::clamp(v, lo, hi) : 0.f; };
+        // Places by path fit alone and by the neural score alone (ties: the search's order).
+        std::vector<int> pathRank(n, 0), neuralRank(n, 0);
+        for (size_t i = 0; i < n; ++i)
+            for (size_t j = 0; j < n; ++j) {
+                if (j == i) continue;
+                if (found[j].ctc > found[i].ctc || (found[j].ctc == found[i].ctc && j < i)) ++pathRank[i];
+                if (nat[j] > nat[i] || (nat[j] == nat[i] && j < i)) ++neuralRank[i];
+            }
+        for (size_t i = 0; i < n; ++i) {
+            RerankRow &r = rows[i];
+            r.fill(0.f);
+            const SwipeCandidate &c = found[i];
+            const std::string &text = lex.text(c.word);
+            r[kRrScore] = clip(c.score - found[0].score, -40.f, 0.f);
+            r[kRrPath] = clip(c.ctc - bestPath, -40.f, 0.f);
+            r[kRrPrior] = clip(priors[i] - bestPrior, -40.f, 0.f);
+            r[kRrGeo] = clip(c.ctc + priors[i] - c.score, 0.f, 60.f);
+            r[kRrNeural] = neural.empty() ? 0.f : clip(nat[i] - bestNeural, -30.f, 0.f);
+            r[kRrFirst] = i == 0 ? 1.f : 0.f;
+            r[kRrRankLog] = std::log1p(float(i));
+            const auto it = byIdentity.find(QString::fromStdString(text).toLower().toStdString());
+            const Entry *e = it == byIdentity.end() ? nullptr : &entries[it->second];
+            r[kRrFreq] = float(e ? e->freq() : lex.freq(c.word)) / 255.f;
+            const QString q = QString::fromStdString(text);
+            int letters = 0;
+            for (const QChar ch : q) letters += ch.isLetter();
+            r[kRrLetters] = float(letters) / 10.f;
+            const auto &keys = lex.keys(c.word);
+            // WHY every key checked (not only the last): the ideal path below indexes them all. Safe today (the word
+            // list's keys come from this layout); a check costs nothing and keeps a bad entry from reading out of bounds.
+            if (!keys.empty() && !pts.empty()
+                && std::all_of(keys.begin(), keys.end(), [&](auto k) { return size_t(k) < layout.size(); })) {
+                float ideal = 0;
+                for (size_t k = 1; k < keys.size(); ++k) {
+                    const SwipeKey &a = layout.keys()[keys[k - 1]], &b = layout.keys()[keys[k]];
+                    ideal += dist(a.cx, a.cy, b.cx, b.cy);
+                }
+                // WHY at least half a key: a one-key word ("a", "I") has no ideal path, and a real swipe still moves.
+                r[kRrLengthFit] = clip(std::fabs(std::log((swipeLength + 0.5f) / (ideal + 0.5f))), 0.f, 3.f);
+                const SwipeKey &first = layout.keys()[keys.front()], &last = layout.keys()[keys.back()];
+                r[kRrStart] = clip(dist(pts.front().x, pts.front().y, first.cx, first.cy), 0.f, 4.f);
+                r[kRrEnd] = clip(dist(pts.back().x, pts.back().y, last.cx, last.cy), 0.f, 4.f);
+            }
+            r[kRrApostrophe] = (q.contains(u'\'') || q.contains(QChar(0x2019))) ? 1.f : 0.f;
+            r[kRrFirstGap] = i == 0 ? (n > 1 ? clip(c.score - found[1].score, 0.f, 10.f) : 10.f) : 0.f;
+            r[kRrPathRank] = std::log1p(float(pathRank[i]));
+            r[kRrNeuralRank] = neural.empty() ? 0.f : std::log1p(float(neuralRank[i]));
+            r[kRrSwipeLength] = clip(swipeLength / 10.f, 0.f, 3.f);
+        }
+        return rows;
+    }
+
+    // ContextRescore: re-orders the first `rescore.pool` found words, then cuts the list to `keep` (the size
+    // recognize() would have asked for without re-scoring).
+    //   Fixed (steps 1-2): score + (ngramWeight - 1) * n-gram prior + neuralWeight * ln10 * neural score.
+    //   Learned (step 3): the SwipeReranker's score of each word's features takes the place of its score.
+    // WHY cut back to `keep`: the guesses after the first are chosen from that many words (AlternativeParams::pool),
+    // so re-scoring must not quietly widen that choice too.
+    // WHY a failed or short answer leaves the list as found: swiping must never break because of the extra model.
+    // Returns true when the words' scores are now the learned model's (recognize() then orders places 2-3 by its rule
+    // for that scale, AlternativeParams::learnedScale).
+    bool rescoreFound(std::vector<SwipeCandidate> &found, const std::vector<std::string> &context, size_t keep,
+                      const std::vector<SwipePoint> &pts, float aspect) const
+    {
+        constexpr float kLn10 = 2.302585093f;
+        const RescoreMode mode = rescoreMode(context);
+        const size_t n = std::min(found.size(), size_t(std::max(0, rescore.pool)));
+        bool learned = false;
+        if (mode == RescoreMode::Learned && n > 0) {
+            const auto set = context.empty() ? SwipeReranker::NoSentence : SwipeReranker::WithSentence;
+            std::vector<float> neural;
+            if (set == SwipeReranker::WithSentence) neural = askScorer(found, n, context);
+            if (set == SwipeReranker::NoSentence || !neural.empty()) {
+                const auto rows = rerankFeatures(found, n, neural, pts, aspect);
+                std::vector<float> s(n);
+                bool finite = true;
+                for (size_t i = 0; i < n; ++i) { s[i] = rescore.reranker->score(set, rows[i]); finite = finite && std::isfinite(s[i]); }
+                if (finite) {
+                    // WHY the model's score becomes the word's score: the places after the first are ordered by it
+                    // (plus the sentence prior, AlternativeParams), as with the fixed re-scoring.
+                    for (size_t i = 0; i < n; ++i) found[i].score = s[i];
+                    std::stable_sort(found.begin(), found.begin() + std::ptrdiff_t(n),
+                                     [](const SwipeCandidate &a, const SwipeCandidate &b) { return a.score > b.score; });
+                    // WHY the words past the pool are dropped: they still hold the search's score in nats, a scale
+                    // that cannot be compared with the model's (only bench tools ask for more than the pool).
+                    found.resize(n);
+                    learned = true;
+                }
+            }
+        } else if (mode == RescoreMode::Fixed) {
+            const auto neural = askScorer(found, n, context);
+            if (!neural.empty()) {
+                for (size_t i = 0; i < n; ++i) {
+                    // WHY a word without a neural score (NaN: the next-word vocabulary lacks it, e.g. a word the person
+                    // taught) takes the n-gram's own estimate in its place: the floor would push a learned word below
+                    // every other guess. For English (n-gram weight 0, neural 1) its score stays exactly as found.
+                    // Without an n-gram pack the prior is plain frequency, not a probability: such a word keeps its score.
+                    if (!std::isfinite(neural[i])) {
+                        if (prior) found[i].score += (rescore.ngramWeight - 1.f + rescore.neuralWeight) * priorOf(found[i].word);
+                        continue;
+                    }
+                    found[i].score += (rescore.ngramWeight - 1.f) * priorOf(found[i].word) + rescore.neuralWeight * kLn10 * neural[i];
+                }
+                // WHY stable and only the re-scored part: equal scores keep the search's order, and words past the pool
+                // have no neural score, so they stay behind the re-scored ones.
+                std::stable_sort(found.begin(), found.begin() + std::ptrdiff_t(n),
+                                 [](const SwipeCandidate &a, const SwipeCandidate &b) { return a.score > b.score; });
+            }
+        }
+        if (found.size() > keep) found.resize(keep);
+        return learned;
+    }
+
+    // This word's dictionary entry (any case), or nullptr.
+    const Entry *entryOf(const std::string &w) const
+    {
+        const auto it = byIdentity.find(QString::fromStdString(w).toLower().toStdString());
+        return it == byIdentity.end() ? nullptr : &entries[it->second];
+    }
+
+    // May this found word be offered as an alternative (recognize) or a swap? `f` = its frequency (0 = unknown).
+    // WHY shared: the swap list and the guess bar must agree on which words are junk.
+    bool mayOffer(const std::string &w, int minFrequency, int &f) const
+    {
+        const Entry *e = entryOf(w);
+        f = e ? e->freq() : 0;
+        // WHY learned and texting words are never filtered: the person (or the texting list) vouches for them.
+        const bool vouched = e && (e->learned >= 0 || e->lift > 0);
+        if (vouched) return true;
+        if (f < minFrequency) return false;
+        if (e && e->capitalised && !keepCase && f < alt.nameMinFrequency) return false;
+        if (alt.dropStretched && stretched(w)) return false;
+        return true;
+    }
+
     const Entry *best(const std::u32string &key) const
     {
         const auto it = byKey.find(key);
@@ -339,7 +587,10 @@ bool LanguageEngine::init(const LanguageEngineSetup &setup)
             if (!line.empty() && line.back() == '\r') line.pop_back();
             d_->readLine(line);
         }
-        if (d_->swipeWords().empty()) return false;
+        // WHY a plain check and not swipeWords().empty(): that builds the whole swipe word list (~0.1 s for English) only
+        // to throw it away; the first swipe builds it anyway. Same answer: a word list with no word of frequency > 0
+        // can never be swiped.
+        if (std::none_of(d_->entries.begin(), d_->entries.end(), [](const auto &e) { return e.freq() > 0; })) return false;
         d_->spellings = Spellings::fromCombinedText(text.str(), setup.language);
         // WHY these values: the engine was tuned and scored with them (docs/active/specs/2026-10-23-own-swipe-engine.md).
         d_->engine.params.beam.beam = 48;
@@ -368,27 +619,18 @@ std::vector<Candidate> LanguageEngine::recognize(const std::vector<TracePoint> &
     d_->bestShape.clear();
     if (!d_->ok || trace.size() < 2 || topK <= 0) return {};
     try {
-        float x0, y0, W, H;
-        if (!d_->prepare(rects, x0, y0, W, H)) return {};
         std::vector<SwipePoint> pts;
-        pts.reserve(trace.size());
-        for (const auto &p : trace) {
-            if (!std::isfinite(p.x) || !std::isfinite(p.y)) return {};
-            pts.push_back({(p.x - x0) / W, (p.y - y0) / H, double(p.t_ms)});
-        }
-        if (d_->prior) {
-            // WHY the model's own form: the n-gram file stores lower-case words, letters only or with apostrophes.
-            std::vector<std::string> previous;
-            for (const auto &w : context) { const auto a = d_->lm.form(w); if (!a.empty()) previous.push_back(a); }
-            d_->prior->setContext(previous);
-            NgramWordPrior *pr = d_->prior.get();
-            d_->engine.setPrior([pr](uint32_t w) { return (*pr)(w); }, d_->prior->hints());
-        } else {
-            d_->engine.setPrior({}, {});
-        }
+        float aspect = 0;
+        if (!d_->toSwipePoints(trace, rects, pts, aspect)) return {};
+        d_->setSentencePrior(context);
         std::vector<Candidate> out;
         float bestCtc = -1e30f;
-        const auto found = d_->engine.decode(pts, H / W, std::max(topK, d_->alt.pool));
+        // ContextRescore: re-order the search's best words (the learned re-ranker, or the fixed neural weights when
+        // there is none; see rescoreMode()). Off when the front end sets neither.
+        const int want = std::max(topK, d_->alt.pool);
+        const bool rescoring = d_->rescoreMode(context) != Impl::RescoreMode::None;
+        auto found = d_->engine.decode(pts, aspect, rescoring ? std::max(want, d_->rescore.pool) : want);
+        const bool learnedScores = rescoring && d_->rescoreFound(found, context, size_t(want), pts, aspect);
         for (const auto &c : found) {
             const std::string &w = d_->engine.lexicon().text(c.word);
             if (!w.empty() && c.ctc > bestCtc) { bestCtc = c.ctc; d_->bestShape = w; }
@@ -398,27 +640,29 @@ std::vector<Candidate> LanguageEngine::recognize(const std::vector<TracePoint> &
         const AlternativeParams &p = d_->alt;
         std::vector<std::pair<float, Candidate>> others;
         float firstScore = 0;
+        // WHY the best prior in the list: a word the person taught has no sentence evidence (the n-gram has never
+        // seen it), so its prior is the floor and the extra weight below would sink it under any common word. With the
+        // learned scores it takes the list's best prior instead: it is then never placed lower than the re-ranker's own
+        // order puts it ("i met" + a swipe of a taught "brynn": 2nd by the model, 7th by the prior; review I1).
+        float bestPrior = -1e30f;
+        if (learnedScores)
+            for (const auto &c : found) bestPrior = std::max(bestPrior, d_->priorOf(c.word));
         for (const auto &c : found) {
             const std::string &w = d_->engine.lexicon().text(c.word);
             if (w.empty()) continue;
             if (out.empty()) { out.push_back({w, c.score}); firstScore = c.score; continue; }
             if (c.score < firstScore - p.margin) continue;
-            const auto it = d_->byIdentity.find(QString::fromStdString(w).toLower().toStdString());
-            const Impl::Entry *e = it == d_->byIdentity.end() ? nullptr : &d_->entries[it->second];
-            // WHY learned and texting words are never filtered: the person (or the texting list) vouches for them.
-            const bool vouched = e && (e->learned >= 0 || e->lift > 0);
-            const int f = e ? e->freq() : 0;
-            if (!vouched) {
-                if (f < p.minFrequency) continue;
-                if (e && e->capitalised && !d_->keepCase && f < p.nameMinFrequency) continue;
-                if (p.dropStretched && stretched(w)) continue;
-            }
+            int f = 0;
+            if (!d_->mayOffer(w, p.minFrequency, f)) continue;
             const float prior = d_->prior ? (*d_->prior)(c.word) : d_->engine.params.freqWeight * float(f);
             // WHY only with earlier words: measured (2026-10-24), the extra weight makes alternatives read like the
             // sentence ("you" -> "your", "to"), but with no sentence it only favours common words over the rarer
             // word that was swiped (HeliBoard English, no sentences: 87.96% -> 89.05% in the top 3 without it).
-            const float weight = context.empty() ? 0.f : p.sentenceWeight;
-            others.push_back({c.score + weight * prior, {w, c.score}});
+            // With the learned scores the weight is scaled to their units (AlternativeParams::learnedScale).
+            const float weight = context.empty() ? 0.f : p.sentenceWeight * (learnedScores ? p.learnedScale : 1.f);
+            const auto *entry = learnedScores ? d_->entryOf(w) : nullptr;
+            const bool taught = entry && entry->learned >= 0;
+            others.push_back({c.score + weight * (taught ? bestPrior : prior), {w, c.score}});
         }
         std::stable_sort(others.begin(), others.end(), [](const auto &a, const auto &b) { return a.first > b.first; });
         for (const auto &[rank, c] : others) {
@@ -428,6 +672,247 @@ std::vector<Candidate> LanguageEngine::recognize(const std::vector<TracePoint> &
         return out;
     } catch (...) {
         d_->bestShape.clear();
+        return {};
+    }
+}
+
+std::vector<SwapCandidate> LanguageEngine::swapCandidates(const std::string &word, const std::vector<KeyRect> &rects,
+                                                         const std::vector<std::string> &before,
+                                                         const std::vector<std::string> &after,
+                                                         const std::vector<TracePoint> &trace, const SwapParams &sp)
+{
+    if (!d_->ok || word.empty() || sp.pool <= 0) return {};
+    try {
+        // WHY a made-up path for a typed word (or a swipe no longer remembered): the swap list is about words whose
+        // swipe looks like this one ("good" -> "food", "hood"), so the search needs a path to compare against.
+        const auto t = trace.size() >= 2 ? trace : syntheticTrace(word, rects);
+        std::vector<SwipePoint> pts;
+        float aspect = 0;
+        if (t.size() < 2 || !d_->toSwipePoints(t, rects, pts, aspect)) return {};
+        // WHY the sentence prior during the search too: the search keeps only its likeliest words on the way, and
+        // words that fit the sentence must survive that to be compared at all (as in recognize()).
+        // SwapParams::searchPrior / beam change this for measurement (tools/swipekb-swap-bench --diagnose); the
+        // recognizer's own settings are put back afterwards, so a swap list never changes the next swipe.
+        // The search's own settings are changed only inside this block; `restore` puts them back when it ends,
+        // right after the search (later steps, such as the neighbours' path fits, run with the recognizer's settings).
+        decltype(d_->engine.decode(pts, aspect, sp.pool)) found;
+        {
+            // WHY a guard object, not three lines after decode(): if the search throws (out of memory on a huge pool),
+            // the catch below returns an empty list, and the recognizer must still get its own width, frequency weight
+            // and temperature back, or every later swipe would be searched with the swap list's settings.
+            struct Restore {
+                SwipeEngine &e;
+                const BeamParams beam;
+                const float freq, temp;
+                ~Restore() { e.params.beam = beam; e.params.freqWeight = freq; e.params.temperature = temp; }
+            } restore{d_->engine, d_->engine.params.beam, d_->engine.params.freqWeight, d_->engine.params.temperature};
+            if (sp.beam > 0) d_->engine.params.beam.beam = sp.beam;
+            if (trace.size() < 2) d_->engine.params.temperature = sp.syntheticTemperature;
+            if (sp.searchPrior == 0) d_->setSentencePrior(before);
+            else if (sp.searchPrior == 1) d_->engine.setPrior({}, {});
+            else {
+                d_->engine.setPrior([](uint32_t) { return 0.f; }, {});
+                d_->engine.params.beam.lookahead = 0.f;
+                d_->engine.params.freqWeight = 0.f;
+            }
+            found = d_->engine.decode(pts, aspect, sp.pool);
+        }
+
+        const QString tappedLow = QString::fromStdString(word).toLower();
+        const QString shownLow = QString::fromStdString(displaySpelling(word)).toLower();
+        // WHY only the word itself (any case) is left out, as in rankSwap(): its dictionary spelling is a real swap
+        // ("dont" typed -> "don't" offered).
+        const auto isTapped = [&](const std::string &w) { return QString::fromStdString(w).toLower() == tappedLow; };
+        // The decoded word that stands for the tapped one: itself, or its dictionary spelling ("dont" -> "don't").
+        const auto standsForTapped = [&](const std::string &w) {
+            const QString low = QString::fromStdString(w).toLower();
+            return low == tappedLow || low == shownLow;
+        };
+        // WHY the path alone (ctc) and not the search score: the score already holds the sentence prior, which
+        // rankSwap() weighs separately (before/after). The reference is the tapped word's own fit to this path (its
+        // other spellings share that path exactly); when the search did not find the tapped word, the best fit found.
+        float ref = -1e30f, bestCtc = -1e30f;
+        for (const auto &c : found) {
+            const std::string &w = d_->engine.lexicon().text(c.word);
+            if (w.empty()) continue;
+            bestCtc = std::max(bestCtc, c.ctc);
+            if (standsForTapped(w)) ref = std::max(ref, c.ctc);
+        }
+        if (ref <= -1e29f) ref = bestCtc > -1e29f ? bestCtc : 0.f;
+
+        std::vector<SwapCandidate> out;
+        std::unordered_set<std::string> seen;   // lower-case spellings already in `out`
+        const auto add = [&](const std::string &w, float path) {
+            if (int(out.size()) >= sp.pool || isTapped(w)) return;
+            if (!seen.insert(QString::fromStdString(w).toLower().toStdString()).second) return;
+            SwapCandidate c;
+            c.word = w;
+            c.path = path;
+            out.push_back(std::move(c));
+        };
+        // WHY other spellings first: "it's" for "its" is the swap people most often want, so the pool limit must
+        // never squeeze it out; it is not filtered (Spellings only lists close, real spellings).
+        for (const auto &w : otherSpellings(word)) add(w, ref);
+        // The junk rule (rare, stretched, rare-name words are never offered). WHY the language's own cutoff when
+        // lower: outside English recognize() uses none (0), because the rare-word cutoff cost 2-5 points of "right
+        // word in the top 3" there (see init()). A tap-back list (SwapParams::tapBack) may go down to
+        // tapBackMinFrequency, for a word between the two cutoffs only when its path is within tapBackRareWithin of
+        // the tapped word's (see swap.hpp).
+        // A list for a word with no sentence around it (sp.noContext) never goes below sp.ncMinFrequency (see swap.hpp).
+        const int floor = sp.noContext ? sp.ncMinFrequency : 0;
+        const int minFreq = std::max(std::min(sp.minFrequency, d_->alt.minFrequency), floor);
+        const int lowFreq = sp.tapBack ? std::max(std::min(minFreq, sp.tapBackMinFrequency), floor) : minFreq;
+        const auto offered = [&](const std::string &w, float path) {
+            if (!sp.junkFilter) return true;
+            int f = 0;
+            if (!d_->mayOffer(w, lowFreq, f)) return false;
+            if (lowFreq >= minFreq) return true;
+            // WHY mayOffer again: it passes a word above the usual cutoff, and learned and texting words whatever
+            // their frequency; only the words that are rare by the usual rule need the strong path.
+            return d_->mayOffer(w, minFreq, f) || path >= ref - sp.tapBackRareWithin;
+        };
+        for (const auto &c : found) {
+            const std::string &w = d_->engine.lexicon().text(c.word);
+            if (w.empty() || !offered(w, c.ctc)) continue;
+            add(w, c.ctc);
+        }
+        // One-edit neighbours (SwapParams::neighbours): words the search may not reach because their path differs
+        // in one letter from the tapped word's ("form" for "from"). WHY scored on the swipe's own network output:
+        // a neighbour must compete on the same path scale as the searched words, not on a guess.
+        if (sp.neighbours > 0) {
+            std::vector<std::string> extra;
+            for (const auto &c : similar(word, sp.neighbours)) {
+                if (isTapped(c.word) || seen.count(QString::fromStdString(c.word).toLower().toStdString())) continue;
+                if (!offered(c.word, 1e30f)) continue;   // first the frequency rule; the path rule once fitted
+                extra.push_back(c.word);
+            }
+            const auto fits = d_->engine.pathScores(extra);
+            for (size_t i = 0; i < extra.size(); ++i) {
+                const float fit = fits.size() == extra.size() ? fits[i] : -1e30f;
+                const float path = std::max(fit, sp.neighbourFloor >= 0 ? ref - sp.neighbourFloor : -1e30f);
+                if (path <= -1e29f) continue;   // no usable fit and no floor
+                if (!offered(extra[i], fit)) continue;   // WHY its own fit, not the floor: a rare word must earn its place
+                seen.insert(QString::fromStdString(extra[i]).toLower().toStdString());
+                SwapCandidate c;
+                c.word = extra[i];
+                c.path = path;
+                out.push_back(std::move(c));
+            }
+        }
+
+        constexpr float kLn10 = 2.302585093f;
+        // WHY the model's form (as recognize() builds the previous words): the pack stores lower-case words,
+        // letters only or with apostrophes. Following words stop at the first one the model cannot read
+        // (a number, an emoji), so the two that are used are the two right after the word.
+        std::vector<std::string> previous, next;
+        std::vector<int> nextFreq;
+        if (d_->lmLoaded) {
+            for (const auto &w : before) { const auto a = d_->lm.form(w); if (!a.empty()) previous.push_back(a); }
+            for (const auto &w : after) {
+                if (next.size() >= 2) break;
+                const auto a = d_->lm.form(w);
+                if (a.empty()) break;
+                next.push_back(a);
+                nextFreq.push_back(frequency(displaySpelling(w)));
+            }
+        }
+        const auto ctxBefore = d_->lm.context(previous);
+        // WHY only the last two previous words for the words after: the model looks back two words at most, and this
+        // runs for thousands of sentence-word candidates on the input thread.
+        const std::vector<std::string> lastTwo(previous.end() - std::min<ptrdiff_t>(2, ptrdiff_t(previous.size())), previous.end());
+        // log10 evidence of `form` from the words before and the words after (0 when none follow).
+        const auto sentenceFit = [&](const std::string &form, float freq, float &b, float &a) {
+            b = d_->lm.logProb(ctxBefore, form, freq);
+            a = 0;
+            if (next.empty()) return;
+            std::vector<std::string> ctx = lastTwo;
+            ctx.push_back(form);
+            for (size_t k = 0; k < next.size(); ++k) {
+                a += d_->lm.logProb(d_->lm.context(ctx), next[k], float(nextFreq[k]));
+                ctx.push_back(next[k]);
+            }
+        };
+
+        // Sentence words (SwapParams::tapBackSentenceWords, tap-back lists only): the words the n-gram expects in this place, given the words
+        // before it and (fill in the blank) the words after it, each scored on its own fit to this path.
+        // WHY: the search and the one-edit neighbours only find words whose path looks like the tapped word's; a word
+        // meant for this place whose path is further off (a typed word's made-up path is only a guess at the swipe)
+        // was never gathered, however well it fits the sentence. WHY only the n-gram here: it is what the input
+        // thread has; the worker's neural score still re-ranks the whole list afterwards.
+        if (sp.tapBack && sp.tapBackSentenceWords > 0 && d_->lmLoaded && d_->prior) {
+            d_->prior->setContext(previous);
+            const SwipeLexicon &lex = d_->engine.lexicon();
+            // Step 1, every word the model has seen after the words before (trigram, then bigram continuations), by
+            // that evidence alone. WHY all of them and not the first few: the model lists continuations in its word
+            // order, which is alphabetical, so a short scan would favour words early in the alphabet. WHY the prior's
+            // own score: it reads the model by word number, a couple of lookups per word (it is ln 10 times the
+            // n-gram's log10 P with the weights LanguageEngine leaves at 1 and 0).
+            std::vector<std::pair<float, uint32_t>> byBefore;   // (ln P(word | before), lexicon word); may repeat
+            for (const uint32_t lw : d_->prior->hints(kSentenceScan)) byBefore.push_back({(*d_->prior)(lw), lw});
+            // Step 2, the best of those that may be offered, scored again with the words after (fill in the blank).
+            // WHY a shortlist: the words-after score costs a few model lookups per word. WHY only the best few
+            // thousand are put in order: sorting every continuation of a common word would cost more than the search.
+            const auto better = [](const auto &x, const auto &y) { return x.first > y.first || (x.first == y.first && x.second < y.second); };
+            const size_t head = std::min(byBefore.size(), 8 * kSentenceShortlist);
+            std::nth_element(byBefore.begin(), byBefore.begin() + head, byBefore.end(), better);
+            std::sort(byBefore.begin(), byBefore.begin() + head, better);
+            std::vector<std::pair<float, uint32_t>> fit;   // (log10 before + after, lexicon word)
+            std::unordered_set<uint32_t> scanned;          // WHY: a word can be both a trigram and a bigram continuation
+            for (size_t i = 0; i < head && fit.size() < kSentenceShortlist; ++i) {
+                const uint32_t lw = byBefore[i].second;
+                if (!scanned.insert(lw).second) continue;
+                const std::string &w = lex.text(lw);
+                if (w.empty() || isTapped(w) || seen.count(QString::fromStdString(w).toLower().toStdString())) continue;
+                if (!offered(w, 1e30f)) continue;   // the path rule once fitted, below
+                float b = 0, a = 0;
+                sentenceFit(d_->lm.form(w), float(lex.freq(lw)), b, a);
+                fit.push_back({b + a, lw});
+            }
+            const size_t n = std::min(fit.size(), size_t(sp.tapBackSentenceWords));
+            std::partial_sort(fit.begin(), fit.begin() + n, fit.end(), [](const auto &x, const auto &y) { return x.first > y.first; });
+            std::vector<std::string> extra;
+            for (size_t i = 0; i < n; ++i) extra.push_back(lex.text(fit[i].second));
+            const auto fits = d_->engine.pathScores(extra);
+            for (size_t i = 0; i < extra.size() && fits.size() == extra.size(); ++i) {
+                // WHY no floor (unlike neighbours): these words are not look-alikes; a word with no path to this
+                // swipe at all (a letter with no key) is left out, any other competes on its real fit.
+                if (fits[i] <= -1e29f || !offered(extra[i], fits[i]) || !seen.insert(QString::fromStdString(extra[i]).toLower().toStdString()).second) continue;
+                SwapCandidate c;
+                c.word = extra[i];
+                c.path = fits[i];
+                out.push_back(std::move(c));
+            }
+        }
+
+        if (d_->lmLoaded) {
+            for (auto &c : out) {
+                const std::string form = d_->lm.form(c.word);
+                if (form.empty()) continue;   // WHY: the model cannot read it; no evidence either way (0, 0)
+                sentenceFit(form, float(frequency(c.word)), c.before, c.after);
+            }
+        } else {
+            // WHY divided by ln 10: without a pack the search's own frequency prior (nats) stands in, put on the
+            // n-gram's log10 scale so the weights in SwapParams mean the same with or without one.
+            for (auto &c : out) c.before = d_->engine.params.freqWeight * float(frequency(c.word)) / kLn10;
+        }
+        return out;
+    } catch (...) {
+        return {};
+    }
+}
+
+std::vector<float> LanguageEngine::pathFits(const std::vector<std::string> &words, const std::vector<KeyRect> &rects,
+                                           const std::vector<TracePoint> &trace)
+{
+    if (!d_->ok || words.empty()) return {};
+    try {
+        std::vector<SwipePoint> pts;
+        float aspect = 0;
+        if (trace.size() < 2 || !d_->toSwipePoints(trace, rects, pts, aspect)) return {};
+        d_->setSentencePrior({});
+        d_->engine.decode(pts, aspect, 1);   // WHY: runs the network on this path; the words are scored on its output
+        return d_->engine.pathScores(words);
+    } catch (...) {
         return {};
     }
 }
@@ -531,6 +1016,83 @@ void LanguageEngine::liftWords(const std::vector<std::pair<std::string, int>> &w
 }
 
 void LanguageEngine::setAlternativeParams(const AlternativeParams &params) { d_->alt = params; }
+
+void LanguageEngine::setContextRescore(ContextRescore rescore) { d_->rescore = std::move(rescore); }
+
+// WHY these weights (2026-10-29, bench/rescore-tune.py, grid neural {0 .. 3} x n-gram {0 .. 1}, TUNING swipes only;
+// right first guesses, the UX scoreboard's "no tap"):
+//   English (FUTO trv8k, 7,198 swipes, 6,457 with words before): today 92.94 % -> 93.61 % (+48 swipes) at neural 1,
+//     n-gram 0: the next-word model's score (which already blends the same n-gram, Predictor::scoreWords) takes the
+//     n-gram prior's place; keeping both counts the n-gram twice (neural 1, n-gram 1: +4 swipes).
+//   French + German (FUTO swipe-5 validation, 648 swipes, 575 with words before): 88.43 % -> 90.43 % (+13) at
+//     neural 1, n-gram 0.25 (a flat top: 1.5 / 0 and 2 / 0.5 score within one swipe). Spanish has no tuning set and
+//     takes these.
+// Joint-model step 3 (2026-10-30): the learned re-ranker compiled into the engine (SwipeReranker::builtIn, one shared
+// set for every language, trained by scripts/swipe/train_rerank.py on English swipes the swipe model never saw) takes
+// the place of these two weights, and also orders swipes with no words before. The weights above stay as the fallback
+// when no built-in model is there. WHY switched on: it won on the validation swipes AND on the one test-set run
+// (first guess bench-2000 90.95 -> 91.45 %, test-extra-10000 91.09 -> 91.48 %, HeliBoard en/es/fr/de +2.08 to +3.18
+// points; docs/methods.md).
+ContextRescore ContextRescore::forLanguage(const std::string &language)
+{
+    ContextRescore r;
+    r.neuralWeight = 1.f;
+    r.ngramWeight = language.rfind("en", 0) == 0 ? 0.f : 0.25f;
+    r.reranker = SwipeReranker::builtIn(language);
+    return r;
+}
+
+std::vector<RawSwipeCandidate> LanguageEngine::rawCandidates(const std::vector<TracePoint> &trace, const std::vector<KeyRect> &rects,
+                                                             const std::vector<std::string> &context, int topN, int beamWidth)
+{
+    if (!d_->ok || trace.size() < 2 || topN <= 0) return {};
+    try {
+        std::vector<SwipePoint> pts;
+        float aspect = 0;
+        if (!d_->toSwipePoints(trace, rects, pts, aspect)) return {};
+        d_->setSentencePrior(context);
+        // WHY a guard object: the recognizer must get its own search width back even if the search throws.
+        struct Restore {
+            SwipeEngine &e;
+            const int beam;
+            ~Restore() { e.params.beam.beam = beam; }
+        } restore{d_->engine, d_->engine.params.beam.beam};
+        if (beamWidth > 0) d_->engine.params.beam.beam = beamWidth;
+        std::vector<RawSwipeCandidate> out;
+        for (const auto &c : d_->engine.decode(pts, aspect, topN)) {
+            const std::string &w = d_->engine.lexicon().text(c.word);
+            if (!w.empty()) out.push_back({w, c.score, c.ctc, d_->priorOf(c.word)});
+        }
+        return out;
+    } catch (...) {
+        return {};
+    }
+}
+
+std::vector<RerankCandidate> LanguageEngine::rerankCandidates(const std::vector<TracePoint> &trace, const std::vector<KeyRect> &rects,
+                                                             const std::vector<std::string> &context)
+{
+    if (!d_->ok || trace.size() < 2) return {};
+    try {
+        std::vector<SwipePoint> pts;
+        float aspect = 0;
+        if (!d_->toSwipePoints(trace, rects, pts, aspect)) return {};
+        d_->setSentencePrior(context);
+        // WHY the same width and pool as recognize() with re-scoring on: the training data must be the very lists the
+        // keyboard re-orders.
+        const int want = std::max(30, d_->alt.pool);
+        const auto found = d_->engine.decode(pts, aspect, std::max(want, d_->rescore.pool));
+        const size_t n = std::min(found.size(), size_t(std::max(0, d_->rescore.pool)));
+        std::vector<float> neural;
+        if (!context.empty() && d_->rescore.scorer) neural = d_->askScorer(found, n, context);
+        const auto rows = d_->rerankFeatures(found, n, neural, pts, aspect);
+        std::vector<RerankCandidate> out;
+        for (size_t i = 0; i < n; ++i) out.push_back({d_->engine.lexicon().text(found[i].word), rows[i]});
+        return out;
+    } catch (...) {
+        return {};
+    }
+}
 
 int LanguageEngine::frequency(const std::string &word) const
 {

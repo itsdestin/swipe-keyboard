@@ -1,5 +1,76 @@
 # Changes
 
+## Unreleased
+
+### Swipes pick the right word more often, also for the first word of a message
+
+- **A small learned model now decides the order of a swipe's candidate words.** It weighs facts the keyboard already
+  has about each word (how well the finger path fits it, how far the swipe starts and ends from its first and last key,
+  how long the word is against the swipe, how common it is, and, when there are words before, what the sentence model
+  thinks) instead of adding up two of them with fixed weights. It works with and without words before, so the first
+  word of a message or a field, and single words, get better too. Both Plasma front ends; Gaming Mode orders swipes
+  without words before the same way (it has no sentence model, so swipes after words are unchanged there).
+- **Measured** (test sets never trained or tuned on; first guess / right word in the top 3; 0.5.0 -> the sentence
+  re-scoring of the next entry, also unreleased -> this; "no sentence" rows: 0.5.0 -> this):
+  bench-2000 with sentences 90.10 / 93.10 -> 90.95 / 93.25 -> 91.45 / 93.45 (10 more of 2,000 right first time than
+  the re-scoring alone, 4 more in the top 3), test-extra-10000 90.45 / 93.57 -> 91.09 / 93.71 -> 91.48 / 93.73 (39 more
+  of 10,000 first time, 2 more in the top 3). On the 1,946 swipes FUTO's engine was compared on, 92.34 / 94.71 ->
+  92.86 / 94.91 (FUTO's engine: 93.32 / 96.56). Without a sentence: bench-2000 88.15 / 92.70 -> 89.45 / 93.05;
+  single words on other people's phones (HeliBoard sets, 5,000 each) English 80.78 / 89.00 -> 83.96 / 90.00, Spanish
+  75.98 / 84.68 -> 78.12 / 85.42, French 68.34 / 82.00 -> 70.78 / 83.04, German 64.72 / 73.12 -> 66.80 / 73.70. Fewer
+  rare or stretched words among the other guesses on the bar (test-extra-10000 5.04 -> 3.89 %, bench-2000 4.77 ->
+  3.90 %). When the first guess is still wrong, the right word is on the bar less often than with the re-scoring alone
+  (bench-2000 25.41 -> 23.39 %, test-extra-10000 29.41 -> 26.41 %): the model fixes the easy misses first, so the misses
+  left are harder.
+- **Same speed, no extra memory:** the model is 2.4 KB of numbers built into the keyboard; its cost per swipe is
+  below what we can measure (under 0.05 ms; a swipe takes about 3.5-4.6 ms on this laptop).
+- **It learned only from English swipes** (no French, German or Spanish training swipes exist that the swipe model
+  had not already seen); those languages use the same model and gained on their own checks, but less is known there.
+- **Words you taught the keyboard keep their place:** a taught word the model puts first, second or third stays on
+  the bar after words before it too; the sentence models, which have never seen it, cannot push it off (tested with ten
+  taught names and slang words, each swiped cleanly with and without "i met" before it).
+
+### Swipes inside a sentence pick the right word a little more often
+
+- **When there are words before the swipe, the keyboard now also asks the sentence model that suggests your next
+  word** which of the swipe's candidate words fits best ("I can ___": "see" rather than "sea"). Both Plasma front ends
+  (6.7/6.8 and 6.9). (Since the learned model above, its score is one of the facts that model weighs.)
+- **Measured** (real English swipes with their sentences, never tuned on; first guess / right word in the top 3):
+  bench-2000 90.10 / 93.10 -> 90.95 / 93.25 (17 more swipes right first time of 2,000), test-extra-10000 90.45 / 93.57
+  -> 91.09 / 93.71 (64 more of 10,000). On the 1,946 swipes FUTO's engine was compared on, 91.47 -> 92.34 first guess
+  (FUTO's engine: 93.32). About one swipe in 118 to 156 that needed a tap on the bar now comes out right; top 3 barely
+  moves, because most of the words it fixes were already second or third (so the misses that remain are
+  harder: the share of them whose right word is still among the alternatives falls, 30.30 -> 25.41 % on
+  bench-2000 and 32.67 -> 29.41 % on test-extra-10000). Swipes without a sentence (HeliBoard sets)
+  are unchanged. Spanish has no sentence test set, so its gain is not measured; French and German tuning swipes:
+  88.55 -> 90.84 and 88.34 -> 90.16.
+- **No extra memory and no slower swipe you can notice:** the sentence model is the one already loaded for the
+  suggestion bar, borrowed for about 0.7 ms (worst measured 1.25 ms), which adds about 0.55 ms to a swipe. A swipe takes about 4.5 ms (worst measured 6 ms, 10 ms with
+  the suggestion bar kept busy on purpose the whole time). If that model is busy for more than 5 ms, missing or damaged,
+  the swipe simply ranks as before.
+- **Words you taught the keyboard keep their place:** a word the sentence model does not know keeps its
+  usual score instead of being pushed to the bottom.
+
+### Better words to swap in
+
+- **Tap a word to swap it, and the bar after a swipe, now offer real look-alike words ranked by the sentence.** The
+  options are words whose swipe would look like yours, ordered by how well they fit the swipe and the words around them.
+  In fields the keyboard may read, the words after the tapped one count too ("in the ___ states" offers "united").
+- **Typed words get look-alikes too**, from a made-up swipe through their keys, not only one-letter-off spellings.
+- **Tap-back lists may show rarer real words** when they fit your swipe well; the bar right after a swipe keeps the
+  stricter rule.
+- **Measured** (`bench/swap-scoreboard.tsv`, only swipes whose first guess was wrong, first option / among three):
+  English, when the first guess was wrong, baseline 0.5.0 -> now. bench-2000 (198 cases): after a swipe 19.70 / 30.81
+  -> 24.24 / 36.36, tap-back with the swipe 19.70 / 33.33 -> 36.36 / 42.42, tap-back without 12.12 / 16.67 -> 26.26 /
+  32.32. test-extra-10000 (957 cases): 24.66 / 32.60 -> 28.63 / 36.36, 24.76 / 34.38 -> 35.01 / 42.01, 10.76 / 15.57 ->
+  26.44 / 31.87. Rare or stretched words among the options go down (test-extra-10000 bar 6.29 % -> 4.90 %). Spanish,
+  French and German also find the right word more often (HeliBoard, in-3 after a swipe: es 35.72 -> 40.72, fr 42.51 ->
+  47.69, de 23.64 -> 29.48), but their tap-back lists show more rare words than before (es +4.68 and +9.03 points, fr
+  +3.72 and +8.97, de +1.04 and +5.14, with and without the swipe), beyond our +3-point limit. A tap-back list takes
+  about 9 ms (limit 20). Details: `docs/active/investigations/2026-10-24-swap-results.md`.
+- **Learned words:** words the keyboard learned from you still move up in the bar after a swipe (at half strength, as
+  before). Tap-back lists are ordered by the swipe and the sentence only; forgotten words never appear in either.
+
 ## v0.5.1-1
 
 ### Steam Deck: Gaming Mode is part of the one install
