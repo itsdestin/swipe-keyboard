@@ -37,13 +37,13 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(set(re.findall(r'/releases/download/(v[^/]+)/', guide)), {tag})
 
     def test_real_producers_and_always_completion_gate(self):
-        self.assertEqual(set(self.jobs), {'prepare', 'arch', 'arch-current', 'fedora', 'fedora-arm64', 'flatpak', 'steamos-helper', 'steamos', 'keyboard-ci', 'gaming-tests', 'publish', 'update-site-check', 'update-site'})
+        self.assertEqual(set(self.jobs), {'prepare', 'arch', 'arch-current', 'fedora', 'fedora-arm64', 'flatpak', 'steamos-helper', 'steamos', 'keyboard-ci', 'gaming-tests', 'publish', 'update-site-check', 'update-site', 'distro-packages'})
         gate = self.jobs['keyboard-ci']
         # WHY changed: the required check keeps the exact name "Keyboard CI" only for full runs; the
         # fast path reports under a different name and so can never satisfy the merge requirement.
         self.assertIn("name: ${{ needs.prepare.outputs.mode == 'fast' && 'Keyboard CI (fast path, not mergeable)' || 'Keyboard CI' }}", gate)
         self.assertIn('if: ${{ always() }}', gate)
-        self.assertIn('needs: [prepare, arch, arch-current, update-site-check, fedora, fedora-arm64, flatpak, steamos, gaming-tests]', gate)
+        self.assertIn('needs: [prepare, arch, arch-current, update-site-check, fedora, fedora-arm64, flatpak, steamos, gaming-tests, distro-packages]', gate)
         self.assertIn('${{ toJSON(needs) }}', gate)
         self.assertIn('scripts/release.py gate', gate)
         for name, build in [('arch', 'makepkg --noconfirm'), ('fedora', 'rpmbuild -ba'), ('fedora-arm64', 'rpmbuild -bb'), ('flatpak', 'packaging/flatpak/build.py'), ('steamos', 'scripts/steamos_bundle.py assemble')]:
@@ -419,13 +419,14 @@ exit "$result"
         self.assertNotRegex(gaming, r'(?m)^    if:')
         self.assertIn('test_switch_watch.py', gaming)
         gate = self.jobs['keyboard-ci']
-        self.assertIn('flatpak, steamos, gaming-tests]', gate.split('steps:')[0])
+        self.assertIn('flatpak, steamos, gaming-tests, distro-packages]', gate.split('steps:')[0])
         # The current-Arch retest and the update-site rehearsal gate merges through "Keyboard CI", not as producers.
         self.assertIn('SITE_CHECK_RESULT: ${{ needs.update-site-check.result }}', gate)
         self.assertIn('CURRENT_ARCH_RESULT: ${{ needs.arch-current.result }}', gate)
         self.assertIn('GAMING_RESULT: ${{ needs.gaming-tests.result }}', gate)
         self.assertIn('if [[ "$GAMING_RESULT" != success ]]', gate)
-        self.assertIn('''del(."gaming-tests", ."arch-current", ."update-site-check")''', gate)
+        self.assertIn('''del(."gaming-tests", ."arch-current", ."update-site-check", ."distro-packages")''', gate)
+        self.assertIn('DISTRO_RESULT: ${{ needs.distro-packages.result }}', gate)
         self.assertIn('--statuses "$statuses"', gate)
         self.assertIn('needs: [keyboard-ci, gaming-tests]', self.jobs['publish'])
 

@@ -336,9 +336,10 @@ include("{ROOT}/cmake/Install.cmake")
 
     def test_ci_checks_installed_wrapper_as_ordinary_user(self):
         workflow = (ROOT/'.github/workflows/packages.yml').read_text()
-        # Arch baseline/current plus Fedora x86_64 and mandatory Fedora ARM64.
-        self.assertEqual(workflow.count('XDG_SESSION_TYPE=wayland XDG_CURRENT_DESKTOP=KDE swipe-keyboard check'), 4)
-        self.assertEqual(workflow.count('test ! -e /usr/bin/swipe-keyboard'), 4)
+        # Arch baseline/current plus Fedora x86_64 and mandatory Fedora ARM64, and (card #502) the one
+        # Kubuntu/Debian testing/Tumbleweed matrix job.
+        self.assertEqual(workflow.count('XDG_SESSION_TYPE=wayland XDG_CURRENT_DESKTOP=KDE swipe-keyboard check'), 5)
+        self.assertEqual(workflow.count('test ! -e /usr/bin/swipe-keyboard'), 5)
 
     def test_fedora_ci_retains_test_executable_until_package_probe(self):
         workflow = (ROOT/'.github/workflows/packages.yml').read_text()

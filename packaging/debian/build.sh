@@ -30,8 +30,10 @@ swipe-keyboard ($DEBVERSION) unstable; urgency=medium
  -- Destin Moss <itsdestin@users.noreply.github.com>  $(date -R -d "@${SOURCE_DATE_EPOCH:-$(git log -1 --format=%ct 2>/dev/null || date +%s)}")
 EOF
 if [ "${2:-}" = --install-deps ]; then
-    sudo apt-get update -q
-    sudo DEBIAN_FRONTEND=noninteractive apt-get build-dep -y -q ./
+    # WHY no sudo as root: CI containers run as root and have no sudo.
+    SUDO=sudo; [ "$(id -u)" = 0 ] && SUDO=
+    $SUDO apt-get update -q
+    $SUDO env DEBIAN_FRONTEND=noninteractive apt-get build-dep -y -q ./
 fi
 SWIPEKB_UPDATE_TARGET="$TARGET" dpkg-buildpackage -b -uc -us
 echo "built: $(cd .. && pwd)/swipe-keyboard_${DEBVERSION}_amd64.deb"

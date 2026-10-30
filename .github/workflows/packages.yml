@@ -924,6 +924,90 @@ jobs:
           python3 -I -m unittest discover -s tests/packaging -p test_flatpak_gaming.py -v
           python3 -I -m unittest discover -s tests/packaging -p test_release_steamos.py -v
           python3 -I -m unittest discover -s tests/packaging -p test_switch_watch.py -v
+  distro-packages:
+    # WHY (card #502): Kubuntu, Debian testing and openSUSE Tumbleweed packages are built, installed into a clean copy of
+    # their own distro, checked and removed on every full run. They are checks for now, not release producers: they are
+    # first published after the OpenSwipe rename (card #501), so release-targets.json does not list them yet.
+    needs: prepare
+    if: ${{ needs.prepare.outputs.mode == 'full' && needs.prepare.outputs.reuse_run == '' }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: kubuntu-26.10
+            image: ubuntu:26.10
+            kind: deb
+          - target: debian-testing
+            image: debian:testing
+            kind: deb
+          - target: tumbleweed
+            image: opensuse/tumbleweed
+            kind: rpm
+    container: ${{ matrix.image }}
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      TARGET: ${{ matrix.target }}
+    steps:
+      - name: Install build tooling
+        run: |
+          if [ "${{ matrix.kind }}" = deb ]; then
+            apt-get update -q
+            DEBIAN_FRONTEND=noninteractive apt-get install -y -q git python3 dpkg-dev devscripts equivs ca-certificates nodejs
+          else
+            # WHY --force-resolution: the minimal image's busybox tools conflict with rpm-build's full ones.
+            zypper --non-interactive install --force-resolution git python3 rpm-build nodejs tar gzip
+          fi
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: prepared
+          path: prepared
+      - name: Verify prepared input identity and hashes before executing source
+        run: python3 scripts/release.py verify-inputs --directory prepared --sha "$GITHUB_SHA"
+      - name: Build as an unprivileged builder
+        run: |
+          useradd -m builder
+          mkdir -p dist /home/builder/src
+          tar -xzf "prepared/swipe-keyboard-$VERSION.tar.gz" -C /home/builder/src
+          chown -R builder:builder /home/builder/src
+          src="/home/builder/src/swipe-keyboard-$VERSION"
+          if [ "${{ matrix.kind }}" = deb ]; then
+            # WHY build-deps as root first: build.sh --install-deps would need sudo inside the builder account.
+            (cd "$src" && rm -rf debian && cp -a packaging/debian debian && apt-get build-dep -y -q ./ && rm -rf debian)
+            su builder -c "cd '$src' && packaging/debian/build.sh '$TARGET'"
+            cp /home/builder/src/swipe-keyboard_*_amd64.deb dist/
+          else
+            mkdir -p /home/builder/rpmbuild/SOURCES /home/builder/rpmbuild/SPECS
+            cp "prepared/swipe-keyboard-$VERSION.tar.gz" /home/builder/rpmbuild/SOURCES/
+            cp "$src/packaging/opensuse/swipe-keyboard.spec" /home/builder/rpmbuild/SPECS/
+            zypper --non-interactive install --force-resolution $(rpmspec -q --buildrequires /home/builder/rpmbuild/SPECS/swipe-keyboard.spec)
+            chown -R builder:builder /home/builder/rpmbuild
+            su builder -c "rpmbuild -bb /home/builder/rpmbuild/SPECS/swipe-keyboard.spec"
+            cp /home/builder/rpmbuild/RPMS/x86_64/swipe-keyboard-$VERSION-*.x86_64.rpm dist/
+          fi
+          ls -l dist
+      - name: Install, check as an ordinary user, remove (container only)
+        run: |
+          if [ "${{ matrix.kind }}" = deb ]; then
+            DEBIAN_FRONTEND=noninteractive apt-get install -y -q ./dist/swipe-keyboard_*_amd64.deb
+          else
+            zypper --non-interactive install --allow-unsigned-rpm ./dist/swipe-keyboard-*.rpm
+          fi
+          test "$(cat /usr/share/swipe-keyboard/integration/update-target)" = "$TARGET"
+          su builder -c 'XDG_SESSION_TYPE=wayland XDG_CURRENT_DESKTOP=KDE swipe-keyboard check'
+          if [ "${{ matrix.kind }}" = deb ]; then apt-get remove -y -q swipe-keyboard; else zypper --non-interactive remove swipe-keyboard; fi
+          test ! -e /usr/bin/swipe-keyboard
+          test ! -e /usr/share/swipe-keyboard
+      - uses: actions/upload-artifact@v4
+        with:
+          name: distro-${{ matrix.target }}-files
+          path: dist/swipe-keyboard*
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
   keyboard-ci:
     # WHY the name changes with the mode: branch protection requires the exact check "Keyboard CI".
     # A fast-path run reports under a different name, so it can never satisfy that requirement; only
@@ -932,7 +1016,7 @@ jobs:
     if: ${{ always() }}
     # WHY gaming-tests is waited on here but kept out of the producer set: it builds no release file, yet a green
     # "Keyboard CI" must mean the Gaming Mode tests passed too, in every mode (it runs on drafts as well).
-    needs: [prepare, arch, arch-current, update-site-check, fedora, fedora-arm64, flatpak, steamos, gaming-tests]
+    needs: [prepare, arch, arch-current, update-site-check, fedora, fedora-arm64, flatpak, steamos, gaming-tests, distro-packages]
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -950,11 +1034,12 @@ jobs:
           if [[ "$GAMING_RESULT" != success ]]; then echo "gaming-tests finished as: $GAMING_RESULT"; exit 1; fi
       # WHY a step per check: a skipped check counts only when its own condition (copied from the job) says it should
       # not have run. A skipped-because-something-failed check therefore still fails "Keyboard CI".
-      - name: Current-Arch retest and update-site rehearsal must pass
+      - name: Current-Arch retest, update-site rehearsal and distro packages must pass
         if: ${{ always() }}
         env:
           CURRENT_ARCH_RESULT: ${{ needs.arch-current.result }}
           SITE_CHECK_RESULT: ${{ needs.update-site-check.result }}
+          DISTRO_RESULT: ${{ needs.distro-packages.result }}
           REUSE_RUN: ${{ needs.prepare.outputs.reuse_run }}
           PREPARED_MODE: ${{ needs.prepare.outputs.mode }}
         run: |
@@ -963,6 +1048,9 @@ jobs:
           want_site=skipped; if [[ "$PREPARED_MODE" == full && "$GITHUB_REF" != refs/tags/* ]]; then want_site=success; fi
           if [[ "$CURRENT_ARCH_RESULT" != "$want_arch" ]]; then echo "arch-current finished as: $CURRENT_ARCH_RESULT (wanted $want_arch)"; fail=1; fi
           if [[ "$SITE_CHECK_RESULT" != "$want_site" ]]; then echo "update-site-check finished as: $SITE_CHECK_RESULT (wanted $want_site)"; fail=1; fi
+          # WHY (card #502): the Kubuntu, Debian testing and Tumbleweed packages run where the other packages build.
+          want_distro=skipped; if [[ -z "$REUSE_RUN" && "$PREPARED_MODE" == full ]]; then want_distro=success; fi
+          if [[ "$DISTRO_RESULT" != "$want_distro" ]]; then echo "distro-packages finished as: $DISTRO_RESULT (wanted $want_distro)"; fail=1; fi
           exit $fail
       # Downloads come from this run, or, for a tag reusing main (card #200), only from the main run that
       # prepare chose for this exact commit, in this repository.
@@ -1010,8 +1098,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           # WHY removed: the producer check wants exactly the producer jobs; gaming-tests has its own step above.
-          # WHY also removed: arch-current and update-site-check are checks, not producers; they are judged in their own step below.
-          statuses=$(jq -c 'del(."gaming-tests", ."arch-current", ."update-site-check")' <<< "$PRODUCER_STATUSES")
+          # WHY also removed: arch-current, update-site-check and distro-packages are checks, not producers; they are judged
+          # in their own step above.
+          statuses=$(jq -c 'del(."gaming-tests", ."arch-current", ."update-site-check", ."distro-packages")' <<< "$PRODUCER_STATUSES")
           if [[ -n "$REUSE_RUN" ]]; then
             # WHY: this run's producers were skipped on purpose; the results that count are those of the main run
             # whose files are checked below. Only a tag whose own prepare succeeded may do this.
