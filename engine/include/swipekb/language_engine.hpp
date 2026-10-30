@@ -59,11 +59,12 @@ struct AlternativeParams {
     bool dropStretched = true;  // drop words with one letter three times in a row ("youuuuu") as alternatives
 };
 
-// Optional: the neural next-word model's opinion added to the swipe ranking (joint-model experiment, step 1).
-// OFF unless `scorer` is set: the keyboard sets none, so what it guesses is unchanged. The swipe engine's best `pool`
+// Optional: the neural next-word model's opinion added to the swipe ranking (joint-model, steps 1-2).
+// OFF unless `scorer` is set (the Gaming Mode daemon sets none). The swipe engine's best `pool`
 // words are re-scored: score + (ngramWeight - 1) * their n-gram prior + neuralWeight * ln(10) * neural, where neural =
-// scorer(previous words, words), log10 (Predictor::scoreWords). The search itself is not changed (its pruning still
-// uses the n-gram prior), so only words it found can move up.
+// scorer(previous words, words), log10 (Predictor::scoreWords); NaN = no opinion on that word, which then takes its own
+// n-gram prior in the neural score's place. The search itself is not changed (its pruning still uses the n-gram prior),
+// so only words it found can move up. The keyboard's two Plasma front ends set it (NextWordWorker::scoreForSwipe).
 // WHY a function and not a Predictor: the engine stays free of the next-word model; the bench tools hand it
 // Predictor::scoreWords, and a front end could hand it whatever worker owns the model.
 struct ContextRescore {

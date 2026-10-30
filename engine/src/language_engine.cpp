@@ -347,8 +347,17 @@ struct LanguageEngine::Impl {
         std::vector<float> neural;
         try { neural = rescore.scorer(context, words); } catch (...) { neural.clear(); }
         if (n > 0 && neural.size() == n) {
-            for (size_t i = 0; i < n; ++i)
+            for (size_t i = 0; i < n; ++i) {
+                // WHY a word without a neural score (NaN: the next-word vocabulary lacks it, e.g. a word the person
+                // taught) takes the n-gram's own estimate in its place: the floor would push a learned word below
+                // every other guess. For English (n-gram weight 0, neural 1) its score stays exactly as found.
+                // Without an n-gram pack the prior is plain frequency, not a probability: such a word keeps its score.
+                if (!std::isfinite(neural[i])) {
+                    if (prior) found[i].score += (rescore.ngramWeight - 1.f + rescore.neuralWeight) * priorOf(found[i].word);
+                    continue;
+                }
                 found[i].score += (rescore.ngramWeight - 1.f) * priorOf(found[i].word) + rescore.neuralWeight * kLn10 * neural[i];
+            }
             // WHY stable and only the re-scored part: equal scores keep the search's order, and words past the pool
             // have no neural score, so they stay behind the re-scored ones.
             std::stable_sort(found.begin(), found.begin() + std::ptrdiff_t(n),
@@ -423,7 +432,10 @@ bool LanguageEngine::init(const LanguageEngineSetup &setup)
             if (!line.empty() && line.back() == '\r') line.pop_back();
             d_->readLine(line);
         }
-        if (d_->swipeWords().empty()) return false;
+        // WHY a plain check and not swipeWords().empty(): that builds the whole swipe word list (~0.1 s for English) only
+        // to throw it away; the first swipe builds it anyway. Same answer: a word list with no word of frequency > 0
+        // can never be swiped.
+        if (std::none_of(d_->entries.begin(), d_->entries.end(), [](const auto &e) { return e.freq() > 0; })) return false;
         d_->spellings = Spellings::fromCombinedText(text.str(), setup.language);
         // WHY these values: the engine was tuned and scored with them (docs/active/specs/2026-10-23-own-swipe-engine.md).
         d_->engine.params.beam.beam = 48;

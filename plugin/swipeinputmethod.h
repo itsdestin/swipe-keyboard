@@ -172,6 +172,8 @@ private:
     int m_autoSpaceCursor = -1; // cursor just after a space this keyboard added automatically
     quint64 m_nativePolicyEpoch = 1;
     NextWordWorker m_predictionWorker;
+    // Joint-model step 2: how the swipe re-scoring with the worker's neural model went (counts and times only).
+    std::shared_ptr<SwipeRescoreStats> m_swipeRescore = std::make_shared<SwipeRescoreStats>();
     swipekb::PredictionModelState m_predictionModelState=swipekb::PredictionModelState::NotRequested;
     QPointer<QObject> m_policySource;
     int m_generation = 0;

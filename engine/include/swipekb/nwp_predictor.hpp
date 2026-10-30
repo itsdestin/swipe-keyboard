@@ -33,6 +33,9 @@ public:
     bool load(const std::string &ngramModel, const std::string &vocab, const std::string &nwp = {}, bool siblingFallback = true);
     bool ready() const { return ngram_.ready(); }
     bool hasLm() const { return lm_.loaded(); }
+    // True when the neural model is loaded AND used (it may load yet be left out when its words do not match the
+    // n-gram's). WHY: the swipe re-scoring is only switched on when the neural half really takes part.
+    bool usesLm() const { return useLm_; }
     const NgramPredictor &ngram() const { return ngram_; }
     const NwpModel &lm() const { return lm_; }
     // Overrides the blend stored in the model file (tuning and tests).
@@ -45,8 +48,10 @@ public:
                                      const std::string &prefix = {}) const;
 
     // log10 score of each word as the next word after `context`, the same blend predict() ranks by. Words the keyboard
-    // vocabulary lacks get the n-gram floor. Same length and order as `words`; empty when not ready.
-    std::vector<float> scoreWords(const std::vector<std::string> &context, const std::vector<std::string> &words) const;
+    // vocabulary lacks get the n-gram floor, or NaN with `markUnknown` (see Predictor::scoreWords). Same length and
+    // order as `words`; empty when not ready.
+    std::vector<float> scoreWords(const std::vector<std::string> &context, const std::vector<std::string> &words,
+                                  bool markUnknown = false) const;
 
 private:
     // Brings the cached sentence state (and the next-word log-probabilities) up to date for `context`.

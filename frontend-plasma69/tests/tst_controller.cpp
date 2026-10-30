@@ -8,6 +8,7 @@
 #include "fakeeditor.h"
 #include "languagetextrules.h"
 #include "swipecontroller.h"
+#include "testshard.h"
 
 #include <QSignalSpy>
 #include <QTemporaryDir>
@@ -420,6 +421,40 @@ private Q_SLOTS:
         }
     }
 
+    void aSwipeAfterWordsIsRankedByTheSentenceModel()
+    {
+        // Joint-model step 2: with words before, the swipe's guesses are re-ranked by the sentence model the next-word
+        // bar uses (borrowed from its worker). The bar after the swipe never repeats the typed word or any word twice.
+        type(QStringLiteral("thank you very "));
+        // The worker loads the model for the next-word bar; from then on swipes can use it.
+        QVERIFY(waitForBar([](const QStringList &bar) {
+            return !bar.isEmpty();
+        }));
+        swipe(QStringLiteral("much"));
+        const QString text = m_editor->m_text;
+        QVERIFY2(text.startsWith(QStringLiteral("thank you very ")) && text.size() > 15, qPrintable(text));
+        auto d = m_controller->diagnostics();
+        QCOMPARE(d.value(QStringLiteral("swipeRescoreAsked")).toULongLong(), 1ull);
+        QCOMPARE(d.value(QStringLiteral("swipeRescoreScored")).toULongLong(), 1ull);
+        const QString typed = text.mid(15).trimmed();
+        QVERIFY(waitForBar([&](const QStringList &bar) {
+            return m_controller->diagnostics().value(QStringLiteral("afterSwipeLists")).toULongLong() > 0 && !bar.isEmpty();
+        }));
+        QTest::qWait(300); // the worker's scores for the bar arrive
+        const auto bar = m_controller->candidates();
+        QVERIFY(!bar.contains(typed, Qt::CaseInsensitive));
+        for (int i = 0; i < bar.size(); ++i) {
+            for (int j = i + 1; j < bar.size(); ++j) {
+                QVERIFY2(bar[i].compare(bar[j], Qt::CaseInsensitive) != 0, qPrintable(bar.join(QLatin1Char(','))));
+            }
+        }
+        // A swipe that starts the text has no words before: not re-ranked.
+        make();
+        swipe(QStringLiteral("hello"));
+        d = m_controller->diagnostics();
+        QCOMPARE(d.value(QStringLiteral("swipeRescoreAsked")).toULongLong(), 0ull);
+    }
+
     void passwordFieldDisablesEverything()
     {
         m_editor->setHints(Qt::ImhSensitiveData | Qt::ImhHiddenText | Qt::ImhNoPredictiveText);
@@ -554,5 +589,15 @@ private Q_SLOTS:
     }
 };
 
-QTEST_GUILESS_MAIN(ControllerTest)
+// WHY not QTEST_GUILESS_MAIN: CTest runs this program in three parts (SWIPEKB_TEST_SHARD, plugin/tests/testshard.h).
+// Same set-up as QTEST_GUILESS_MAIN.
+int main(int argc, char **argv)
+{
+    QTest::Internal::callInitMain<ControllerTest>();
+    QCoreApplication app(argc, argv);
+    app.setAttribute(Qt::AA_Use96Dpi, true);
+    ControllerTest test;
+    QTEST_SET_MAIN_SOURCE_PATH
+    return swipekbtest::runShard(&test, argc, argv);
+}
 #include "tst_controller.moc"

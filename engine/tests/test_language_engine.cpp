@@ -5,6 +5,7 @@
 // Tests for swipekb::LanguageEngine: the one class the keyboard and the Gaming Mode daemon use for a language.
 // Most cases build a tiny `.combined` dictionary, so they need no downloaded files. The swipe cases run on geometry
 // alone (no model file) and, when SWIPEKB_ASSETS points at a full asset tree, also with the real English files.
+#include <limits>
 #include <gtest/gtest.h>
 
 #include <QTemporaryDir>
@@ -394,4 +395,38 @@ TEST(LanguageEngine, ContextRescoreIsOffByDefaultAndNeverBreaksASwipe)
     r.scorer = [](const std::vector<std::string> &, const std::vector<std::string> &w) { return std::vector<float>(w.size(), -3.f); };
     e.setContextRescore(r);
     EXPECT_EQ(words(e.recognize(trace, keys, before, 3)), plain);
+}
+
+// Joint-model step 2: a word the next-word vocabulary lacks (NaN from the scorer, e.g. a word the person taught) takes
+// its own n-gram prior in the neural score's place. With the English weights (neural 1, n-gram 0) every such word keeps
+// exactly the score the search gave it, so "no opinion on any word" changes nothing.
+TEST(LanguageEngine, ContextRescoreKeepsWordsTheScorerDoesNotKnow)
+{
+    Dict d(kEnglish);
+    LanguageEngine e;
+    ASSERT_TRUE(open(e, d));
+    const auto keys = qwertyRects(0, 0, 1);
+    const auto trace = traceThrough("help", keys);
+    const std::vector<std::string> before{"please"};
+    const auto plain = words(e.recognize(trace, keys, before, 3));
+    ASSERT_FALSE(plain.empty());
+    auto r = ContextRescore::forLanguage("en");
+    r.scorer = [](const std::vector<std::string> &, const std::vector<std::string> &w) {
+        return std::vector<float>(w.size(), std::numeric_limits<float>::quiet_NaN());
+    };
+    e.setContextRescore(r);
+    EXPECT_EQ(words(e.recognize(trace, keys, before, 3)), plain);
+    // Known words still move: one unknown word (NaN) beside a scorer that strongly favours another found word.
+    const auto raw = e.rawCandidates(trace, keys, before, 30);
+    std::string other;
+    for (const auto &c : raw) if (c.word != "help") { other = c.word; break; }
+    ASSERT_FALSE(other.empty());
+    r.scorer = [&](const std::vector<std::string> &, const std::vector<std::string> &w) {
+        std::vector<float> s;
+        for (const auto &x : w) s.push_back(x == other ? 50.f : x == "help" ? std::numeric_limits<float>::quiet_NaN() : -10.f);
+        return s;
+    };
+    r.neuralWeight = 100.f;
+    e.setContextRescore(r);
+    EXPECT_EQ(e.recognize(trace, keys, before, 3).front().word, other);
 }

@@ -411,6 +411,35 @@ private slots:
             QCOMPARE(f.edit->text, QStringLiteral("we can sea sgo"));
         }
     }
+    void aSwipeAfterWordsIsRankedByTheSentenceModel() {
+        // Joint-model step 2: with words before, the swipe's guesses are re-ranked by the sentence model the next-word
+        // bar uses, borrowed from its worker (the real one here). The bar after it never offers the typed word.
+        if (qEnvironmentVariable("SWIPEKB_TEST_PROFILE_ASSETS").isEmpty()) QSKIP("English assets required");
+        SwapFixture f; const QString text = QStringLiteral("thank you ");
+        QVERIFY(f.init(text, text.size(), {}, "en_US", new SwipeInputMethod(nullptr)));
+        QTRY_VERIFY(f.ic->inputItem() == f.edit.get());
+        QVERIFY2(f.method->isReady(), qPrintable(f.method->profileSnapshot().unavailableReason));
+        QVERIFY(f.method->profileSnapshot().assets.contains(QStringLiteral("contextNwp")));
+        // The first swipe's bar asks the worker for scores, which loads the model; from then on swipes borrow it.
+        QVERIFY(f.swipe("very")); f.report();
+        QCOMPARE(f.method->diagnostics()["swipeRescoreAsked"].toULongLong(), 1ull);
+        QTRY_COMPARE_WITH_TIMEOUT(f.method->diagnostics()["predictionModelState"].toString(), QStringLiteral("loaded"), 15000);
+        const QString before = f.edit->text;
+        const auto scoredBefore = f.method->diagnostics()["swipeRescoreScored"].toULongLong();
+        QVERIFY(f.swipe("much")); f.report();
+        const QString typed = f.edit->text.mid(before.size()).trimmed();
+        QVERIFY2(!typed.isEmpty(), qPrintable(f.edit->text));
+        QCOMPARE(f.method->diagnostics()["swipeRescoreAsked"].toULongLong(), 2ull);
+        QCOMPARE(f.method->diagnostics()["swipeRescoreScored"].toULongLong(), scoredBefore + 1);
+        QTest::qWait(400);                            // the bar's list and its scores arrive
+        const auto bar = f.bar();
+        QVERIFY(!bar.isEmpty());
+        // The bar offers the typed word's other places: never the typed word itself, never a word twice.
+        QVERIFY2(!bar.contains(typed, Qt::CaseInsensitive), qPrintable(typed + " in " + bar.join(",")));
+        for (int i = 0; i < bar.size(); ++i)
+            for (int j = i + 1; j < bar.size(); ++j)
+                QVERIFY2(bar[i].compare(bar[j], Qt::CaseInsensitive) != 0, qPrintable(bar.join(",")));
+    }
     void tappingASwipedWordLaterOffersThatSwipesOtherGuesses() {
         // WHY: the keyboard remembers (in memory only) the guesses of recent swipes, anchored to the text around the word.
         if (qEnvironmentVariable("SWIPEKB_TEST_PROFILE_ASSETS").isEmpty()) QSKIP("English assets required");

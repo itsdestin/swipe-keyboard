@@ -192,6 +192,11 @@ void SwipeController::loadLanguage(const QString &locale)
             m_engine->liftWords(swipekb::textingWordPairs(m_profile.effectiveLanguage));
             // WHY: "I", "Paris", "Monday" shown with their capital (English, Spanish, French; German keeps its own).
             m_engine->setCapitals(swipekb::capitalsFor(m_profile.effectiveLanguage));
+            // Joint-model step 2: a swipe with words before is re-ranked with the sentence model the guess bar uses,
+            // borrowed from the next-word worker (no second copy in memory; see NextWordWorker::scoreForSwipe).
+            // WHY job(): the very files and checksums of a next-word job, so the worker's model is used only when it
+            // is exactly this profile's; without a verified neural file this stays off.
+            m_engine->setContextRescore(swipeContextRescore(&m_worker, job({}, {}), m_profile.effectiveLanguage, m_swipeRescore));
         } else {
             m_profile.capabilities = {};
             m_profile.unavailableReason = QStringLiteral("Language engine initialization failed");
@@ -1401,6 +1406,10 @@ QVariantMap SwipeController::diagnostics() const
     out.insert(QStringLiteral("swapUsedPath"), m_lastSwapUsedPath);
     out.insert(QStringLiteral("swapWordsAfter"), m_lastSwapWordsAfter);
     out.insert(QStringLiteral("afterSwipeLists"), m_afterSwipeLists);
+    // WHY counts and times only: whether swipes were re-ranked by the sentence model, and how long they waited for it.
+    out.insert(QStringLiteral("swipeRescoreAsked"), m_swipeRescore->asked);
+    out.insert(QStringLiteral("swipeRescoreScored"), m_swipeRescore->scored);
+    out.insert(QStringLiteral("swipeRescoreMaxWaitMs"), m_swipeRescore->maxWaitMs);
     out.insert(QStringLiteral("policy"), policy().source == PredictionPolicySource::RawBridge ? QStringLiteral("app-declared") : QStringLiteral("owned-history"));
     const bool learning = self->m_learning.enabled();
     out.insert(QStringLiteral("learning"), learning);

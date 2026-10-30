@@ -289,10 +289,16 @@ set(_swipekb_backend_import_args)
 if(SWIPEKB_BACKEND_QML_DIR)
     list(APPEND _swipekb_backend_import_args --backend-qml-dir ${SWIPEKB_BACKEND_QML_DIR})
 endif()
-add_test(NAME plugin_stock_layout
-    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/check-stock-layout.py
-        $<TARGET_FILE:tst_stocklayout>
-        --qml-dir ${SWIPEKB_QML_DIR} --model-data ${SWIPEKB_ASSETS}
-        --stock-layouts ${SWIPEKB_STOCK_LAYOUTS} ${_swipekb_backend_import_args})
-# WHY 150: the real-layout suite (incl. the spacebar-slide check) takes about 45 s alone, more on a busy machine.
-set_tests_properties(plugin_stock_layout PROPERTIES TIMEOUT 150)
+# WHY three parts (tests/testshard.h; the script passes SWIPEKB_TEST_SHARD through): every test and every row of
+# productionCallbacks builds a real stock keyboard with the English files, so the whole suite took about 50 s alone and
+# went past the script's own 120 s limit on a busy machine. Each part runs a third of it, side by side. Installed and CI
+# checks run the script without SWIPEKB_TEST_SHARD: everything, in one go, as before.
+foreach(_shard 0 1 2)
+    add_test(NAME plugin_stock_layout_${_shard}
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/check-stock-layout.py
+            $<TARGET_FILE:tst_stocklayout>
+            --qml-dir ${SWIPEKB_QML_DIR} --model-data ${SWIPEKB_ASSETS}
+            --stock-layouts ${SWIPEKB_STOCK_LAYOUTS} ${_swipekb_backend_import_args})
+    # WHY 150: a part takes about 20 s alone; the margin is for a busy machine.
+    set_tests_properties(plugin_stock_layout_${_shard} PROPERTIES TIMEOUT 150 ENVIRONMENT "SWIPEKB_TEST_SHARD=${_shard}/3")
+endforeach()

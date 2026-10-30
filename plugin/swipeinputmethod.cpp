@@ -142,6 +142,16 @@ void SwipeInputMethod::resolveCurrentProfile()
         // WHY a fresh engine: never init() one already owned by a consumer/worker.
         auto engine=std::make_shared<swipekb::LanguageEngine>();
         if (engine->init(setup)) {
+            // Joint-model step 2: a swipe with words before is re-ranked with the sentence model the guess bar uses,
+            // borrowed from the next-word worker (no second copy in memory; see NextWordWorker::scoreForSwipe).
+            // WHY the same files and checksums as a next-word job (applyNeuralNextWord): the worker's model is used
+            // only when it is exactly this profile's; without a verified neural file this stays off.
+            const auto model=snapshot.assets.value(QStringLiteral("contextModel"));
+            const auto vocab=snapshot.assets.value(QStringLiteral("contextVocab"));
+            const auto nwp=snapshot.assets.value(QStringLiteral("contextNwp"));
+            PredictionJob like{{}, model.path, vocab.path, {}, model.sha256 + vocab.sha256 + nwp.sha256};
+            like.nwp=nwp.path;
+            engine->setContextRescore(swipeContextRescore(&m_predictionWorker, like, snapshot.effectiveLanguage, m_swipeRescore));
             if (m_profiles.snapshot().epoch==epoch) m_engine=std::move(engine);
         } else {
             snapshot.capabilities={}; snapshot.assets.clear(); snapshot.unavailableReason="Verified profile engine initialization failed";
@@ -1411,6 +1421,10 @@ QVariantMap SwipeInputMethod::diagnostics() const
     out.insert(QStringLiteral("swapUsedPath"),m_lastSwapUsedPath);
     out.insert(QStringLiteral("swapWordsAfter"),m_lastSwapWordsAfter);
     out.insert(QStringLiteral("afterSwipeLists"),m_afterSwipeLists);
+    // WHY counts and times only: whether swipes were re-ranked by the sentence model, and how long they waited for it.
+    out.insert(QStringLiteral("swipeRescoreAsked"),m_swipeRescore->asked);
+    out.insert(QStringLiteral("swipeRescoreScored"),m_swipeRescore->scored);
+    out.insert(QStringLiteral("swipeRescoreMaxWaitMs"),m_swipeRescore->maxWaitMs);
     // WHY counts only: whether learning is on and how much is remembered, never which words.
     auto *self=const_cast<SwipeInputMethod *>(this);
     const bool learning=self->m_learning.enabled();

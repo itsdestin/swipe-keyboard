@@ -65,8 +65,12 @@ target_link_libraries(swipekb-swap-bench PRIVATE swipekb_engine swipekb_session 
 
 # swipekb-rescore-bench: joint-model experiment step 1 (headroom of re-ranking a swipe, tuning dumps and the speed of
 # re-scoring swipes with the neural next-word model; ContextRescore).
-add_executable(swipekb-rescore-bench swipekb-rescore-bench.cpp)
-target_link_libraries(swipekb-rescore-bench PRIVATE swipekb_engine swipekb_language Qt6::Core)
+# WHY the plugin's next-word worker compiled in (step 2, --product): the speed is measured through the very code the
+# keyboard runs, the swipe borrowing the worker's model under its lock.
+add_executable(swipekb-rescore-bench swipekb-rescore-bench.cpp ${PROJECT_SOURCE_DIR}/plugin/nextwordworker.cpp
+    ${PROJECT_SOURCE_DIR}/plugin/nextwordworker.h)
+target_include_directories(swipekb-rescore-bench PRIVATE ${PROJECT_SOURCE_DIR}/plugin)
+target_link_libraries(swipekb-rescore-bench PRIVATE swipekb_engine swipekb_language swipekb_session Qt6::Core)
 
 # The user-experience scoreboard's typing half (bench/ux-score.sh): the typing simulator is plain counting, tested with
 # made-up bars; swipekb-typing-bench feeds it the bar both front ends build (plugin/barflow.h).

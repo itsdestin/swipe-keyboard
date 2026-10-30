@@ -177,6 +177,8 @@ private:
     CursorMoveTracker m_moves;
     RecentSwipes m_recentSwipes;
     NextWordWorker m_worker;
+    // Joint-model step 2: how the swipe re-scoring with the worker's neural model went (counts and times only).
+    std::shared_ptr<SwipeRescoreStats> m_swipeRescore = std::make_shared<SwipeRescoreStats>();
     Press m_press;
     QString m_typedPress, m_swapPress;
     std::optional<PredictionStamp> m_predictionTap;

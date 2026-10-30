@@ -20,6 +20,7 @@
 #include <QJsonObject>
 #include <QTemporaryDir>
 #include <QScopeGuard>
+#include "testshard.h"
 
 // WHY: the backend proxy can answer sensitive live hints without notifying Qt's cached context.
 // An event filter on the real focused item reproduces exactly that divergence with public Qt APIs.
@@ -88,13 +89,15 @@ private slots:
     {
         QTest::addColumn<QString>("boundary");
         QTest::addColumn<QString>("action");
+        int row = 0;
         for (const auto &boundary : {QStringLiteral("capture-query"), QStringLiteral("release-query"),
                                     QStringLiteral("swipe-commit"), QStringLiteral("candidate-commit"),
                                     QStringLiteral("backspace-notify")})
             for (const auto &action : {QStringLiteral("delete-method"), QStringLiteral("replace-item"),
                                       QStringLiteral("privacy-reset"), QStringLiteral("live-privacy")}) {
                 if (boundary.endsWith("query") && action=="live-privacy") continue;
-                QTest::newRow(qPrintable(boundary + "-" + action)) << boundary << action;
+                // WHY: this shard's rows only (CTest runs the suite in parts; testshard.h). Every row runs in one part.
+                if (swipekbtest::inShard(row++)) QTest::newRow(qPrintable(boundary + "-" + action)) << boundary << action;
             }
     }
     void productionCallbacks()
@@ -787,5 +790,16 @@ private slots:
     }
 };
 
-QTEST_MAIN(TstStockLayout)
+// WHY not QTEST_MAIN: CTest runs this suite in three parts (SWIPEKB_TEST_SHARD, testshard.h); productionCallbacks'
+// rows are split between the parts, the other tests go to one part each.
+// Same set-up as QTEST_MAIN.
+int main(int argc, char **argv)
+{
+    QTest::Internal::callInitMain<TstStockLayout>();
+    QGuiApplication app(argc, argv);
+    app.setAttribute(Qt::AA_Use96Dpi, true);
+    TstStockLayout test;
+    QTEST_SET_MAIN_SOURCE_PATH
+    return swipekbtest::runShard(&test, argc, argv, {QStringLiteral("productionCallbacks")});
+}
 #include "tst_stocklayout.moc"

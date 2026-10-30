@@ -14,6 +14,12 @@
 //   --speed      milliseconds per swipe for recognize() without re-scoring, with it and the neural model's sentence
 //                state cold (read from scratch), and warm (the sentence read up to the word before, as while typing
 //                on), plus the memory the next-word model takes.
+//   --product    (step 2) the keyboard's own path: the re-scoring borrows a real NextWordWorker's model under its lock
+//                (plugin/nextwordworker.cpp, as both front ends). Prints whole-swipe times (median, 95th percentile,
+//                worst), how long swipes waited for the worker, how many got scores, the first guess, the memory the
+//                re-scoring adds, and how long each kind of worker call holds the model (the longest possible wait).
+//                With --stress the worker is kept busy the whole time (a job every 0.2 ms: next words, completions and
+//                score lists for other sentences), so nearly every swipe has to wait: the worst case.
 // The first guess is the engine's (LanguageEngine::recognize asked for 30 words, as the keyboard's finishSwipe),
 // without the keyboard's regional-spelling step. The words before are read as the keyboard reads them from the text
 // (textContextWords, as tools/swipekb-swap-bench), so the numbers match the UX scoreboard's runs.
@@ -21,10 +27,11 @@
 // Usage:
 //   swipekb-rescore-bench --dict D --model M --ngram N --vocab V --nwp W --language L (--layout F | --layouts-dir DIR)
 //                         [--context] [--limit N] [--match ascii|lookup] [--headroom] [--dump FILE] [--speed]
-//                         [--rescore-weights NEURAL,NGRAM] swipes.jsonl
+//                         [--rescore-weights NEURAL,NGRAM] [--product [--stress]] swipes.jsonl
 #include <QString>
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -38,6 +45,10 @@
 #include "languagetextrules.h"
 #include "swipekb/language_engine.hpp"
 #include "swipekb/prediction.hpp"
+#include "nextwordworker.h"
+
+#include <atomic>
+#include <thread>
 
 using namespace swipekb;
 using Clock = std::chrono::steady_clock;
@@ -70,7 +81,7 @@ int main(int argc, char **argv)
 {
     LanguageEngineSetup setup;
     std::string layout, layoutsDir, input, match = "ascii", vocab, nwp, dumpFile, weights;
-    bool useContext = false, headroom = false, speed = false;
+    bool useContext = false, headroom = false, speed = false, product = false, stress = false;
     size_t limit = 0;
     for (int i = 1; i < argc; ++i) {
         const std::string a = argv[i];
@@ -92,11 +103,13 @@ int main(int argc, char **argv)
         else if (a == "--headroom") headroom = true;
         else if (a == "--dump") dumpFile = val();
         else if (a == "--speed") speed = true;
+        else if (a == "--product") product = true;
+        else if (a == "--stress") stress = true;
         else if (a == "--rescore-weights") weights = val();
         else if (a[0] != '-') input = a;
         else { std::fprintf(stderr, "unknown option %s\n", a.c_str()); return 2; }
     }
-    if (setup.dictionary.empty() || (layout.empty() && layoutsDir.empty()) || input.empty() || (!headroom && dumpFile.empty() && !speed)) {
+    if (setup.dictionary.empty() || (layout.empty() && layoutsDir.empty()) || input.empty() || (!headroom && dumpFile.empty() && !speed && !product)) {
         std::fprintf(stderr, "usage: swipekb-rescore-bench --dict D --model M --ngram N --vocab V --nwp W --language L"
                              " (--layout F | --layouts-dir DIR) [--context] [--limit N] [--match ascii|lookup]"
                              " [--headroom] [--dump FILE] [--speed] [--rescore-weights NEURAL,NGRAM] swipes.jsonl\n");
@@ -112,7 +125,7 @@ int main(int argc, char **argv)
     Predictor predictor;
     const bool haveNwp = !setup.ngram.empty() && !vocab.empty() && !nwp.empty() && predictor.init(setup.ngram, vocab, nwp, false);
     const double mbAfter = residentMb();
-    if ((speed || !dumpFile.empty()) && !haveNwp) { std::fprintf(stderr, "--dump and --speed need --ngram, --vocab and --nwp\n"); return 1; }
+    if ((speed || product || !dumpFile.empty()) && !haveNwp) { std::fprintf(stderr, "--dump and --speed need --ngram, --vocab and --nwp\n"); return 1; }
 
     ContextRescore rescore = ContextRescore::forLanguage(setup.language);
     if (!weights.empty()) {
@@ -121,7 +134,8 @@ int main(int argc, char **argv)
         rescore.neuralWeight = parts[0].toFloat();
         rescore.ngramWeight = parts[1].toFloat();
     }
-    rescore.scorer = [&predictor](const std::vector<std::string> &c, const std::vector<std::string> &w) { return predictor.scoreWords(c, w); };
+    // WHY markUnknown: as the keyboard asks (NextWordWorker::scoreForSwipe), so a word the vocabulary lacks keeps its prior.
+    rescore.scorer = [&predictor](const std::vector<std::string> &c, const std::vector<std::string> &w) { return predictor.scoreWords(c, w, true); };
 
     const auto norm = [&](const std::string &s) { return benchdata::norm(s, match); };
     auto keysFor = [&](const BenchSwipe &s) {
@@ -140,6 +154,111 @@ int main(int argc, char **argv)
         if (!w.isEmpty()) for (const auto &x : textContextWords(w.join(u' ') + u' ')) out.push_back(x.toStdString());
         return out;
     };
+    if (product) {
+        const auto ms = [](auto a, auto b) { return std::chrono::duration<double, std::milli>(b - a).count(); };
+        const auto quantiles = [](std::vector<double> v) {
+            std::sort(v.begin(), v.end());
+            const auto at = [&](double q) { return v.empty() ? 0.0 : v[std::min(v.size() - 1, size_t(q * double(v.size())))]; };
+            return std::array<double, 3>{at(0.5), at(0.95), v.empty() ? 0.0 : v.back()};
+        };
+        // 1. How long each kind of worker call holds the model (the bench's own Predictor, the same code and files):
+        //    the longest a swipe can wait. Each sentence read from scratch (an unrelated sentence in between).
+        std::vector<double> tNext, tCompletion, tScore;
+        size_t k = 0;
+        for (const auto &s : swipes) {
+            const auto context = contextFor(s);
+            if (context.empty()) continue;
+            if (++k > 600) break;
+            const auto keys = keysFor(s);
+            if (keys.empty()) continue;
+            std::vector<std::string> found;
+            for (const auto &c : engine.rawCandidates(s.trace, keys, context, 32)) found.push_back(c.word);
+            (void)predictor.scoreWords({"\x01"}, {});
+            auto t0 = Clock::now();
+            (void)predictor.predict(context, 12);
+            auto t1 = Clock::now();
+            tNext.push_back(ms(t0, t1));
+            (void)predictor.scoreWords({"\x01"}, {});
+            t0 = Clock::now();
+            (void)predictor.predict(context, 12, s.word.substr(0, 1));
+            t1 = Clock::now();
+            tCompletion.push_back(ms(t0, t1));
+            (void)predictor.scoreWords({"\x01"}, {});
+            t0 = Clock::now();
+            (void)predictor.scoreWords(context, found);
+            t1 = Clock::now();
+            tScore.push_back(ms(t0, t1));
+        }
+        // 2. The keyboard's path: a real worker, loaded as typing loads it, borrowed by every swipe with words before.
+        NextWordWorker worker;
+        PredictionJob like{{1, 1, 1}, QString::fromStdString(setup.ngram), QString::fromStdString(vocab), {QStringLiteral("the")},
+                           QStringLiteral("bench")};
+        like.nwp = QString::fromStdString(nwp);
+        const double mb0 = residentMb();
+        worker.submit(like);
+        for (int i = 0; i < 3000 && worker.scoreForSwipe(like, {"the"}, {"the"}, 5).empty(); ++i)
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        if (worker.scoreForSwipe(like, {"the"}, {"the"}, 5).empty()) { std::fprintf(stderr, "the worker did not load the model\n"); return 1; }
+        const double mb1 = residentMb();
+        auto stats = std::make_shared<SwipeRescoreStats>();
+        engine.setContextRescore(swipeContextRescore(&worker, like, QString::fromStdString(setup.language), stats));
+        const double mb2 = residentMb();
+        std::vector<std::vector<std::string>> sentences;
+        for (const auto &s : swipes) if (sentences.size() < 400) { auto c = contextFor(s); if (!c.empty()) sentences.push_back(std::move(c)); }
+        std::atomic<bool> stop{false};
+        std::thread typer;
+        if (stress && !sentences.empty())
+            typer = std::thread([&] {
+                // WHY three kinds and other sentences: each job reads its sentence from scratch, the slowest case.
+                quint64 id = 2;
+                while (!stop) {
+                    PredictionJob j = like;
+                    j.stamp = {1, 1, id};
+                    QStringList c;
+                    for (const auto &w : sentences[id % sentences.size()]) c << QString::fromStdString(w);
+                    j.context = c;
+                    if (id % 3 == 1) j.prefix = QStringLiteral("t");
+                    if (id % 3 == 2) j.scoreWords = {QStringLiteral("the"), QStringLiteral("they"), QStringLiteral("then"),
+                                                     QStringLiteral("than"), QStringLiteral("that"), QStringLiteral("this")};
+                    worker.submit(j);
+                    ++id;
+                    std::this_thread::sleep_for(std::chrono::microseconds(200));
+                }
+            });
+        std::vector<double> total, waits;
+        size_t swiped = 0, right = 0;
+        for (const auto &s : swipes) {
+            const auto keys = keysFor(s);
+            const auto context = contextFor(s);
+            if (keys.empty() || context.empty()) continue;
+            const auto asked = stats->asked;
+            const auto t0 = Clock::now();
+            const auto rec = engine.recognize(s.trace, keys, context, 30);
+            const auto t1 = Clock::now();
+            total.push_back(ms(t0, t1));
+            if (stats->asked > asked) waits.push_back(stats->lastWaitMs);
+            ++swiped;
+            right += !rec.empty() && norm(rec.front().word) == norm(s.word);
+        }
+        stop = true;
+        if (typer.joinable()) typer.join();
+        const auto qt = quantiles(total), qw = quantiles(waits), qn = quantiles(tNext), qc = quantiles(tCompletion),
+                   qs = quantiles(tScore);
+        std::printf("product%s: %zu swipes with words before; re-scored %llu of %llu asked (%.2f%%); first guess right %zu (%.2f%%)\n",
+                    stress ? " (worker kept busy)" : "", swiped, (unsigned long long)stats->scored, (unsigned long long)stats->asked,
+                    stats->asked ? 100.0 * double(stats->scored) / double(stats->asked) : 0.0, right,
+                    swiped ? 100.0 * double(right) / double(swiped) : 0.0);
+        std::printf("product: whole swipe (recognize incl. waiting and re-scoring) median %.2f ms, 95%% %.2f ms, worst %.2f ms\n",
+                    qt[0], qt[1], qt[2]);
+        std::printf("product: wait for the worker median %.3f ms, 95%% %.3f ms, worst %.3f ms (limit %d ms)\n", qw[0], qw[1], qw[2],
+                    kSwipeRescoreMaxWaitMs);
+        std::printf("worker calls holding the model (sentence read from scratch), median / 95%% / worst: next words %.2f / %.2f / %.2f ms,"
+                    " completion %.2f / %.2f / %.2f ms, score 32 words %.2f / %.2f / %.2f ms\n",
+                    qn[0], qn[1], qn[2], qc[0], qc[1], qc[2], qs[0], qs[1], qs[2]);
+        std::printf("memory: the worker's next-word model +%.1f MB (the keyboard already holds it for the bar); "
+                    "switching the re-scoring on +%.1f MB\n", mb1 - mb0, mb2 - mb1);
+        return 0;
+    }
     std::FILE *dump = dumpFile.empty() ? nullptr : std::fopen(dumpFile.c_str(), "w");
     if (!dumpFile.empty() && !dump) { std::fprintf(stderr, "cannot write %s\n", dumpFile.c_str()); return 1; }
 

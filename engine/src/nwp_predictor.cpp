@@ -8,6 +8,7 @@
 #include <QString>
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <unordered_set>
 
 namespace swipekb {
@@ -101,7 +102,8 @@ float NwpPredictor::blendScore(const NgramLM::Context &state, uint32_t index) co
     return t >= 3 ? lambda_ * neural + (1.f - lambda_) * n : n + oovBonus_;
 }
 
-std::vector<float> NwpPredictor::scoreWords(const std::vector<std::string> &context, const std::vector<std::string> &words) const
+std::vector<float> NwpPredictor::scoreWords(const std::vector<std::string> &context, const std::vector<std::string> &words,
+                                            bool markUnknown) const
 {
     if (!ready()) return {};
     // WHY: tap-to-swap ranks the alternatives of one word, so it needs the score of each given word, not a top list.
@@ -111,7 +113,9 @@ std::vector<float> NwpPredictor::scoreWords(const std::vector<std::string> &cont
     out.reserve(words.size());
     for (const auto &word : words) {
         const int32_t index = ngram_.indexOf(word);
-        if (index < 0) out.push_back(ngram_.model().floorLogProb());   // not a keyboard word: the n-gram floor
+        // Not a keyboard word: the n-gram floor, or "no opinion" (NaN) when asked. WHY NaN for the swipe re-scoring: a
+        // word the person taught the keyboard is unknown here, and the floor would push it below every other guess.
+        if (index < 0) out.push_back(markUnknown ? std::numeric_limits<float>::quiet_NaN() : ngram_.model().floorLogProb());
         else out.push_back(useLm_ ? blendScore(state, uint32_t(index)) : ngram_.score(state, uint32_t(index)));
     }
     return out;

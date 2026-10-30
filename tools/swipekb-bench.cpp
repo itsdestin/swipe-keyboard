@@ -112,7 +112,8 @@ int main(int argc, char **argv)
             r.neuralWeight = parts[0].toFloat();
             r.ngramWeight = parts[1].toFloat();
         }
-        r.scorer = [&predictor](const std::vector<std::string> &c, const std::vector<std::string> &w) { return predictor.scoreWords(c, w); };
+        // WHY markUnknown: as the keyboard asks (NextWordWorker::scoreForSwipe), so a word the vocabulary lacks keeps its prior.
+        r.scorer = [&predictor](const std::vector<std::string> &c, const std::vector<std::string> &w) { return predictor.scoreWords(c, w, true); };
         engine.setContextRescore(r);
         std::fprintf(stderr, "rescore: neural %.3f ngram %.3f pool %d\n", r.neuralWeight, r.ngramWeight, r.pool);
     }
