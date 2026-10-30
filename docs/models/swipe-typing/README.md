@@ -42,7 +42,7 @@ model-index:
 
 # youcoded/swipe-typing ("T1"): swipe-typing decoder for English, Spanish, French and German
 
-> **Headline:** in the keyboard, on 1,946 real English swipes typed inside sentences, the first guess is right 91.47 % of the time against 93.32 % for FUTO's engine measured the same way: 1.85 points behind (top 3: 94.55 % against 96.56 %). In the next release, which also asks the suggestion bar's sentence model to re-rank swipes that have words before them, the same swipes give 92.34 % (0.98 points behind) and top 3 94.71 % (1.85 behind). No Gboard swipe comparison was made (Gboard swipe typing was not measured).
+> **Headline:** in the keyboard, on 1,946 real English swipes typed inside sentences, the first guess is right 91.47 % of the time against 93.32 % for FUTO's engine measured the same way: 1.85 points behind (top 3: 94.55 % against 96.56 %). In the next release, where a small learned re-ranker (with the suggestion bar's sentence model as one of its inputs) orders each swipe's candidate words, the same swipes give 92.86 % (0.46 points behind) and top 3 94.76 % (1.80 behind). No Gboard swipe comparison was made (Gboard swipe typing was not measured).
 
 A small neural network that turns the path of a finger across an on-screen keyboard into a ranked list of words, for the Swipe Keyboard: an open-source swipe-typing and word-prediction add-on for KDE Plasma's on-screen keyboard. One model serves all four languages and any layout, because the keys are given to it as positions.
 
@@ -134,6 +134,11 @@ Through `swipekb::LanguageEngine` with the shipped dictionary, sentence pack (`e
 (`ContextRescore`; weights tuned on tuning swipes only). "Previous words", first / top 3: bench-2000 all 90.95 / 93.25,
 FUTO-scorable 92.34 / 94.71; test-extra-10000 all 91.09 / 93.71, FUTO-scorable 92.68 / 95.35. The other columns are
 unchanged (no previous words, or no sentence pack: no re-ranking). Details: `docs/methods.md`.
+Joint-model step 3 (same day, unreleased): a small learned re-ranker (`SwipeReranker`, 2.4 KB of weights built into
+the engine, trained on 10,002 FUTO English swipes this model never trained on) replaces those fixed weights and also
+orders swipes with no previous words. "Previous words", first / top 3: bench-2000 all 91.45 / 93.30, FUTO-scorable
+92.86 / 94.76; test-extra-10000 all 91.48 / 93.64, FUTO-scorable 93.08 / 95.26. No previous words: bench-2000 all
+89.45 / 93.05 (was 88.15 / 92.70). The "no sentence pack" column was not re-measured (the learned model also acts there; untested, and no shipped language lacks a pack).
 
 ### The model alone (its own benchmark tool and word list, 2026-10-23; not the shipped setup)
 

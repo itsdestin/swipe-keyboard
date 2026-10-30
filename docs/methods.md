@@ -46,23 +46,33 @@ Swiping, percent of all swipes (0.5.0 = today's keyboard; new = tap-to-swap, car
 | bench-2000 (2,000) | 0.5.0 | 90.10 | 3.05 | 0.35 | 2.20 | 4.30 | 0.493 |
 | | new | 90.10 | 3.60 | 0.65 | 2.20 | 3.45 | 0.442 |
 | | new + sentence re-scoring | 90.95 | 2.80 | 0.60 | 2.20 | 3.45 | 0.431 |
+| | new + learned re-ranker | 91.45 | 2.45 | 0.50 | 2.20 | 3.40 | 0.423 |
 | test-extra-10000 (10,000) | 0.5.0 | 90.43 | 3.12 | 0.24 | 2.30 | 3.91 | 0.446 |
 | | new | 90.43 | 3.48 | 0.57 | 2.30 | 3.22 | 0.407 |
 | | new + sentence re-scoring | 91.07 | 2.83 | 0.60 | 2.30 | 3.20 | 0.401 |
+| | new + learned re-ranker | 91.47 | 2.40 | 0.57 | 2.30 | 3.26 | 0.399 |
 | HeliBoard es (5,000, no sentence) | 0.5.0 | 75.98 | 8.58 | 0.16 | 9.54 | 5.74 | 1.595 |
 | | new | 75.98 | 9.78 | 1.10 | 9.54 | 3.60 | 1.427 |
+| | new + learned re-ranker | 78.10 | 7.80 | 1.02 | 9.54 | 3.54 | 1.400 |
 | HeliBoard fr | 0.5.0 | 68.34 | 13.46 | 0.66 | 7.76 | 9.78 | 1.729 |
 | | new | 68.34 | 15.10 | 2.20 | 7.76 | 6.60 | 1.501 |
+| | new + learned re-ranker | 70.78 | 12.80 | 2.06 | 7.76 | 6.60 | 1.475 |
 | HeliBoard de | 0.5.0 | 64.72 | 8.34 | 0.30 | 20.00 | 6.64 | 3.267 |
 | | new | 64.72 | 10.40 | 0.70 | 20.00 | 4.18 | 3.010 |
+| | new + learned re-ranker | 66.80 | 8.38 | 0.66 | 20.00 | 4.16 | 2.988 |
 | HeliBoard en | 0.5.0 | 80.76 | 8.30 | 0.58 | 0.00 | 10.36 | 0.976 |
 | | new | 80.76 | 9.66 | 1.84 | 0.00 | 7.74 | 0.779 |
+| | new + learned re-ranker | 83.90 | 7.00 | 1.72 | 0.00 | 7.38 | 0.718 |
 
 The first guess is the same in 0.5.0 and "new" (tap-to-swap changes only the lists); the gain is fewer retypes.
 <!-- bench/ux-scoreboard.tsv, label "joint step 2: neural re-scoring of swipes on in both front ends (--rescore)" -->
 "New + sentence re-scoring" (unreleased, joint-model step 2) also re-ranks a swipe with words before it by the
 suggestion bar's sentence model: more swipes need no tap, mostly ones that needed a tap on the bar before. HeliBoard
-sets have no sentence, so their rows are unchanged. One German swipe in five is a word our German list does not have, which no list can fix.
+sets have no sentence, so their rows are unchanged.
+<!-- bench/ux-scoreboard.tsv, label "joint step 3: learned re-ranker of swipes on in both front ends (--rescore)", commit f3fd80b -->
+"New + learned re-ranker" (unreleased, joint-model step 3): a small learned model orders each swipe's candidate words
+(see "Swipe in the keyboard with the learned re-ranker" below), with or without words before, so the HeliBoard sets
+move too: 2.1 to 3.1 more swipes in 100 need no tap there. One German swipe in five is a word our German list does not have, which no list can fix.
 
 Typing, first 300 sentences per set:
 
@@ -302,6 +312,48 @@ Like-for-like with FUTO's engine the keyboard is now 0.98 points behind on first
 words before, `tools/swipekb-rescore-bench --product`): whole swipe median 4.48 ms, worst 5.99 ms; with the bar's
 worker kept busy on purpose the whole time (`--stress`) median 5.65 ms, worst 10.02 ms, 87.68 % of swipes still
 re-ranked (the others waited the 5 ms limit and kept the n-gram ranking). Memory: none added (the bar's model is shared).
+
+### Swipe in the keyboard with the learned re-ranker (unreleased, joint-model step 3)
+
+<!-- bench/swipe-scoreboard.tsv, rows "joint step 3"; tools/swipekb-bench --rescore -->
+Since joint-model step 3, the swipe search's best 30 words are ordered by `SwipeReranker`
+(`engine/include/swipekb/swipe_rerank.hpp`) instead of the two fixed weights above. Per word it sees 17 numbers the
+engine already has: the search's score, path fit, sentence prior and geometric cost (each relative to the list's best),
+the neural next-word score (relative; a word the next-word model lacks takes its n-gram probability instead), place in
+the list, places by path alone and by neural score alone, frequency, letters, how the word's ideal path length compares
+with the swipe's, distance from the swipe's start and end to the word's first and last key, apostrophe, the first
+word's lead over the second, and the swipe's length. Two weight sets: with words before (linear) and without (one
+hidden layer of 8 units). 2.4 KB of weights, compiled into the engine; one set shared by every language.
+
+Training (`scripts/swipe/train_rerank.py`, CPU, about a minute): listwise softmax (the right word against the other
+found words of the same swipe), on swipes the swipe model T1 never trained on: FUTO trv8k and the `dev.jsonl` sessions
+T1 held out, split by session into 10,002 training swipes (382 sessions) and 3,833 validation swipes (229 sessions).
+Model form and strength chosen on that validation part only (the simplest within one swipe in 1,000 of the best);
+French and German FUTO swipe-5 validation swipes (262 and 386, too few sessions to split) were only checked, never
+trained on. No HeliBoard data, no test set, and no synthetic swipes were used for training.
+
+Validation (first guess, engine path, `tools/swipekb-bench`; fixed = step 2's weights):
+English 3,833 swipes with their sentences 93.27 (0.5.0) / 93.97 (fixed) / 94.23 (learned), top 3 95.51 / 95.72 / 95.56;
+the same without sentences 91.21 -> 92.64 (top 3 95.12 -> 95.36); French with sentences 88.55 / 90.84 / 91.98, without
+81.68 -> 84.73; German 88.34 / 90.16 / 90.93, without 87.82 -> 89.38.
+
+Test sets, scored once at the end (first / top 3; 0.5.0 -> step 2 fixed weights -> learned):
+
+| Set | Swipes | Previous words | No previous words |
+|---|---|---|---|
+| bench-2000, all | 2,000 | 90.10 / 93.10 -> 90.95 / 93.25 -> 91.45 / 93.30 | 88.15 / 92.70 -> 89.45 / 93.05 |
+| bench-2000, FUTO-scorable | 1,946 | 91.47 / 94.55 -> 92.34 / 94.71 -> 92.86 / 94.76 | not measured |
+| test-extra-10000, all | 10,000 | 90.45 / 93.57 -> 91.09 / 93.71 -> 91.48 / 93.64 | not measured |
+| test-extra-10000, FUTO-scorable | 9,719 | 92.03 / 95.21 -> 92.68 / 95.35 -> 93.08 / 95.26 | not measured |
+| HeliBoard en / es / fr / de | 5,000 each | (no sentences) | 80.78 / 89.00 -> 83.96 / 90.00; 75.98 / 84.68 -> 78.12 / 85.42; 68.34 / 82.00 -> 70.78 / 83.04; 64.72 / 73.12 -> 66.80 / 73.70 |
+
+(HeliBoard here through `tools/swipekb-bench`, all 5,000 records; the 0.5.0 HeliBoard rows of the table above come
+from `tools/swipekb-language-bench` with its own denominators.) Top 3 on test-extra-10000 is 0.07 points below the
+fixed weights (7 swipes), above 0.5.0. Shown alternatives that are junk: test-extra-10000 5.04 -> 3.31 %, HeliBoard
+fr 38.77 -> 29.19 %. Like-for-like with FUTO's engine: 92.86 vs 93.32 first guess (0.46 behind), 94.76 vs 96.56 top 3.
+Speed (`tools/swipekb-rescore-bench --speed`, bench-2000): 4.23 ms per swipe with the learned model, 4.25 with the
+fixed weights, 3.48 vs 3.50 ms without words before (no measurable cost); real worker path (`--product`) median
+4.60 ms, worst 6.28 ms. Memory: none beyond the 2.4 KB of weights.
 
 ### Swipe model alone (T1, `tools/swipekb-swipenet-bench`, frequency prior, its own word list, 2026-10-23)
 
