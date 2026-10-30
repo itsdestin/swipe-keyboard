@@ -430,7 +430,10 @@ struct LanguageEngine::Impl {
             for (const QChar ch : q) letters += ch.isLetter();
             r[kRrLetters] = float(letters) / 10.f;
             const auto &keys = lex.keys(c.word);
-            if (!keys.empty() && !pts.empty() && keys.back() < layout.size()) {
+            // WHY every key checked (not only the last): the ideal path below indexes them all. Safe today (the word
+            // list's keys come from this layout); a check costs nothing and keeps a bad entry from reading out of bounds.
+            if (!keys.empty() && !pts.empty()
+                && std::all_of(keys.begin(), keys.end(), [&](auto k) { return size_t(k) < layout.size(); })) {
                 float ideal = 0;
                 for (size_t k = 1; k < keys.size(); ++k) {
                     const SwipeKey &a = layout.keys()[keys[k - 1]], &b = layout.keys()[keys[k]];
@@ -458,12 +461,15 @@ struct LanguageEngine::Impl {
     // WHY cut back to `keep`: the guesses after the first are chosen from that many words (AlternativeParams::pool),
     // so re-scoring must not quietly widen that choice too.
     // WHY a failed or short answer leaves the list as found: swiping must never break because of the extra model.
-    void rescoreFound(std::vector<SwipeCandidate> &found, const std::vector<std::string> &context, size_t keep,
+    // Returns true when the words' scores are now the learned model's (recognize() then orders places 2-3 by its rule
+    // for that scale, AlternativeParams::learnedScale).
+    bool rescoreFound(std::vector<SwipeCandidate> &found, const std::vector<std::string> &context, size_t keep,
                       const std::vector<SwipePoint> &pts, float aspect) const
     {
         constexpr float kLn10 = 2.302585093f;
         const RescoreMode mode = rescoreMode(context);
         const size_t n = std::min(found.size(), size_t(std::max(0, rescore.pool)));
+        bool learned = false;
         if (mode == RescoreMode::Learned && n > 0) {
             const auto set = context.empty() ? SwipeReranker::NoSentence : SwipeReranker::WithSentence;
             std::vector<float> neural;
@@ -479,6 +485,10 @@ struct LanguageEngine::Impl {
                     for (size_t i = 0; i < n; ++i) found[i].score = s[i];
                     std::stable_sort(found.begin(), found.begin() + std::ptrdiff_t(n),
                                      [](const SwipeCandidate &a, const SwipeCandidate &b) { return a.score > b.score; });
+                    // WHY the words past the pool are dropped: they still hold the search's score in nats, a scale
+                    // that cannot be compared with the model's (only bench tools ask for more than the pool).
+                    found.resize(n);
+                    learned = true;
                 }
             }
         } else if (mode == RescoreMode::Fixed) {
@@ -502,14 +512,21 @@ struct LanguageEngine::Impl {
             }
         }
         if (found.size() > keep) found.resize(keep);
+        return learned;
+    }
+
+    // This word's dictionary entry (any case), or nullptr.
+    const Entry *entryOf(const std::string &w) const
+    {
+        const auto it = byIdentity.find(QString::fromStdString(w).toLower().toStdString());
+        return it == byIdentity.end() ? nullptr : &entries[it->second];
     }
 
     // May this found word be offered as an alternative (recognize) or a swap? `f` = its frequency (0 = unknown).
     // WHY shared: the swap list and the guess bar must agree on which words are junk.
     bool mayOffer(const std::string &w, int minFrequency, int &f) const
     {
-        const auto it = byIdentity.find(QString::fromStdString(w).toLower().toStdString());
-        const Entry *e = it == byIdentity.end() ? nullptr : &entries[it->second];
+        const Entry *e = entryOf(w);
         f = e ? e->freq() : 0;
         // WHY learned and texting words are never filtered: the person (or the texting list) vouches for them.
         const bool vouched = e && (e->learned >= 0 || e->lift > 0);
@@ -608,12 +625,12 @@ std::vector<Candidate> LanguageEngine::recognize(const std::vector<TracePoint> &
         d_->setSentencePrior(context);
         std::vector<Candidate> out;
         float bestCtc = -1e30f;
-        // ContextRescore (off by default): re-score the search's best words with the neural next-word model. WHY only
-        // with words before unless told otherwise: see ContextRescore::needWordsBefore.
+        // ContextRescore: re-order the search's best words (the learned re-ranker, or the fixed neural weights when
+        // there is none; see rescoreMode()). Off when the front end sets neither.
         const int want = std::max(topK, d_->alt.pool);
         const bool rescoring = d_->rescoreMode(context) != Impl::RescoreMode::None;
         auto found = d_->engine.decode(pts, aspect, rescoring ? std::max(want, d_->rescore.pool) : want);
-        if (rescoring) d_->rescoreFound(found, context, size_t(want), pts, aspect);
+        const bool learnedScores = rescoring && d_->rescoreFound(found, context, size_t(want), pts, aspect);
         for (const auto &c : found) {
             const std::string &w = d_->engine.lexicon().text(c.word);
             if (!w.empty() && c.ctc > bestCtc) { bestCtc = c.ctc; d_->bestShape = w; }
@@ -623,6 +640,13 @@ std::vector<Candidate> LanguageEngine::recognize(const std::vector<TracePoint> &
         const AlternativeParams &p = d_->alt;
         std::vector<std::pair<float, Candidate>> others;
         float firstScore = 0;
+        // WHY the best prior in the list: a word the person taught has no sentence evidence (the n-gram has never
+        // seen it), so its prior is the floor and the extra weight below would sink it under any common word. With the
+        // learned scores it takes the list's best prior instead: it is then never placed lower than the re-ranker's own
+        // order puts it ("i met" + a swipe of a taught "brynn": 2nd by the model, 7th by the prior; review I1).
+        float bestPrior = -1e30f;
+        if (learnedScores)
+            for (const auto &c : found) bestPrior = std::max(bestPrior, d_->priorOf(c.word));
         for (const auto &c : found) {
             const std::string &w = d_->engine.lexicon().text(c.word);
             if (w.empty()) continue;
@@ -634,8 +658,11 @@ std::vector<Candidate> LanguageEngine::recognize(const std::vector<TracePoint> &
             // WHY only with earlier words: measured (2026-10-24), the extra weight makes alternatives read like the
             // sentence ("you" -> "your", "to"), but with no sentence it only favours common words over the rarer
             // word that was swiped (HeliBoard English, no sentences: 87.96% -> 89.05% in the top 3 without it).
-            const float weight = context.empty() ? 0.f : p.sentenceWeight;
-            others.push_back({c.score + weight * prior, {w, c.score}});
+            // With the learned scores the weight is scaled to their units (AlternativeParams::learnedScale).
+            const float weight = context.empty() ? 0.f : p.sentenceWeight * (learnedScores ? p.learnedScale : 1.f);
+            const auto *entry = learnedScores ? d_->entryOf(w) : nullptr;
+            const bool taught = entry && entry->learned >= 0;
+            others.push_back({c.score + weight * (taught ? bestPrior : prior), {w, c.score}});
         }
         std::stable_sort(others.begin(), others.end(), [](const auto &a, const auto &b) { return a.first > b.first; });
         for (const auto &[rank, c] : others) {
@@ -1004,7 +1031,7 @@ void LanguageEngine::setContextRescore(ContextRescore rescore) { d_->rescore = s
 // set for every language, trained by scripts/swipe/train_rerank.py on English swipes the swipe model never saw) takes
 // the place of these two weights, and also orders swipes with no words before. The weights above stay as the fallback
 // when no built-in model is there. WHY switched on: it won on the validation swipes AND on the one test-set run
-// (first guess bench-2000 90.95 -> 91.45 %, test-extra-10000 91.09 -> 91.48 %, HeliBoard en/es/fr/de +2.1 to +3.2
+// (first guess bench-2000 90.95 -> 91.45 %, test-extra-10000 91.09 -> 91.48 %, HeliBoard en/es/fr/de +2.08 to +3.18
 // points; docs/methods.md).
 ContextRescore ContextRescore::forLanguage(const std::string &language)
 {

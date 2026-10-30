@@ -58,10 +58,21 @@ struct AlternativeParams {
     int nameMinFrequency = 100; // the same for words the dictionary writes with a capital (names), except German
     float margin = 1e9f;        // an alternative may score at most this far (nats) below the first guess (off)
     bool dropStretched = true;  // drop words with one letter three times in a row ("youuuuu") as alternatives
+    // Multiplies sentenceWeight when the words' scores come from the learned re-ranker (ContextRescore::reranker).
+    // WHY its own factor: sentenceWeight was tuned when scores were in nats, the same scale as the prior; the
+    // re-ranker's scores spread only a few units across the list, so a full weight let the sentence prior decide places
+    // 2-3 on its own and pushed rare and learned words off the bar (review I1, 2026-10-30).
+    // Value tuned 2026-10-30 on validation swipes only (rerank en-val, 3,833 English swipes with words before, sessions
+    // the re-ranker never trained on; grid 0 / 0.05 / 0.1 / 0.2 / 0.3 / 0.5 / 0.75 / 1; rule fixed before looking: the
+    // best top 3, and within 2 swipes of it the least junk among shown alternatives). Top 3 / junk: 1 -> 95.56 % / 3.32 %,
+    // 0.5 -> 95.64 % / 3.85 %, 0.1 -> 95.70 % / 4.60 % (best top 3), 0 -> 95.67 % / 4.84 %; fixed weights (step 2)
+    // 95.72 % / 4.84 %. The first guess is not affected (94.23 % at every value).
+    float learnedScale = 0.5f;
 };
 
 // Optional: the neural next-word model's opinion added to the swipe ranking (joint-model, steps 1-2).
-// OFF unless `scorer` is set (the Gaming Mode daemon sets none). The swipe engine's best `pool`
+// The fixed weights below are used only when `scorer` is set and there is no `reranker` (step 3, below; the Gaming
+// Mode daemon sets a reranker but no scorer, so it re-orders only swipes without words before). The swipe engine's best `pool`
 // words are re-scored: score + (ngramWeight - 1) * their n-gram prior + neuralWeight * ln(10) * neural, where neural =
 // scorer(previous words, words), log10 (Predictor::scoreWords); NaN = no opinion on that word, which then takes its own
 // n-gram prior in the neural score's place. The search itself is not changed (its pruning still uses the n-gram prior),
@@ -86,13 +97,13 @@ struct ContextRescore {
     static ContextRescore forLanguage(const std::string &language);
 };
 
-// One word the swipe search found, with the parts of its score (for measurement tools: swipekb-rescore-bench).
-// One found word and the facts the learned re-ranker sees about it (measurement tools: swipekb-rescore-bench --dump).
+// One found word and the facts the learned re-ranker sees about it (measurement tools: swipekb-rescore-bench --features).
 struct RerankCandidate {
     std::string word;   // display spelling
     RerankRow features;
 };
 
+// One word the swipe search found, with the parts of its score (for measurement tools: swipekb-rescore-bench).
 struct RawSwipeCandidate {
     std::string word;   // display spelling
     float score = 0;    // what recognize() ranks by before any re-scoring: path + prior - geometry (nats)

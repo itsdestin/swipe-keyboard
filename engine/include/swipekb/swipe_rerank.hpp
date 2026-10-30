@@ -27,8 +27,8 @@
 
 namespace swipekb {
 
-// The facts about one found word. Every value is finite by construction (clipped; a missing neural score is 0 with
-// kNeuralKnown = 0). WHY relative values (to the list's best): a swipe's scores move together with its length; only
+// The facts about one found word. Every value is finite by construction (clipped; a word without a neural score takes
+// its n-gram probability in its place, see kRrNeural; no sentence = 0). WHY relative values (to the list's best): a swipe's scores move together with its length; only
 // the differences between its words say which one was meant.
 enum RerankFeature : int {
     kRrScore = 0,     // the search's own score minus the first word's (nats; <= 0)

@@ -18,6 +18,7 @@
 
 #include "swipekb/language_engine.hpp"
 #include "swipekb/ngram.hpp"
+#include "swipekb/prediction.hpp"
 #include "testkeys.h"
 
 using namespace swipekb;
@@ -560,6 +561,101 @@ TEST(LanguageEngine, LearnedRerankerOrdersBothKindsOfSwipeAndNeverBreaksOne)
     };
     e.setContextRescore(r);
     EXPECT_EQ(e.recognize(trace, keys, before, 3).front().word, "help");
+}
+
+// Review I1 (2026-10-30): with the learned scores, places 2-3 were ordered by "model score + the sentence prior", and a
+// word the person taught has no sentence evidence (the floor), so after a sentence it fell off the bar even when the
+// model placed it 2nd. A taught word is never placed lower than the model's own order puts it, however strong the
+// extra prior weight. Hand-made dictionary + n-gram pack (no downloads): "helo" is taught and shares "hello"'s finger
+// path (double letters do not show in a swipe); the pack knows the other words, not "helo".
+TEST(LanguageEngine, TaughtWordKeepsTheRerankersPlaceAfterASentence)
+{
+    Dict d(kEnglish);
+    NgramModelData nd;
+    nd.words = {"held", "hell", "hello", "help", "hero", "please"};   // ids 3..8, sorted like the pack builder
+    nd.uni_lp = {-2.f, -99.f, -1.5f, -2.f, -2.5f, -2.f, -1.5f, -2.5f, -2.f};
+    nd.uni_bo = std::vector<float>(9, 0.f);
+    nd.calib_a = -6.f;
+    nd.calib_b = 0.01f;
+    QTemporaryDir dir;
+    LanguageEngineSetup s;
+    s.dictionary = d.path;
+    s.ngram = dir.filePath("en.ngram").toStdString();
+    ASSERT_TRUE(NgramLM::write(s.ngram, nd));
+    LanguageEngine e;
+    ASSERT_TRUE(e.init(s));
+    ASSERT_TRUE(e.usingNgram());
+    e.setLearnedWords({{"helo", 110}});
+    const auto keys = qwertyRects(0, 0, 1);
+    const auto trace = traceThrough("hello", keys);
+    const std::vector<std::string> before{"please"};
+    // A model that follows the path fit alone: "hello" and "helo" are at the top, the sentence has no say.
+    ContextRescore r;
+    r.reranker = reranker(rerankerText({{kRrPath, 1.f}}, {}));
+    r.scorer = [](const std::vector<std::string> &, const std::vector<std::string> &w) { return std::vector<float>(w.size(), -2.f); };
+    const auto modelPlace = [&](const std::string &w) {
+        auto c = e.rerankCandidates(trace, keys, before);
+        std::stable_sort(c.begin(), c.end(), [](const auto &a, const auto &b) { return a.features[kRrPath] > b.features[kRrPath]; });
+        for (size_t i = 0; i < c.size(); ++i) if (c[i].word == w) return long(i);
+        return -1L;
+    };
+    e.setContextRescore(r);
+    const long place = modelPlace("helo");
+    ASSERT_GE(place, 0);
+    ASSERT_LE(place, 2) << "the fixture must put the taught word in the model's top 3";
+    for (const float scale : {0.5f, 1.f, 100.f}) {
+        AlternativeParams alt;
+        alt.learnedScale = scale;
+        e.setAlternativeParams(alt);
+        const auto bar = words(e.recognize(trace, keys, before, 3));
+        ASSERT_FALSE(bar.empty());
+        EXPECT_LE(at(bar, "helo"), place) << "scale " << scale;
+    }
+    // Control: the same word as a plain dictionary word (not taught, still unknown to the pack) is not shielded, so a
+    // strong extra weight lets the sentence push it off the bar. This shows the rule above is what keeps it there.
+    auto plainWords = kEnglish;
+    plainWords.push_back({"helo", 110, ""});
+    Dict d2(plainWords);
+    s.dictionary = d2.path;
+    LanguageEngine plain;
+    ASSERT_TRUE(plain.init(s));
+    plain.setContextRescore(r);
+    AlternativeParams strong;
+    strong.learnedScale = 100.f;
+    plain.setAlternativeParams(strong);
+    const auto bar = words(plain.recognize(trace, keys, before, 3));
+    ASSERT_FALSE(bar.empty());
+    if (bar.front() != "helo") EXPECT_FALSE(has(plain.recognize(trace, keys, before, 3), "helo"));
+}
+
+// Review I1 with the real English files: taught names and slang the learned re-ranker places 1st-3rd stay on the bar
+// with a sentence before them ("i met" + a clean swipe of a taught "brynn" showed "bryn, ben, by" before the fix).
+TEST(LanguageEngineEnglish, TaughtWordsStayOnTheBarAfterASentence)
+{
+    if (!haveEnglish()) GTEST_SKIP() << "set SWIPEKB_ASSETS to a fetched asset tree";
+    auto s = english();
+    if (s.swipeModel.empty() || s.ngram.empty()) GTEST_SKIP() << "the swipe model or n-gram pack is not in SWIPEKB_ASSETS";
+    const std::string dir = s.ngram.substr(0, s.ngram.rfind('/') + 1);
+    Predictor p;
+    if (!p.init(s.ngram, dir + "en.vocab.tsv", dir + "en.nwp.bin", false)) GTEST_SKIP() << "the next-word model is not in SWIPEKB_ASSETS";
+    const auto keys = qwertyRects(0, 0, 1);
+    const std::vector<std::string> taught{"jaxon", "brynn", "kaden", "emmy", "dex", "rielly", "tay", "kenzi", "shawty", "bruh"};
+    for (const int freq : {110, 190}) {
+        LanguageEngine e;
+        ASSERT_TRUE(e.init(s));
+        std::vector<std::pair<std::string, int>> lw;
+        for (const auto &w : taught) lw.push_back({w, freq});
+        e.setLearnedWords(lw);
+        auto r = ContextRescore::forLanguage("en");
+        ASSERT_TRUE(r.reranker);
+        r.scorer = [&p](const std::vector<std::string> &c, const std::vector<std::string> &w) { return p.scoreWords(c, w, true); };
+        e.setContextRescore(r);
+        for (const auto &w : taught) {
+            const auto t = traceThrough(w, keys);
+            EXPECT_TRUE(has(e.recognize(t, keys, {}, 3), w)) << w << " freq " << freq << ", no sentence";
+            EXPECT_TRUE(has(e.recognize(t, keys, {"i", "met"}, 3), w)) << w << " freq " << freq << ", after \"i met\"";
+        }
+    }
 }
 
 // The weights compiled into the engine, when there are any, read without error and hold both sets.

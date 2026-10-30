@@ -11,7 +11,7 @@
 //                 [--ngram LANG.ngram] [--context] [--language en] [--limit N] [--match ascii|lookup|exact] [--list]
 //                 [--rescore --vocab LANG.vocab.tsv --nwp LANG.nwp.bin [--rescore-weights NEURAL,NGRAM]
 //                  [--reranker FILE | --no-reranker]]
-//                 [--alt-pool N --alt-weight W --alt-min-freq F --alt-name-freq F --alt-margin M --alt-stretch 0|1 | --alt-off] swipes.jsonl
+//                 [--alt-pool N --alt-weight W --alt-min-freq F --alt-name-freq F --alt-margin M --alt-stretch 0|1 --alt-learned-scale S | --alt-off] swipes.jsonl
 // Also prints how often a shown alternative is junk and how often the alternatives hold the word when the first guess missed.
 // Swipes: one JSON object per line with "word", "data" [{x,y,t}] in 0..1 of the letter area, "canvas_width",
 // "canvas_height" and (with --layouts-dir) "layout"; "sentence" + "word_idx" give the previous words (--context).
@@ -88,6 +88,8 @@ int main(int argc, char **argv)
         else if (a == "--alt-name-freq") { alt.nameMinFrequency = std::atoi(val().c_str()); altSet = true; }
         else if (a == "--alt-margin") { alt.margin = float(std::atof(val().c_str())); altSet = true; }
         else if (a == "--alt-stretch") { alt.dropStretched = val() == "1"; altSet = true; }
+        // WHY: tunes the sentence weight's scale for the learned re-ranker's scores (AlternativeParams::learnedScale).
+        else if (a == "--alt-learned-scale") { alt.learnedScale = float(std::atof(val().c_str())); altSet = true; }
         else if (a == "--alt-off") { alt = AlternativeParams{16, 0.f, 0, 0, 1e9f, false}; altSet = true; }
         else if (a[0] != '-') input = a;
         else { std::fprintf(stderr, "unknown option %s\n", a.c_str()); return 2; }
