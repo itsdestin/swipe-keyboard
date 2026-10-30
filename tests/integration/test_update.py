@@ -241,6 +241,105 @@ class ArchUpdater(unittest.TestCase):
         self.assertEqual(self.run_updater('check'), 1)
 
 
+# Stand-ins for apt-get, dpkg-query and zypper: record every call; FAKE_UPDATE_RC / FAKE_UPDATE_ERR shape the refresh.
+FAKE_TOOL = '''#!/usr/bin/env python3
+import os, sys
+name = os.path.basename(sys.argv[0])
+with open(os.environ['FAKE_LOG'], 'a') as f:
+    f.write(name + ' ' + ' '.join(sys.argv[1:]) + '\\n')
+if name == 'dpkg-query':
+    print(os.environ.get('FAKE_DPKG_STATUS', 'install ok installed'), end=''); sys.exit(0)
+if name == 'rpm':
+    sys.exit(0)
+if (name == 'apt-get' and sys.argv[1] == 'update') or (name == 'zypper' and 'refresh' in sys.argv):
+    sys.stderr.write(os.environ.get('FAKE_UPDATE_ERR', ''))
+    sys.exit(int(os.environ.get('FAKE_UPDATE_RC', '0')))
+sys.exit(0)
+'''
+
+
+class AptAndZypperUpdater(unittest.TestCase):
+    """Kubuntu/Debian and openSUSE (card #502): only our own source is refreshed and only our package is updated."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.bin = self.tmp / 'bin'
+        self.bin.mkdir()
+        self.log = self.tmp / 'calls.log'
+        self.source = self.tmp / 'swipe-keyboard.sources'
+        self.source.write_text('Types: deb\n')
+        self.env = {'PATH': f'{self.bin}:{os.environ["PATH"]}', 'FAKE_LOG': str(self.log), 'SWIPEKB_UPDATE_TESTING': '1',
+                    'SWIPEKB_UPDATE_OFF_FLAG': str(self.tmp / 'etc/auto-update-off'),
+                    'SWIPEKB_UPDATE_APT_SOURCE': str(self.source)}
+
+    def tools(self, *names):
+        for name in names:
+            (self.bin / name).write_text(FAKE_TOOL)
+            (self.bin / name).chmod(0o755)
+        present = set(names)
+        return lambda n: str(self.bin / n) if n in present else (None if n in ('pacman', 'dnf', 'apt-get', 'dpkg-query',
+                                                                               'zypper', 'rpm') else REAL_WHICH(n))
+
+    def run_updater(self, which, *args):
+        with mock.patch.dict(os.environ, self.env):
+            spec = importlib.util.spec_from_file_location('swipekb_update', UPDATE)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            err = io.StringIO()
+            with mock.patch.object(module.os, 'geteuid', return_value=0), \
+                 mock.patch.object(module.shutil, 'which', side_effect=which), mock.patch('sys.stderr', err), \
+                 mock.patch('sys.stdout', io.StringIO()):
+                return module.main(list(args)), err.getvalue()
+
+    def calls(self):
+        return self.log.read_text().splitlines() if self.log.exists() else []
+
+    def test_apt_refreshes_only_our_source_then_upgrades_only_our_package(self):
+        rc, _ = self.run_updater(self.tools('apt-get', 'dpkg-query'), 'check')
+        self.assertEqual(rc, 0)
+        refresh, install = [c for c in self.calls() if c.startswith('apt-get')]
+        self.assertIn(f'Dir::Etc::sourcelist={self.source}', refresh)
+        self.assertIn('Dir::Etc::sourceparts=-', refresh)
+        self.assertIn('APT::Get::List-Cleanup=0', refresh)
+        self.assertTrue(install.startswith('apt-get install'))
+        self.assertIn('--only-upgrade', install)
+        self.assertTrue(install.endswith(' swipe-keyboard'))
+
+    def test_apt_offline_is_not_an_error_and_installs_nothing(self):
+        self.env.update(FAKE_UPDATE_RC='100', FAKE_UPDATE_ERR='E: Could not resolve itsdestin.github.io\n')
+        rc, _ = self.run_updater(self.tools('apt-get', 'dpkg-query'), 'check')
+        self.assertEqual(rc, 0)
+        self.assertFalse(any(c.startswith('apt-get install') for c in self.calls()))
+
+    def test_apt_a_wrongly_signed_source_is_a_failure_and_installs_nothing(self):
+        self.env.update(FAKE_UPDATE_RC='100', FAKE_UPDATE_ERR='W: GPG error: ... NO_PUBKEY 1234\nE: Could not resolve x\n')
+        rc, err = self.run_updater(self.tools('apt-get', 'dpkg-query'), 'check')
+        self.assertEqual(rc, 1)
+        self.assertIn('not signed by the Swipe Keyboard update key', err)
+        self.assertFalse(any(c.startswith('apt-get install') for c in self.calls()))
+
+    def test_apt_a_removed_package_with_kept_settings_is_not_updated(self):
+        self.env['FAKE_DPKG_STATUS'] = 'deinstall ok config-files'
+        rc, _ = self.run_updater(self.tools('apt-get', 'dpkg-query'), 'check')
+        self.assertEqual(rc, 0)
+        self.assertFalse(any(c.startswith('apt-get') for c in self.calls()))
+
+    def test_zypper_refreshes_our_repository_then_updates_only_our_package_from_it(self):
+        rc, _ = self.run_updater(self.tools('zypper', 'rpm'), 'check')
+        self.assertEqual(rc, 0)
+        refresh, update = [c for c in self.calls() if c.startswith('zypper')]
+        self.assertTrue(refresh.endswith('refresh swipe-keyboard'))
+        self.assertIn('--non-interactive', update)
+        self.assertTrue(update.endswith('update --repo swipe-keyboard swipe-keyboard'))
+
+    def test_zypper_offline_is_not_an_error_and_updates_nothing(self):
+        self.env.update(FAKE_UPDATE_RC='4', FAKE_UPDATE_ERR='Download (curl) error for https://itsdestin.github.io\n')
+        rc, _ = self.run_updater(self.tools('zypper', 'rpm'), 'check')
+        self.assertEqual(rc, 0)
+        self.assertFalse(any(' update ' in c for c in self.calls() if c.startswith('zypper')))
+
+
 class Units(unittest.TestCase):
     def test_the_daily_timer_runs_the_installed_updater_unless_turned_off(self):
         service = (ROOT / 'packaging/updates/swipe-keyboard-update.service').read_text()

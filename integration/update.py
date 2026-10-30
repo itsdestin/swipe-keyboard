@@ -4,12 +4,15 @@
 #
 # SPDX-License-Identifier: MIT
 
-"""Automatic updates for the native Arch and Fedora packages (plan: docs/active/plans/2026-10-23-auto-updates.md).
+"""Automatic updates for the native Arch, Fedora, Kubuntu/Debian and openSUSE packages
+(plan: docs/active/plans/2026-10-23-auto-updates.md; Kubuntu/Debian/openSUSE: docs/active/specs/2026-10-30-more-kde-distros.md).
 
 Run once a day as root by swipe-keyboard-update.timer. It only ever updates this one package:
 - Fedora: dnf, from the signed repository the package itself installed (/etc/yum.repos.d/swipe-keyboard.repo).
 - Arch: the signed arch/latest.json on the update site names the newer package and its SHA256; the file is checked
   against both, then installed with pacman -U. Nothing else on the system is synced or upgraded.
+- Kubuntu/Debian: apt, refreshing only the signed source the package installed (/etc/apt/sources.list.d/swipe-keyboard.sources).
+- openSUSE: zypper, from the signed repository the package installed (/etc/zypp/repos.d/swipe-keyboard.repo).
 
 Also the `swipe-keyboard updates [status|on|off|now]` command.
 """
@@ -49,6 +52,8 @@ SITES = tuple(str(site).rstrip('/') for site in (
 KEYRING = Path(setting('SWIPEKB_UPDATE_KEYRING', HERE / 'update-key.gpg'))
 OFF_FLAG = Path(setting('SWIPEKB_UPDATE_OFF_FLAG', '/etc/swipe-keyboard/auto-update-off'))
 PACKAGE = 'swipe-keyboard'
+APT_SOURCE = Path(setting('SWIPEKB_UPDATE_APT_SOURCE', '/etc/apt/sources.list.d/swipe-keyboard.sources'))
+ZYPPER_REPO = 'swipe-keyboard'
 # WHY a fixed prefix: even a correctly signed index must not be able to send the updater to another site.
 # WHY both names: after the rename the signed index names openswipe downloads; before it, swipe-keyboard ones.
 RELEASE_DOWNLOADS = ((setting('SWIPEKB_UPDATE_DOWNLOADS', ''),) if setting('SWIPEKB_UPDATE_DOWNLOADS', '')
@@ -105,11 +110,17 @@ def fetch(url, limit):
 
 
 def manager():
-    """Which installer owns this keyboard: 'pacman', 'dnf', or None (for example a developer build)."""
+    """Which installer owns this keyboard: 'pacman', 'dnf', 'apt', 'zypper', or None (for example a developer build)."""
     if shutil.which('pacman') and run(['pacman', '-Q', PACKAGE]).returncode == 0:
         return 'pacman'
     if shutil.which('dnf') and shutil.which('rpm') and run(['rpm', '-q', PACKAGE]).returncode == 0:
         return 'dnf'
+    # WHY the status text: dpkg-query also answers for a package that was removed but whose settings were kept.
+    if (shutil.which('apt-get') and shutil.which('dpkg-query')
+            and run(['dpkg-query', '-W', '-f=${Status}', PACKAGE]).stdout.strip() == 'install ok installed'):
+        return 'apt'
+    if shutil.which('zypper') and shutil.which('rpm') and run(['rpm', '-q', PACKAGE]).returncode == 0:
+        return 'zypper'
     return None
 
 
@@ -198,15 +209,70 @@ def update_dnf():
     return 0
 
 
+# WHY these phrases: apt reports "the site cannot be reached" and "the site sent something unsigned or wrongly signed"
+# in the same exit code. Only the first may be shrugged off until tomorrow; the second must show as a failure.
+APT_UNREACHABLE = ('Could not resolve', 'Temporary failure resolving', 'Could not connect', 'Connection timed out',
+                   'Network is unreachable', 'No route to host')
+APT_UNTRUSTED = ('NO_PUBKEY', 'is not signed', "couldn't be verified", 'BADSIG', 'EXPKEYSIG', 'Signed-By')
+
+
+def update_apt():
+    if not APT_SOURCE.is_file():
+        raise UpdateError(f'the update source is missing ({APT_SOURCE}); reinstall the package to restore it')
+    env = {**os.environ, 'DEBIAN_FRONTEND': 'noninteractive'}
+    # WHY only our source: refreshing every source would be a system-wide "apt update" the owner did not ask for;
+    # List-Cleanup=0 keeps the other sources' lists exactly as they were.
+    refresh = run(['apt-get', 'update', '-q', '-o', f'Dir::Etc::sourcelist={APT_SOURCE}', '-o', 'Dir::Etc::sourceparts=-',
+                   '-o', 'APT::Get::List-Cleanup=0', '-o', 'APT::Update::Error-Mode=any'], env=env)
+    text = refresh.stdout + refresh.stderr
+    if refresh.returncode != 0:
+        if any(phrase in text for phrase in APT_UNTRUSTED):
+            raise UpdateError('the update source is not signed by the Swipe Keyboard update key; nothing was installed:\n'
+                              + text.strip())
+        if any(phrase in text for phrase in APT_UNREACHABLE):
+            raise Unreachable('apt could not reach the update site')
+        raise UpdateError('apt could not read the update source (it will be tried again tomorrow):\n' + text.strip())
+    # WHY --only-upgrade of our package: it may pull a needed dependency, but never upgrades the rest of the system.
+    # WHY confold: a setting file the owner changed (the source file itself) is kept, never overwritten unasked.
+    result = run(['apt-get', 'install', '-y', '-q', '--only-upgrade', '-o', 'Dpkg::Options::=--force-confold', PACKAGE],
+                 env=env)
+    if result.returncode != 0:
+        raise UpdateError('apt could not update Swipe Keyboard (it will be tried again tomorrow):\n' + result.stderr.strip())
+    print(result.stdout.strip())
+    return 0
+
+
+def update_zypper():
+    # WHY auto-import here: the key zypper is told to trust is the one inside this package (gpgkey=file:// in the repo
+    # file), not one fetched from the site; zypper still refuses an index that key did not sign.
+    refresh = run(['zypper', '--non-interactive', '--gpg-auto-import-keys', 'refresh', ZYPPER_REPO])
+    if refresh.returncode != 0:
+        text = refresh.stdout + refresh.stderr
+        if 'Download (curl) error' in text or 'Could not resolve host' in text or 'Timeout' in text:
+            raise Unreachable('zypper could not reach the update site')
+        raise UpdateError('zypper could not read the update source (it will be tried again tomorrow):\n' + text.strip())
+    # WHY only our package, from our repository: never a system-wide update.
+    result = run(['zypper', '--non-interactive', 'update', '--repo', ZYPPER_REPO, PACKAGE])
+    if result.returncode != 0:
+        raise UpdateError('zypper could not update Swipe Keyboard (it will be tried again tomorrow):\n'
+                          + result.stderr.strip())
+    print(result.stdout.strip())
+    return 0
+
+
+UPDATERS = {'pacman': lambda: update_pacman(), 'dnf': lambda: update_dnf(), 'apt': lambda: update_apt(),
+            'zypper': lambda: update_zypper()}
+
+
 def check_now():
     if OFF_FLAG.exists():
         print('Automatic updates are off. Turn them on with: sudo swipe-keyboard updates on')
         return 0
     owner = manager()
     if owner is None:
-        print('This copy of Swipe Keyboard was not installed by pacman or dnf; it is not updated automatically.')
+        print('This copy of Swipe Keyboard was not installed by pacman, dnf, apt or zypper; it is not updated automatically.')
         return 0
-    return update_pacman() if owner == 'pacman' else update_dnf()
+    return UPDATERS[owner]()
 
 
 def set_enabled(enabled):
@@ -232,7 +298,7 @@ def main(argv=None):
             # WHY ask the package manager first: a copy pacman or dnf did not install (KDE Linux's system extension,
             # a developer build) is never updated, whatever the setting says.
             if manager() is None:
-                print('This copy of Swipe Keyboard was not installed by pacman or dnf; it is not updated automatically.')
+                print('This copy of Swipe Keyboard was not installed by pacman, dnf, apt or zypper; it is not updated automatically.')
                 return 0
             print('Automatic updates are ' + ('off.' if OFF_FLAG.exists() else 'on (checked once a day).'))
             return 0
