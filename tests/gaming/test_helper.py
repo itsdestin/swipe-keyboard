@@ -702,6 +702,9 @@ class SteamOrigin(Base):
         h = r.helper()
         h.start()
         wait_for(lambda: r.status().get('state') == 'active', what='active')
+        # WHY wait: "active" can be written before the helper thread has read the browser's naming of Steam's top
+        # document (context 1); on a busy CI runner the last check then saw nothing (failed once, PR #19, 2026-10-30).
+        wait_for(lambda: b in h.pages and 1 in h.pages[b].trusted_contexts, what="Steam's top document named")
         seen = []
         h.bridge.submit = lambda pid, payload: seen.append(payload)
         h._page_event(b, {'method': 'Runtime.bindingCalled', 'params': {'name': '__swipekb', 'payload': '{}', 'executionContextId': 99}})

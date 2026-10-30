@@ -90,7 +90,11 @@ set(_packs "${TEST_PROFILE_ASSETS}/language-packs")
 find_package(GTest REQUIRED)
 add_library(feature_engine STATIC ${ROOT}/engine/src/normalize.cpp ${ROOT}/engine/src/spelling.cpp ${ROOT}/engine/src/context.cpp
     ${ROOT}/engine/src/language_engine.cpp ${ROOT}/engine/src/learning.cpp ${ROOT}/engine/src/ngram_predictor.cpp
-    ${ROOT}/engine/src/nwp_model.cpp ${ROOT}/engine/src/nwp_predictor.cpp ${ROOT}/engine/src/prediction.cpp)
+    ${ROOT}/engine/src/nwp_model.cpp ${ROOT}/engine/src/nwp_predictor.cpp ${ROOT}/engine/src/prediction.cpp
+    # WHY swap.cpp: LanguageEngine::swapCandidates (tap-to-swap) uses its made-up finger path for typed words.
+    ${ROOT}/engine/src/swap.cpp
+    # WHY swipe_rerank.cpp: LanguageEngine's learned re-ranking of a swipe's found words (joint-model step 3).
+    ${ROOT}/engine/src/swipe_rerank.cpp)
 set_target_properties(feature_engine PROPERTIES POSITION_INDEPENDENT_CODE ON)
 set_target_properties(swipe_engine PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_include_directories(feature_engine PUBLIC ${ROOT}/engine/include)
@@ -130,7 +134,9 @@ add_library(feature_inputmethod STATIC ${ROOT}/plugin/swipeinputmethod.cpp ${ROO
     ${ROOT}/plugin/swipesession.cpp ${ROOT}/plugin/swipeoutcome.cpp ${ROOT}/plugin/swiperecorder.cpp
     ${ROOT}/plugin/learningmanager.cpp ${ROOT}/plugin/learningmanager.h
     ${ROOT}/plugin/nextwordsession.cpp ${ROOT}/plugin/nextwordworker.cpp ${ROOT}/plugin/nextwordworker.h
-    ${ROOT}/plugin/predictionpolicy.cpp ${ROOT}/plugin/predictiondiagnostics.cpp ${ROOT}/plugin/wordswap.cpp)
+    ${ROOT}/plugin/predictionpolicy.cpp ${ROOT}/plugin/predictiondiagnostics.cpp ${ROOT}/plugin/wordswap.cpp
+    # WHY barflow.cpp: nextwordworker builds its next-word and completion lists through it (shared with the typing bench).
+    ${ROOT}/plugin/swapflow.cpp ${ROOT}/plugin/barflow.cpp)
 target_include_directories(feature_inputmethod PUBLIC ${ROOT}/plugin)
 target_link_libraries(feature_inputmethod PUBLIC feature_engine language_rules Qt6::Qml Qt6::Quick Qt6::VirtualKeyboard)
 set(_im_env "QT_QPA_PLATFORM=offscreen;QT_IM_MODULE=qtvirtualkeyboard;QT_VIRTUALKEYBOARD_DESKTOP_DISABLE=1")
@@ -149,7 +155,7 @@ foreach(name swipesession swipeoutcome swiperecorder)
     target_link_libraries(tst_${name} PRIVATE feature_inputmethod Qt6::Test)
     add_test(NAME plugin_${name} COMMAND tst_${name})
 endforeach()
-foreach(name nextwordsession nextwordworker predictionpolicy predictiondiagnostics nextwordintegration ownedhistory typedwordsession wordswap)
+foreach(name nextwordsession nextwordworker predictionpolicy predictiondiagnostics nextwordintegration ownedhistory typedwordsession wordswap swapflow)
     add_executable(tst_${name} ${ROOT}/plugin/tests/tst_${name}.cpp)
     target_link_libraries(tst_${name} PRIVATE feature_inputmethod Qt6::Test)
     add_test(NAME prediction_${name} COMMAND tst_${name})

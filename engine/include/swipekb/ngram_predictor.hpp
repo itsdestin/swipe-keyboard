@@ -42,6 +42,10 @@ public:
     };
     Ranked rank(const std::vector<std::string> &context, size_t want, const std::string &prefix = {}) const;
     float score(const NgramLM::Context &state, uint32_t vocabIndex) const;
+    // The n-gram state after `context` (what rank() scores against) and a word's vocabulary index (-1 = not a vocabulary word).
+    NgramLM::Context contextState(const std::vector<std::string> &context) const;
+    // Exact display spelling first; on a miss, the same word in lower case with a curly apostrophe made straight.
+    int32_t indexOf(const std::string &word) const;
     // Letters-only lower-case form of a vocabulary word (what typed letters are matched against).
     const std::string &alphaOf(uint32_t vocabIndex) const { return alpha_[vocabIndex]; }
     const NgramLM &model() const { return ngram_; }
@@ -50,6 +54,10 @@ private:
     NgramLM ngram_;
     std::vector<std::string> vocabulary_;
     std::vector<uint32_t> wordIds_;            // model number per vocabulary word; kUnk when unknown
+    // Vocabulary indices sorted by their letters-only form (alpha_), ties by index: indexOf() binary-searches it.
+    // WHY not two word -> index hash maps (the first version): measured 2026-10-25 on English (247k words) they cost
+    // 36 MB of memory and ~120 ms of load time; this costs 1 MB and finds the same word (see indexOf()).
+    std::vector<uint32_t> byAlpha_;
     std::vector<std::string> alpha_;           // letters-only lower-case form of every vocabulary word
     // WHY these three: next-word prediction scores only the words seen after the context plus the most
     // frequent others, instead of all ~100-230k words (same ranking, many times faster; see predict()).

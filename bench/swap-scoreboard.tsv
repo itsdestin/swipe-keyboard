@@ -1,0 +1,345 @@
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+# SPDX-License-Identifier: MIT
+# Swap options scoreboard (card #500), written by bench/swap-score.sh. One row per measure per run.
+# set: bench-2000 / test-extra-10000 = real English swipes (public MIT test split, never trained or tuned on);
+#   heliboard-LANG = HeliBoard Gesture Data (CC BY-SA, test only, no sentences); trv8k = FUTO English TUNING slice
+#   (labels start "[tuning]"; never quote those rows as results).
+# mode: baseline = today's keyboard (the shipped WordSwap::build); new = the improved order.
+# n = swipes replayed. measure: after-swipe = the guess bar's other places right after the swipe; tapback-trace = the
+#   list on tapping back while the swipe's guesses are remembered; tapback-notrace = the same without them.
+#   For these three, only swipes whose FIRST guess was wrong count (their number is "cases" in extra); first = the right
+#   word is the first option, in3 = among the first three (best-first order, not the bar's middle-first layout).
+# junk: first guess right; extra = share of the bar's other places that are stretched, rare (not among the language's
+#   top 31,456 words, German 48,000; for English that is frequency under 80 of 255) or rare names (capitalised, not
+#   among the top 4,388; English: under 120) — the swipe scoreboard's rule (tools/benchdata.h JunkRule, from
+#   commit 43b9e56; earlier rows measured es/fr/de junk as "under 80 / under 120"; English is the same either way).
+#   junk-tapback-trace / junk-tapback-notrace: the same share among the three tap-back options (with / without the
+#   swipe's guesses).
+# speed: extra = ms to build one tap-back list; speed-after-swipe (new mode): average ms to build the bar after a swipe
+#   (input thread). skipped: swipes left out for want of a layout file. (Rows before 2026-10-25 have no tap-back junk.)
+date	commit	label	set	mode	n	measure	first	in3	extra
+2026-10-24	2fec156	baseline 0.5.0 (WordSwap::build)	bench-2000	baseline	2000	after-swipe	19.70	30.81	cases 198
+2026-10-24	2fec156	baseline 0.5.0 (WordSwap::build)	bench-2000	baseline	2000	tapback-trace	19.70	33.33	cases 198
+2026-10-24	2fec156	baseline 0.5.0 (WordSwap::build)	bench-2000	baseline	2000	tapback-notrace	12.12	16.67	cases 198
+2026-10-24	2fec156	baseline 0.5.0 (WordSwap::build)	bench-2000	baseline	2000	junk			6.04
+2026-10-24	2fec156	baseline 0.5.0 (WordSwap::build)	bench-2000	baseline	2000	speed			2.22
+2026-10-24	2fec156	baseline 0.5.0 (WordSwap::build)	test-extra-10000	baseline	10000	after-swipe	24.66	32.60	cases 957
+2026-10-24	2fec156	baseline 0.5.0 (WordSwap::build)	test-extra-10000	baseline	10000	tapback-trace	24.76	34.38	cases 957
+2026-10-24	2fec156	baseline 0.5.0 (WordSwap::build)	test-extra-10000	baseline	10000	tapback-notrace	10.76	15.57	cases 957
+2026-10-24	2fec156	baseline 0.5.0 (WordSwap::build)	test-extra-10000	baseline	10000	junk			6.29
+2026-10-24	2fec156	baseline 0.5.0 (WordSwap::build)	test-extra-10000	baseline	10000	speed			1.93
+2026-10-24	2fec156	baseline 0.5.0 (WordSwap::build)	heliboard-es	baseline	5000	after-swipe	26.73	35.72	cases 1201
+2026-10-24	2fec156	baseline 0.5.0 (WordSwap::build)	heliboard-es	baseline	5000	tapback-trace	26.73	36.39	cases 1201
+2026-10-24	2fec156	baseline 0.5.0 (WordSwap::build)	heliboard-es	baseline	5000	tapback-notrace	5.83	12.91	cases 1201
+2026-10-24	2fec156	baseline 0.5.0 (WordSwap::build)	heliboard-es	baseline	5000	junk			43.71
+2026-10-24	2fec156	baseline 0.5.0 (WordSwap::build)	heliboard-es	baseline	5000	speed			1.08
+2026-10-24	2fec156	baseline 0.5.0 (WordSwap::build)	heliboard-fr	baseline	5000	after-swipe	29.88	42.51	cases 1583
+2026-10-24	2fec156	baseline 0.5.0 (WordSwap::build)	heliboard-fr	baseline	5000	tapback-trace	29.88	44.41	cases 1583
+2026-10-24	2fec156	baseline 0.5.0 (WordSwap::build)	heliboard-fr	baseline	5000	tapback-notrace	8.78	19.77	cases 1583
+2026-10-24	2fec156	baseline 0.5.0 (WordSwap::build)	heliboard-fr	baseline	5000	junk			42.11
+2026-10-24	2fec156	baseline 0.5.0 (WordSwap::build)	heliboard-fr	baseline	5000	speed			1.14
+2026-10-24	2fec156	baseline 0.5.0 (WordSwap::build)	heliboard-de	baseline	5000	after-swipe	18.54	23.64	cases 1764
+2026-10-24	2fec156	baseline 0.5.0 (WordSwap::build)	heliboard-de	baseline	5000	tapback-trace	18.54	24.49	cases 1764
+2026-10-24	2fec156	baseline 0.5.0 (WordSwap::build)	heliboard-de	baseline	5000	tapback-notrace	4.88	9.92	cases 1764
+2026-10-24	2fec156	baseline 0.5.0 (WordSwap::build)	heliboard-de	baseline	5000	junk			29.96
+2026-10-24	2fec156	baseline 0.5.0 (WordSwap::build)	heliboard-de	baseline	5000	speed			1.13
+2026-10-24	2fec156	baseline 0.5.0 (WordSwap::build)	heliboard-en	baseline	5000	after-swipe	30.35	43.14	cases 962
+2026-10-24	2fec156	baseline 0.5.0 (WordSwap::build)	heliboard-en	baseline	5000	tapback-trace	30.35	45.43	cases 962
+2026-10-24	2fec156	baseline 0.5.0 (WordSwap::build)	heliboard-en	baseline	5000	tapback-notrace	8.32	17.98	cases 962
+2026-10-24	2fec156	baseline 0.5.0 (WordSwap::build)	heliboard-en	baseline	5000	junk			9.44
+2026-10-24	2fec156	baseline 0.5.0 (WordSwap::build)	heliboard-en	baseline	5000	speed			1.72
+2026-10-24	2fec156	[tuning] baseline 0.5.0 (WordSwap::build)	trv8k	baseline	7198	after-swipe	31.71	40.08	cases 514
+2026-10-24	2fec156	[tuning] baseline 0.5.0 (WordSwap::build)	trv8k	baseline	7198	tapback-trace	31.71	42.80	cases 514
+2026-10-24	2fec156	[tuning] baseline 0.5.0 (WordSwap::build)	trv8k	baseline	7198	tapback-notrace	15.95	21.21	cases 514
+2026-10-24	2fec156	[tuning] baseline 0.5.0 (WordSwap::build)	trv8k	baseline	7198	junk			5.81
+2026-10-24	2fec156	[tuning] baseline 0.5.0 (WordSwap::build)	trv8k	baseline	7198	speed			2.08
+2026-10-25	f3a0d1c	baseline 0.5.0 (WordSwap::build)	bench-2000	baseline	2000	after-swipe	19.70	30.81	cases 198
+2026-10-25	f3a0d1c	baseline 0.5.0 (WordSwap::build)	bench-2000	baseline	2000	tapback-trace	19.70	33.33	cases 198
+2026-10-25	f3a0d1c	baseline 0.5.0 (WordSwap::build)	bench-2000	baseline	2000	tapback-notrace	12.12	16.67	cases 198
+2026-10-25	f3a0d1c	baseline 0.5.0 (WordSwap::build)	bench-2000	baseline	2000	junk			6.04
+2026-10-25	f3a0d1c	baseline 0.5.0 (WordSwap::build)	bench-2000	baseline	2000	junk-tapback-trace			10.02
+2026-10-25	f3a0d1c	baseline 0.5.0 (WordSwap::build)	bench-2000	baseline	2000	junk-tapback-notrace			17.69
+2026-10-25	f3a0d1c	baseline 0.5.0 (WordSwap::build)	bench-2000	baseline	2000	speed			2.12
+2026-10-25	f3a0d1c	baseline 0.5.0 (WordSwap::build)	test-extra-10000	baseline	10000	after-swipe	24.66	32.60	cases 957
+2026-10-25	f3a0d1c	baseline 0.5.0 (WordSwap::build)	test-extra-10000	baseline	10000	tapback-trace	24.76	34.38	cases 957
+2026-10-25	f3a0d1c	baseline 0.5.0 (WordSwap::build)	test-extra-10000	baseline	10000	tapback-notrace	10.76	15.57	cases 957
+2026-10-25	f3a0d1c	baseline 0.5.0 (WordSwap::build)	test-extra-10000	baseline	10000	junk			6.29
+2026-10-25	f3a0d1c	baseline 0.5.0 (WordSwap::build)	test-extra-10000	baseline	10000	junk-tapback-trace			9.66
+2026-10-25	f3a0d1c	baseline 0.5.0 (WordSwap::build)	test-extra-10000	baseline	10000	junk-tapback-notrace			16.07
+2026-10-25	f3a0d1c	baseline 0.5.0 (WordSwap::build)	test-extra-10000	baseline	10000	speed			1.83
+2026-10-25	f3a0d1c	baseline 0.5.0 (WordSwap::build)	heliboard-es	baseline	5000	after-swipe	26.73	35.72	cases 1201
+2026-10-25	f3a0d1c	baseline 0.5.0 (WordSwap::build)	heliboard-es	baseline	5000	tapback-trace	26.73	36.39	cases 1201
+2026-10-25	f3a0d1c	baseline 0.5.0 (WordSwap::build)	heliboard-es	baseline	5000	tapback-notrace	5.83	12.91	cases 1201
+2026-10-25	f3a0d1c	baseline 0.5.0 (WordSwap::build)	heliboard-es	baseline	5000	junk			43.71
+2026-10-25	f3a0d1c	baseline 0.5.0 (WordSwap::build)	heliboard-es	baseline	5000	junk-tapback-trace			38.85
+2026-10-25	f3a0d1c	baseline 0.5.0 (WordSwap::build)	heliboard-es	baseline	5000	junk-tapback-notrace			30.63
+2026-10-25	f3a0d1c	baseline 0.5.0 (WordSwap::build)	heliboard-es	baseline	5000	speed			1.04
+2026-10-25	f3a0d1c	baseline 0.5.0 (WordSwap::build)	heliboard-fr	baseline	5000	after-swipe	29.88	42.51	cases 1583
+2026-10-25	f3a0d1c	baseline 0.5.0 (WordSwap::build)	heliboard-fr	baseline	5000	tapback-trace	29.88	44.41	cases 1583
+2026-10-25	f3a0d1c	baseline 0.5.0 (WordSwap::build)	heliboard-fr	baseline	5000	tapback-notrace	8.78	19.77	cases 1583
+2026-10-25	f3a0d1c	baseline 0.5.0 (WordSwap::build)	heliboard-fr	baseline	5000	junk			42.11
+2026-10-25	f3a0d1c	baseline 0.5.0 (WordSwap::build)	heliboard-fr	baseline	5000	junk-tapback-trace			36.71
+2026-10-25	f3a0d1c	baseline 0.5.0 (WordSwap::build)	heliboard-fr	baseline	5000	junk-tapback-notrace			28.02
+2026-10-25	f3a0d1c	baseline 0.5.0 (WordSwap::build)	heliboard-fr	baseline	5000	speed			1.13
+2026-10-25	f3a0d1c	baseline 0.5.0 (WordSwap::build)	heliboard-de	baseline	5000	after-swipe	18.54	23.64	cases 1764
+2026-10-25	f3a0d1c	baseline 0.5.0 (WordSwap::build)	heliboard-de	baseline	5000	tapback-trace	18.54	24.49	cases 1764
+2026-10-25	f3a0d1c	baseline 0.5.0 (WordSwap::build)	heliboard-de	baseline	5000	tapback-notrace	4.88	9.92	cases 1764
+2026-10-25	f3a0d1c	baseline 0.5.0 (WordSwap::build)	heliboard-de	baseline	5000	junk			29.96
+2026-10-25	f3a0d1c	baseline 0.5.0 (WordSwap::build)	heliboard-de	baseline	5000	junk-tapback-trace			27.30
+2026-10-25	f3a0d1c	baseline 0.5.0 (WordSwap::build)	heliboard-de	baseline	5000	junk-tapback-notrace			21.70
+2026-10-25	f3a0d1c	baseline 0.5.0 (WordSwap::build)	heliboard-de	baseline	5000	speed			1.11
+2026-10-25	f3a0d1c	baseline 0.5.0 (WordSwap::build)	heliboard-en	baseline	5000	after-swipe	30.35	43.14	cases 962
+2026-10-25	f3a0d1c	baseline 0.5.0 (WordSwap::build)	heliboard-en	baseline	5000	tapback-trace	30.35	45.43	cases 962
+2026-10-25	f3a0d1c	baseline 0.5.0 (WordSwap::build)	heliboard-en	baseline	5000	tapback-notrace	8.32	17.98	cases 962
+2026-10-25	f3a0d1c	baseline 0.5.0 (WordSwap::build)	heliboard-en	baseline	5000	junk			9.44
+2026-10-25	f3a0d1c	baseline 0.5.0 (WordSwap::build)	heliboard-en	baseline	5000	junk-tapback-trace			19.33
+2026-10-25	f3a0d1c	baseline 0.5.0 (WordSwap::build)	heliboard-en	baseline	5000	junk-tapback-notrace			37.54
+2026-10-25	f3a0d1c	baseline 0.5.0 (WordSwap::build)	heliboard-en	baseline	5000	speed			1.64
+2026-10-25	f3a0d1c	[tuning] baseline 0.5.0 (WordSwap::build)	trv8k	baseline	7198	after-swipe	31.71	40.08	cases 514
+2026-10-25	f3a0d1c	[tuning] baseline 0.5.0 (WordSwap::build)	trv8k	baseline	7198	tapback-trace	31.71	42.80	cases 514
+2026-10-25	f3a0d1c	[tuning] baseline 0.5.0 (WordSwap::build)	trv8k	baseline	7198	tapback-notrace	15.95	21.21	cases 514
+2026-10-25	f3a0d1c	[tuning] baseline 0.5.0 (WordSwap::build)	trv8k	baseline	7198	junk			5.81
+2026-10-25	f3a0d1c	[tuning] baseline 0.5.0 (WordSwap::build)	trv8k	baseline	7198	junk-tapback-trace			9.70
+2026-10-25	f3a0d1c	[tuning] baseline 0.5.0 (WordSwap::build)	trv8k	baseline	7198	junk-tapback-notrace			16.56
+2026-10-25	f3a0d1c	[tuning] baseline 0.5.0 (WordSwap::build)	trv8k	baseline	7198	speed			1.98
+2026-10-25	f3a0d1c	one brain swap (2026-10-25)	bench-2000	new	2000	after-swipe	24.24	36.36	cases 198
+2026-10-25	f3a0d1c	one brain swap (2026-10-25)	bench-2000	new	2000	tapback-trace	36.36	42.42	cases 198
+2026-10-25	f3a0d1c	one brain swap (2026-10-25)	bench-2000	new	2000	tapback-notrace	26.26	32.32	cases 198
+2026-10-25	f3a0d1c	one brain swap (2026-10-25)	bench-2000	new	2000	junk			4.76
+2026-10-25	f3a0d1c	one brain swap (2026-10-25)	bench-2000	new	2000	junk-tapback-trace			7.31
+2026-10-25	f3a0d1c	one brain swap (2026-10-25)	bench-2000	new	2000	junk-tapback-notrace			5.11
+2026-10-25	f3a0d1c	one brain swap (2026-10-25)	bench-2000	new	2000	speed			8.75
+2026-10-25	f3a0d1c	one brain swap (2026-10-25)	bench-2000	new	2000	speed-after-swipe			6.68
+2026-10-25	f3a0d1c	one brain swap (2026-10-25)	test-extra-10000	new	10000	after-swipe	28.63	36.26	cases 957
+2026-10-25	f3a0d1c	one brain swap (2026-10-25)	test-extra-10000	new	10000	tapback-trace	35.01	42.01	cases 957
+2026-10-25	f3a0d1c	one brain swap (2026-10-25)	test-extra-10000	new	10000	tapback-notrace	26.44	31.87	cases 957
+2026-10-25	f3a0d1c	one brain swap (2026-10-25)	test-extra-10000	new	10000	junk			4.88
+2026-10-25	f3a0d1c	one brain swap (2026-10-25)	test-extra-10000	new	10000	junk-tapback-trace			7.84
+2026-10-25	f3a0d1c	one brain swap (2026-10-25)	test-extra-10000	new	10000	junk-tapback-notrace			5.29
+2026-10-25	f3a0d1c	one brain swap (2026-10-25)	test-extra-10000	new	10000	speed			8.86
+2026-10-25	f3a0d1c	one brain swap (2026-10-25)	test-extra-10000	new	10000	speed-after-swipe			6.74
+2026-10-25	f3a0d1c	one brain swap (2026-10-25)	heliboard-es	new	5000	after-swipe	21.40	29.89	cases 1201
+2026-10-25	f3a0d1c	one brain swap (2026-10-25)	heliboard-es	new	5000	tapback-trace	21.40	34.30	cases 1201
+2026-10-25	f3a0d1c	one brain swap (2026-10-25)	heliboard-es	new	5000	tapback-notrace	8.16	15.07	cases 1201
+2026-10-25	f3a0d1c	one brain swap (2026-10-25)	heliboard-es	new	5000	junk			30.69
+2026-10-25	f3a0d1c	one brain swap (2026-10-25)	heliboard-es	new	5000	junk-tapback-trace			31.94
+2026-10-25	f3a0d1c	one brain swap (2026-10-25)	heliboard-es	new	5000	junk-tapback-notrace			26.03
+2026-10-25	f3a0d1c	one brain swap (2026-10-25)	heliboard-es	new	5000	speed			8.28
+2026-10-25	f3a0d1c	one brain swap (2026-10-25)	heliboard-es	new	5000	speed-after-swipe			5.95
+2026-10-25	f3a0d1c	one brain swap (2026-10-25)	heliboard-fr	new	5000	after-swipe	21.16	33.35	cases 1583
+2026-10-25	f3a0d1c	one brain swap (2026-10-25)	heliboard-fr	new	5000	tapback-trace	21.35	39.61	cases 1583
+2026-10-25	f3a0d1c	one brain swap (2026-10-25)	heliboard-fr	new	5000	tapback-notrace	9.54	19.58	cases 1583
+2026-10-25	f3a0d1c	one brain swap (2026-10-25)	heliboard-fr	new	5000	junk			26.69
+2026-10-25	f3a0d1c	one brain swap (2026-10-25)	heliboard-fr	new	5000	junk-tapback-trace			27.31
+2026-10-25	f3a0d1c	one brain swap (2026-10-25)	heliboard-fr	new	5000	junk-tapback-notrace			21.82
+2026-10-25	f3a0d1c	one brain swap (2026-10-25)	heliboard-fr	new	5000	speed			8.32
+2026-10-25	f3a0d1c	one brain swap (2026-10-25)	heliboard-fr	new	5000	speed-after-swipe			6.16
+2026-10-25	f3a0d1c	one brain swap (2026-10-25)	heliboard-de	new	5000	after-swipe	15.31	20.98	cases 1764
+2026-10-25	f3a0d1c	one brain swap (2026-10-25)	heliboard-de	new	5000	tapback-trace	15.36	24.26	cases 1764
+2026-10-25	f3a0d1c	one brain swap (2026-10-25)	heliboard-de	new	5000	tapback-notrace	7.37	12.24	cases 1764
+2026-10-25	f3a0d1c	one brain swap (2026-10-25)	heliboard-de	new	5000	junk			17.86
+2026-10-25	f3a0d1c	one brain swap (2026-10-25)	heliboard-de	new	5000	junk-tapback-trace			18.62
+2026-10-25	f3a0d1c	one brain swap (2026-10-25)	heliboard-de	new	5000	junk-tapback-notrace			19.71
+2026-10-25	f3a0d1c	one brain swap (2026-10-25)	heliboard-de	new	5000	speed			8.95
+2026-10-25	f3a0d1c	one brain swap (2026-10-25)	heliboard-de	new	5000	speed-after-swipe			5.95
+2026-10-25	f3a0d1c	one brain swap (2026-10-25)	heliboard-en	new	5000	after-swipe	23.08	36.17	cases 962
+2026-10-25	f3a0d1c	one brain swap (2026-10-25)	heliboard-en	new	5000	tapback-trace	25.78	44.59	cases 962
+2026-10-25	f3a0d1c	one brain swap (2026-10-25)	heliboard-en	new	5000	tapback-notrace	14.35	24.32	cases 962
+2026-10-25	f3a0d1c	one brain swap (2026-10-25)	heliboard-en	new	5000	junk			9.56
+2026-10-25	f3a0d1c	one brain swap (2026-10-25)	heliboard-en	new	5000	junk-tapback-trace			9.96
+2026-10-25	f3a0d1c	one brain swap (2026-10-25)	heliboard-en	new	5000	junk-tapback-notrace			7.90
+2026-10-25	f3a0d1c	one brain swap (2026-10-25)	heliboard-en	new	5000	speed			9.51
+2026-10-25	f3a0d1c	one brain swap (2026-10-25)	heliboard-en	new	5000	speed-after-swipe			6.60
+2026-10-25	f3a0d1c	[tuning] one brain swap (2026-10-25)	trv8k	new	7198	after-swipe	33.66	42.22	cases 514
+2026-10-25	f3a0d1c	[tuning] one brain swap (2026-10-25)	trv8k	new	7198	tapback-trace	39.69	49.03	cases 514
+2026-10-25	f3a0d1c	[tuning] one brain swap (2026-10-25)	trv8k	new	7198	tapback-notrace	31.71	38.33	cases 514
+2026-10-25	f3a0d1c	[tuning] one brain swap (2026-10-25)	trv8k	new	7198	junk			4.48
+2026-10-25	f3a0d1c	[tuning] one brain swap (2026-10-25)	trv8k	new	7198	junk-tapback-trace			7.49
+2026-10-25	f3a0d1c	[tuning] one brain swap (2026-10-25)	trv8k	new	7198	junk-tapback-notrace			4.82
+2026-10-25	f3a0d1c	[tuning] one brain swap (2026-10-25)	trv8k	new	7198	speed			8.44
+2026-10-25	f3a0d1c	[tuning] one brain swap (2026-10-25)	trv8k	new	7198	speed-after-swipe			6.58
+2026-10-25	404db1e	[tuning] baseline 0.5.0 (WordSwap::build)	trv8k-nocontext	baseline	7198	after-swipe	38.87	49.26	cases 674
+2026-10-25	404db1e	[tuning] baseline 0.5.0 (WordSwap::build)	trv8k-nocontext	baseline	7198	tapback-trace	38.87	50.89	cases 674
+2026-10-25	404db1e	[tuning] baseline 0.5.0 (WordSwap::build)	trv8k-nocontext	baseline	7198	tapback-notrace	9.50	21.51	cases 674
+2026-10-25	404db1e	[tuning] baseline 0.5.0 (WordSwap::build)	trv8k-nocontext	baseline	7198	junk			6.90
+2026-10-25	404db1e	[tuning] baseline 0.5.0 (WordSwap::build)	trv8k-nocontext	baseline	7198	junk-tapback-trace			10.61
+2026-10-25	404db1e	[tuning] baseline 0.5.0 (WordSwap::build)	trv8k-nocontext	baseline	7198	junk-tapback-notrace			16.58
+2026-10-25	404db1e	[tuning] baseline 0.5.0 (WordSwap::build)	trv8k-nocontext	baseline	7198	speed			1.45
+2026-10-25	404db1e	[tuning] one brain swap (2026-10-25, no-context fix)	trv8k	new	7198	after-swipe	34.24	42.80	cases 514
+2026-10-25	404db1e	[tuning] one brain swap (2026-10-25, no-context fix)	trv8k	new	7198	tapback-trace	39.69	49.03	cases 514
+2026-10-25	404db1e	[tuning] one brain swap (2026-10-25, no-context fix)	trv8k	new	7198	tapback-notrace	31.71	38.33	cases 514
+2026-10-25	404db1e	[tuning] one brain swap (2026-10-25, no-context fix)	trv8k	new	7198	junk			4.58
+2026-10-25	404db1e	[tuning] one brain swap (2026-10-25, no-context fix)	trv8k	new	7198	junk-tapback-trace			7.51
+2026-10-25	404db1e	[tuning] one brain swap (2026-10-25, no-context fix)	trv8k	new	7198	junk-tapback-notrace			4.83
+2026-10-25	404db1e	[tuning] one brain swap (2026-10-25, no-context fix)	trv8k	new	7198	speed			9.07
+2026-10-25	404db1e	[tuning] one brain swap (2026-10-25, no-context fix)	trv8k	new	7198	speed-after-swipe			6.85
+2026-10-25	404db1e	[tuning] one brain swap (2026-10-25, no-context fix)	trv8k-nocontext	new	7198	after-swipe	38.72	50.15	cases 674
+2026-10-25	404db1e	[tuning] one brain swap (2026-10-25, no-context fix)	trv8k-nocontext	new	7198	tapback-trace	39.02	54.90	cases 674
+2026-10-25	404db1e	[tuning] one brain swap (2026-10-25, no-context fix)	trv8k-nocontext	new	7198	tapback-notrace	24.78	41.10	cases 674
+2026-10-25	404db1e	[tuning] one brain swap (2026-10-25, no-context fix)	trv8k-nocontext	new	7198	junk			7.49
+2026-10-25	404db1e	[tuning] one brain swap (2026-10-25, no-context fix)	trv8k-nocontext	new	7198	junk-tapback-trace			10.18
+2026-10-25	404db1e	[tuning] one brain swap (2026-10-25, no-context fix)	trv8k-nocontext	new	7198	junk-tapback-notrace			9.66
+2026-10-25	404db1e	[tuning] one brain swap (2026-10-25, no-context fix)	trv8k-nocontext	new	7198	speed			11.00
+2026-10-25	404db1e	[tuning] one brain swap (2026-10-25, no-context fix)	trv8k-nocontext	new	7198	speed-after-swipe			6.89
+2026-10-25	404db1e	one brain swap (2026-10-25, no-context fix)	heliboard-fr	new	5000	after-swipe	32.79	47.69	cases 1583
+2026-10-25	404db1e	one brain swap (2026-10-25, no-context fix)	heliboard-fr	new	5000	tapback-trace	32.79	54.64	cases 1583
+2026-10-25	404db1e	one brain swap (2026-10-25, no-context fix)	heliboard-fr	new	5000	tapback-notrace	12.51	23.18	cases 1583
+2026-10-25	404db1e	one brain swap (2026-10-25, no-context fix)	heliboard-fr	new	5000	junk			39.84
+2026-10-25	404db1e	one brain swap (2026-10-25, no-context fix)	heliboard-fr	new	5000	junk-tapback-trace			40.43
+2026-10-25	404db1e	one brain swap (2026-10-25, no-context fix)	heliboard-fr	new	5000	junk-tapback-notrace			37.06
+2026-10-25	404db1e	one brain swap (2026-10-25, no-context fix)	heliboard-fr	new	5000	speed			10.03
+2026-10-25	404db1e	one brain swap (2026-10-25, no-context fix)	heliboard-fr	new	5000	speed-after-swipe			6.58
+2026-10-25	404db1e	one brain swap (2026-10-25, no-context fix)	heliboard-es	new	5000	after-swipe	29.98	40.72	cases 1201
+2026-10-25	404db1e	one brain swap (2026-10-25, no-context fix)	heliboard-es	new	5000	tapback-trace	29.98	45.30	cases 1201
+2026-10-25	404db1e	one brain swap (2026-10-25, no-context fix)	heliboard-es	new	5000	tapback-notrace	10.91	18.90	cases 1201
+2026-10-25	404db1e	one brain swap (2026-10-25, no-context fix)	heliboard-es	new	5000	junk			42.02
+2026-10-25	404db1e	one brain swap (2026-10-25, no-context fix)	heliboard-es	new	5000	junk-tapback-trace			43.37
+2026-10-25	404db1e	one brain swap (2026-10-25, no-context fix)	heliboard-es	new	5000	junk-tapback-notrace			39.51
+2026-10-25	404db1e	one brain swap (2026-10-25, no-context fix)	heliboard-es	new	5000	speed			9.47
+2026-10-25	404db1e	one brain swap (2026-10-25, no-context fix)	heliboard-es	new	5000	speed-after-swipe			6.23
+2026-10-25	404db1e	one brain swap (2026-10-25, no-context fix)	test-extra-10000	new	10000	after-swipe	28.63	36.36	cases 957
+2026-10-25	404db1e	one brain swap (2026-10-25, no-context fix)	test-extra-10000	new	10000	tapback-trace	35.01	42.01	cases 957
+2026-10-25	404db1e	one brain swap (2026-10-25, no-context fix)	test-extra-10000	new	10000	tapback-notrace	26.44	31.87	cases 957
+2026-10-25	404db1e	one brain swap (2026-10-25, no-context fix)	test-extra-10000	new	10000	junk			4.90
+2026-10-25	404db1e	one brain swap (2026-10-25, no-context fix)	test-extra-10000	new	10000	junk-tapback-trace			7.85
+2026-10-25	404db1e	one brain swap (2026-10-25, no-context fix)	test-extra-10000	new	10000	junk-tapback-notrace			5.30
+2026-10-25	404db1e	one brain swap (2026-10-25, no-context fix)	test-extra-10000	new	10000	speed			9.52
+2026-10-25	404db1e	one brain swap (2026-10-25, no-context fix)	test-extra-10000	new	10000	speed-after-swipe			7.10
+2026-10-25	404db1e	one brain swap (2026-10-25, no-context fix)	heliboard-de	new	5000	after-swipe	23.19	29.48	cases 1764
+2026-10-25	404db1e	one brain swap (2026-10-25, no-context fix)	heliboard-de	new	5000	tapback-trace	23.19	31.46	cases 1764
+2026-10-25	404db1e	one brain swap (2026-10-25, no-context fix)	heliboard-de	new	5000	tapback-notrace	9.92	15.25	cases 1764
+2026-10-25	404db1e	one brain swap (2026-10-25, no-context fix)	heliboard-de	new	5000	junk			28.00
+2026-10-25	404db1e	one brain swap (2026-10-25, no-context fix)	heliboard-de	new	5000	junk-tapback-trace			29.12
+2026-10-25	404db1e	one brain swap (2026-10-25, no-context fix)	heliboard-de	new	5000	junk-tapback-notrace			29.71
+2026-10-25	404db1e	one brain swap (2026-10-25, no-context fix)	heliboard-de	new	5000	speed			9.67
+2026-10-25	404db1e	one brain swap (2026-10-25, no-context fix)	heliboard-de	new	5000	speed-after-swipe			6.23
+2026-10-25	404db1e	one brain swap (2026-10-25, no-context fix)	bench-2000	new	2000	after-swipe	24.24	36.36	cases 198
+2026-10-25	404db1e	one brain swap (2026-10-25, no-context fix)	bench-2000	new	2000	tapback-trace	36.36	42.42	cases 198
+2026-10-25	404db1e	one brain swap (2026-10-25, no-context fix)	bench-2000	new	2000	tapback-notrace	26.26	32.32	cases 198
+2026-10-25	404db1e	one brain swap (2026-10-25, no-context fix)	bench-2000	new	2000	junk			4.82
+2026-10-25	404db1e	one brain swap (2026-10-25, no-context fix)	bench-2000	new	2000	junk-tapback-trace			7.33
+2026-10-25	404db1e	one brain swap (2026-10-25, no-context fix)	bench-2000	new	2000	junk-tapback-notrace			5.12
+2026-10-25	404db1e	one brain swap (2026-10-25, no-context fix)	bench-2000	new	2000	speed			9.08
+2026-10-25	404db1e	one brain swap (2026-10-25, no-context fix)	bench-2000	new	2000	speed-after-swipe			6.88
+2026-10-25	404db1e	one brain swap (2026-10-25, no-context fix)	heliboard-en	new	5000	after-swipe	37.32	50.21	cases 962
+2026-10-25	404db1e	one brain swap (2026-10-25, no-context fix)	heliboard-en	new	5000	tapback-trace	39.60	59.56	cases 962
+2026-10-25	404db1e	one brain swap (2026-10-25, no-context fix)	heliboard-en	new	5000	tapback-notrace	18.61	32.22	cases 962
+2026-10-25	404db1e	one brain swap (2026-10-25, no-context fix)	heliboard-en	new	5000	junk			10.30
+2026-10-25	404db1e	one brain swap (2026-10-25, no-context fix)	heliboard-en	new	5000	junk-tapback-trace			13.17
+2026-10-25	404db1e	one brain swap (2026-10-25, no-context fix)	heliboard-en	new	5000	junk-tapback-notrace			9.98
+2026-10-25	404db1e	one brain swap (2026-10-25, no-context fix)	heliboard-en	new	5000	speed			11.04
+2026-10-25	404db1e	one brain swap (2026-10-25, no-context fix)	heliboard-en	new	5000	speed-after-swipe			6.85
+2026-10-25	43b9e56	baseline 0.5.0 (WordSwap::build)	bench-2000	baseline	2000	after-swipe	19.70	30.81	cases 198
+2026-10-25	43b9e56	baseline 0.5.0 (WordSwap::build)	bench-2000	baseline	2000	tapback-trace	19.70	33.33	cases 198
+2026-10-25	43b9e56	baseline 0.5.0 (WordSwap::build)	bench-2000	baseline	2000	tapback-notrace	12.12	16.67	cases 198
+2026-10-25	43b9e56	baseline 0.5.0 (WordSwap::build)	bench-2000	baseline	2000	junk			6.04
+2026-10-25	43b9e56	baseline 0.5.0 (WordSwap::build)	bench-2000	baseline	2000	junk-tapback-trace			10.02
+2026-10-25	43b9e56	baseline 0.5.0 (WordSwap::build)	bench-2000	baseline	2000	junk-tapback-notrace			17.69
+2026-10-25	43b9e56	baseline 0.5.0 (WordSwap::build)	bench-2000	baseline	2000	speed			2.25
+2026-10-25	43b9e56	one brain swap (2026-10-25, junk by rank, no-sentence floor)	bench-2000	new	2000	after-swipe	24.24	36.36	cases 198
+2026-10-25	43b9e56	one brain swap (2026-10-25, junk by rank, no-sentence floor)	bench-2000	new	2000	tapback-trace	36.36	42.42	cases 198
+2026-10-25	43b9e56	one brain swap (2026-10-25, junk by rank, no-sentence floor)	bench-2000	new	2000	tapback-notrace	26.26	32.32	cases 198
+2026-10-25	43b9e56	one brain swap (2026-10-25, junk by rank, no-sentence floor)	bench-2000	new	2000	junk			4.82
+2026-10-25	43b9e56	one brain swap (2026-10-25, junk by rank, no-sentence floor)	bench-2000	new	2000	junk-tapback-trace			7.33
+2026-10-25	43b9e56	one brain swap (2026-10-25, junk by rank, no-sentence floor)	bench-2000	new	2000	junk-tapback-notrace			5.12
+2026-10-25	43b9e56	one brain swap (2026-10-25, junk by rank, no-sentence floor)	bench-2000	new	2000	speed			9.43
+2026-10-25	43b9e56	one brain swap (2026-10-25, junk by rank, no-sentence floor)	bench-2000	new	2000	speed-after-swipe			7.07
+2026-10-25	43b9e56	baseline 0.5.0 (WordSwap::build)	test-extra-10000	baseline	10000	after-swipe	24.66	32.60	cases 957
+2026-10-25	43b9e56	baseline 0.5.0 (WordSwap::build)	test-extra-10000	baseline	10000	tapback-trace	24.76	34.38	cases 957
+2026-10-25	43b9e56	baseline 0.5.0 (WordSwap::build)	test-extra-10000	baseline	10000	tapback-notrace	10.76	15.57	cases 957
+2026-10-25	43b9e56	baseline 0.5.0 (WordSwap::build)	test-extra-10000	baseline	10000	junk			6.29
+2026-10-25	43b9e56	baseline 0.5.0 (WordSwap::build)	test-extra-10000	baseline	10000	junk-tapback-trace			9.66
+2026-10-25	43b9e56	baseline 0.5.0 (WordSwap::build)	test-extra-10000	baseline	10000	junk-tapback-notrace			16.07
+2026-10-25	43b9e56	baseline 0.5.0 (WordSwap::build)	test-extra-10000	baseline	10000	speed			1.86
+2026-10-25	43b9e56	one brain swap (2026-10-25, junk by rank, no-sentence floor)	test-extra-10000	new	10000	after-swipe	28.63	36.36	cases 957
+2026-10-25	43b9e56	one brain swap (2026-10-25, junk by rank, no-sentence floor)	test-extra-10000	new	10000	tapback-trace	35.01	42.01	cases 957
+2026-10-25	43b9e56	one brain swap (2026-10-25, junk by rank, no-sentence floor)	test-extra-10000	new	10000	tapback-notrace	26.44	31.87	cases 957
+2026-10-25	43b9e56	one brain swap (2026-10-25, junk by rank, no-sentence floor)	test-extra-10000	new	10000	junk			4.90
+2026-10-25	43b9e56	one brain swap (2026-10-25, junk by rank, no-sentence floor)	test-extra-10000	new	10000	junk-tapback-trace			7.85
+2026-10-25	43b9e56	one brain swap (2026-10-25, junk by rank, no-sentence floor)	test-extra-10000	new	10000	junk-tapback-notrace			5.30
+2026-10-25	43b9e56	one brain swap (2026-10-25, junk by rank, no-sentence floor)	test-extra-10000	new	10000	speed			9.57
+2026-10-25	43b9e56	one brain swap (2026-10-25, junk by rank, no-sentence floor)	test-extra-10000	new	10000	speed-after-swipe			7.12
+2026-10-25	43b9e56	baseline 0.5.0 (WordSwap::build)	heliboard-es	baseline	5000	after-swipe	26.73	35.72	cases 1201
+2026-10-25	43b9e56	baseline 0.5.0 (WordSwap::build)	heliboard-es	baseline	5000	tapback-trace	26.73	36.39	cases 1201
+2026-10-25	43b9e56	baseline 0.5.0 (WordSwap::build)	heliboard-es	baseline	5000	tapback-notrace	5.83	12.91	cases 1201
+2026-10-25	43b9e56	baseline 0.5.0 (WordSwap::build)	heliboard-es	baseline	5000	junk			41.79
+2026-10-25	43b9e56	baseline 0.5.0 (WordSwap::build)	heliboard-es	baseline	5000	junk-tapback-trace			36.80
+2026-10-25	43b9e56	baseline 0.5.0 (WordSwap::build)	heliboard-es	baseline	5000	junk-tapback-notrace			28.52
+2026-10-25	43b9e56	baseline 0.5.0 (WordSwap::build)	heliboard-es	baseline	5000	speed			1.05
+2026-10-25	43b9e56	one brain swap (2026-10-25, junk by rank, no-sentence floor)	heliboard-es	new	5000	after-swipe	23.48	30.47	cases 1201
+2026-10-25	43b9e56	one brain swap (2026-10-25, junk by rank, no-sentence floor)	heliboard-es	new	5000	tapback-trace	23.48	32.89	cases 1201
+2026-10-25	43b9e56	one brain swap (2026-10-25, junk by rank, no-sentence floor)	heliboard-es	new	5000	tapback-notrace	9.41	15.57	cases 1201
+2026-10-25	43b9e56	one brain swap (2026-10-25, junk by rank, no-sentence floor)	heliboard-es	new	5000	junk			8.57
+2026-10-25	43b9e56	one brain swap (2026-10-25, junk by rank, no-sentence floor)	heliboard-es	new	5000	junk-tapback-trace			8.87
+2026-10-25	43b9e56	one brain swap (2026-10-25, junk by rank, no-sentence floor)	heliboard-es	new	5000	junk-tapback-notrace			6.61
+2026-10-25	43b9e56	one brain swap (2026-10-25, junk by rank, no-sentence floor)	heliboard-es	new	5000	speed			9.51
+2026-10-25	43b9e56	one brain swap (2026-10-25, junk by rank, no-sentence floor)	heliboard-es	new	5000	speed-after-swipe			6.23
+2026-10-25	43b9e56	baseline 0.5.0 (WordSwap::build)	heliboard-fr	baseline	5000	after-swipe	29.88	42.51	cases 1583
+2026-10-25	43b9e56	baseline 0.5.0 (WordSwap::build)	heliboard-fr	baseline	5000	tapback-trace	29.88	44.41	cases 1583
+2026-10-25	43b9e56	baseline 0.5.0 (WordSwap::build)	heliboard-fr	baseline	5000	tapback-notrace	8.78	19.77	cases 1583
+2026-10-25	43b9e56	baseline 0.5.0 (WordSwap::build)	heliboard-fr	baseline	5000	junk			40.76
+2026-10-25	43b9e56	baseline 0.5.0 (WordSwap::build)	heliboard-fr	baseline	5000	junk-tapback-trace			35.27
+2026-10-25	43b9e56	baseline 0.5.0 (WordSwap::build)	heliboard-fr	baseline	5000	junk-tapback-notrace			26.51
+2026-10-25	43b9e56	baseline 0.5.0 (WordSwap::build)	heliboard-fr	baseline	5000	speed			1.16
+2026-10-25	43b9e56	one brain swap (2026-10-25, junk by rank, no-sentence floor)	heliboard-fr	new	5000	after-swipe	26.47	37.21	cases 1583
+2026-10-25	43b9e56	one brain swap (2026-10-25, junk by rank, no-sentence floor)	heliboard-fr	new	5000	tapback-trace	26.47	42.20	cases 1583
+2026-10-25	43b9e56	one brain swap (2026-10-25, junk by rank, no-sentence floor)	heliboard-fr	new	5000	tapback-notrace	11.31	19.65	cases 1583
+2026-10-25	43b9e56	one brain swap (2026-10-25, junk by rank, no-sentence floor)	heliboard-fr	new	5000	junk			10.26
+2026-10-25	43b9e56	one brain swap (2026-10-25, junk by rank, no-sentence floor)	heliboard-fr	new	5000	junk-tapback-trace			10.22
+2026-10-25	43b9e56	one brain swap (2026-10-25, junk by rank, no-sentence floor)	heliboard-fr	new	5000	junk-tapback-notrace			9.24
+2026-10-25	43b9e56	one brain swap (2026-10-25, junk by rank, no-sentence floor)	heliboard-fr	new	5000	speed			9.84
+2026-10-25	43b9e56	one brain swap (2026-10-25, junk by rank, no-sentence floor)	heliboard-fr	new	5000	speed-after-swipe			6.45
+2026-10-25	43b9e56	baseline 0.5.0 (WordSwap::build)	heliboard-de	baseline	5000	after-swipe	18.54	23.64	cases 1764
+2026-10-25	43b9e56	baseline 0.5.0 (WordSwap::build)	heliboard-de	baseline	5000	tapback-trace	18.54	24.49	cases 1764
+2026-10-25	43b9e56	baseline 0.5.0 (WordSwap::build)	heliboard-de	baseline	5000	tapback-notrace	4.88	9.92	cases 1764
+2026-10-25	43b9e56	baseline 0.5.0 (WordSwap::build)	heliboard-de	baseline	5000	junk			18.72
+2026-10-25	43b9e56	baseline 0.5.0 (WordSwap::build)	heliboard-de	baseline	5000	junk-tapback-trace			17.07
+2026-10-25	43b9e56	baseline 0.5.0 (WordSwap::build)	heliboard-de	baseline	5000	junk-tapback-notrace			13.50
+2026-10-25	43b9e56	baseline 0.5.0 (WordSwap::build)	heliboard-de	baseline	5000	speed			1.11
+2026-10-25	43b9e56	one brain swap (2026-10-25, junk by rank, no-sentence floor)	heliboard-de	new	5000	after-swipe	21.03	26.59	cases 1764
+2026-10-25	43b9e56	one brain swap (2026-10-25, junk by rank, no-sentence floor)	heliboard-de	new	5000	tapback-trace	21.03	28.12	cases 1764
+2026-10-25	43b9e56	one brain swap (2026-10-25, junk by rank, no-sentence floor)	heliboard-de	new	5000	tapback-notrace	9.41	14.34	cases 1764
+2026-10-25	43b9e56	one brain swap (2026-10-25, junk by rank, no-sentence floor)	heliboard-de	new	5000	junk			6.75
+2026-10-25	43b9e56	one brain swap (2026-10-25, junk by rank, no-sentence floor)	heliboard-de	new	5000	junk-tapback-trace			6.94
+2026-10-25	43b9e56	one brain swap (2026-10-25, junk by rank, no-sentence floor)	heliboard-de	new	5000	junk-tapback-notrace			7.10
+2026-10-25	43b9e56	one brain swap (2026-10-25, junk by rank, no-sentence floor)	heliboard-de	new	5000	speed			9.32
+2026-10-25	43b9e56	one brain swap (2026-10-25, junk by rank, no-sentence floor)	heliboard-de	new	5000	speed-after-swipe			6.13
+2026-10-25	43b9e56	baseline 0.5.0 (WordSwap::build)	heliboard-en	baseline	5000	after-swipe	30.35	43.14	cases 962
+2026-10-25	43b9e56	baseline 0.5.0 (WordSwap::build)	heliboard-en	baseline	5000	tapback-trace	30.35	45.43	cases 962
+2026-10-25	43b9e56	baseline 0.5.0 (WordSwap::build)	heliboard-en	baseline	5000	tapback-notrace	8.32	17.98	cases 962
+2026-10-25	43b9e56	baseline 0.5.0 (WordSwap::build)	heliboard-en	baseline	5000	junk			9.44
+2026-10-25	43b9e56	baseline 0.5.0 (WordSwap::build)	heliboard-en	baseline	5000	junk-tapback-trace			19.33
+2026-10-25	43b9e56	baseline 0.5.0 (WordSwap::build)	heliboard-en	baseline	5000	junk-tapback-notrace			37.54
+2026-10-25	43b9e56	baseline 0.5.0 (WordSwap::build)	heliboard-en	baseline	5000	speed			1.76
+2026-10-25	43b9e56	one brain swap (2026-10-25, junk by rank, no-sentence floor)	heliboard-en	new	5000	after-swipe	37.32	50.21	cases 962
+2026-10-25	43b9e56	one brain swap (2026-10-25, junk by rank, no-sentence floor)	heliboard-en	new	5000	tapback-trace	39.60	59.56	cases 962
+2026-10-25	43b9e56	one brain swap (2026-10-25, junk by rank, no-sentence floor)	heliboard-en	new	5000	tapback-notrace	18.61	32.22	cases 962
+2026-10-25	43b9e56	one brain swap (2026-10-25, junk by rank, no-sentence floor)	heliboard-en	new	5000	junk			10.30
+2026-10-25	43b9e56	one brain swap (2026-10-25, junk by rank, no-sentence floor)	heliboard-en	new	5000	junk-tapback-trace			13.17
+2026-10-25	43b9e56	one brain swap (2026-10-25, junk by rank, no-sentence floor)	heliboard-en	new	5000	junk-tapback-notrace			9.98
+2026-10-25	43b9e56	one brain swap (2026-10-25, junk by rank, no-sentence floor)	heliboard-en	new	5000	speed			11.76
+2026-10-25	43b9e56	one brain swap (2026-10-25, junk by rank, no-sentence floor)	heliboard-en	new	5000	speed-after-swipe			7.05
+2026-10-25	2170b6c	one brain swap (2026-10-25, junk by rank, no floor)	heliboard-es	new	5000	after-swipe	29.98	40.72	cases 1201
+2026-10-25	2170b6c	one brain swap (2026-10-25, junk by rank, no floor)	heliboard-es	new	5000	tapback-trace	29.98	45.30	cases 1201
+2026-10-25	2170b6c	one brain swap (2026-10-25, junk by rank, no floor)	heliboard-es	new	5000	tapback-notrace	10.91	18.90	cases 1201
+2026-10-25	2170b6c	one brain swap (2026-10-25, junk by rank, no floor)	heliboard-es	new	5000	junk			40.13
+2026-10-25	2170b6c	one brain swap (2026-10-25, junk by rank, no floor)	heliboard-es	new	5000	junk-tapback-trace			41.48
+2026-10-25	2170b6c	one brain swap (2026-10-25, junk by rank, no floor)	heliboard-es	new	5000	junk-tapback-notrace			37.55
+2026-10-25	2170b6c	one brain swap (2026-10-25, junk by rank, no floor)	heliboard-es	new	5000	speed			8.87
+2026-10-25	2170b6c	one brain swap (2026-10-25, junk by rank, no floor)	heliboard-es	new	5000	speed-after-swipe			6.00
+2026-10-25	2170b6c	one brain swap (2026-10-25, junk by rank, no floor)	heliboard-fr	new	5000	after-swipe	32.79	47.69	cases 1583
+2026-10-25	2170b6c	one brain swap (2026-10-25, junk by rank, no floor)	heliboard-fr	new	5000	tapback-trace	32.79	54.64	cases 1583
+2026-10-25	2170b6c	one brain swap (2026-10-25, junk by rank, no floor)	heliboard-fr	new	5000	tapback-notrace	12.51	23.18	cases 1583
+2026-10-25	2170b6c	one brain swap (2026-10-25, junk by rank, no floor)	heliboard-fr	new	5000	junk			38.44
+2026-10-25	2170b6c	one brain swap (2026-10-25, junk by rank, no floor)	heliboard-fr	new	5000	junk-tapback-trace			38.99
+2026-10-25	2170b6c	one brain swap (2026-10-25, junk by rank, no floor)	heliboard-fr	new	5000	junk-tapback-notrace			35.48
+2026-10-25	2170b6c	one brain swap (2026-10-25, junk by rank, no floor)	heliboard-fr	new	5000	speed			9.53
+2026-10-25	2170b6c	one brain swap (2026-10-25, junk by rank, no floor)	heliboard-fr	new	5000	speed-after-swipe			6.33
+2026-10-25	2170b6c	one brain swap (2026-10-25, junk by rank, no floor)	heliboard-de	new	5000	after-swipe	23.19	29.48	cases 1764
+2026-10-25	2170b6c	one brain swap (2026-10-25, junk by rank, no floor)	heliboard-de	new	5000	tapback-trace	23.19	31.46	cases 1764
+2026-10-25	2170b6c	one brain swap (2026-10-25, junk by rank, no floor)	heliboard-de	new	5000	tapback-notrace	9.92	15.25	cases 1764
+2026-10-25	2170b6c	one brain swap (2026-10-25, junk by rank, no floor)	heliboard-de	new	5000	junk			17.23
+2026-10-25	2170b6c	one brain swap (2026-10-25, junk by rank, no floor)	heliboard-de	new	5000	junk-tapback-trace			18.11
+2026-10-25	2170b6c	one brain swap (2026-10-25, junk by rank, no floor)	heliboard-de	new	5000	junk-tapback-notrace			18.64
+2026-10-25	2170b6c	one brain swap (2026-10-25, junk by rank, no floor)	heliboard-de	new	5000	speed			9.24
+2026-10-25	2170b6c	one brain swap (2026-10-25, junk by rank, no floor)	heliboard-de	new	5000	speed-after-swipe			6.10

@@ -237,6 +237,11 @@ int main(int argc, char **argv)
     // WHY the texting words, as the keyboard adds them (SwipeInputMethod::syncLearnedWords).
     r.liftWords(swipekb::textingWordPairs(QString::fromStdString(setup.language)));
     r.setCapitals(swipekb::capitalsFor(QString::fromStdString(setup.language)));   // as the keyboard does
+    // Joint-model step 3: the learned re-ranker without a sentence scorer, as the Gaming Mode daemon sets it (these
+    // replays have no words before, so the keyboards order them the same way).
+    auto rescore = swipekb::ContextRescore::forLanguage(setup.language);
+    rescore.scorer = nullptr;
+    if (rescore.reranker) r.setContextRescore(rescore);
 
     // WHY "ranking"/"engine": a missing file silently falls back; the output must say which parts ran.
     std::printf("settings: engine=%s ranking=%s dict=%s\n", r.mode(), r.usingNgram() ? "ngram" : "frequency",

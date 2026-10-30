@@ -53,6 +53,34 @@ std::vector<std::string> boundedContext(const std::vector<std::string> &context)
     return bounded;
 }
 
+namespace {
+// WHY one canonical spelling: callers pass display words in either case ("The", "haus") and either apostrophe style
+// (l'homme / l’homme); the vocabulary lists one of them, and a miss would wrongly score the word as unknown.
+std::string foldedSpelling(const std::string &word)
+{
+    QString text = QString::fromUtf8(word.data(), int(word.size())).toLower();
+    text.replace(QChar(0x2019), QLatin1Char('\''));
+    return text.toUtf8().toStdString();
+}
+}
+
+int32_t NgramPredictor::indexOf(const std::string &word) const
+{
+    // WHY the letters-only form narrows the search: a word with the same display spelling, or the same spelling in
+    // lower case with a straight apostrophe, always has the same letters-only form, so both lookups below only need
+    // the few vocabulary words sharing it ("were" / "we're" / "Were"), found by binary search.
+    const std::string alpha = NgramLM::alphaForm(word);
+    const auto lo = std::lower_bound(byAlpha_.begin(), byAlpha_.end(), alpha,
+                                     [this](uint32_t i, const std::string &x) { return alpha_[i] < x; });
+    const auto hi = std::upper_bound(lo, byAlpha_.end(), alpha,
+                                     [this](const std::string &x, uint32_t i) { return x < alpha_[i]; });
+    // Exact display spelling first (the lowest index, as the range is in index order), then the folded spelling.
+    for (auto it = lo; it != hi; ++it) if (vocabulary_[*it] == word) return int32_t(*it);
+    const std::string folded = foldedSpelling(word);
+    for (auto it = lo; it != hi; ++it) if (foldedSpelling(vocabulary_[*it]) == folded) return int32_t(*it);
+    return -1;
+}
+
 bool NgramPredictor::load(const std::string &model, const std::string &vocab)
 {
     vocabulary_.clear();
@@ -78,7 +106,14 @@ bool NgramPredictor::load(const std::string &model, const std::string &vocab)
         // WHY the model's form: in a pack with apostrophes "were" and "we're" are different model words.
         wordIds_.push_back(ngram_.apostrophes() ? ngram_.id(ngram_.form(vocabulary_[i])) : ngram_.id(alpha_.back()));
     }
-    byUnigram_.clear(); unknownBySpelling_.clear(); indicesOfId_.clear();
+    byUnigram_.clear(); unknownBySpelling_.clear(); indicesOfId_.clear(); byAlpha_.clear();
+    // WHY ties by index: a spelling listed twice resolves to its first (best-ranked) entry.
+    byAlpha_.resize(vocabulary_.size());
+    for (uint32_t i = 0; i < vocabulary_.size(); ++i) byAlpha_[i] = i;
+    std::sort(byAlpha_.begin(), byAlpha_.end(), [this](uint32_t a, uint32_t b) {
+        const int c = alpha_[a].compare(alpha_[b]);
+        return c != 0 ? c < 0 : a < b;
+    });
     for (uint32_t i = 0; i < vocabulary_.size(); ++i) {
         if (wordIds_[i] == NgramLM::kUnk) unknownBySpelling_.push_back(i);
         else { byUnigram_.push_back(i); indicesOfId_[wordIds_[i]].push_back(i); }
@@ -110,6 +145,14 @@ std::vector<std::string> NgramPredictor::predict(const std::vector<std::string> 
     return filterPredictedWords(shown, topK);
 }
 
+NgramLM::Context NgramPredictor::contextState(const std::vector<std::string> &context) const
+{
+    std::vector<std::string> history;
+    for (const auto &word : boundedContext(context))
+        history.push_back(QString::fromUtf8(word.data(), int(word.size())).toLower().toUtf8().toStdString());
+    return ngram_.context(history);
+}
+
 NgramPredictor::Ranked NgramPredictor::rank(const std::vector<std::string> &context, size_t want,
                                             const std::string &prefix) const
 {
@@ -119,10 +162,7 @@ NgramPredictor::Ranked NgramPredictor::rank(const std::vector<std::string> &cont
     const std::string typed = prefix.empty() ? std::string() : NgramLM::alphaForm(prefix);
     if (!prefix.empty() && typed.empty()) return result;
     want = std::min<size_t>(want, 256);
-    std::vector<std::string> history;
-    for (const auto &word : boundedContext(context))
-        history.push_back(QString::fromUtf8(word.data(), int(word.size())).toLower().toUtf8().toStdString());
-    const auto state = ngram_.context(history);
+    const auto state = contextState(context);
     result.state = state;
     // WHY (score, index) pairs: sorting numbers instead of copying 100k strings per request; ties still
     // break on the spelling, exactly as before.

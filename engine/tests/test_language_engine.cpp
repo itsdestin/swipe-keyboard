@@ -5,6 +5,7 @@
 // Tests for swipekb::LanguageEngine: the one class the keyboard and the Gaming Mode daemon use for a language.
 // Most cases build a tiny `.combined` dictionary, so they need no downloaded files. The swipe cases run on geometry
 // alone (no model file) and, when SWIPEKB_ASSETS points at a full asset tree, also with the real English files.
+#include <limits>
 #include <gtest/gtest.h>
 
 #include <QTemporaryDir>
@@ -17,44 +18,15 @@
 
 #include "swipekb/language_engine.hpp"
 #include "swipekb/ngram.hpp"
+#include "swipekb/prediction.hpp"
+#include "testkeys.h"
 
 using namespace swipekb;
 
 namespace {
 
-std::vector<KeyRect> qwertyRects(float ox, float oy, float scale)
-{
-    const char *rows[3] = {"qwertyuiop", "asdfghjkl", "zxcvbnm"};
-    const float shift[3] = {0, 50, 150};
-    std::vector<KeyRect> keys;
-    for (int r = 0; r < 3; ++r)
-        for (int i = 0; rows[r][i]; ++i)
-            keys.push_back({char32_t(rows[r][i]), ox + (shift[r] + i * 100.f) * scale, oy + r * 100.f * scale, 100.f * scale, 100.f * scale});
-    return keys;
-}
-
-// A clean swipe: straight lines between the centres of the word's letters, 12 points per segment, 8 ms apart.
-std::vector<TracePoint> traceThrough(const std::string &word, const std::vector<KeyRect> &keys)
-{
-    auto centre = [&](char c) {
-        for (const auto &k : keys)
-            if (k.letter == char32_t(c)) return std::pair{k.x + k.w / 2, k.y + k.h / 2};
-        return std::pair{0.f, 0.f};
-    };
-    std::vector<TracePoint> out;
-    float t = 0;
-    for (size_t i = 0; i + 1 < word.size(); ++i) {
-        auto [x0, y0] = centre(word[i]);
-        auto [x1, y1] = centre(word[i + 1]);
-        for (int s = 0; s < 12; ++s, t += 8) {
-            const float f = s / 12.f;
-            out.push_back({x0 + (x1 - x0) * f, y0 + (y1 - y0) * f, t});
-        }
-    }
-    auto [xe, ye] = centre(word.back());
-    out.push_back({xe, ye, t});
-    return out;
-}
+// qwertyRects / traceThrough live in testkeys.h (shared with test_swap).
+using namespace swipekb::testkeys;
 
 std::vector<std::string> words(const std::vector<Candidate> &c)
 {
@@ -320,20 +292,7 @@ TEST(LanguageEngine, BadInputAndDamagedPartsNeverBreakSwiping)
 
 // ---- with the real English files (SWIPEKB_ASSETS = an asset tree from scripts/fetch-assets.py) ----
 
-namespace {
-std::string assets() { const char *a = std::getenv("SWIPEKB_ASSETS"); return a ? a : ""; }
-bool haveEnglish() { return std::ifstream(assets() + "/dict/en_swipe.combined").good(); }
-LanguageEngineSetup english()
-{
-    LanguageEngineSetup s;
-    s.dictionary = assets() + "/dict/en_swipe.combined";
-    for (const auto *p : {"/language-packs/swipe-model.bin", "/language-files/swipe-model.bin"})
-        if (std::ifstream(assets() + p).good()) { s.swipeModel = assets() + p; break; }
-    for (const auto *p : {"/language-packs/en.ngram", "/language-files/en.ngram"})
-        if (std::ifstream(assets() + p).good()) { s.ngram = assets() + p; break; }
-    return s;
-}
-}
+// assets() / haveEnglish() / english() live in testkeys.h (shared with test_swap).
 
 TEST(LanguageEngineEnglish, CleanSwipesOfCommonWordsLandInTopThree)
 {
@@ -388,4 +347,324 @@ TEST(LanguageEngineEnglish, ApostrophePackLetsTheSentenceChooseTheSpelling)
     EXPECT_EQ(e.recognize(traceThrough("were", keys), keys, {"yes"}, 3).front().word, "we're");
     EXPECT_EQ(e.recognize(traceThrough("were", keys), keys, {"they"}, 3).front().word, "were");
     EXPECT_EQ(e.recognize(traceThrough("is", keys), keys, {"yes"}, 3).front().word, "is");
+}
+
+// ContextRescore (joint-model experiment): off unless a scorer is set; with one, the neural score can move a found
+// word to first place; a broken scorer, or no words before (by default), leaves the guesses exactly as they were.
+TEST(LanguageEngine, ContextRescoreIsOffByDefaultAndNeverBreaksASwipe)
+{
+    Dict d(kEnglish);
+    LanguageEngine e;
+    ASSERT_TRUE(open(e, d));
+    const auto keys = qwertyRects(0, 0, 1);
+    const auto trace = traceThrough("help", keys);
+    const std::vector<std::string> before{"please"};
+    const auto plain = words(e.recognize(trace, keys, before, 3));
+    ASSERT_FALSE(plain.empty());
+    ASSERT_EQ(plain.front(), "help");
+    // The search's own list starts with the same first guess.
+    const auto raw = e.rawCandidates(trace, keys, before, 30);
+    ASSERT_FALSE(raw.empty());
+    EXPECT_EQ(raw.front().word, "help");
+    // Pick a found word other than the first and make the scorer favour it strongly.
+    std::string other;
+    for (const auto &c : raw) if (c.word != "help") { other = c.word; break; }
+    ASSERT_FALSE(other.empty());
+    ContextRescore r;
+    r.neuralWeight = 100.f;
+    r.scorer = [&](const std::vector<std::string> &, const std::vector<std::string> &w) {
+        std::vector<float> s;
+        for (const auto &x : w) s.push_back(x == other ? 0.f : -10.f);
+        return s;
+    };
+    e.setContextRescore(r);
+    EXPECT_EQ(e.recognize(trace, keys, before, 3).front().word, other);
+    // No words before: not re-scored (needWordsBefore), the guesses are as without it.
+    e.setContextRescore({});
+    const auto plainNoContext = words(e.recognize(trace, keys, {}, 3));
+    e.setContextRescore(r);
+    EXPECT_EQ(words(e.recognize(trace, keys, {}, 3)), plainNoContext);
+    // A scorer that throws or answers for the wrong number of words changes nothing.
+    r.scorer = [](const std::vector<std::string> &, const std::vector<std::string> &) -> std::vector<float> { throw 1; };
+    e.setContextRescore(r);
+    EXPECT_EQ(words(e.recognize(trace, keys, before, 3)), plain);
+    r.scorer = [](const std::vector<std::string> &, const std::vector<std::string> &) { return std::vector<float>{0.f}; };
+    e.setContextRescore(r);
+    EXPECT_EQ(words(e.recognize(trace, keys, before, 3)), plain);
+    // Neutral weights (no neural, all of the n-gram prior) change nothing either.
+    r.neuralWeight = 0.f;
+    r.scorer = [](const std::vector<std::string> &, const std::vector<std::string> &w) { return std::vector<float>(w.size(), -3.f); };
+    e.setContextRescore(r);
+    EXPECT_EQ(words(e.recognize(trace, keys, before, 3)), plain);
+}
+
+// Joint-model step 2: a word the next-word vocabulary lacks (NaN from the scorer, e.g. a word the person taught) takes
+// its own n-gram prior in the neural score's place. With the English weights (neural 1, n-gram 0) every such word keeps
+// exactly the score the search gave it, so "no opinion on any word" changes nothing.
+TEST(LanguageEngine, ContextRescoreKeepsWordsTheScorerDoesNotKnow)
+{
+    Dict d(kEnglish);
+    LanguageEngine e;
+    ASSERT_TRUE(open(e, d));
+    const auto keys = qwertyRects(0, 0, 1);
+    const auto trace = traceThrough("help", keys);
+    const std::vector<std::string> before{"please"};
+    const auto plain = words(e.recognize(trace, keys, before, 3));
+    ASSERT_FALSE(plain.empty());
+    auto r = ContextRescore::forLanguage("en");
+    // WHY no learned model here: this checks the fixed weights' fallback (the learned one has its own test below).
+    r.reranker = nullptr;
+    r.scorer = [](const std::vector<std::string> &, const std::vector<std::string> &w) {
+        return std::vector<float>(w.size(), std::numeric_limits<float>::quiet_NaN());
+    };
+    e.setContextRescore(r);
+    EXPECT_EQ(words(e.recognize(trace, keys, before, 3)), plain);
+    // Known words still move: one unknown word (NaN) beside a scorer that strongly favours another found word.
+    const auto raw = e.rawCandidates(trace, keys, before, 30);
+    std::string other;
+    for (const auto &c : raw) if (c.word != "help") { other = c.word; break; }
+    ASSERT_FALSE(other.empty());
+    r.scorer = [&](const std::vector<std::string> &, const std::vector<std::string> &w) {
+        std::vector<float> s;
+        for (const auto &x : w) s.push_back(x == other ? 50.f : x == "help" ? std::numeric_limits<float>::quiet_NaN() : -10.f);
+        return s;
+    };
+    r.neuralWeight = 100.f;
+    e.setContextRescore(r);
+    EXPECT_EQ(e.recognize(trace, keys, before, 3).front().word, other);
+}
+
+// Joint-model step 3: the learned re-ranker (SwipeReranker). A hand-written model file: every feature has mean 0 and
+// scale 1, and only the weights given are non-zero.
+static std::string rerankerText(const std::vector<std::pair<int, float>> &sentence, const std::vector<std::pair<int, float>> &noSentence)
+{
+    std::string t = "swipekb-rerank 1\nfeatures " + std::to_string(kRrCount) + "\n";
+    const auto set = [&](const char *name, const std::vector<std::pair<int, float>> &w) {
+        std::vector<float> lin(kRrCount, 0.f);
+        for (const auto &[i, v] : w) lin[size_t(i)] = v;
+        t += std::string("set ") + name + " hidden 0\nmean";
+        for (int i = 0; i < kRrCount; ++i) t += " 0";
+        t += "\nscale";
+        for (int i = 0; i < kRrCount; ++i) t += " 1";
+        t += "\nlin";
+        for (float v : lin) t += " " + std::to_string(v);
+        t += "\n";
+    };
+    if (!sentence.empty()) set("sentence", sentence);
+    if (!noSentence.empty()) set("nosentence", noSentence);
+    return t + "end\n";
+}
+
+static std::shared_ptr<const SwipeReranker> reranker(const std::string &text)
+{
+    auto r = std::make_shared<SwipeReranker>();
+    EXPECT_TRUE(r->parse(text));
+    return r;
+}
+
+// The file format: a damaged file switches the model off; the score is lin . z + out . relu(W z + b).
+TEST(SwipeReranker, ReadsOnlyCompleteFilesAndScoresAsWritten)
+{
+    SwipeReranker r;
+    EXPECT_FALSE(r.parse(""));
+    EXPECT_FALSE(r.ready());
+    EXPECT_TRUE(r.parse(rerankerText({{kRrPath, 2.f}}, {})));
+    EXPECT_TRUE(r.has(SwipeReranker::WithSentence));
+    EXPECT_FALSE(r.has(SwipeReranker::NoSentence));
+    RerankRow f{};
+    f[kRrPath] = -1.5f;
+    EXPECT_FLOAT_EQ(r.score(SwipeReranker::WithSentence, f), -3.f);
+    // A value that is not a number counts as the mean: it says nothing.
+    f[kRrPath] = std::numeric_limits<float>::quiet_NaN();
+    EXPECT_FLOAT_EQ(r.score(SwipeReranker::WithSentence, f), 0.f);
+    // Wrong feature count, a NaN weight, a zero scale, a truncated file: refused.
+    std::string bad = rerankerText({{kRrPath, 2.f}}, {});
+    EXPECT_FALSE(r.parse(std::string(bad).replace(bad.find("features ") + 9, 2, "99")));
+    EXPECT_FALSE(r.ready());
+    EXPECT_FALSE(r.parse(std::string(bad).replace(bad.find(" 2.000000"), 9, " nan")));
+    EXPECT_FALSE(r.parse(std::string(bad).replace(bad.find("scale 1"), 7, "scale 0")));
+    EXPECT_FALSE(r.parse(bad.substr(0, bad.size() / 2)));
+    // One hidden unit: relu(1 * z_path + 0.5) * 2, plus nothing linear.
+    std::string h = "swipekb-rerank 1\nfeatures " + std::to_string(kRrCount) + "\nset nosentence hidden 1\nmean";
+    for (int i = 0; i < kRrCount; ++i) h += " 0";
+    h += "\nscale";
+    for (int i = 0; i < kRrCount; ++i) h += " 1";
+    h += "\nlin";
+    for (int i = 0; i < kRrCount; ++i) h += " 0";
+    h += "\nw1";
+    for (int i = 0; i < kRrCount; ++i) h += i == kRrPath ? " 1" : " 0";
+    h += "\nb1 0.5\nout 2\nend\n";
+    ASSERT_TRUE(r.parse(h));
+    RerankRow g{};
+    g[kRrPath] = 1.f;
+    EXPECT_FLOAT_EQ(r.score(SwipeReranker::NoSentence, g), 3.f);
+    g[kRrPath] = -2.f;
+    EXPECT_FLOAT_EQ(r.score(SwipeReranker::NoSentence, g), 0.f);
+}
+
+// With a re-ranker, a swipe with no words before is re-ordered by its "no sentence" weights (no scorer needed); one
+// with words before uses the "sentence" weights only when the scorer answers, and otherwise keeps the search's order.
+TEST(LanguageEngine, LearnedRerankerOrdersBothKindsOfSwipeAndNeverBreaksOne)
+{
+    Dict d(kEnglish);
+    LanguageEngine e;
+    ASSERT_TRUE(open(e, d));
+    const auto keys = qwertyRects(0, 0, 1);
+    const auto trace = traceThrough("help", keys);
+    const std::vector<std::string> before{"please"};
+    const auto plain = words(e.recognize(trace, keys, before, 3));
+    const auto plainNoContext = words(e.recognize(trace, keys, {}, 3));
+    const auto raw = e.rawCandidates(trace, keys, {}, 30);
+    ASSERT_GE(raw.size(), 2u);
+    // "No sentence" weights that prefer the search's LAST word: it comes first.
+    ContextRescore r;
+    r.reranker = reranker(rerankerText({}, {{kRrRankLog, 100.f}}));
+    e.setContextRescore(r);
+    EXPECT_EQ(e.recognize(trace, keys, {}, 3).front().word, raw.back().word);
+    // Words before but no "sentence" weights and no scorer: as found.
+    EXPECT_EQ(words(e.recognize(trace, keys, before, 3)), plain);
+    // The features recognize() uses are the ones the training script reads.
+    const auto cands = e.rerankCandidates(trace, keys, {});
+    ASSERT_EQ(cands.size(), raw.size());
+    EXPECT_EQ(cands.front().word, raw.front().word);
+    EXPECT_EQ(cands.front().features[kRrFirst], 1.f);
+    EXPECT_EQ(cands[1].features[kRrFirst], 0.f);
+    for (const auto &c : cands)
+        for (float v : c.features) EXPECT_TRUE(std::isfinite(v));
+    // "Sentence" weights that follow the neural score: the word the scorer favours comes first.
+    std::string other;
+    for (const auto &c : e.rawCandidates(trace, keys, before, 30)) if (c.word != "help") { other = c.word; break; }
+    ASSERT_FALSE(other.empty());
+    r.reranker = reranker(rerankerText({{kRrNeural, 100.f}}, {}));
+    r.scorer = [&](const std::vector<std::string> &, const std::vector<std::string> &w) {
+        std::vector<float> s;
+        for (const auto &x : w) s.push_back(x == other ? 0.f : -10.f);
+        return s;
+    };
+    e.setContextRescore(r);
+    EXPECT_EQ(e.recognize(trace, keys, before, 3).front().word, other);
+    // No "no sentence" weights: a swipe without words before is as found (and the scorer is not asked).
+    EXPECT_EQ(words(e.recognize(trace, keys, {}, 3)), plainNoContext);
+    // A scorer that throws or answers short: as found.
+    r.scorer = [](const std::vector<std::string> &, const std::vector<std::string> &) -> std::vector<float> { throw 1; };
+    e.setContextRescore(r);
+    EXPECT_EQ(words(e.recognize(trace, keys, before, 3)), plain);
+    r.scorer = [](const std::vector<std::string> &, const std::vector<std::string> &) { return std::vector<float>{0.f}; };
+    e.setContextRescore(r);
+    EXPECT_EQ(words(e.recognize(trace, keys, before, 3)), plain);
+    // A word the scorer has no opinion on (NaN, e.g. a learned word) is not read as "very unlikely": with every other
+    // word scored very low it stays first.
+    r.scorer = [](const std::vector<std::string> &, const std::vector<std::string> &w) {
+        std::vector<float> s;
+        for (const auto &x : w) s.push_back(x == "help" ? std::numeric_limits<float>::quiet_NaN() : -12.f);
+        return s;
+    };
+    e.setContextRescore(r);
+    EXPECT_EQ(e.recognize(trace, keys, before, 3).front().word, "help");
+}
+
+// Review I1 (2026-10-30): with the learned scores, places 2-3 were ordered by "model score + the sentence prior", and a
+// word the person taught has no sentence evidence (the floor), so after a sentence it fell off the bar even when the
+// model placed it 2nd. A taught word is never placed lower than the model's own order puts it, however strong the
+// extra prior weight. Hand-made dictionary + n-gram pack (no downloads): "helo" is taught and shares "hello"'s finger
+// path (double letters do not show in a swipe); the pack knows the other words, not "helo".
+TEST(LanguageEngine, TaughtWordKeepsTheRerankersPlaceAfterASentence)
+{
+    Dict d(kEnglish);
+    NgramModelData nd;
+    nd.words = {"held", "hell", "hello", "help", "hero", "please"};   // ids 3..8, sorted like the pack builder
+    nd.uni_lp = {-2.f, -99.f, -1.5f, -2.f, -2.5f, -2.f, -1.5f, -2.5f, -2.f};
+    nd.uni_bo = std::vector<float>(9, 0.f);
+    nd.calib_a = -6.f;
+    nd.calib_b = 0.01f;
+    QTemporaryDir dir;
+    LanguageEngineSetup s;
+    s.dictionary = d.path;
+    s.ngram = dir.filePath("en.ngram").toStdString();
+    ASSERT_TRUE(NgramLM::write(s.ngram, nd));
+    LanguageEngine e;
+    ASSERT_TRUE(e.init(s));
+    ASSERT_TRUE(e.usingNgram());
+    e.setLearnedWords({{"helo", 110}});
+    const auto keys = qwertyRects(0, 0, 1);
+    const auto trace = traceThrough("hello", keys);
+    const std::vector<std::string> before{"please"};
+    // A model that follows the path fit alone: "hello" and "helo" are at the top, the sentence has no say.
+    ContextRescore r;
+    r.reranker = reranker(rerankerText({{kRrPath, 1.f}}, {}));
+    r.scorer = [](const std::vector<std::string> &, const std::vector<std::string> &w) { return std::vector<float>(w.size(), -2.f); };
+    const auto modelPlace = [&](const std::string &w) {
+        auto c = e.rerankCandidates(trace, keys, before);
+        std::stable_sort(c.begin(), c.end(), [](const auto &a, const auto &b) { return a.features[kRrPath] > b.features[kRrPath]; });
+        for (size_t i = 0; i < c.size(); ++i) if (c[i].word == w) return long(i);
+        return -1L;
+    };
+    e.setContextRescore(r);
+    const long place = modelPlace("helo");
+    ASSERT_GE(place, 0);
+    ASSERT_LE(place, 2) << "the fixture must put the taught word in the model's top 3";
+    for (const float scale : {0.5f, 1.f, 100.f}) {
+        AlternativeParams alt;
+        alt.learnedScale = scale;
+        e.setAlternativeParams(alt);
+        const auto bar = words(e.recognize(trace, keys, before, 3));
+        ASSERT_FALSE(bar.empty());
+        EXPECT_LE(at(bar, "helo"), place) << "scale " << scale;
+    }
+    // Control: the same word as a plain dictionary word (not taught, still unknown to the pack) is not shielded, so a
+    // strong extra weight lets the sentence push it off the bar. This shows the rule above is what keeps it there.
+    auto plainWords = kEnglish;
+    plainWords.push_back({"helo", 110, ""});
+    Dict d2(plainWords);
+    s.dictionary = d2.path;
+    LanguageEngine plain;
+    ASSERT_TRUE(plain.init(s));
+    plain.setContextRescore(r);
+    AlternativeParams strong;
+    strong.learnedScale = 100.f;
+    plain.setAlternativeParams(strong);
+    const auto bar = words(plain.recognize(trace, keys, before, 3));
+    ASSERT_FALSE(bar.empty());
+    if (bar.front() != "helo") EXPECT_FALSE(has(plain.recognize(trace, keys, before, 3), "helo"));
+}
+
+// Review I1 with the real English files: taught names and slang the learned re-ranker places 1st-3rd stay on the bar
+// with a sentence before them ("i met" + a clean swipe of a taught "brynn" showed "bryn, ben, by" before the fix).
+TEST(LanguageEngineEnglish, TaughtWordsStayOnTheBarAfterASentence)
+{
+    if (!haveEnglish()) GTEST_SKIP() << "set SWIPEKB_ASSETS to a fetched asset tree";
+    auto s = english();
+    if (s.swipeModel.empty() || s.ngram.empty()) GTEST_SKIP() << "the swipe model or n-gram pack is not in SWIPEKB_ASSETS";
+    const std::string dir = s.ngram.substr(0, s.ngram.rfind('/') + 1);
+    Predictor p;
+    if (!p.init(s.ngram, dir + "en.vocab.tsv", dir + "en.nwp.bin", false)) GTEST_SKIP() << "the next-word model is not in SWIPEKB_ASSETS";
+    const auto keys = qwertyRects(0, 0, 1);
+    const std::vector<std::string> taught{"jaxon", "brynn", "kaden", "emmy", "dex", "rielly", "tay", "kenzi", "shawty", "bruh"};
+    for (const int freq : {110, 190}) {
+        LanguageEngine e;
+        ASSERT_TRUE(e.init(s));
+        std::vector<std::pair<std::string, int>> lw;
+        for (const auto &w : taught) lw.push_back({w, freq});
+        e.setLearnedWords(lw);
+        auto r = ContextRescore::forLanguage("en");
+        ASSERT_TRUE(r.reranker);
+        r.scorer = [&p](const std::vector<std::string> &c, const std::vector<std::string> &w) { return p.scoreWords(c, w, true); };
+        e.setContextRescore(r);
+        for (const auto &w : taught) {
+            const auto t = traceThrough(w, keys);
+            EXPECT_TRUE(has(e.recognize(t, keys, {}, 3), w)) << w << " freq " << freq << ", no sentence";
+            EXPECT_TRUE(has(e.recognize(t, keys, {"i", "met"}, 3), w)) << w << " freq " << freq << ", after \"i met\"";
+        }
+    }
+}
+
+// The weights compiled into the engine, when there are any, read without error and hold both sets.
+TEST(SwipeReranker, BuiltInWeightsAreComplete)
+{
+    for (const char *lang : {"en", "es", "fr", "de"}) {
+        const auto r = SwipeReranker::builtIn(lang);
+        if (!r) continue;
+        EXPECT_TRUE(r->has(SwipeReranker::WithSentence)) << lang;
+        EXPECT_TRUE(r->has(SwipeReranker::NoSentence)) << lang;
+    }
 }

@@ -54,7 +54,7 @@ def clean_word(word, language):
     return word if previous_letter else None
 
 
-def dictionary_from_counts(counts_path, language, maximum=100000, min_pages=3, typo_ratio=None, foreign=()):
+def dictionary_from_counts(counts_path, language, maximum=100000, min_pages=3, typo_ratio=None, foreign=(), drop=frozenset()):
     """The es/fr/de swipe dictionary counted from FineWeb-2 + Tatoeba (scripts/lm/count-words.py).
 
     This is how the pinned `<lang>.combined` files were made (scripts/dict/build-corpus-dictionaries.sh); the
@@ -65,7 +65,7 @@ def dictionary_from_counts(counts_path, language, maximum=100000, min_pages=3, t
     if typo_ratio is None:
         typo_ratio = corpus_dictionary.LANGUAGE_TYPO_RATIO
     entries = corpus_dictionary.language_entries(counts_path, language, ALPHABETS[language], clean_word,
-                                                 maximum, min_pages, typo_ratio, foreign)
+                                                 maximum, min_pages, typo_ratio, foreign, drop)
     header = f'dictionary=fineweb_{language},locale={language},description=Language,version=3\n'
     return (header + ''.join(f' word={w},f={f}\n' for w, f in entries)).encode('utf-8')
 

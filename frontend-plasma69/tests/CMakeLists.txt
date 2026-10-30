@@ -9,9 +9,14 @@ if(NOT SWIPEKB_TEST_MODEL_DATA AND SWIPEKB_ASSETS AND EXISTS "${SWIPEKB_ASSETS}/
 endif()
 qt_add_executable(tst_plasma69_controller tst_controller.cpp fakeeditor.h)
 target_link_libraries(tst_plasma69_controller PRIVATE swipekb69_core Qt6::Test)
-add_test(NAME plasma69_controller COMMAND tst_plasma69_controller)
-set_tests_properties(plasma69_controller PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 120
-    ENVIRONMENT "SWIPEKB_TEST_MODEL_DATA=${SWIPEKB_TEST_MODEL_DATA};QT_QPA_PLATFORM=offscreen")
+target_include_directories(tst_plasma69_controller PRIVATE ${SWIPEKB_ROOT}/plugin/tests)
+# WHY three parts (plugin/tests/testshard.h): every test builds a fresh keyboard with the real English files, so the
+# whole program took 75 s alone and over 120 s on a busy machine. Each part runs a third of the tests, side by side.
+foreach(_shard 0 1 2)
+    add_test(NAME plasma69_controller_${_shard} COMMAND tst_plasma69_controller)
+    set_tests_properties(plasma69_controller_${_shard} PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 120
+        ENVIRONMENT "SWIPEKB_TEST_MODEL_DATA=${SWIPEKB_TEST_MODEL_DATA};QT_QPA_PLATFORM=offscreen;SWIPEKB_TEST_SHARD=${_shard}/3")
+endforeach()
 
 # WHY a symbol check: the 6.9 module must never carry FUTO's or ExecuTorch's code (owner decision 2026-10-23).
 find_package(Python3 REQUIRED COMPONENTS Interpreter)

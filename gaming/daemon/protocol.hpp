@@ -21,6 +21,10 @@
 //   ping       {}                                           -> {}
 //   status     {}                                           -> {recognizer_loaded, predictor_loaded, profiles_loaded, connections}
 // RESPONSES: {"ok":true,"op":...,...} or {"ok":false,"error":CODE}. CODE is one of the kErr* strings below.
+// A swipe candidate's "score" only ranks the candidates of that one answer (higher = better); its scale is not fixed:
+// a log score in nats (<= 0) for swipes with words before, the learned re-ranker's score (any sign, a few units apart)
+// for swipes without (joint-model step 3). WHY said here: a client must compare scores within one answer, never
+// against a fixed threshold.
 //
 // LANGUAGES (plan Section 13, milestone M7). "layout" names Steam's own keyboard layout id in "steam_layout" (absent =
 // "qwerty", for callers older than M7). The daemon serves four: qwerty (English US), spanish, french (AZERTY), german

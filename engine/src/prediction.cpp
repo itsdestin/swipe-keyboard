@@ -17,6 +17,7 @@ struct Predictor::Impl {
 Predictor::Predictor() = default;
 Predictor::~Predictor() = default;
 bool Predictor::ready() const { return m_impl && m_impl->ngram.ready(); }
+bool Predictor::hasNeural() const { return ready() && m_impl->ngram.usesLm(); }
 bool Predictor::init(const std::string &model, const std::string &vocab, const std::string &nwp, bool siblingFallback)
 {
     m_impl.reset();
@@ -35,6 +36,14 @@ std::vector<std::string> Predictor::predict(const std::vector<std::string> &cont
     if (!ready() || topK <= 0) return {};
     try {
         return m_impl->ngram.predict(context, std::min(topK, 64), prefix);
+    } catch (...) { return {}; }
+}
+std::vector<float> Predictor::scoreWords(const std::vector<std::string> &context, const std::vector<std::string> &words,
+                                         bool markUnknown)
+{
+    if (!ready()) return {};
+    try {
+        return m_impl->ngram.scoreWords(context, words, markUnknown);
     } catch (...) { return {}; }
 }
 }

@@ -8,6 +8,7 @@
 #include "fakeeditor.h"
 #include "languagetextrules.h"
 #include "swipecontroller.h"
+#include "testshard.h"
 
 #include <QSignalSpy>
 #include <QTemporaryDir>
@@ -281,6 +282,10 @@ private Q_SLOTS:
         }));
         const auto bar = m_controller->candidates();
         QVERIFY(!bar.contains(QStringLiteral("cat")));
+        // WHY (card #500): a readable field lends the word after the tapped one ("sat") to the ranking; text the
+        // keyboard did not type has no remembered swipe, so a made-up path is used.
+        QCOMPARE(m_controller->diagnostics().value(QStringLiteral("swapWordsAfter")).toInt(), 1);
+        QVERIFY(!m_controller->diagnostics().value(QStringLiteral("swapUsedPath")).toBool());
         m_controller->pressCandidate(m_controller->selectionToken());
         m_controller->selectCandidate(0);
         QCOMPARE(m_editor->m_text, QStringLiteral("the ") + bar.first() + QStringLiteral(" sat"));
@@ -324,6 +329,130 @@ private Q_SLOTS:
         m_editor->moveCursor(5);
         QTest::qWait(300);
         QVERIFY(m_controller->candidates().isEmpty());
+    }
+
+    void anUnreadableFieldLendsNoWordsAfterTheTappedOne()
+    {
+        // WHY (card #500): in owned-history fields only the keyboard's own words may be inspected, so a tap-back
+        // list there is built from the words before the tapped word alone, never from the text after it, even
+        // when that text is the keyboard's own next word.
+        m_editor->setHints(Qt::ImhNoPredictiveText);
+        m_editor->setField(QStringLiteral("we "));
+        QTest::qWait(300);
+        swipe(QStringLiteral("hello"));
+        swipe(QStringLiteral("there"));
+        const QString text = m_editor->m_text;
+        QVERIFY2(text.startsWith(QStringLiteral("we ")) && text.count(QLatin1Char(' ')) >= 2, qPrintable(text));
+        QTest::qWait(400); // our own edits settle
+        m_editor->moveCursor(5); // inside the first swiped word
+        QVERIFY2(waitForBar([](const QStringList &bar) {
+                     return !bar.isEmpty();
+                 }),
+                 "no alternatives for the keyboard's own word");
+        QCOMPARE(m_controller->diagnostics().value(QStringLiteral("swapWordsAfter")).toInt(), 0);
+        QVERIFY(m_controller->diagnostics().value(QStringLiteral("swapUsedPath")).toBool()); // its own finger path
+    }
+
+    void theBarAfterASwipeKeepsTheWordAndIsNeverEmpty()
+    {
+        // WHY (card #500): the other places are rebuilt from the swap search right after the swipe; the typed word
+        // must stay exactly what the swipe typed.
+        m_editor->setField(QStringLiteral("we "));
+        QTest::qWait(300);
+        swipe(QStringLiteral("hello"));
+        const QString text = m_editor->m_text;
+        const auto first = m_controller->candidates();
+        QVERIFY(!first.isEmpty());
+        QTest::qWait(300); // the deferred list (and the worker's scores) arrive
+        QCOMPARE(m_editor->m_text, text);
+        const auto later = m_controller->candidates();
+        QVERIFY(!later.isEmpty());
+        QVERIFY(!later.contains(text.mid(3).trimmed(), Qt::CaseInsensitive));
+    }
+
+    void aSecondSwipeKeepsItsOwnAlternatives()
+    {
+        // WHY (card #500): the first swipe's list is built a moment after it; when the person swipes again before
+        // that, it is dropped, never shown beside the second word.
+        // Reference: the same two swipes with time in between, so each list lands on its own swipe.
+        swipe(QStringLiteral("hello"));
+        QTest::qWait(300);
+        const auto firstOnItsOwn = m_controller->candidates();
+        swipe(QStringLiteral("world"));
+        QTest::qWait(300);
+        const QString text = m_editor->m_text;
+        const auto secondOnItsOwn = m_controller->candidates();
+        QVERIFY(!secondOnItsOwn.isEmpty());
+        // Now back to back: no event loop between them, so the first list has not been built when the second comes.
+        make();
+        const auto before = m_controller->diagnostics().value(QStringLiteral("afterSwipeLists")).toULongLong();
+        swipe(QStringLiteral("hello"));
+        swipe(QStringLiteral("world"));
+        QTest::qWait(300);
+        QCOMPARE(m_controller->diagnostics().value(QStringLiteral("afterSwipeLists")).toULongLong() - before, 1ull);
+        QCOMPARE(m_editor->m_text, text);                       // the second swipe's word, as typed
+        const auto bar = m_controller->candidates();
+        QCOMPARE(bar, secondOnItsOwn);                          // exactly the second swipe's own list
+        const QString second = text.mid(text.lastIndexOf(QLatin1Char(' ')) + 1);
+        QVERIFY(!bar.contains(second, Qt::CaseInsensitive));
+        for (const auto &w : firstOnItsOwn) {
+            QVERIFY2(!bar.contains(w) || secondOnItsOwn.contains(w), qPrintable(w + " came from the first swipe"));
+        }
+    }
+
+    void nextWordsStillFollowASwipe()
+    {
+        // WHY (card #500): the after-swipe list asks the worker for scores, and the worker keeps only its latest job;
+        // the next-word list after a Space must still arrive, typed right away or after the scores came back.
+        for (const bool wait : {false, true}) {
+            make();
+            m_editor->setField(QStringLiteral("many "));
+            QTest::qWait(300);
+            swipe(QStringLiteral("thank"));
+            QVERIFY2(m_editor->m_text.endsWith(QStringLiteral("thank")), qPrintable(m_editor->m_text));
+            if (wait) {
+                QTest::qWait(300);
+            }
+            type(QStringLiteral(" "));
+            QVERIFY2(waitForBar([](const QStringList &bar) {
+                         return bar.contains(QStringLiteral("you"));
+                     }),
+                     qPrintable(m_controller->candidates().join(QLatin1Char(','))));
+        }
+    }
+
+    void aSwipeAfterWordsIsRankedByTheSentenceModel()
+    {
+        // Joint-model step 2: with words before, the swipe's guesses are re-ranked by the sentence model the next-word
+        // bar uses (borrowed from its worker). The bar after the swipe never repeats the typed word or any word twice.
+        type(QStringLiteral("thank you very "));
+        // The worker loads the model for the next-word bar; from then on swipes can use it.
+        QVERIFY(waitForBar([](const QStringList &bar) {
+            return !bar.isEmpty();
+        }));
+        swipe(QStringLiteral("much"));
+        const QString text = m_editor->m_text;
+        QVERIFY2(text.startsWith(QStringLiteral("thank you very ")) && text.size() > 15, qPrintable(text));
+        auto d = m_controller->diagnostics();
+        QCOMPARE(d.value(QStringLiteral("swipeRescoreAsked")).toULongLong(), 1ull);
+        QCOMPARE(d.value(QStringLiteral("swipeRescoreScored")).toULongLong(), 1ull);
+        const QString typed = text.mid(15).trimmed();
+        QVERIFY(waitForBar([&](const QStringList &bar) {
+            return m_controller->diagnostics().value(QStringLiteral("afterSwipeLists")).toULongLong() > 0 && !bar.isEmpty();
+        }));
+        QTest::qWait(300); // the worker's scores for the bar arrive
+        const auto bar = m_controller->candidates();
+        QVERIFY(!bar.contains(typed, Qt::CaseInsensitive));
+        for (int i = 0; i < bar.size(); ++i) {
+            for (int j = i + 1; j < bar.size(); ++j) {
+                QVERIFY2(bar[i].compare(bar[j], Qt::CaseInsensitive) != 0, qPrintable(bar.join(QLatin1Char(','))));
+            }
+        }
+        // A swipe that starts the text has no words before: not re-ranked.
+        make();
+        swipe(QStringLiteral("hello"));
+        d = m_controller->diagnostics();
+        QCOMPARE(d.value(QStringLiteral("swipeRescoreAsked")).toULongLong(), 0ull);
     }
 
     void passwordFieldDisablesEverything()
@@ -460,5 +589,15 @@ private Q_SLOTS:
     }
 };
 
-QTEST_GUILESS_MAIN(ControllerTest)
+// WHY not QTEST_GUILESS_MAIN: CTest runs this program in three parts (SWIPEKB_TEST_SHARD, plugin/tests/testshard.h).
+// Same set-up as QTEST_GUILESS_MAIN.
+int main(int argc, char **argv)
+{
+    QTest::Internal::callInitMain<ControllerTest>();
+    QCoreApplication app(argc, argv);
+    app.setAttribute(Qt::AA_Use96Dpi, true);
+    ControllerTest test;
+    QTEST_SET_MAIN_SOURCE_PATH
+    return swipekbtest::runShard(&test, argc, argv);
+}
 #include "tst_controller.moc"

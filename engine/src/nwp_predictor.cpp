@@ -8,6 +8,7 @@
 #include <QString>
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <unordered_set>
 
 namespace swipekb {
@@ -61,12 +62,8 @@ std::string NwpPredictor::lmForm(const std::string &word) const
     return lmApostrophes_ ? NgramLM::apostropheForm(word) : NgramLM::alphaForm(word);
 }
 
-std::vector<std::string> NwpPredictor::predict(const std::vector<std::string> &context, int topK,
-                                               const std::string &prefix) const
+void NwpPredictor::prepare(const std::vector<std::string> &context) const
 {
-    if (!useLm_) return ngram_.predict(context, topK, prefix);
-    if (!ready() || topK <= 0) return {};
-    topK = std::min(topK, 64);
     // The sentence as the model reads it: <s>, then each word (0 = unknown to the model). WHY <s> only when the
     // context is shorter than the 20-word cap: a capped context starts mid-sentence, as in training.
     const auto bounded = boundedContext(context);
@@ -85,6 +82,52 @@ std::vector<std::string> NwpPredictor::predict(const std::vector<std::string> &c
         lm_.logProbs(state_, logp_);
         logpValid_ = true;
     }
+}
+
+float NwpPredictor::blendScore(const NgramLM::Context &state, uint32_t index) const
+{
+    // WHY one function for predict() and scoreWords(): the tap-to-swap ranking must use exactly the numbers predict() ranks by.
+    constexpr float kLog10 = 2.30258509f;
+    const float n = ngram_.score(state, index);
+    const uint32_t t = indexToToken_[index];
+    float neural = t >= 3 ? logp_[t] / kLog10 : 0.f;
+    if (t >= 3 && (tokenToIndex_[t] != int32_t(index) || nextSameToken_[index] >= 0)) {
+        // Several words share this neural word: each gets its share by the n-gram's odds in this context
+        // (log10 of its probability over the group's total), so the shares add up to the neural score.
+        float total = 0;
+        for (int32_t j = tokenToIndex_[t]; j >= 0; j = nextSameToken_[size_t(j)]) total += std::pow(10.f, ngram_.score(state, uint32_t(j)));
+        if (total > 0) neural += n - std::log10(total);
+    }
+    // Words the neural model knows: blend both opinions. Others: the n-gram alone (plus a tuned offset).
+    return t >= 3 ? lambda_ * neural + (1.f - lambda_) * n : n + oovBonus_;
+}
+
+std::vector<float> NwpPredictor::scoreWords(const std::vector<std::string> &context, const std::vector<std::string> &words,
+                                            bool markUnknown) const
+{
+    if (!ready()) return {};
+    // WHY: tap-to-swap ranks the alternatives of one word, so it needs the score of each given word, not a top list.
+    const auto state = ngram_.contextState(context);
+    if (useLm_) prepare(context);
+    std::vector<float> out;
+    out.reserve(words.size());
+    for (const auto &word : words) {
+        const int32_t index = ngram_.indexOf(word);
+        // Not a keyboard word: the n-gram floor, or "no opinion" (NaN) when asked. WHY NaN for the swipe re-scoring: a
+        // word the person taught the keyboard is unknown here, and the floor would push it below every other guess.
+        if (index < 0) out.push_back(markUnknown ? std::numeric_limits<float>::quiet_NaN() : ngram_.model().floorLogProb());
+        else out.push_back(useLm_ ? blendScore(state, uint32_t(index)) : ngram_.score(state, uint32_t(index)));
+    }
+    return out;
+}
+
+std::vector<std::string> NwpPredictor::predict(const std::vector<std::string> &context, int topK,
+                                               const std::string &prefix) const
+{
+    if (!useLm_) return ngram_.predict(context, topK, prefix);
+    if (!ready() || topK <= 0) return {};
+    topK = std::min(topK, 64);
+    prepare(context);
 
     const auto ng = ngram_.rank(context, kCandidates, prefix);
     const std::string typed = prefix.empty() ? std::string() : NgramLM::alphaForm(prefix);
@@ -103,23 +146,11 @@ std::vector<std::string> NwpPredictor::predict(const std::vector<std::string> &c
     }
     const size_t keep = lmTop.size();
 
-    constexpr float kLog10 = 2.30258509f;
     std::unordered_set<uint32_t> seen;
     std::vector<std::pair<float, uint32_t>> blended;
     const auto add = [&](uint32_t index) {
         if (!seen.insert(index).second) return;
-        const float n = ngram_.score(ng.state, index);
-        const uint32_t t = indexToToken_[index];
-        float neural = t >= 3 ? logp_[t] / kLog10 : 0.f;
-        if (t >= 3 && (tokenToIndex_[t] != int32_t(index) || nextSameToken_[index] >= 0)) {
-            // Several words share this neural word: each gets its share by the n-gram's odds in this context
-            // (log10 of its probability over the group's total), so the shares add up to the neural score.
-            float total = 0;
-            for (int32_t j = tokenToIndex_[t]; j >= 0; j = nextSameToken_[size_t(j)]) total += std::pow(10.f, ngram_.score(ng.state, uint32_t(j)));
-            if (total > 0) neural += n - std::log10(total);
-        }
-        // Words the neural model knows: blend both opinions. Others: the n-gram alone (plus a tuned offset).
-        blended.emplace_back(t >= 3 ? lambda_ * neural + (1.f - lambda_) * n : n + oovBonus_, index);
+        blended.emplace_back(blendScore(ng.state, index), index);
     };
     for (const auto &[score, index] : ng.top) add(index);
     for (size_t k = 0; k < keep; ++k)

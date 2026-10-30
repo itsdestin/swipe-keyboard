@@ -44,6 +44,51 @@ target_link_libraries(swipekb-bench PRIVATE swipekb_engine Qt6::Core)
 # swipekb-sentence-check: exact spelling (apostrophes count) of swipes and next-word suggestions in held-out sentences.
 add_executable(swipekb-sentence-check swipekb-sentence-check.cpp)
 target_link_libraries(swipekb-sentence-check PRIVATE swipekb_engine Qt6::Core)
+# swipekb-shadow-words: rare added words that would win a common word's clean swipe (word-list build, --drop lists).
+add_executable(swipekb-shadow-words swipekb-shadow-words.cpp)
+target_link_libraries(swipekb-shadow-words PRIVATE swipekb_engine Qt6::Core)
 # The swipe engine's own scoring tool (network + search settings sweeps, per-board numbers).
 add_executable(swipekb-swipenet-bench swipekb-swipenet-bench.cpp)
 target_link_libraries(swipekb-swipenet-bench PRIVATE swipekb_engine Qt6::Core)
+
+# Swap scoreboard (card #500): the five swap measures are plain counting, tested on their own.
+add_library(swapmeasures STATIC swapmeasures.cpp)
+target_include_directories(swapmeasures PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+add_executable(tst_swapmeasures tests/tst_swapmeasures.cpp)
+target_link_libraries(tst_swapmeasures PRIVATE swapmeasures Qt6::Core Qt6::Test)
+add_test(NAME tools_swapmeasures COMMAND tst_swapmeasures)
+# The junk rule both scoreboards share (benchdata.h): its English thresholds are pinned against the shipped list.
+add_executable(tst_junkrule tests/tst_junkrule.cpp)
+target_link_libraries(tst_junkrule PRIVATE swipekb_engine Qt6::Core Qt6::Test)
+add_test(NAME tools_junkrule COMMAND tst_junkrule)
+set_tests_properties(tools_junkrule PROPERTIES ENVIRONMENT "SWIPEKB_ASSETS=${SWIPEKB_ASSETS}")
+# swipekb-swap-bench: the swap scoreboard's engine (card #500). Baseline mode runs the shipped WordSwap::build itself.
+add_executable(swipekb-swap-bench swipekb-swap-bench.cpp)
+target_link_libraries(swipekb-swap-bench PRIVATE swipekb_engine swipekb_session swipekb_swapflow swipekb_language swapmeasures Qt6::Core)
+
+# swipekb-rescore-bench: joint-model experiment step 1 (headroom of re-ranking a swipe, tuning dumps and the speed of
+# re-scoring swipes with the neural next-word model; ContextRescore).
+# WHY the plugin's next-word worker compiled in (step 2, --product): the speed is measured through the very code the
+# keyboard runs, the swipe borrowing the worker's model under its lock.
+add_executable(swipekb-rescore-bench swipekb-rescore-bench.cpp ${PROJECT_SOURCE_DIR}/plugin/nextwordworker.cpp
+    ${PROJECT_SOURCE_DIR}/plugin/nextwordworker.h)
+target_include_directories(swipekb-rescore-bench PRIVATE ${PROJECT_SOURCE_DIR}/plugin)
+target_link_libraries(swipekb-rescore-bench PRIVATE swipekb_engine swipekb_language swipekb_session Qt6::Core)
+
+# The user-experience scoreboard's typing half (bench/ux-score.sh): the typing simulator is plain counting, tested with
+# made-up bars; swipekb-typing-bench feeds it the bar both front ends build (plugin/barflow.h).
+add_library(typingsim STATIC typingsim.cpp)
+target_include_directories(typingsim PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(typingsim PUBLIC swipekb_engine Qt6::Core)
+add_executable(tst_typingsim tests/tst_typingsim.cpp)
+target_link_libraries(tst_typingsim PRIVATE typingsim Qt6::Test)
+add_test(NAME tools_typingsim COMMAND tst_typingsim)
+add_executable(swipekb-typing-bench swipekb-typing-bench.cpp)
+target_link_libraries(swipekb-typing-bench PRIVATE typingsim swipekb_swapflow swipekb_language swipekb_engine Qt6::Core)
+# The owner's recordings reader (recordings.h) and the swap bench's --recordings mode: truth rules, and that it only reads.
+add_executable(tst_recordings tests/tst_recordings.cpp)
+target_link_libraries(tst_recordings PRIVATE swipekb_engine Qt6::Core Qt6::Test)
+target_compile_definitions(tst_recordings PRIVATE SWIPEKB_SWAP_BENCH_EXE="$<TARGET_FILE:swipekb-swap-bench>")
+add_dependencies(tst_recordings swipekb-swap-bench)
+add_test(NAME tools_recordings COMMAND tst_recordings)
+set_tests_properties(tools_recordings PROPERTIES ENVIRONMENT "SWIPEKB_ASSETS=${SWIPEKB_ASSETS}")

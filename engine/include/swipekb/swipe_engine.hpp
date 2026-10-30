@@ -32,6 +32,11 @@ struct EngineParams {
     int rerank = 20;
     // Dictionary frequency prior used by the beam search when no sentence prior is set (nats per point).
     float freqWeight = 0.06f;
+    // The network's key probabilities are flattened by this factor before the search (log-probabilities divided by
+    // it, then renormalised per step). 1 = as trained. WHY: tap-to-swap searches a made-up, perfectly clean path
+    // through the typed word's keys; the network is far surer about such a path than about a real swipe, so words a
+    // real swipe could have produced fall out. Used only by LanguageEngine::swapCandidates (SwapParams).
+    float temperature = 1.f;
 };
 
 class SwipeEngine {
@@ -64,6 +69,14 @@ public:
 
     // Best first; score is higher-is-better. Network + search when a model is loaded, else geometry.
     std::vector<SwipeCandidate> decode(const std::vector<SwipePoint> &trace, float aspect, int topN);
+    // The path fit (ctc, natural log, the same scale as SwipeCandidate::ctc) of each given word against the network
+    // output of the last decode(), whether or not the search found the word. Empty when the last decode() did not use
+    // the network (no model, or geometry fallback); -1e30 for a word with no keys on this layout.
+    // WHY: tap-to-swap adds words the search did not reach (one-edit neighbours) and must place them on the same
+    // path scale as the words it did reach. It is the exact sum over all alignments; the search only lets a step's
+    // best `beam.keysPerStep` keys start a letter and prunes, so a word it found scores the same or a little higher
+    // here, and a word it could never reach still gets a (low) finite value.
+    std::vector<float> pathScores(const std::vector<std::string> &words) const;
 
 private:
     struct Data {
@@ -79,6 +92,7 @@ private:
     std::vector<uint32_t> hints_;
     SwipeInput in_;
     std::vector<float> lp_;
+    bool lastUsedNet_ = false;   // lp_ / in_ hold the last decode()'s network output
 };
 
 }

@@ -10,6 +10,10 @@ target_sources(swipekb_engine PRIVATE src/learning.cpp)
 # The swipe engine (network + dictionary search + geometry) and the LanguageEngine facade over all of it.
 target_sources(swipekb_engine PRIVATE src/swipe_layout.cpp src/swipe_net.cpp src/swipe_beam.cpp src/swipe_geo.cpp
     src/swipe_engine.cpp src/swipe_lm.cpp src/language_engine.cpp)
+# Joint-model step 3: the small learned re-ranker of the swipe search's best words (weights in swipe_rerank_weights.inc).
+target_sources(swipekb_engine PRIVATE src/swipe_rerank.cpp)
+# WHY its own line: swap lists (ranking + synthetic finger path) are the one-brain feature, separate from the above.
+target_sources(swipekb_engine PRIVATE src/swap.cpp)
 target_include_directories(swipekb_engine PUBLIC include)
 # WHY Qt Core is PUBLIC: Unicode normalisation and casing come from Qt, and tests/tools that use QString with the
 # engine headers then need nothing extra.
@@ -39,3 +43,10 @@ add_test(NAME engine_ngram COMMAND test_ngram)
 add_executable(test_spelling tests/test_spelling.cpp)
 target_link_libraries(test_spelling PRIVATE swipekb_engine GTest::gtest_main)
 add_test(NAME engine_spelling COMMAND test_spelling)
+
+# Swap-list ranking and the synthetic trace; pure logic on hand-made inputs. SWIPEKB_ASSETS is set like engine_language
+# so later swap tests that load real language files can share this target.
+add_executable(test_swap tests/test_swap.cpp)
+target_link_libraries(test_swap PRIVATE swipekb_engine GTest::gtest_main)
+add_test(NAME engine_swap COMMAND test_swap)
+set_tests_properties(engine_swap PROPERTIES ENVIRONMENT "SWIPEKB_ASSETS=${SWIPEKB_ASSETS}")

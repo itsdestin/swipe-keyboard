@@ -2,7 +2,7 @@
 
 Models trained and released by Destin Moss via youcoded.ai, 2026.
 
-Five small models, used by the [Swipe Keyboard](https://github.com/itsdestin/swipe-keyboard), an open-source swipe-typing and word-prediction add-on for KDE Plasma's on-screen keyboard (English, Spanish, French, German). They run on the user's own computer with the project's own C++ code. Nothing is sent anywhere.
+Five small model files plus a tiny re-ranker built into the engine, used by the [Swipe Keyboard](https://github.com/itsdestin/swipe-keyboard), an open-source swipe-typing and word-prediction add-on for KDE Plasma's on-screen keyboard (English, Spanish, French, German). They run on the user's own computer with the project's own C++ code. Nothing is sent anywhere.
 
 | Model | What it does | Size | Licence | Card |
 |---|---|---|---|---|
@@ -11,12 +11,13 @@ Five small models, used by the [Swipe Keyboard](https://github.com/itsdestin/swi
 | `youcoded/next-word-french` | Same, French | 4.70 MB | ODC-By-1.0 AND CC-BY-2.0-FR | [card](next-word-french/README.md) |
 | `youcoded/next-word-german` | Same, German | 4.72 MB | ODC-By-1.0 AND CC-BY-2.0-FR | [card](next-word-german/README.md) |
 | `youcoded/swipe-typing` ("T1") | Turns a finger path into ranked words, all four languages in one file | 2.12 MB | MIT | [card](swipe-typing/README.md) |
+| Learned swipe re-ranker (built into the engine, no separate file) | Orders a swipe's 30 found words, with or without words before; one set for all languages | 2.4 KB | MIT (trained on FUTO's MIT swipe data) | [card, re-ranker section](swipe-typing/README.md#the-learned-re-ranker-built-into-the-engine) |
 
 ## Using them
 
 - **Files:** GitHub release `models-2026-10-23` (the models) and `language-files-2026-10-23-apostrophes` (word lists and n-gram files they are used with). Every file is pinned by SHA-256 in `packaging/assets.lock.json`.
 - **Code:** `engine/` (MIT). `swipekb::LanguageEngine` is the one class to start from; it takes a word list, an optional n-gram file and an optional swipe model, and falls back to simpler behaviour when a file is missing. See [`engine/README.md`](../../engine/README.md).
-- **Licences:** the next-word models need attribution to Hugging Face (FineWeb), Common Crawl terms and the Tatoeba contributors (CC BY 2.0 France); no share-alike. The swipe model needs the MIT text of FUTO's swipe data kept with it. Each card lists the exact credits.
+- **Licences:** the next-word models need attribution to Hugging Face (FineWeb), Common Crawl terms and the Tatoeba contributors (CC BY 2.0 France); no share-alike. The swipe model and the learned re-ranker built into the engine need the MIT text of FUTO's swipe data kept with them. Each card lists the exact credits.
 
 ## How good are they
 
