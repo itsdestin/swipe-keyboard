@@ -105,6 +105,10 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('environment: keyboard-release', self.jobs['publish'])
         self.assertIn("github.event_name == 'push'", self.jobs['publish'])
         self.assertIn("github.repository == 'itsdestin/swipe-keyboard'", self.jobs['publish'])
+        # WHY (v0.5.1-1, 2026-10-30): a tag reusing main's packages skips the builders; with only the implicit
+        # success() GitHub then skipped publish too. Both publishing jobs must name the results they wait for.
+        self.assertIn("!cancelled() && needs.keyboard-ci.result == 'success' && needs.gaming-tests.result == 'success'", self.jobs['publish'])
+        self.assertIn("!cancelled() && needs.publish.result == 'success'", self.jobs['update-site'])
         # WHY changed (card #200, owner decision 2026-10-24): the only download from another run is the gate's, of
         # the main run prepare chose for this exact commit, in this repository.
         self.assertEqual(self.workflow.count('run-id:'), 2)
