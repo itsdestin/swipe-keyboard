@@ -43,6 +43,8 @@ print((a > b) - (a < b))
 
 @unittest.skipUnless(shutil.which('gpg') and shutil.which('gpgv'), 'needs gpg and gpgv')
 class ArchUpdater(unittest.TestCase):
+    FOLDER = 'arch'
+
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
@@ -80,7 +82,7 @@ class ArchUpdater(unittest.TestCase):
         index = {'schema': 1, 'package': 'swipe-keyboard', 'version': version,
                  'files': {'x86_64': {'url': url or (self.downloads / name).as_uri(),
                                       'sha256': sha256 or hashlib.sha256(payload).hexdigest(), 'size': len(payload)}}}
-        path = self.site / 'arch/latest.json'
+        path = self.site / self.FOLDER / 'latest.json'
         path.write_text(json.dumps(index))
         if sign:
             self.gpg('--yes', '--detach-sign', '--output', str(path) + '.sig', str(path))
@@ -114,7 +116,7 @@ class ArchUpdater(unittest.TestCase):
 
     def test_an_index_changed_after_signing_is_refused(self):
         self.publish('0.4.2-1')
-        index = self.site / 'arch/latest.json'
+        index = self.site / self.FOLDER / 'latest.json'
         index.write_text(index.read_text().replace('0.4.2-1', '0.4.3-1'))
         self.assertEqual(self.run_updater('check'), 1)
         self.assertEqual(self.installs(), [])
@@ -125,7 +127,7 @@ class ArchUpdater(unittest.TestCase):
         other.mkdir(mode=0o700)
         subprocess.run(['gpg', '--batch', '--quiet', '--homedir', str(other), '--passphrase', '',
                         '--quick-generate-key', 'Someone else', 'ed25519', 'sign', '1d'], check=True, capture_output=True)
-        index = self.site / 'arch/latest.json'
+        index = self.site / self.FOLDER / 'latest.json'
         subprocess.run(['gpg', '--batch', '--quiet', '--homedir', str(other), '--yes', '--detach-sign',
                         '--output', str(index) + '.sig', str(index)], check=True, capture_output=True)
         self.assertEqual(self.run_updater('check'), 1)
@@ -189,7 +191,7 @@ class ArchUpdater(unittest.TestCase):
         good = self.tmp / 'good-site'
         self.publish('0.4.2-1')
         shutil.copytree(self.site, good)
-        (self.site / 'arch/latest.json.sig').write_bytes(b'not a signature')
+        (self.site / self.FOLDER / 'latest.json.sig').write_bytes(b'not a signature')
         self.env['SWIPEKB_UPDATE_SITE'] = f'{self.site.as_uri()} {good.as_uri()}'
         self.assertEqual(self.run_updater('check'), 1)
         self.assertEqual(self.installs(), [])
@@ -216,7 +218,7 @@ class ArchUpdater(unittest.TestCase):
 
     def test_a_malformed_but_signed_index_is_refused_without_a_crash(self):
         self.publish('0.4.2-1')
-        index = self.site / 'arch/latest.json'
+        index = self.site / self.FOLDER / 'latest.json'
         data = json.loads(index.read_text())
         data['files']['x86_64']['size'] = 'big'
         index.write_text(json.dumps(data))
@@ -241,103 +243,122 @@ class ArchUpdater(unittest.TestCase):
         self.assertEqual(self.run_updater('check'), 1)
 
 
-# Stand-ins for apt-get, dpkg-query and zypper: record every call; FAKE_UPDATE_RC / FAKE_UPDATE_ERR shape the refresh.
-FAKE_TOOL = '''#!/usr/bin/env python3
-import os, sys
+# Stand-ins for Kubuntu/Debian and openSUSE (card #502): installed version, version order, and a recorded install.
+DEB_TOOL = '''#!/usr/bin/env python3
+import os, re, sys
 name = os.path.basename(sys.argv[0])
+key = lambda v: [int(x) if x.isdigit() else x for x in re.split(r'[.-]', v)]
+if name == 'dpkg-query':
+    status = os.environ.get('FAKE_DPKG_STATUS', 'install ok installed')
+    print(status if '${Status}' in ' '.join(sys.argv) else os.environ['FAKE_INSTALLED'], end=''); sys.exit(0)
+if name == 'dpkg' and sys.argv[1] == '--compare-versions':
+    sys.exit(0 if key(sys.argv[2]) > key(sys.argv[4]) else 1)
+if name == 'rpm' and sys.argv[1] == '-q':
+    print(os.environ['FAKE_INSTALLED'], end=''); sys.exit(0)
+if name == 'rpm' and sys.argv[1] == '--eval':
+    a, b = re.findall(r'"([^"]+)"', sys.argv[2]); print((key(a) > key(b)) - (key(a) < key(b))); sys.exit(0)
 with open(os.environ['FAKE_LOG'], 'a') as f:
     f.write(name + ' ' + ' '.join(sys.argv[1:]) + '\\n')
-if name == 'dpkg-query':
-    print(os.environ.get('FAKE_DPKG_STATUS', 'install ok installed'), end=''); sys.exit(0)
-if name == 'rpm':
-    sys.exit(0)
-if (name == 'apt-get' and sys.argv[1] == 'update') or (name == 'zypper' and 'refresh' in sys.argv):
-    sys.stderr.write(os.environ.get('FAKE_UPDATE_ERR', ''))
-    sys.exit(int(os.environ.get('FAKE_UPDATE_RC', '0')))
-sys.exit(0)
+sys.exit(int(os.environ.get('FAKE_PACMAN_RC', '0')))
 '''
 
 
-class AptAndZypperUpdater(unittest.TestCase):
-    """Kubuntu/Debian and openSUSE (card #502): only our own source is refreshed and only our package is updated."""
+class DebUpdater(ArchUpdater):
+    """Kubuntu/Debian: the Arch checks (signed index, hash, fixed download prefix) against deb/<target>/latest.json."""
+    TOOLS = ('apt-get', 'dpkg-query', 'dpkg')
+    FOLDER = 'deb/kubuntu-26.10'
 
     def setUp(self):
-        self.tmp = Path(tempfile.mkdtemp())
-        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
-        self.bin = self.tmp / 'bin'
-        self.bin.mkdir()
-        self.log = self.tmp / 'calls.log'
-        self.source = self.tmp / 'swipe-keyboard.sources'
-        self.source.write_text('Types: deb\n')
-        self.env = {'PATH': f'{self.bin}:{os.environ["PATH"]}', 'FAKE_LOG': str(self.log), 'SWIPEKB_UPDATE_TESTING': '1',
-                    'SWIPEKB_UPDATE_OFF_FLAG': str(self.tmp / 'etc/auto-update-off'),
-                    'SWIPEKB_UPDATE_APT_SOURCE': str(self.source)}
+        super().setUp()
+        bin_dir = self.tmp / 'bin'
+        for name in self.TOOLS + ('rpm',):
+            (bin_dir / name).write_text(DEB_TOOL)
+            (bin_dir / name).chmod(0o755)
+        (self.tmp / 'update-target').write_text(self.FOLDER.split('/')[1] + '\n')
+        self.env['SWIPEKB_UPDATE_TARGET_FILE'] = str(self.tmp / 'update-target')
+        self.env['FAKE_INSTALLED'] = self.version('0.4.1-1')
+        (self.site / self.FOLDER).mkdir(parents=True)
 
-    def tools(self, *names):
-        for name in names:
-            (self.bin / name).write_text(FAKE_TOOL)
-            (self.bin / name).chmod(0o755)
-        present = set(names)
-        return lambda n: str(self.bin / n) if n in present else (None if n in ('pacman', 'dnf', 'apt-get', 'dpkg-query',
-                                                                               'zypper', 'rpm') else REAL_WHICH(n))
+    def version(self, v):
+        return v + '.kubuntu26.10'
 
-    def run_updater(self, which, *args):
+    def file_name(self, version):
+        return f'swipe-keyboard_{version}_amd64.deb'
+
+    def publish(self, version, payload=b'package bytes', sha256=None, url=None, sign=True):
+        version = self.version(version)
+        name = self.file_name(version)
+        (self.downloads / name).write_bytes(payload)
+        index = {'schema': 1, 'package': 'swipe-keyboard', 'version': version,
+                 'files': {'x86_64': {'url': url or (self.downloads / name).as_uri(),
+                                      'sha256': sha256 or hashlib.sha256(payload).hexdigest(), 'size': len(payload)}}}
+        path = self.site / self.FOLDER / 'latest.json'
+        path.write_text(json.dumps(index))
+        if sign:
+            self.gpg('--yes', '--detach-sign', '--output', str(path) + '.sig', str(path))
+        return name
+
+    def run_updater(self, *args):
+        tools = set(self.TOOLS) | ({'rpm'} if 'zypper' in self.TOOLS else set())
         with mock.patch.dict(os.environ, self.env):
             spec = importlib.util.spec_from_file_location('swipekb_update', UPDATE)
             module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(module)
-            err = io.StringIO()
-            with mock.patch.object(module.os, 'geteuid', return_value=0), \
-                 mock.patch.object(module.shutil, 'which', side_effect=which), mock.patch('sys.stderr', err), \
-                 mock.patch('sys.stdout', io.StringIO()):
-                return module.main(list(args)), err.getvalue()
+            which = lambda n: (str(self.tmp / 'bin' / n) if n in tools
+                               else None if n in ('pacman', 'dnf', 'apt-get', 'dpkg-query', 'zypper', 'rpm') else REAL_WHICH(n))
+            with mock.patch.object(module.platform, 'machine', return_value='x86_64'), \
+                 mock.patch.object(module.os, 'geteuid', return_value=0), \
+                 mock.patch.object(module.shutil, 'which', side_effect=which):
+                return module.main(list(args))
 
-    def calls(self):
-        return self.log.read_text().splitlines() if self.log.exists() else []
+    def test_a_signed_newer_package_is_checked_then_installed_with_pacman(self):
+        name = self.publish('0.4.2-1')
+        self.assertEqual(self.run_updater('check'), 0)
+        [install] = self.installs()
+        self.assertTrue(install.startswith(self.TOOLS[0] + ' ') and ' install ' in install, install)
+        self.assertTrue(install.endswith('/' + name), install)
 
-    def test_apt_refreshes_only_our_source_then_upgrades_only_our_package(self):
-        rc, _ = self.run_updater(self.tools('apt-get', 'dpkg-query'), 'check')
-        self.assertEqual(rc, 0)
-        refresh, install = [c for c in self.calls() if c.startswith('apt-get')]
-        self.assertIn(f'Dir::Etc::sourcelist={self.source}', refresh)
-        self.assertIn('Dir::Etc::sourceparts=-', refresh)
-        self.assertIn('APT::Get::List-Cleanup=0', refresh)
-        self.assertTrue(install.startswith('apt-get install'))
-        self.assertIn('--only-upgrade', install)
-        self.assertTrue(install.endswith(' swipe-keyboard'))
+    # Arch-only cases: pacman.conf signature hints and the old-site fallback are covered once, in ArchUpdater.
+    test_a_failed_pacman_run_is_reported = None
+    test_a_copy_no_package_manager_owns_says_so_and_installs_nothing = None
 
-    def test_apt_offline_is_not_an_error_and_installs_nothing(self):
-        self.env.update(FAKE_UPDATE_RC='100', FAKE_UPDATE_ERR='E: Could not resolve itsdestin.github.io\n')
-        rc, _ = self.run_updater(self.tools('apt-get', 'dpkg-query'), 'check')
-        self.assertEqual(rc, 0)
-        self.assertFalse(any(c.startswith('apt-get install') for c in self.calls()))
-
-    def test_apt_a_wrongly_signed_source_is_a_failure_and_installs_nothing(self):
-        self.env.update(FAKE_UPDATE_RC='100', FAKE_UPDATE_ERR='W: GPG error: ... NO_PUBKEY 1234\nE: Could not resolve x\n')
-        rc, err = self.run_updater(self.tools('apt-get', 'dpkg-query'), 'check')
-        self.assertEqual(rc, 1)
-        self.assertIn('not signed by the Swipe Keyboard update key', err)
-        self.assertFalse(any(c.startswith('apt-get install') for c in self.calls()))
-
-    def test_apt_a_removed_package_with_kept_settings_is_not_updated(self):
+    def test_a_removed_package_with_kept_settings_is_not_updated(self):
+        if 'apt-get' not in self.TOOLS:
+            self.skipTest('dpkg only')
+        self.publish('0.4.2-1')
         self.env['FAKE_DPKG_STATUS'] = 'deinstall ok config-files'
-        rc, _ = self.run_updater(self.tools('apt-get', 'dpkg-query'), 'check')
-        self.assertEqual(rc, 0)
-        self.assertFalse(any(c.startswith('apt-get') for c in self.calls()))
+        self.assertEqual(self.run_updater('check'), 0)
+        self.assertEqual(self.installs(), [])
 
-    def test_zypper_refreshes_our_repository_then_updates_only_our_package_from_it(self):
-        rc, _ = self.run_updater(self.tools('zypper', 'rpm'), 'check')
-        self.assertEqual(rc, 0)
-        refresh, update = [c for c in self.calls() if c.startswith('zypper')]
-        self.assertTrue(refresh.endswith('refresh swipe-keyboard'))
-        self.assertIn('--non-interactive', update)
-        self.assertTrue(update.endswith('update --repo swipe-keyboard swipe-keyboard'))
+    def test_a_missing_target_file_is_an_error_and_installs_nothing(self):
+        self.publish('0.4.2-1')
+        (self.tmp / 'update-target').unlink()
+        self.assertEqual(self.run_updater('check'), 1)
+        self.assertEqual(self.installs(), [])
 
-    def test_zypper_offline_is_not_an_error_and_updates_nothing(self):
-        self.env.update(FAKE_UPDATE_RC='4', FAKE_UPDATE_ERR='Download (curl) error for https://itsdestin.github.io\n')
-        rc, _ = self.run_updater(self.tools('zypper', 'rpm'), 'check')
-        self.assertEqual(rc, 0)
-        self.assertFalse(any(' update ' in c for c in self.calls() if c.startswith('zypper')))
+    def test_another_targets_index_is_never_read(self):
+        # WHY: a Kubuntu 26.10 package must never be offered the Debian testing build, even if only that one is newer.
+        other = self.site / 'deb/debian-testing'
+        other.mkdir(parents=True, exist_ok=True)
+        self.publish('0.4.2-1')
+        (self.site / self.FOLDER / 'latest.json').rename(other / 'latest.json')
+        (self.site / self.FOLDER / 'latest.json.sig').rename(other / 'latest.json.sig')
+        self.run_updater('check')
+        self.assertEqual(self.installs(), [])
+
+
+class OpenSuseUpdater(DebUpdater):
+    """openSUSE Tumbleweed: the same checks against opensuse/<target>/latest.json, installed with zypper."""
+    TOOLS = ('zypper', 'rpm')
+    FOLDER = 'opensuse/tumbleweed'
+
+    def version(self, v):
+        return v + '.tumbleweed'
+
+    def file_name(self, version):
+        return f'swipe-keyboard-{version}.x86_64.rpm'
+
+    test_another_targets_index_is_never_read = None
 
 
 class Units(unittest.TestCase):

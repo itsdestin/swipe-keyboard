@@ -6,16 +6,16 @@
 # writes debian/changelog from packaging/release-targets.json.
 export DEB_BUILD_MAINT_OPTIONS = hardening=+all
 VERSION := $(shell dpkg-parsechangelog -S Version)
-# Set by build.sh: which apt repository on the update site this build belongs to.
-SWIPEKB_APT_TARGET ?= $(error SWIPEKB_APT_TARGET is not set; build with packaging/debian/build.sh)
+# Set by build.sh: which distro release this build is for (and so which updates it may install).
+SWIPEKB_UPDATE_TARGET ?= $(error SWIPEKB_UPDATE_TARGET is not set; build with packaging/debian/build.sh)
 
 %:
 	dh $@ --buildsystem=cmake+ninja
 
 override_dh_auto_configure:
 	scripts/fetch-assets.sh
-	# WHY SWIPEKB_APT_SOURCE: installs this package's own signed apt source, like the Fedora package's dnf repo file.
-	dh_auto_configure -- -DCMAKE_BUILD_TYPE=Release -DSWIPEKB_PACKAGE_VERSION=$(VERSION) -DSWIPEKB_APT_SOURCE=ON -DSWIPEKB_APT_TARGET=$(SWIPEKB_APT_TARGET)
+	# WHY SWIPEKB_UPDATE_TARGET: the updater fetches only this distro release's builds (integration/update.py).
+	dh_auto_configure -- -DCMAKE_BUILD_TYPE=Release -DSWIPEKB_PACKAGE_VERSION=$(VERSION) -DSWIPEKB_UPDATE_TARGET=$(SWIPEKB_UPDATE_TARGET)
 
 override_dh_auto_test:
 ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))

@@ -36,9 +36,9 @@ install(PROGRAMS "${SWIPEKB_SOURCE}/integration/swipe-keyboard" DESTINATION "${_
 # WHY an option: the Deck Flatpak is updated by Flatpak itself and must not carry system units (its build sets OFF).
 option(SWIPEKB_NATIVE_UPDATES "Install the native updater, its daily timer and the update key" ON)
 option(SWIPEKB_DNF_REPO "Install the dnf update repository file (Fedora)" OFF)
-option(SWIPEKB_APT_SOURCE "Install the apt update source (Kubuntu, Debian)" OFF)
-# WHY a target name: one flat apt repository per distro release on the update site (packaging/updates/swipe-keyboard.sources.in).
-set(SWIPEKB_APT_TARGET "" CACHE STRING "apt repository on the update site, for example kubuntu-26.10 or debian-testing")
+# WHY a target (Kubuntu/Debian/openSUSE, card #502): each such package is built against one distro release's own Qt and
+# KDE, and the updater must only ever fetch that release's builds (deb/<target>/ or opensuse/<target>/ on the site).
+set(SWIPEKB_UPDATE_TARGET "" CACHE STRING "distro release this package is built for, for example kubuntu-26.10")
 if(SWIPEKB_NATIVE_UPDATES)
     install(PROGRAMS "${SWIPEKB_SOURCE}/integration/update.py" DESTINATION "${_runtime}/integration")
     install(FILES "${SWIPEKB_SOURCE}/packaging/updates/update-key.asc" "${SWIPEKB_SOURCE}/packaging/updates/update-key.gpg"
@@ -48,13 +48,12 @@ if(SWIPEKB_NATIVE_UPDATES)
     if(SWIPEKB_DNF_REPO)
         install(FILES "${SWIPEKB_SOURCE}/packaging/updates/swipe-keyboard.repo" DESTINATION "/etc/yum.repos.d")
     endif()
-    if(SWIPEKB_APT_SOURCE)
-        if(NOT SWIPEKB_APT_TARGET MATCHES "^[a-z]+-[a-z0-9.]+$")
-            message(FATAL_ERROR "SWIPEKB_APT_SOURCE needs SWIPEKB_APT_TARGET, for example kubuntu-26.10")
+    if(SWIPEKB_UPDATE_TARGET)
+        if(NOT SWIPEKB_UPDATE_TARGET MATCHES "^[a-z]+(-[a-z0-9.]+)?$")
+            message(FATAL_ERROR "SWIPEKB_UPDATE_TARGET looks wrong: ${SWIPEKB_UPDATE_TARGET} (for example kubuntu-26.10)")
         endif()
-        configure_file("${SWIPEKB_SOURCE}/packaging/updates/swipe-keyboard.sources.in"
-            "${CMAKE_CURRENT_BINARY_DIR}/swipe-keyboard.sources" @ONLY)
-        install(FILES "${CMAKE_CURRENT_BINARY_DIR}/swipe-keyboard.sources" DESTINATION "/etc/apt/sources.list.d")
+        file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/update-target" "${SWIPEKB_UPDATE_TARGET}\n")
+        install(FILES "${CMAKE_CURRENT_BINARY_DIR}/update-target" DESTINATION "${_runtime}/integration")
     endif()
 endif()
 install(PROGRAMS "${SWIPEKB_SOURCE}/integration/swipe-keyboard" DESTINATION "${CMAKE_INSTALL_BINDIR}")

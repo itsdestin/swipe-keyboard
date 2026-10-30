@@ -11,8 +11,9 @@ Run once a day as root by swipe-keyboard-update.timer. It only ever updates this
 - Fedora: dnf, from the signed repository the package itself installed (/etc/yum.repos.d/swipe-keyboard.repo).
 - Arch: the signed arch/latest.json on the update site names the newer package and its SHA256; the file is checked
   against both, then installed with pacman -U. Nothing else on the system is synced or upgraded.
-- Kubuntu/Debian: apt, refreshing only the signed source the package installed (/etc/apt/sources.list.d/swipe-keyboard.sources).
-- openSUSE: zypper, from the signed repository the package installed (/etc/zypp/repos.d/swipe-keyboard.repo).
+- Kubuntu/Debian and openSUSE: the same as Arch, with deb/<target>/latest.json or opensuse/<target>/latest.json, then
+  apt-get install or zypper install of that one checked file. <target> is the distro release the package was built for
+  (the update-target file installed beside this script).
 
 Also the `swipe-keyboard updates [status|on|off|now]` command.
 """
@@ -52,8 +53,9 @@ SITES = tuple(str(site).rstrip('/') for site in (
 KEYRING = Path(setting('SWIPEKB_UPDATE_KEYRING', HERE / 'update-key.gpg'))
 OFF_FLAG = Path(setting('SWIPEKB_UPDATE_OFF_FLAG', '/etc/swipe-keyboard/auto-update-off'))
 PACKAGE = 'swipe-keyboard'
-APT_SOURCE = Path(setting('SWIPEKB_UPDATE_APT_SOURCE', '/etc/apt/sources.list.d/swipe-keyboard.sources'))
-ZYPPER_REPO = 'swipe-keyboard'
+# WHY a target: each Kubuntu/Debian/openSUSE package is built against one distro release's own Qt and KDE, so a
+# Kubuntu 26.10 computer must only ever be offered the Kubuntu 26.10 build.
+TARGET_FILE = Path(setting('SWIPEKB_UPDATE_TARGET_FILE', HERE / 'update-target'))
 # WHY a fixed prefix: even a correctly signed index must not be able to send the updater to another site.
 # WHY both names: after the rename the signed index names openswipe downloads; before it, swipe-keyboard ones.
 RELEASE_DOWNLOADS = ((setting('SWIPEKB_UPDATE_DOWNLOADS', ''),) if setting('SWIPEKB_UPDATE_DOWNLOADS', '')
@@ -134,16 +136,16 @@ def newer(candidate, installed):
     return int(run(['vercmp', candidate, installed], check=True).stdout.strip()) > 0
 
 
-def verified_index(work):
-    """Download arch/latest.json and refuse it unless the update key signed it."""
+def verified_index(work, folder='arch'):
+    """Download FOLDER/latest.json and refuse it unless the update key signed it."""
     index, signature = work / 'latest.json', work / 'latest.json.sig'
     unreachable = None
     for site in SITES:
         # WHY only "unreachable" moves on to the next site: a site that answers with a bad or unsigned index is refused
         # outright below, never quietly swapped for another one.
         try:
-            index.write_bytes(fetch(f'{site}/arch/latest.json', 64 * 1024))
-            signature.write_bytes(fetch(f'{site}/arch/latest.json.sig', 64 * 1024))
+            index.write_bytes(fetch(f'{site}/{folder}/latest.json', 64 * 1024))
+            signature.write_bytes(fetch(f'{site}/{folder}/latest.json.sig', 64 * 1024))
             break
         except Unreachable as error:
             unreachable = error
@@ -160,13 +162,57 @@ def verified_index(work):
     return data
 
 
-def update_pacman():
+def update_target():
+    try:
+        target = TARGET_FILE.read_text().strip()
+    except OSError as error:
+        raise UpdateError(f'this package does not say which distro release it was built for ({TARGET_FILE}); '
+                          'reinstall it') from error
+    if not target or '/' in target or target.startswith('.'):
+        raise UpdateError(f'{TARGET_FILE} is damaged; reinstall the package')
+    return target
+
+
+def index_updater(owner):
+    """What differs between the index-based updaters: where the index is, what the file is called, how versions compare
+    and how the one checked file is installed."""
+    if owner == 'pacman':
+        return {'folder': 'arch', 'installed': installed_pacman_version, 'newer': newer,
+                'name_ok': lambda name, version: name.startswith(f'{PACKAGE}-{version}-') and name.endswith('.pkg.tar.zst'),
+                # WHY -U of this one file and --needed: install exactly what was checked, never a system-wide sync.
+                'install': lambda package: ['pacman', '-U', '--noconfirm', '--needed', str(package)]}
+    if owner == 'apt':
+        return {'folder': f'deb/{update_target()}',
+                'installed': lambda: run(['dpkg-query', '-W', '-f=${Version}', PACKAGE], check=True).stdout.strip(),
+                'newer': lambda c, i: run(['dpkg', '--compare-versions', c, 'gt', i]).returncode == 0,
+                'name_ok': lambda name, version: name.startswith(f'{PACKAGE}_{version}_') and name.endswith('.deb'),
+                # WHY apt-get with the file (not dpkg -i): apt fetches any new dependency from the distro, and only this
+                # package is upgraded. WHY confold: a setting file the owner changed is kept, never overwritten unasked.
+                'install': lambda package: ['apt-get', 'install', '-y', '-q', '-o', 'Dpkg::Options::=--force-confold',
+                                            str(package)]}
+    if owner == 'zypper':
+        return {'folder': f'opensuse/{update_target()}',
+                'installed': lambda: run(['rpm', '-q', '--qf', '%{VERSION}-%{RELEASE}', PACKAGE], check=True).stdout.strip(),
+                'newer': lambda c, i: run(['rpm', '--eval', f'%{{lua: print(rpm.vercmp("{c}", "{i}"))}}'],
+                                          check=True).stdout.strip() == '1',
+                'name_ok': lambda name, version: name.startswith(f'{PACKAGE}-{version}.') and name.endswith('.rpm'),
+                # WHY --allow-unsigned-rpm: the file is checked against the signed index instead (as on Arch).
+                'install': lambda package: ['zypper', '--non-interactive', 'install', '--allow-unsigned-rpm',
+                                            str(package)]}
+    raise UpdateError(f'no index updater for {owner}')
+
+
+def update_from_index(owner):
+    how = index_updater(owner)
     with tempfile.TemporaryDirectory(prefix='swipekb-update-') as tmp:
         work = Path(tmp)
-        index = verified_index(work)
-        installed = installed_pacman_version()
-        version = index.get('version', '')
-        if not newer(version, installed):
+        index = verified_index(work, how['folder'])
+        installed = how['installed']()
+        version = str(index.get('version', ''))
+        # WHY the shape check first: the version reaches a version-compare command, so it must be a plain version.
+        if not version or not all(c.isalnum() or c in '.-~+:' for c in version):
+            raise UpdateError('the update index is malformed; nothing was installed')
+        if not how['newer'](version, installed):
             print(f'Swipe Keyboard {installed} is up to date.')
             return 0
         entry = index.get('files', {}).get(platform.machine())
@@ -177,24 +223,27 @@ def update_pacman():
         if not isinstance(size, int):
             raise UpdateError('the update index is malformed; nothing was installed')
         name = url.rsplit('/', 1)[-1]
-        if (not url.startswith(RELEASE_DOWNLOADS) or not name.startswith(f'{PACKAGE}-{version}-')
-                or not name.endswith('.pkg.tar.zst') or '/' in name or not 0 < size <= MAX_PACKAGE_BYTES):
+        if (not url.startswith(RELEASE_DOWNLOADS) or not how['name_ok'](name, version) or '/' in name
+                or not 0 < size <= MAX_PACKAGE_BYTES):
             raise UpdateError('the update index names an unexpected file; nothing was installed')
         package = work / name
         data = fetch(url, MAX_PACKAGE_BYTES)
         if len(data) != size or hashlib.sha256(data).hexdigest() != sha256:
             raise UpdateError('the downloaded package does not match the signed index; nothing was installed')
         package.write_bytes(data)
-        # WHY -U of this one file and --needed: install exactly what was checked, never a system-wide sync.
-        result = run(['pacman', '-U', '--noconfirm', '--needed', str(package)])
+        # WHY readable by all: apt hands the file to its own unprivileged download user, which cannot read root's
+        # private temporary folder otherwise.
+        work.chmod(0o755)
+        package.chmod(0o644)
+        result = run(how['install'](package), env={**os.environ, 'DEBIAN_FRONTEND': 'noninteractive'})
         if result.returncode != 0:
             hint = ''
-            if 'signature' in result.stderr.lower():
+            if owner == 'pacman' and 'signature' in result.stderr.lower():
                 # WHY say so: the package file is checked against the signed index, not signed itself, so a pacman.conf
                 # with LocalFileSigLevel = Required refuses it every day.
                 hint = ('\nYour pacman.conf requires signed local packages (LocalFileSigLevel). Update by hand from '
                         'https://github.com/itsdestin/swipe-keyboard/releases or run "sudo swipe-keyboard updates off".')
-            raise UpdateError('pacman could not install the update (it will be tried again tomorrow):\n'
+            raise UpdateError(f'{owner} could not install the update (it will be tried again tomorrow):\n'
                               + result.stderr.strip() + hint)
         print(f'Swipe Keyboard updated from {installed} to {version}. It takes effect at your next login.')
         return 0
@@ -209,59 +258,8 @@ def update_dnf():
     return 0
 
 
-# WHY these phrases: apt reports "the site cannot be reached" and "the site sent something unsigned or wrongly signed"
-# in the same exit code. Only the first may be shrugged off until tomorrow; the second must show as a failure.
-APT_UNREACHABLE = ('Could not resolve', 'Temporary failure resolving', 'Could not connect', 'Connection timed out',
-                   'Network is unreachable', 'No route to host')
-APT_UNTRUSTED = ('NO_PUBKEY', 'is not signed', "couldn't be verified", 'BADSIG', 'EXPKEYSIG', 'Signed-By')
-
-
-def update_apt():
-    if not APT_SOURCE.is_file():
-        raise UpdateError(f'the update source is missing ({APT_SOURCE}); reinstall the package to restore it')
-    env = {**os.environ, 'DEBIAN_FRONTEND': 'noninteractive'}
-    # WHY only our source: refreshing every source would be a system-wide "apt update" the owner did not ask for;
-    # List-Cleanup=0 keeps the other sources' lists exactly as they were.
-    refresh = run(['apt-get', 'update', '-q', '-o', f'Dir::Etc::sourcelist={APT_SOURCE}', '-o', 'Dir::Etc::sourceparts=-',
-                   '-o', 'APT::Get::List-Cleanup=0', '-o', 'APT::Update::Error-Mode=any'], env=env)
-    text = refresh.stdout + refresh.stderr
-    if refresh.returncode != 0:
-        if any(phrase in text for phrase in APT_UNTRUSTED):
-            raise UpdateError('the update source is not signed by the Swipe Keyboard update key; nothing was installed:\n'
-                              + text.strip())
-        if any(phrase in text for phrase in APT_UNREACHABLE):
-            raise Unreachable('apt could not reach the update site')
-        raise UpdateError('apt could not read the update source (it will be tried again tomorrow):\n' + text.strip())
-    # WHY --only-upgrade of our package: it may pull a needed dependency, but never upgrades the rest of the system.
-    # WHY confold: a setting file the owner changed (the source file itself) is kept, never overwritten unasked.
-    result = run(['apt-get', 'install', '-y', '-q', '--only-upgrade', '-o', 'Dpkg::Options::=--force-confold', PACKAGE],
-                 env=env)
-    if result.returncode != 0:
-        raise UpdateError('apt could not update Swipe Keyboard (it will be tried again tomorrow):\n' + result.stderr.strip())
-    print(result.stdout.strip())
-    return 0
-
-
-def update_zypper():
-    # WHY auto-import here: the key zypper is told to trust is the one inside this package (gpgkey=file:// in the repo
-    # file), not one fetched from the site; zypper still refuses an index that key did not sign.
-    refresh = run(['zypper', '--non-interactive', '--gpg-auto-import-keys', 'refresh', ZYPPER_REPO])
-    if refresh.returncode != 0:
-        text = refresh.stdout + refresh.stderr
-        if 'Download (curl) error' in text or 'Could not resolve host' in text or 'Timeout' in text:
-            raise Unreachable('zypper could not reach the update site')
-        raise UpdateError('zypper could not read the update source (it will be tried again tomorrow):\n' + text.strip())
-    # WHY only our package, from our repository: never a system-wide update.
-    result = run(['zypper', '--non-interactive', 'update', '--repo', ZYPPER_REPO, PACKAGE])
-    if result.returncode != 0:
-        raise UpdateError('zypper could not update Swipe Keyboard (it will be tried again tomorrow):\n'
-                          + result.stderr.strip())
-    print(result.stdout.strip())
-    return 0
-
-
-UPDATERS = {'pacman': lambda: update_pacman(), 'dnf': lambda: update_dnf(), 'apt': lambda: update_apt(),
-            'zypper': lambda: update_zypper()}
+UPDATERS = {'pacman': lambda: update_from_index('pacman'), 'dnf': lambda: update_dnf(),
+            'apt': lambda: update_from_index('apt'), 'zypper': lambda: update_from_index('zypper')}
 
 
 def check_now():

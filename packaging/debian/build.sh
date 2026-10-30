@@ -3,8 +3,8 @@
 #
 # SPDX-License-Identifier: MIT
 # build.sh TARGET [--install-deps] — build the Kubuntu / Debian package (card #502) in a source tree on that system.
-#   TARGET        kubuntu-26.10 or debian-testing: which distro release the package is for, and which apt repository
-#                 on the update site it belongs to (packaging/updates/swipe-keyboard.sources.in)
+#   TARGET        kubuntu-26.10 or debian-testing: which distro release the package is for, and so which builds the
+#                 updater may install (deb/TARGET/latest.json on the update site; integration/update.py)
 #   --install-deps  install the build tools from debian/control first (needs sudo; for clean VMs and CI images)
 # Output: ../swipe-keyboard_VERSION_amd64.deb next to the source tree.
 # WHY a script around dpkg-buildpackage: the version and the target come from one place (release-targets.json and the
@@ -33,5 +33,5 @@ if [ "${2:-}" = --install-deps ]; then
     sudo apt-get update -q
     sudo DEBIAN_FRONTEND=noninteractive apt-get build-dep -y -q ./
 fi
-SWIPEKB_APT_TARGET="$TARGET" dpkg-buildpackage -b -uc -us
+SWIPEKB_UPDATE_TARGET="$TARGET" dpkg-buildpackage -b -uc -us
 echo "built: $(cd .. && pwd)/swipe-keyboard_${DEBVERSION}_amd64.deb"

@@ -1,8 +1,0 @@
-# Swipe Keyboard updates. Installed by the swipe-keyboard package; removed with it.
-# WHY one flat repository per distro release: each package is built against that release's own Qt and KDE, so a
-# Kubuntu 26.10 computer must never be offered the Debian testing build (and the other way round).
-# WHY Signed-By the package's own key: apt trusts this key for this source only, never for the rest of the system.
-Types: deb
-URIs: https://itsdestin.github.io/openswipe/apt/@SWIPEKB_APT_TARGET@/
-Suites: ./
-Signed-By: /usr/share/swipe-keyboard/integration/update-key.gpg
