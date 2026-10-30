@@ -405,7 +405,7 @@ Each section lists the passages of one document that quote a number or a factual
 
 Models trained and released by Destin Moss via youcoded.ai, 2026.
 
-- What it is: the weights of `SwipeReranker` (two sets: with words before, linear; without, one hidden layer of 8 units), about 250 numbers, 2.4 KB of text, compiled into the engine; licence MIT (file header, `SPDX-License-Identifier: MIT`, with `SPDX-FileCopyrightText` lines for Destin Moss and for FUTO's training data)
+- What it is: the weights of `SwipeReranker` (two sets: with words before, linear; without, one hidden layer of 8 units), about 250 numbers, 2.4 KB of text, compiled into the engine; licence MIT (its file header names the MIT licence, with copyright lines for Destin Moss and for FUTO's training data)
   - source: engine/src/swipe_rerank_weights.inc; engine/src/swipe_rerank.cpp; written by `scripts/swipe/train_rerank.py export` (2026-10-30, feature/joint-model commit f3fd80b)
 - Training data: real English swipes from FUTO's swipe.futo.org collections, **MIT, Copyright (c) 2025 FUTO**; FUTO's MIT notice (`FUTO-SWIPE-DATA-LICENSE.txt`, pinned in packaging/assets.lock.json and installed in the licence folder) travels with the weights, as with `swipe-model.bin`. No FUTO model weights or code.
   - source: packaging/NOTICE "Trained models"; packaging/assets.lock.json (FUTO-SWIPE-DATA-LICENSE.txt)
