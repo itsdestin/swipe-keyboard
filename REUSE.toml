@@ -106,6 +106,13 @@ SPDX-FileCopyrightText = "2026 Destin Moss <https://youcoded.ai>"
 SPDX-License-Identifier = "MIT"
 
 [[annotations]]
+# WHY here and not in the files: debian/control and source/format have fixed formats with no room for a licence header.
+path = ["packaging/debian/control", "packaging/debian/source/format"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 Destin Moss <https://youcoded.ai>"
+SPDX-License-Identifier = "MIT"
+
+[[annotations]]
 path = ["packaging/updates/update-key.asc", "packaging/updates/update-key.gpg"]
 precedence = "aggregate"
 SPDX-FileCopyrightText = "2026 Destin Moss <https://youcoded.ai>"
