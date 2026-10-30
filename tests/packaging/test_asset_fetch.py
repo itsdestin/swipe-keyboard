@@ -78,6 +78,7 @@ class AssetFetch(unittest.TestCase):
             with mock.patch.object(module, 'ROOT', copied), \
                  mock.patch.object(module, 'prepare_language_packs'), mock.patch.object(module, 'fetch_language_files'), \
                  mock.patch('sys.argv', ['fetch-assets.py', '--assets', str(copied/'assets')]), \
+                 mock.patch.object(module.shutil, 'disk_usage', return_value=free), \
                  mock.patch.object(module.urllib.request, 'urlopen', side_effect=AssertionError('network forbidden')) as network:
                 module.main()
             network.assert_not_called()
