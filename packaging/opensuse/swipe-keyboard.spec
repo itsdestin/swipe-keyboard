@@ -37,7 +37,10 @@ Requires: plasma6-keyboard >= 6.7
 # WHY conditional and filtered, as on Fedora: only the Plasma 6.7/6.8 front end links Qt Virtual Keyboard; Plasma 6.9's
 # rebuilt keyboard has none.
 Requires: (qt6-virtualkeyboard if plasma6-keyboard < 6.8.80)
-%global __requires_exclude ^libQt6VirtualKeyboard\\.so.*$
+# WHY the QML imports too: openSUSE's QML dependency generator turns our own private modules (SwipeKeyboard,
+# SwipeKeyboard69, inside /usr/share/swipe-keyboard) into requirements nothing in the distro provides, and the package
+# could not be installed (GitHub's Tumbleweed image, 2026-10-30).
+%global __requires_exclude ^(libQt6VirtualKeyboard\\.so.*|qt6qmlimport\\(SwipeKeyboard.*)$
 # RPM generates the other Qt/KF/libstdc++ ABI dependencies automatically from installed ELF.
 
 %description
