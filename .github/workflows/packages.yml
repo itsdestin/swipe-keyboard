@@ -953,10 +953,10 @@ jobs:
         run: |
           if [ "${{ matrix.kind }}" = deb ]; then
             apt-get update -q
-            DEBIAN_FRONTEND=noninteractive apt-get install -y -q git python3 dpkg-dev devscripts equivs ca-certificates nodejs
+            DEBIAN_FRONTEND=noninteractive apt-get install -y -q git python3 dpkg-dev devscripts equivs ca-certificates nodejs zstd
           else
             # WHY --force-resolution: the minimal image's busybox tools conflict with rpm-build's full ones.
-            zypper --non-interactive install --force-resolution git python3 rpm-build nodejs tar gzip
+            zypper --non-interactive install --force-resolution git python3 rpm-build nodejs tar gzip zstd
           fi
       - uses: actions/checkout@v4
         with:
