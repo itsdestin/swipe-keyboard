@@ -27,3 +27,4 @@ date	commit	label	n	top1	top3	avg_us
 2026-10-14	e51519e	[recognizer] quickfix: dict drops AOSP not-a-word entries + apostrophe-twin order (AOSP whitelist)	2000	93.3196	96.557	3114.7
 2026-10-14	e51519e	[recognizer] quickfix: new dict, 3-gram + neural re-rank (opt-in modes)	2000	94.5015	96.7112	33487.3
 2026-10-25	f3a0d1c	[engine] one brain swap branch	2000	89.20	93.10	3470.0
+2026-10-30	8477c00	[engine] joint step 2: neural re-scoring of swipes on in the keyboard (en.ngram, previous words, --rescore neural 1 / n-gram 0; shipped dictionary and swipe-model.bin)	2000	90.95	93.25	4290.0

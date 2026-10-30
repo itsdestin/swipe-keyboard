@@ -45,8 +45,10 @@ Swiping, percent of all swipes (0.5.0 = today's keyboard; new = tap-to-swap, car
 |---|---|---|---|---|---|---|---|
 | bench-2000 (2,000) | 0.5.0 | 90.10 | 3.05 | 0.35 | 2.20 | 4.30 | 0.493 |
 | | new | 90.10 | 3.60 | 0.65 | 2.20 | 3.45 | 0.442 |
+| | new + sentence re-scoring | 90.95 | 2.80 | 0.60 | 2.20 | 3.45 | 0.431 |
 | test-extra-10000 (10,000) | 0.5.0 | 90.43 | 3.12 | 0.24 | 2.30 | 3.91 | 0.446 |
 | | new | 90.43 | 3.48 | 0.57 | 2.30 | 3.22 | 0.407 |
+| | new + sentence re-scoring | 91.07 | 2.83 | 0.60 | 2.30 | 3.20 | 0.401 |
 | HeliBoard es (5,000, no sentence) | 0.5.0 | 75.98 | 8.58 | 0.16 | 9.54 | 5.74 | 1.595 |
 | | new | 75.98 | 9.78 | 1.10 | 9.54 | 3.60 | 1.427 |
 | HeliBoard fr | 0.5.0 | 68.34 | 13.46 | 0.66 | 7.76 | 9.78 | 1.729 |
@@ -56,7 +58,11 @@ Swiping, percent of all swipes (0.5.0 = today's keyboard; new = tap-to-swap, car
 | HeliBoard en | 0.5.0 | 80.76 | 8.30 | 0.58 | 0.00 | 10.36 | 0.976 |
 | | new | 80.76 | 9.66 | 1.84 | 0.00 | 7.74 | 0.779 |
 
-The first guess is the same in both (tap-to-swap changes only the lists); the gain is fewer retypes. One German swipe in five is a word our German list does not have, which no list can fix.
+The first guess is the same in 0.5.0 and "new" (tap-to-swap changes only the lists); the gain is fewer retypes.
+<!-- bench/ux-scoreboard.tsv, label "joint step 2: neural re-scoring of swipes on in both front ends (--rescore)" -->
+"New + sentence re-scoring" (unreleased, joint-model step 2) also re-ranks a swipe with words before it by the
+suggestion bar's sentence model: more swipes need no tap, mostly ones that needed a tap on the bar before. HeliBoard
+sets have no sentence, so their rows are unchanged. One German swipe in five is a word our German list does not have, which no list can fix.
 
 Typing, first 300 sentences per set:
 
@@ -272,6 +278,30 @@ Every swipe figure below is a row of `bench/swipe-scoreboard.tsv`.
 | bench-2000, FUTO-scorable | 1,946 | 91.47 / 94.55 | 89.47 / 94.14 | 90.54 / 94.55 | 93.32 / 96.56 (previous words) |
 | test-extra-10000, all | 10,000 | 90.45 / 93.57 | 88.10 / 93.00 | 89.25 / 93.25 | not measured |
 | test-extra-10000, FUTO-scorable | 9,719 | 92.03 / 95.21 | 89.61 / 94.63 | 90.80 / 94.89 | not measured |
+
+### Swipe in the keyboard with the sentence model's re-scoring (unreleased, after 0.5.0)
+
+<!-- bench/swipe-scoreboard.tsv, rows "joint step 2"; tools/swipekb-bench --rescore -->
+Since joint-model step 2, a swipe with words before it is re-ranked by the neural next-word model the suggestion bar
+already uses (`ContextRescore` in `engine/include/swipekb/language_engine.hpp`, borrowed from the bar's worker in both
+front ends): the search's best 30 words get `score + (n-gram weight - 1) * n-gram prior + neural weight * ln 10 *
+next-word score`. Weights tuned on tuning swipes only (FUTO trv8k for English: neural 1, n-gram 0; FUTO swipe-5 French
+and German validation swipes: neural 1, n-gram 0.25, which Spanish also takes). Same files and settings as the table
+above; only the "previous words" column can change (no words before: not re-ranked; no sentence pack: no next-word model).
+
+| Set | Swipes | Previous words: first / top 3 (0.5.0 -> now) | FUTO first / top 3 |
+|---|---|---|---|
+| bench-2000, all | 2,000 | 90.10 / 93.10 -> 90.95 / 93.25 | not measured this way |
+| bench-2000, FUTO-scorable | 1,946 | 91.47 / 94.55 -> 92.34 / 94.71 | 93.32 / 96.56 (previous words) |
+| test-extra-10000, all | 10,000 | 90.45 / 93.57 -> 91.09 / 93.71 | not measured |
+| test-extra-10000, FUTO-scorable | 9,719 | 92.03 / 95.21 -> 92.68 / 95.35 | not measured |
+
+Like-for-like with FUTO's engine the keyboard is now 0.98 points behind on first guess and 1.85 on top 3 (92.34 vs
+93.32; 94.71 vs 96.56). Tuning sets (not test results): trv8k 92.94 -> 93.61, French 88.55 -> 90.84, German 88.34 ->
+90.16 first guess. HeliBoard sets have no sentences, so they are unchanged. Speed (this laptop, bench-2000 swipes with
+words before, `tools/swipekb-rescore-bench --product`): whole swipe median 4.48 ms, worst 5.99 ms; with the bar's
+worker kept busy on purpose the whole time (`--stress`) median 5.65 ms, worst 10.02 ms, 87.68 % of swipes still
+re-ranked (the others waited the 5 ms limit and kept the n-gram ranking). Memory: none added (the bar's model is shared).
 
 ### Swipe model alone (T1, `tools/swipekb-swipenet-bench`, frequency prior, its own word list, 2026-10-23)
 

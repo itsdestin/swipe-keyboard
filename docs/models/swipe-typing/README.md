@@ -42,7 +42,7 @@ model-index:
 
 # youcoded/swipe-typing ("T1"): swipe-typing decoder for English, Spanish, French and German
 
-> **Headline:** in the keyboard, on 1,946 real English swipes typed inside sentences, the first guess is right 91.47 % of the time against 93.32 % for FUTO's engine measured the same way: 1.85 points behind (top 3: 94.55 % against 96.56 %). No Gboard swipe comparison was made (Gboard swipe typing was not measured).
+> **Headline:** in the keyboard, on 1,946 real English swipes typed inside sentences, the first guess is right 91.47 % of the time against 93.32 % for FUTO's engine measured the same way: 1.85 points behind (top 3: 94.55 % against 96.56 %). In the next release, which also asks the suggestion bar's sentence model to re-rank swipes that have words before them, the same swipes give 92.34 % (0.98 points behind) and top 3 94.71 % (1.85 behind). No Gboard swipe comparison was made (Gboard swipe typing was not measured).
 
 A small neural network that turns the path of a finger across an on-screen keyboard into a ranked list of words, for the Swipe Keyboard: an open-source swipe-typing and word-prediction add-on for KDE Plasma's on-screen keyboard. One model serves all four languages and any layout, because the keys are given to it as positions.
 
@@ -129,6 +129,11 @@ Through `swipekb::LanguageEngine` with the shipped dictionary, sentence pack (`e
 | bench-2000, FUTO-scorable | 1,946 | 91.47 / 94.55 | 89.47 / 94.14 | 90.54 / 94.55 |
 | test-extra-10000, all | 10,000 | 90.45 / 93.57 | 88.10 / 93.00 | 89.25 / 93.25 |
 | test-extra-10000, FUTO-scorable | 9,719 | 92.03 / 95.21 | 89.61 / 94.63 | 90.80 / 94.89 |
+
+**Next release (unreleased, 2026-10-30):** a swipe with previous words is also re-ranked by the neural next-word model
+(`ContextRescore`; weights tuned on tuning swipes only). "Previous words", first / top 3: bench-2000 all 90.95 / 93.25,
+FUTO-scorable 92.34 / 94.71; test-extra-10000 all 91.09 / 93.71, FUTO-scorable 92.68 / 95.35. The other columns are
+unchanged (no previous words, or no sentence pack: no re-ranking). Details: `docs/methods.md`.
 
 ### The model alone (its own benchmark tool and word list, 2026-10-23; not the shipped setup)
 

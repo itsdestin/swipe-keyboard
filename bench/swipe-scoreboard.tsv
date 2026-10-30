@@ -11,6 +11,10 @@
 #   under 80 of 255) or rarely used names (capitalised, under 120); "alternatives useful" = when the first guess is
 #   wrong, how often the right word is among the alternatives. Both printed by tools/swipekb-bench.
 date	build	set	swipes	context	sentence_pack	match	first_pct	top3_pct	notes
+2026-10-30	joint step 2 (feature/joint-model)	bench-2000	2000	yes	yes	letters	90.95	93.25	tools/swipekb-bench --context --rescore (neural re-scoring of swipes on, as both front ends from joint step 2), qwerty.tsv layout; junk 4.77%; alternatives useful 25.41%
+2026-10-30	joint step 2 (feature/joint-model)	bench-2000-futo-scorable	1946	yes	yes	letters	92.34	94.71	tools/swipekb-bench --context --rescore (neural re-scoring of swipes on, as both front ends from joint step 2), qwerty.tsv layout; junk 4.78%; alternatives useful 30.87%
+2026-10-30	joint step 2 (feature/joint-model)	test-extra-10000	10000	yes	yes	letters	91.09	93.71	tools/swipekb-bench --context --rescore (neural re-scoring of swipes on, as both front ends from joint step 2), qwerty.tsv layout; junk 5.04%; alternatives useful 29.41%
+2026-10-30	joint step 2 (feature/joint-model)	test-extra-10000-futo-scorable	9719	yes	yes	letters	92.68	95.35	tools/swipekb-bench --context --rescore (neural re-scoring of swipes on, as both front ends from joint step 2), qwerty.tsv layout; junk 5.08%; alternatives useful 36.43%
 2026-10-24	0.5.0-0.5 (9d3caf5)	bench-2000	2000	yes	yes	letters	90.10	93.10	tools/swipekb-bench, qwerty.tsv layout; junk 4.72% (was 44.77%); alternatives useful 30.30% (was 34.85%); common words top-3 96.46% (was 96.18%)
 2026-10-24	0.5.0-0.5 (9d3caf5)	bench-2000-futo-scorable	1946	yes	yes	letters	91.47	94.55	tools/swipekb-bench, qwerty.tsv layout; junk 4.73% (was 44.60%); alternatives useful 36.14% (was 41.57%)
 2026-10-24	0.5.0-0.5 (9d3caf5)	test-extra-10000	10000	yes	yes	letters	90.45	93.57	tools/swipekb-bench, qwerty.tsv layout; junk 5.06% (was 44.12%); alternatives useful 32.67% (was 35.29%); common words top-3 96.42% (was 96.04%)
