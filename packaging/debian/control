@@ -1,0 +1,29 @@
+Source: swipe-keyboard
+Section: utils
+Priority: optional
+Maintainer: Destin Moss <itsdestin@users.noreply.github.com>
+# WHY these build tools: the same parts the Fedora and Arch recipes build and test (engine, the Plasma 6.7/6.8 add-on,
+# the Plasma 6.9 front end, tools), with each distro's own package names. plasma-keyboard and Kirigami are needed by
+# the tests that run against the real installed keyboard layouts and the accent-colour probe; dbus by the private-bus
+# settings test; curl by scripts/fetch-assets.sh (the pinned word lists and models, checked by hash).
+Build-Depends: debhelper-compat (= 13), cmake (>= 3.29), ninja-build, g++, python3, curl, ca-certificates,
+ qt6-base-dev, qt6-declarative-dev, qt6-virtualkeyboard-dev, libkf6windowsystem-dev, libkf6config-dev,
+ qml6-module-org-kde-kirigami, qml6-module-qtquick-virtualkeyboard, libgtest-dev, plasma-keyboard, dbus, systemd
+Standards-Version: 4.7.0
+Homepage: https://github.com/itsdestin/swipe-keyboard
+Rules-Requires-Root: no
+
+Package: swipe-keyboard
+Architecture: amd64
+# WHY each: python3 runs the launcher and updater; kwriteconfig6 (libkf6config-bin), qdbus6 (qdbus-qt6), qtpaths6 and
+# busctl (systemd) are what the launcher calls to check versions and switch the keyboard; gpgv and apt check and fetch
+# updates. WHY no upper bound on plasma-keyboard: a Plasma 6.9 upgrade must never be blocked by this package; on 6.9+
+# the launcher starts the matching front end, or KDE's plain keyboard if nothing fits.
+Depends: ${shlibs:Depends}, ${misc:Depends}, python3, systemd, apt, gpgv, plasma-keyboard (>= 6.7),
+ qml6-module-org-kde-kirigami, libkf6config-bin, qdbus-qt6, qtpaths6
+Description: Swipe typing, completions and next-word suggestions for Plasma Keyboard
+ English (US/UK), Spanish, French and German swipe typing, current-word completions and next-word suggestions for
+ KDE's on-screen keyboard, with its own open swipe engine. Everything runs offline on this computer.
+ .
+ Installing it changes nothing on its own: each user turns it on with "swipe-keyboard enable" (or picks it in
+ System Settings), and "swipe-keyboard disable" puts their previous keyboard back.

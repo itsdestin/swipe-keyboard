@@ -1,0 +1,43 @@
+#!/usr/bin/make -f
+# SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
+#
+# SPDX-License-Identifier: MIT
+# Kubuntu / Debian package (card #502). Built with packaging/debian/build.sh, which copies this folder to debian/ and
+# writes debian/changelog from packaging/release-targets.json.
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+VERSION := $(shell dpkg-parsechangelog -S Version)
+# Set by build.sh: which apt repository on the update site this build belongs to.
+SWIPEKB_APT_TARGET ?= $(error SWIPEKB_APT_TARGET is not set; build with packaging/debian/build.sh)
+
+%:
+	dh $@ --buildsystem=cmake+ninja
+
+override_dh_auto_configure:
+	scripts/fetch-assets.sh
+	# WHY SWIPEKB_APT_SOURCE: installs this package's own signed apt source, like the Fedora package's dnf repo file.
+	dh_auto_configure -- -DCMAKE_BUILD_TYPE=Release -DSWIPEKB_PACKAGE_VERSION=$(VERSION) -DSWIPEKB_APT_SOURCE=ON -DSWIPEKB_APT_TARGET=$(SWIPEKB_APT_TARGET)
+
+override_dh_auto_test:
+ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
+	# WHY -j: the tests are independent (own temporary folders and free ports), as in the Arch and Fedora recipes.
+	QT_QPA_PLATFORM=offscreen ctest --test-dir obj-$(DEB_HOST_GNU_TYPE) --output-on-failure -j$(shell nproc)
+	python3 -m unittest discover -s tests/packaging -v
+	python3 -m unittest discover -s tests/integration -v
+endif
+
+override_dh_auto_install:
+	dh_auto_install --destdir=debian/swipe-keyboard
+	# WHY a packaged link instead of an install hook: automatic updates are on from install, and removing the package
+	# removes the link (as on Arch and Fedora). "sudo swipe-keyboard updates off" turns them off.
+	install -d debian/swipe-keyboard/usr/lib/systemd/system/timers.target.wants
+	ln -s ../swipe-keyboard-update.timer debian/swipe-keyboard/usr/lib/systemd/system/timers.target.wants/swipe-keyboard-update.timer
+	python3 scripts/package-check.py debian/swipe-keyboard
+
+# WHY: the add-on's own libraries live in /usr/share/swipe-keyboard and find each other through $ORIGIN; tell
+# dpkg-shlibdeps where they are so it does not look for them among the system's libraries.
+override_dh_shlibdeps:
+	dh_shlibdeps -l$(CURDIR)/debian/swipe-keyboard/usr/share/swipe-keyboard/qml/SwipeKeyboard
+
+# WHY no systemd helper: the timer is enabled by the packaged link above and must never be started or restarted by a
+# package transaction (the Fedora and Arch packages do the same).
+override_dh_installsystemd:
