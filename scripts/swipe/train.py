@@ -6,6 +6,9 @@
 
   train.py --train dev.npz [--train synth.npz ...] --val devhold.npz --out run1 --epochs 40 --device cuda
 Outputs in --out: model.pt (best by validation loss), model.bin (runner format), log.txt.
+Joint model (step 4): --ctx N adds a reader of the previous words (swipelib.build_net); each file.npz then takes its
+previous words from file.ctx.npy (prep_context.py) when it exists, else none (synthetic swipes). model.bin is not
+written for such a model (the C++ runner cannot read it yet); judge it with eval_swap.py.
 """
 import argparse
 import os
@@ -27,12 +30,15 @@ class Data:
     the largest layout and the padding is masked out of the softmax."""
 
     def __init__(self, specs, limit=0):
-        self.layouts, parts, src = [], [], []
+        self.layouts, parts, src, ctx = [], [], [], []
         for i, (path, layout_path) in enumerate(specs):
             self.layouts.append(S.Layout(layout_path))
             z = np.load(path)
             parts.append(z)
             src.append(np.full(len(z["lens"]), i, np.int32))
+            cp = path[:-4] + ".ctx.npy"
+            ctx.append(np.load(cp).astype(np.int64) if os.path.exists(cp) else np.zeros((len(z["lens"]), S.CTX_CHARS), np.int64))
+        self.ctx = np.concatenate(ctx)
         self.feats = np.concatenate([p["feats"] for p in parts])
         self.pos = np.concatenate([p["pos"] for p in parts])
         self.aspect = np.concatenate([p["aspect"] for p in parts])
@@ -42,8 +48,8 @@ class Data:
         self.labels = np.concatenate([p["labels"] for p in parts]).astype(np.int64)
         self.offs = np.concatenate([[0], np.cumsum(self.lens)])
         if limit:
-            self.feats, self.pos, self.aspect, self.lens, self.words, self.src = (
-                a[:limit] for a in (self.feats, self.pos, self.aspect, self.lens, self.words, self.src))
+            self.feats, self.pos, self.aspect, self.lens, self.words, self.src, self.ctx = (
+                a[:limit] for a in (self.feats, self.pos, self.aspect, self.lens, self.words, self.src, self.ctx))
         self.n = len(self.lens)
         self.kmax = max(len(l.labels) for l in self.layouts)
         self.cache = {}
@@ -102,7 +108,7 @@ class Data:
         feats[:, :, 5] = np.where(total > 1e-6, cum / np.maximum(total, 1e-6), 0.0)
         feats[:, :, 7] = np.log1p(total) / 3.0
 
-    def batch(self, idx, device, aug=False, rng=None, time_aug=0.0, geo_aug=0.0):
+    def batch(self, idx, device, aug=False, rng=None, time_aug=0.0, geo_aug=0.0, ctx_drop=0.0):
         feats = self.feats[idx].copy()
         pos = self.pos[idx].copy()
         asp = self.aspect[idx]
@@ -124,9 +130,15 @@ class Data:
         keys, mask = self.keys(idx)
         if aug and geo_aug > 0:
             self.warp_board(feats, pos, keys, asp, idx, rng, geo_aug)
+        ctx = self.ctx[idx].copy()
+        if aug and ctx_drop > 0:
+            # WHY: the keyboard often has no words before (first word of a message, a single word); hiding them for some
+            # swipes keeps the joint model at least as good as the plain one there.
+            ctx[rng.random(len(idx)) < ctx_drop] = 0
         return (torch.from_numpy(feats).to(device), torch.from_numpy(pos).to(device),
                 torch.from_numpy(keys).to(device), torch.from_numpy(mask).to(device),
-                torch.from_numpy(tg).to(device), torch.from_numpy(self.lens[idx]).to(device))
+                torch.from_numpy(tg).to(device), torch.from_numpy(self.lens[idx]).to(device),
+                torch.from_numpy(ctx).to(device))
 
 
 def greedy_exact(lp, lens, labels_by_item):
@@ -149,8 +161,8 @@ def evaluate(net, data, device, batch=512):
     with torch.no_grad():
         for s in range(0, data.n, batch):
             idx = np.arange(s, min(s + batch, data.n))
-            feats, pos, keys, mask, tg, tl = data.batch(idx, device)
-            lp = net(feats, pos, keys, mask)
+            feats, pos, keys, mask, tg, tl, ctx = data.batch(idx, device)
+            lp = net(feats, pos, keys, mask, ctx if net.cfg.get("ctx") else None)
             loss = F.ctc_loss(lp.transpose(0, 1), tg, torch.full((len(idx),), lp.shape[1], dtype=torch.long), tl,
                               blank=0, reduction="sum", zero_infinity=True)
             tot += loss.item(); n += len(idx)
@@ -182,6 +194,9 @@ def main():
     ap.add_argument("--time-aug", type=float, default=0.0, help="std of log speed rescaling (0 = off)")
     ap.add_argument("--threads", type=int, default=0)
     ap.add_argument("--seed", type=int, default=1)
+    ap.add_argument("--ctx", type=int, default=0, help="joint model: size of the previous-words reader (0 = plain T1 net)")
+    ap.add_argument("--ctx-drop", type=float, default=0.15, help="share of training swipes shown without their previous words")
+    ap.add_argument("--kernel", type=int, default=5)
     a = ap.parse_args()
     if a.threads:
         torch.set_num_threads(a.threads)
@@ -197,6 +212,10 @@ def main():
     tr = Data(specs(a.train), a.limit)
     vals = [Data(specs([v]), a.val_limit) for v in a.val]
     cfg = dict(conv=[int(v) for v in a.conv.split(",")], hidden=a.hidden, layers=a.layers, pointer=a.pointer)
+    if a.kernel != 5:
+        cfg["kernel"] = a.kernel
+    if a.ctx:
+        cfg["ctx"] = a.ctx
     net = S.build_net(cfg, a.dropout).to(a.device)
     nparam = sum(p.numel() for p in net.parameters())
     steps_per_epoch = (tr.n + a.batch - 1) // a.batch
@@ -216,8 +235,9 @@ def main():
         run = 0.0
         for s in range(0, tr.n, a.batch):
             idx = perm[s:s + a.batch]
-            feats, pos, keys, mask, tg, tl = tr.batch(idx, a.device, aug=not a.no_aug, rng=rng, time_aug=a.time_aug, geo_aug=a.geo_aug)
-            lp = net(feats, pos, keys, mask)
+            feats, pos, keys, mask, tg, tl, ctx = tr.batch(idx, a.device, aug=not a.no_aug, rng=rng, time_aug=a.time_aug,
+                                                           geo_aug=a.geo_aug, ctx_drop=a.ctx_drop if a.ctx else 0.0)
+            lp = net(feats, pos, keys, mask, ctx if a.ctx else None)
             loss = F.ctc_loss(lp.transpose(0, 1), tg, torch.full((len(idx),), lp.shape[1], dtype=torch.long), tl,
                               blank=0, reduction="mean", zero_infinity=True)
             opt.zero_grad()

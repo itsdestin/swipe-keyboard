@@ -15,6 +15,9 @@
 //                whether it has words before, whether the search's first word is right, and for each word recognize()
 //                would re-order whether it is the right one and its re-ranker features (LanguageEngine::rerankCandidates,
 //                the keyboard's own computation). Numbers only, no words. Without --context: the no-sentence features.
+//   --with-words (step 4, with --features) also writes each found word with its search score and path fit ("w"), so a
+//                trial swipe model can be judged offline by swapping its path fit in (scripts/swipe/eval_swap.py).
+//                Only for validation swipes on the training machine; the words are the swipe file's own.
 //   --speed      milliseconds per swipe for recognize() without re-scoring, with it and the neural model's sentence
 //                state cold (read from scratch), and warm (the sentence read up to the word before, as while typing
 //                on), plus the memory the next-word model takes.
@@ -86,7 +89,7 @@ int main(int argc, char **argv)
 {
     LanguageEngineSetup setup;
     std::string layout, layoutsDir, input, match = "ascii", vocab, nwp, dumpFile, weights, featuresFile, rerankerFile;
-    bool noReranker = false;
+    bool noReranker = false, withWords = false;
     bool useContext = false, headroom = false, speed = false, product = false, stress = false;
     size_t limit = 0;
     for (int i = 1; i < argc; ++i) {
@@ -115,6 +118,7 @@ int main(int argc, char **argv)
         else if (a == "--features") featuresFile = val();
         else if (a == "--reranker") rerankerFile = val();
         else if (a == "--no-reranker") noReranker = true;
+        else if (a == "--with-words") withWords = true;
         else if (a[0] != '-') input = a;
         else { std::fprintf(stderr, "unknown option %s\n", a.c_str()); return 2; }
     }
@@ -344,7 +348,22 @@ int main(int argc, char **argv)
                 for (float v : cands[k].features) std::fprintf(features, ",%.5g", v);
                 std::fprintf(features, "]");
             }
-            std::fprintf(features, "]}\n");
+            std::fprintf(features, "]");
+            if (withWords) {
+                // WHY the search's own list next to the features: the offline swap needs each word's score and path fit
+                // in nats, unclipped (the features are relative and clipped). Same search, so the words line up.
+                const auto raw = engine.rawCandidates(s.trace, keys, context, 64);
+                std::fprintf(features, ",\"w\":[");
+                for (size_t k = 0; k < cands.size(); ++k) {
+                    const auto it = std::find_if(raw.begin(), raw.end(), [&](const RawSwipeCandidate &c) { return c.word == cands[k].word; });
+                    QString esc = QString::fromStdString(cands[k].word);
+                    esc.replace(u'\\', QStringLiteral("\\\\")).replace(u'"', QStringLiteral("\\\""));
+                    std::fprintf(features, "%s[\"%s\",%.5f,%.5f]", k ? "," : "", esc.toStdString().c_str(),
+                                 it == raw.end() ? -1e9 : double(it->score), it == raw.end() ? -1e9 : double(it->ctc));
+                }
+                std::fprintf(features, "]");
+            }
+            std::fprintf(features, "}\n");
         }
         if (speed && !before) {
             // (step 3) A swipe with no words before: only the learned re-ranker's "no sentence" weights act (no model call).
