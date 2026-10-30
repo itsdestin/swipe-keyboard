@@ -11,6 +11,10 @@
 //   --dump FILE  one JSON line per swipe for tuning (bench/rescore-tune.py): whether it has words before, and for each
 //                of the 30 found words its score, n-gram prior, neural score and whether it is the right word. Counts
 //                and numbers only, no words.
+//   --features FILE  (step 3) one JSON line per swipe for training the learned re-ranker (scripts/swipe/train_rerank.py):
+//                whether it has words before, whether the search's first word is right, and for each word recognize()
+//                would re-order whether it is the right one and its re-ranker features (LanguageEngine::rerankCandidates,
+//                the keyboard's own computation). Numbers only, no words. Without --context: the no-sentence features.
 //   --speed      milliseconds per swipe for recognize() without re-scoring, with it and the neural model's sentence
 //                state cold (read from scratch), and warm (the sentence read up to the word before, as while typing
 //                on), plus the memory the next-word model takes.
@@ -27,7 +31,8 @@
 // Usage:
 //   swipekb-rescore-bench --dict D --model M --ngram N --vocab V --nwp W --language L (--layout F | --layouts-dir DIR)
 //                         [--context] [--limit N] [--match ascii|lookup] [--headroom] [--dump FILE] [--speed]
-//                         [--rescore-weights NEURAL,NGRAM] [--product [--stress]] swipes.jsonl
+//                         [--rescore-weights NEURAL,NGRAM] [--reranker FILE | --no-reranker] [--features FILE]
+//                         [--product [--stress]] swipes.jsonl
 #include <QString>
 
 #include <algorithm>
@@ -80,7 +85,8 @@ struct Buckets {
 int main(int argc, char **argv)
 {
     LanguageEngineSetup setup;
-    std::string layout, layoutsDir, input, match = "ascii", vocab, nwp, dumpFile, weights;
+    std::string layout, layoutsDir, input, match = "ascii", vocab, nwp, dumpFile, weights, featuresFile, rerankerFile;
+    bool noReranker = false;
     bool useContext = false, headroom = false, speed = false, product = false, stress = false;
     size_t limit = 0;
     for (int i = 1; i < argc; ++i) {
@@ -106,10 +112,13 @@ int main(int argc, char **argv)
         else if (a == "--product") product = true;
         else if (a == "--stress") stress = true;
         else if (a == "--rescore-weights") weights = val();
+        else if (a == "--features") featuresFile = val();
+        else if (a == "--reranker") rerankerFile = val();
+        else if (a == "--no-reranker") noReranker = true;
         else if (a[0] != '-') input = a;
         else { std::fprintf(stderr, "unknown option %s\n", a.c_str()); return 2; }
     }
-    if (setup.dictionary.empty() || (layout.empty() && layoutsDir.empty()) || input.empty() || (!headroom && dumpFile.empty() && !speed && !product)) {
+    if (setup.dictionary.empty() || (layout.empty() && layoutsDir.empty()) || input.empty() || (!headroom && dumpFile.empty() && featuresFile.empty() && !speed && !product)) {
         std::fprintf(stderr, "usage: swipekb-rescore-bench --dict D --model M --ngram N --vocab V --nwp W --language L"
                              " (--layout F | --layouts-dir DIR) [--context] [--limit N] [--match ascii|lookup]"
                              " [--headroom] [--dump FILE] [--speed] [--rescore-weights NEURAL,NGRAM] swipes.jsonl\n");
@@ -125,7 +134,7 @@ int main(int argc, char **argv)
     Predictor predictor;
     const bool haveNwp = !setup.ngram.empty() && !vocab.empty() && !nwp.empty() && predictor.init(setup.ngram, vocab, nwp, false);
     const double mbAfter = residentMb();
-    if ((speed || product || !dumpFile.empty()) && !haveNwp) { std::fprintf(stderr, "--dump and --speed need --ngram, --vocab and --nwp\n"); return 1; }
+    if ((speed || product || !dumpFile.empty() || !featuresFile.empty()) && !haveNwp) { std::fprintf(stderr, "--dump and --speed need --ngram, --vocab and --nwp\n"); return 1; }
 
     ContextRescore rescore = ContextRescore::forLanguage(setup.language);
     if (!weights.empty()) {
@@ -134,6 +143,7 @@ int main(int argc, char **argv)
         rescore.neuralWeight = parts[0].toFloat();
         rescore.ngramWeight = parts[1].toFloat();
     }
+    if (!benchdata::applyReranker(rescore, rerankerFile, noReranker)) return 2;
     // WHY markUnknown: as the keyboard asks (NextWordWorker::scoreForSwipe), so a word the vocabulary lacks keeps its prior.
     rescore.scorer = [&predictor](const std::vector<std::string> &c, const std::vector<std::string> &w) { return predictor.scoreWords(c, w, true); };
 
@@ -261,12 +271,15 @@ int main(int argc, char **argv)
     }
     std::FILE *dump = dumpFile.empty() ? nullptr : std::fopen(dumpFile.c_str(), "w");
     if (!dumpFile.empty() && !dump) { std::fprintf(stderr, "cannot write %s\n", dumpFile.c_str()); return 1; }
+    std::FILE *features = featuresFile.empty() ? nullptr : std::fopen(featuresFile.c_str(), "w");
+    if (!featuresFile.empty() && !features) { std::fprintf(stderr, "cannot write %s\n", featuresFile.c_str()); return 1; }
 
     Buckets shipped, wide;
     size_t n = 0, noLayout = 0, firstRight = 0, withBefore = 0, wrongWithBefore = 0;
     size_t reRankableWithBefore = 0;   // wrong first guess, sentence known, word among the 30 (buckets 2-3 .. 11-30)
     double msOff = 0, msCold = 0, msWarm = 0;
-    size_t timed = 0;
+    size_t timed = 0, timedNs = 0;
+    double msOffNs = 0, msOnNs = 0;
     for (const auto &s : swipes) {
         ++n;
         const auto keys = keysFor(s);
@@ -320,6 +333,34 @@ int main(int argc, char **argv)
                              k < neural.size() ? neural[k] : -99.f, norm(raw[k].word) == target ? 1 : 0);
             std::fprintf(dump, "]}\n");
         }
+        if (features) {
+            // WHY through the engine with the scorer set: the very features recognize() computes in the keyboard.
+            engine.setContextRescore(rescore);
+            const auto cands = engine.rerankCandidates(s.trace, keys, context);
+            engine.setContextRescore({});
+            std::fprintf(features, "{\"before\":%d,\"right\":%d,\"c\":[", before ? 1 : 0, right ? 1 : 0);
+            for (size_t k = 0; k < cands.size(); ++k) {
+                std::fprintf(features, "%s[%d", k ? "," : "", norm(cands[k].word) == target ? 1 : 0);
+                for (float v : cands[k].features) std::fprintf(features, ",%.5g", v);
+                std::fprintf(features, "]");
+            }
+            std::fprintf(features, "]}\n");
+        }
+        if (speed && !before) {
+            // (step 3) A swipe with no words before: only the learned re-ranker's "no sentence" weights act (no model call).
+            const auto ms = [](auto a, auto b) { return std::chrono::duration<double, std::milli>(b - a).count(); };
+            engine.setContextRescore({});
+            const auto t0 = Clock::now();
+            (void)engine.recognize(s.trace, keys, context, 30);
+            const auto t1 = Clock::now();
+            engine.setContextRescore(rescore);
+            const auto t2 = Clock::now();
+            (void)engine.recognize(s.trace, keys, context, 30);
+            const auto t3 = Clock::now();
+            engine.setContextRescore({});
+            msOffNs += ms(t0, t1); msOnNs += ms(t2, t3);
+            ++timedNs;
+        }
         if (speed && before) {
             // Off, then on with the sentence read from scratch, then on with the sentence read up to the word before
             // (the model only reads the newest word, as while typing a sentence on).
@@ -343,6 +384,7 @@ int main(int argc, char **argv)
         }
     }
     if (dump) std::fclose(dump);
+    if (features) std::fclose(features);
     const size_t counted = n - noLayout;
     const auto pct = [](size_t a, size_t b) { return b ? 100.0 * double(a) / double(b) : 0.0; };
     std::printf("swipes %zu (with words before %zu), first guess right %zu (%.2f%%), wrong %zu\n", counted, withBefore,
@@ -363,14 +405,17 @@ int main(int argc, char **argv)
     if (speed && timed)
         std::printf("speed: %zu swipes with words before: recognize %.2f ms, re-scored cold %.2f ms, warm %.2f ms per swipe\n",
                     timed, msOff / double(timed), msCold / double(timed), msWarm / double(timed));
+    if (speed && timedNs)
+        std::printf("speed: %zu swipes without words before: recognize %.3f ms, re-ranked %.3f ms per swipe\n", timedNs,
+                    msOffNs / double(timedNs), msOnNs / double(timedNs));
     if (haveNwp) {
         struct stat st {};
         const double fileMb = ::stat(nwp.c_str(), &st) == 0 ? double(st.st_size) / (1024.0 * 1024.0) : 0;
         std::printf("memory: next-word model (n-gram pack + vocabulary + neural file) +%.1f MB resident; neural file %.1f MB\n",
                     mbAfter - mbBefore, fileMb);
     }
-    std::printf("setup: %s n=%zu weights neural=%.3f ngram=%.3f pool=%d\n", engine.mode(), n, rescore.neuralWeight,
-                rescore.ngramWeight, rescore.pool);
+    std::printf("setup: %s n=%zu re-ranking %s weights neural=%.3f ngram=%.3f pool=%d\n", engine.mode(), n,
+                benchdata::rerankerName(rescore), rescore.neuralWeight, rescore.ngramWeight, rescore.pool);
     if (noLayout) std::printf("(%zu swipes had no readable layout file; skipped)\n", noLayout);
     return 0;
 }

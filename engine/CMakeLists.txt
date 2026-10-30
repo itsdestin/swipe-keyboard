@@ -10,6 +10,8 @@ target_sources(swipekb_engine PRIVATE src/learning.cpp)
 # The swipe engine (network + dictionary search + geometry) and the LanguageEngine facade over all of it.
 target_sources(swipekb_engine PRIVATE src/swipe_layout.cpp src/swipe_net.cpp src/swipe_beam.cpp src/swipe_geo.cpp
     src/swipe_engine.cpp src/swipe_lm.cpp src/language_engine.cpp)
+# Joint-model step 3: the small learned re-ranker of the swipe search's best words (weights in swipe_rerank_weights.inc).
+target_sources(swipekb_engine PRIVATE src/swipe_rerank.cpp)
 # WHY its own line: swap lists (ranking + synthetic finger path) are the one-brain feature, separate from the above.
 target_sources(swipekb_engine PRIVATE src/swap.cpp)
 target_include_directories(swipekb_engine PUBLIC include)

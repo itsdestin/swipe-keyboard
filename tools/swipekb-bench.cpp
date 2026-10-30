@@ -9,7 +9,8 @@
 // Usage:
 //   swipekb-bench --dict LANG.combined (--layout keys.tsv | --layouts-dir DIR) [--model swipe-model.bin]
 //                 [--ngram LANG.ngram] [--context] [--language en] [--limit N] [--match ascii|lookup|exact] [--list]
-//                 [--rescore --vocab LANG.vocab.tsv --nwp LANG.nwp.bin [--rescore-weights NEURAL,NGRAM]]
+//                 [--rescore --vocab LANG.vocab.tsv --nwp LANG.nwp.bin [--rescore-weights NEURAL,NGRAM]
+//                  [--reranker FILE | --no-reranker]]
 //                 [--alt-pool N --alt-weight W --alt-min-freq F --alt-name-freq F --alt-margin M --alt-stretch 0|1 | --alt-off] swipes.jsonl
 // Also prints how often a shown alternative is junk and how often the alternatives hold the word when the first guess missed.
 // Swipes: one JSON object per line with "word", "data" [{x,y,t}] in 0..1 of the letter area, "canvas_width",
@@ -17,6 +18,8 @@
 // Layouts: "letter<TAB>cx<TAB>cy<TAB>half_w<TAB>half_h" (scripts/swipe/layouts/qwerty.tsv).
 // --rescore: the neural next-word model re-scores each swipe's best words (ContextRescore, joint-model experiment;
 // off in the keyboard). WHY timed in ms/swipe: the model's pass is part of the swipe then.
+// --reranker FILE: the learned re-ranker in that file orders the found words (joint-model step 3, SwipeReranker; also
+// swipes without words before); --no-reranker: the fixed weights even when the language has built-in learned ones.
 // Output: "  top-1: a / n = x%" and "  top-3: ..." lines (bench/score.sh reads them), then one summary line.
 #include <QFile>
 #include <QJsonArray>
@@ -50,7 +53,8 @@ using benchdata::readSwipes;
 int main(int argc, char **argv)
 {
     LanguageEngineSetup setup;
-    std::string layout, layoutsDir, input, match = "ascii", vocab, nwp, rescoreWeights;
+    std::string layout, layoutsDir, input, match = "ascii", vocab, nwp, rescoreWeights, rerankerFile;
+    bool noReranker = false;
     bool useContext = false, list = false, rescore = false;
     AlternativeParams alt;
     bool altSet = false;
@@ -73,6 +77,8 @@ int main(int argc, char **argv)
         else if (a == "--nwp") nwp = val();
         else if (a == "--rescore") rescore = true;
         else if (a == "--rescore-weights") { rescore = true; rescoreWeights = val(); }
+        else if (a == "--reranker") { rescore = true; rerankerFile = val(); }
+        else if (a == "--no-reranker") noReranker = true;
         else if (a == "--limit") limit = size_t(std::atoll(val().c_str()));
         else if (a == "--match") match = val();
         // WHY these: tuning and checking the rules for the guesses after the first (AlternativeParams).
@@ -112,10 +118,11 @@ int main(int argc, char **argv)
             r.neuralWeight = parts[0].toFloat();
             r.ngramWeight = parts[1].toFloat();
         }
+        if (!benchdata::applyReranker(r, rerankerFile, noReranker)) return 2;
         // WHY markUnknown: as the keyboard asks (NextWordWorker::scoreForSwipe), so a word the vocabulary lacks keeps its prior.
         r.scorer = [&predictor](const std::vector<std::string> &c, const std::vector<std::string> &w) { return predictor.scoreWords(c, w, true); };
         engine.setContextRescore(r);
-        std::fprintf(stderr, "rescore: neural %.3f ngram %.3f pool %d\n", r.neuralWeight, r.ngramWeight, r.pool);
+        std::fprintf(stderr, "rescore: %s neural %.3f ngram %.3f pool %d\n", benchdata::rerankerName(r), r.neuralWeight, r.ngramWeight, r.pool);
     }
     // WHY the shared rule (tools/benchdata.h): the swap scoreboard's junk must mean the same as this one.
     const benchdata::JunkRule junkRule(setup.dictionary, setup.language);

@@ -199,10 +199,13 @@ private slots:
         PredictionJob none = like;
         none.nwp.clear();
         QVERIFY(!swipeContextRescore(&worker, none, "en").scorer);
+        // Joint-model step 3: the learned re-ranker stays (its "no sentence" weights need no neural model).
+        QVERIFY(bool(swipeContextRescore(&worker, none, "en").reranker));
         // With one, it is on, with the English weights tuned in step 1 (neural 1, n-gram 0).
         none.nwp = packs + "/en.nwp.bin";
         const auto on = swipeContextRescore(&worker, none, "en");
         QVERIFY(bool(on.scorer));
+        QVERIFY(bool(on.reranker));
         QCOMPARE(on.neuralWeight, 1.f);
         QCOMPARE(on.ngramWeight, 0.f);
         QCOMPARE(swipeContextRescore(&worker, none, "fr").ngramWeight, 0.25f);

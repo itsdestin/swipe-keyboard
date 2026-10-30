@@ -15,6 +15,8 @@
 #include <QStringList>
 
 #include <algorithm>
+#include <cstdio>
+#include <memory>
 #include <cctype>
 #include <cstdlib>
 #include <fstream>
@@ -176,5 +178,19 @@ private:
     int m_rareBelow = 80, m_nameBelow = 120;
     std::map<std::string, bool> m_capitalised;
 };
+
+// Joint-model step 3: `--reranker FILE` puts that learned re-ranker (SwipeReranker text file) in place of the built-in
+// one; `--no-reranker` removes it, so the fixed weights of steps 1-2 apply. False (message printed) when FILE is bad.
+// WHY in one place: swipekb-bench, swipekb-swap-bench and swipekb-rescore-bench must mean the same by these options.
+inline bool applyReranker(swipekb::ContextRescore &r, const std::string &file, bool none)
+{
+    if (none) { r.reranker = nullptr; return true; }
+    if (file.empty()) return true;
+    auto rr = std::make_shared<swipekb::SwipeReranker>();
+    if (!rr->load(file)) { std::fprintf(stderr, "cannot read the re-ranker %s\n", file.c_str()); return false; }
+    r.reranker = std::move(rr);
+    return true;
+}
+inline const char *rerankerName(const swipekb::ContextRescore &r) { return r.reranker ? "learned" : "fixed"; }
 
 } // namespace benchdata

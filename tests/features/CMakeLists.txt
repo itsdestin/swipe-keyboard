@@ -92,7 +92,9 @@ add_library(feature_engine STATIC ${ROOT}/engine/src/normalize.cpp ${ROOT}/engin
     ${ROOT}/engine/src/language_engine.cpp ${ROOT}/engine/src/learning.cpp ${ROOT}/engine/src/ngram_predictor.cpp
     ${ROOT}/engine/src/nwp_model.cpp ${ROOT}/engine/src/nwp_predictor.cpp ${ROOT}/engine/src/prediction.cpp
     # WHY swap.cpp: LanguageEngine::swapCandidates (tap-to-swap) uses its made-up finger path for typed words.
-    ${ROOT}/engine/src/swap.cpp)
+    ${ROOT}/engine/src/swap.cpp
+    # WHY swipe_rerank.cpp: LanguageEngine's learned re-ranking of a swipe's found words (joint-model step 3).
+    ${ROOT}/engine/src/swipe_rerank.cpp)
 set_target_properties(feature_engine PROPERTIES POSITION_INDEPENDENT_CODE ON)
 set_target_properties(swipe_engine PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_include_directories(feature_engine PUBLIC ${ROOT}/engine/include)

@@ -175,10 +175,17 @@ void NextWordWorker::run()
 swipekb::ContextRescore swipeContextRescore(NextWordWorker *worker, const PredictionJob &like, const QString &language,
                                             std::shared_ptr<SwipeRescoreStats> stats)
 {
-    // WHY off without the verified neural file: the weights were tuned on its score; the n-gram alone is already the
-    // swipe's own prior ("if the neural file is missing, swiping behaves exactly as today").
-    if (!worker || like.nwp.isEmpty() || like.model.isEmpty() || like.vocab.isEmpty()) return {};
     auto r = swipekb::ContextRescore::forLanguage(language.toStdString());
+    // WHY no scorer without the verified neural file: the weights were tuned on its score; the n-gram alone is already
+    // the swipe's own prior, so a swipe with words before then ranks exactly as today.
+    // WHY the learned re-ranker is kept even then (joint-model step 3): its "no sentence" weights use only what the
+    // engine has, so a swipe without words before is ordered the same with or without the neural file (and the same as
+    // in the Gaming Mode daemon, which has no neural model at all).
+    if (!worker || like.nwp.isEmpty() || like.model.isEmpty() || like.vocab.isEmpty()) {
+        if (!r.reranker) return {};
+        r.scorer = nullptr;
+        return r;
+    }
     // WHY only the files and checksums are kept: the scorer runs on every swipe and must not hold anything else.
     PredictionJob files;
     files.model = like.model;

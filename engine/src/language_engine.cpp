@@ -332,36 +332,174 @@ struct LanguageEngine::Impl {
     // (the search's own fallback, BeamParams::freqWeight = EngineParams::freqWeight).
     float priorOf(uint32_t w) const { return prior ? (*prior)(w) : engine.params.freqWeight * float(engine.lexicon().freq(w)); }
 
-    // ContextRescore: re-scores the first `rescore.pool` found words with the neural next-word model, re-sorts them,
-    // and cuts the list to `keep` (the size recognize() would have asked for without re-scoring).
-    // WHY cut back to `keep`: the guesses after the first are chosen from that many words (AlternativeParams::pool),
-    // so re-scoring must not quietly widen that choice too.
-    // WHY a failed or short answer leaves the list as found: swiping must never break because of the extra model.
-    void rescoreFound(std::vector<SwipeCandidate> &found, const std::vector<std::string> &context, size_t keep) const
+    // How a swipe's found words are re-ordered (ContextRescore): not at all, by the two fixed weights (steps 1-2), or by
+    // the learned SwipeReranker (step 3). WHY one place: recognize() and rerankCandidates() must agree exactly.
+    enum class RescoreMode { None, Fixed, Learned };
+    RescoreMode rescoreMode(const std::vector<std::string> &context) const
     {
-        constexpr float kLn10 = 2.302585093f;
-        const size_t n = std::min(found.size(), size_t(std::max(0, rescore.pool)));
+        const auto &rr = rescore.reranker;
+        if (rr) {
+            // WHY no scorer is needed without words before: the "no sentence" weights use no neural score.
+            if (context.empty()) return rr->has(SwipeReranker::NoSentence) ? RescoreMode::Learned : RescoreMode::None;
+            if (!rescore.scorer) return RescoreMode::None;
+            return rr->has(SwipeReranker::WithSentence) ? RescoreMode::Learned : RescoreMode::Fixed;
+        }
+        return rescore.scorer && (!rescore.needWordsBefore || !context.empty()) ? RescoreMode::Fixed : RescoreMode::None;
+    }
+
+    // The neural scores (log10) of the first n found words, or empty when the scorer fails or answers short.
+    std::vector<float> askScorer(const std::vector<SwipeCandidate> &found, size_t n, const std::vector<std::string> &context) const
+    {
         std::vector<std::string> words;
         words.reserve(n);
         for (size_t i = 0; i < n; ++i) words.push_back(engine.lexicon().text(found[i].word));
         std::vector<float> neural;
         try { neural = rescore.scorer(context, words); } catch (...) { neural.clear(); }
-        if (n > 0 && neural.size() == n) {
+        if (n == 0 || neural.size() != n) neural.clear();
+        return neural;
+    }
+
+    // The re-ranker's facts about found[0..n) (see RerankFeature in swipe_rerank.hpp). `neural` may be empty (no
+    // sentence) or hold NaN (the next-word vocabulary lacks that word). Every value is clipped, so always finite.
+    std::vector<RerankRow> rerankFeatures(const std::vector<SwipeCandidate> &found, size_t n, const std::vector<float> &neural,
+                                          const std::vector<SwipePoint> &pts, float aspect) const
+    {
+        constexpr float kLn10 = 2.302585093f;
+        std::vector<RerankRow> rows(n);
+        if (n == 0) return rows;
+        const SwipeLayout &layout = engine.layout();
+        const SwipeLexicon &lex = engine.lexicon();
+        // WHY key widths: the same distance means the same on a narrow phone-like board and a wide tablet one
+        // (x is 0..1 of the letter area; y is scaled by the area's height / width).
+        const float unit = layout.unit();
+        const auto dist = [&](float x0, float y0, float x1, float y1) {
+            const float dx = (x1 - x0) * unit, dy = (y1 - y0) * aspect * unit;
+            return std::sqrt(dx * dx + dy * dy);
+        };
+        float swipeLength = 0;
+        for (size_t k = 1; k < pts.size(); ++k) swipeLength += dist(pts[k - 1].x, pts[k - 1].y, pts[k].x, pts[k].y);
+        float bestPath = -1e30f, bestPrior = -1e30f;
+        std::vector<float> priors(n);
+        for (size_t i = 0; i < n; ++i) {
+            priors[i] = priorOf(found[i].word);
+            bestPath = std::max(bestPath, found[i].ctc);
+            bestPrior = std::max(bestPrior, priors[i]);
+        }
+        // The neural opinion of each word in nats (see RerankRow): the model's score, else the word's n-gram probability
+        // in this sentence, else (no n-gram pack) the average of the words that have one. Empty `neural` = no sentence.
+        std::vector<float> nat(n, 0.f);
+        float bestNeural = 0.f;
+        if (!neural.empty()) {
+            double sum = 0;
+            size_t known = 0;
+            for (size_t i = 0; i < n; ++i)
+                if (i < neural.size() && std::isfinite(neural[i])) { nat[i] = kLn10 * neural[i]; sum += nat[i]; ++known; }
+            const float average = known ? float(sum / double(known)) : 0.f;
+            bestNeural = -1e30f;
             for (size_t i = 0; i < n; ++i) {
-                // WHY a word without a neural score (NaN: the next-word vocabulary lacks it, e.g. a word the person
-                // taught) takes the n-gram's own estimate in its place: the floor would push a learned word below
-                // every other guess. For English (n-gram weight 0, neural 1) its score stays exactly as found.
-                // Without an n-gram pack the prior is plain frequency, not a probability: such a word keeps its score.
-                if (!std::isfinite(neural[i])) {
-                    if (prior) found[i].score += (rescore.ngramWeight - 1.f + rescore.neuralWeight) * priorOf(found[i].word);
-                    continue;
-                }
-                found[i].score += (rescore.ngramWeight - 1.f) * priorOf(found[i].word) + rescore.neuralWeight * kLn10 * neural[i];
+                if (!(i < neural.size() && std::isfinite(neural[i]))) nat[i] = prior ? priors[i] : average;
+                bestNeural = std::max(bestNeural, nat[i]);
             }
-            // WHY stable and only the re-scored part: equal scores keep the search's order, and words past the pool
-            // have no neural score, so they stay behind the re-scored ones.
-            std::stable_sort(found.begin(), found.begin() + std::ptrdiff_t(n),
-                             [](const SwipeCandidate &a, const SwipeCandidate &b) { return a.score > b.score; });
+        }
+        const auto clip = [](float v, float lo, float hi) { return std::isfinite(v) ? std::clamp(v, lo, hi) : 0.f; };
+        // Places by path fit alone and by the neural score alone (ties: the search's order).
+        std::vector<int> pathRank(n, 0), neuralRank(n, 0);
+        for (size_t i = 0; i < n; ++i)
+            for (size_t j = 0; j < n; ++j) {
+                if (j == i) continue;
+                if (found[j].ctc > found[i].ctc || (found[j].ctc == found[i].ctc && j < i)) ++pathRank[i];
+                if (nat[j] > nat[i] || (nat[j] == nat[i] && j < i)) ++neuralRank[i];
+            }
+        for (size_t i = 0; i < n; ++i) {
+            RerankRow &r = rows[i];
+            r.fill(0.f);
+            const SwipeCandidate &c = found[i];
+            const std::string &text = lex.text(c.word);
+            r[kRrScore] = clip(c.score - found[0].score, -40.f, 0.f);
+            r[kRrPath] = clip(c.ctc - bestPath, -40.f, 0.f);
+            r[kRrPrior] = clip(priors[i] - bestPrior, -40.f, 0.f);
+            r[kRrGeo] = clip(c.ctc + priors[i] - c.score, 0.f, 60.f);
+            r[kRrNeural] = neural.empty() ? 0.f : clip(nat[i] - bestNeural, -30.f, 0.f);
+            r[kRrFirst] = i == 0 ? 1.f : 0.f;
+            r[kRrRankLog] = std::log1p(float(i));
+            const auto it = byIdentity.find(QString::fromStdString(text).toLower().toStdString());
+            const Entry *e = it == byIdentity.end() ? nullptr : &entries[it->second];
+            r[kRrFreq] = float(e ? e->freq() : lex.freq(c.word)) / 255.f;
+            const QString q = QString::fromStdString(text);
+            int letters = 0;
+            for (const QChar ch : q) letters += ch.isLetter();
+            r[kRrLetters] = float(letters) / 10.f;
+            const auto &keys = lex.keys(c.word);
+            if (!keys.empty() && !pts.empty() && keys.back() < layout.size()) {
+                float ideal = 0;
+                for (size_t k = 1; k < keys.size(); ++k) {
+                    const SwipeKey &a = layout.keys()[keys[k - 1]], &b = layout.keys()[keys[k]];
+                    ideal += dist(a.cx, a.cy, b.cx, b.cy);
+                }
+                // WHY at least half a key: a one-key word ("a", "I") has no ideal path, and a real swipe still moves.
+                r[kRrLengthFit] = clip(std::fabs(std::log((swipeLength + 0.5f) / (ideal + 0.5f))), 0.f, 3.f);
+                const SwipeKey &first = layout.keys()[keys.front()], &last = layout.keys()[keys.back()];
+                r[kRrStart] = clip(dist(pts.front().x, pts.front().y, first.cx, first.cy), 0.f, 4.f);
+                r[kRrEnd] = clip(dist(pts.back().x, pts.back().y, last.cx, last.cy), 0.f, 4.f);
+            }
+            r[kRrApostrophe] = (q.contains(u'\'') || q.contains(QChar(0x2019))) ? 1.f : 0.f;
+            r[kRrFirstGap] = i == 0 ? (n > 1 ? clip(c.score - found[1].score, 0.f, 10.f) : 10.f) : 0.f;
+            r[kRrPathRank] = std::log1p(float(pathRank[i]));
+            r[kRrNeuralRank] = neural.empty() ? 0.f : std::log1p(float(neuralRank[i]));
+            r[kRrSwipeLength] = clip(swipeLength / 10.f, 0.f, 3.f);
+        }
+        return rows;
+    }
+
+    // ContextRescore: re-orders the first `rescore.pool` found words, then cuts the list to `keep` (the size
+    // recognize() would have asked for without re-scoring).
+    //   Fixed (steps 1-2): score + (ngramWeight - 1) * n-gram prior + neuralWeight * ln10 * neural score.
+    //   Learned (step 3): the SwipeReranker's score of each word's features takes the place of its score.
+    // WHY cut back to `keep`: the guesses after the first are chosen from that many words (AlternativeParams::pool),
+    // so re-scoring must not quietly widen that choice too.
+    // WHY a failed or short answer leaves the list as found: swiping must never break because of the extra model.
+    void rescoreFound(std::vector<SwipeCandidate> &found, const std::vector<std::string> &context, size_t keep,
+                      const std::vector<SwipePoint> &pts, float aspect) const
+    {
+        constexpr float kLn10 = 2.302585093f;
+        const RescoreMode mode = rescoreMode(context);
+        const size_t n = std::min(found.size(), size_t(std::max(0, rescore.pool)));
+        if (mode == RescoreMode::Learned && n > 0) {
+            const auto set = context.empty() ? SwipeReranker::NoSentence : SwipeReranker::WithSentence;
+            std::vector<float> neural;
+            if (set == SwipeReranker::WithSentence) neural = askScorer(found, n, context);
+            if (set == SwipeReranker::NoSentence || !neural.empty()) {
+                const auto rows = rerankFeatures(found, n, neural, pts, aspect);
+                std::vector<float> s(n);
+                bool finite = true;
+                for (size_t i = 0; i < n; ++i) { s[i] = rescore.reranker->score(set, rows[i]); finite = finite && std::isfinite(s[i]); }
+                if (finite) {
+                    // WHY the model's score becomes the word's score: the places after the first are ordered by it
+                    // (plus the sentence prior, AlternativeParams), as with the fixed re-scoring.
+                    for (size_t i = 0; i < n; ++i) found[i].score = s[i];
+                    std::stable_sort(found.begin(), found.begin() + std::ptrdiff_t(n),
+                                     [](const SwipeCandidate &a, const SwipeCandidate &b) { return a.score > b.score; });
+                }
+            }
+        } else if (mode == RescoreMode::Fixed) {
+            const auto neural = askScorer(found, n, context);
+            if (!neural.empty()) {
+                for (size_t i = 0; i < n; ++i) {
+                    // WHY a word without a neural score (NaN: the next-word vocabulary lacks it, e.g. a word the person
+                    // taught) takes the n-gram's own estimate in its place: the floor would push a learned word below
+                    // every other guess. For English (n-gram weight 0, neural 1) its score stays exactly as found.
+                    // Without an n-gram pack the prior is plain frequency, not a probability: such a word keeps its score.
+                    if (!std::isfinite(neural[i])) {
+                        if (prior) found[i].score += (rescore.ngramWeight - 1.f + rescore.neuralWeight) * priorOf(found[i].word);
+                        continue;
+                    }
+                    found[i].score += (rescore.ngramWeight - 1.f) * priorOf(found[i].word) + rescore.neuralWeight * kLn10 * neural[i];
+                }
+                // WHY stable and only the re-scored part: equal scores keep the search's order, and words past the pool
+                // have no neural score, so they stay behind the re-scored ones.
+                std::stable_sort(found.begin(), found.begin() + std::ptrdiff_t(n),
+                                 [](const SwipeCandidate &a, const SwipeCandidate &b) { return a.score > b.score; });
+            }
         }
         if (found.size() > keep) found.resize(keep);
     }
@@ -473,9 +611,9 @@ std::vector<Candidate> LanguageEngine::recognize(const std::vector<TracePoint> &
         // ContextRescore (off by default): re-score the search's best words with the neural next-word model. WHY only
         // with words before unless told otherwise: see ContextRescore::needWordsBefore.
         const int want = std::max(topK, d_->alt.pool);
-        const bool rescoring = bool(d_->rescore.scorer) && (!d_->rescore.needWordsBefore || !context.empty());
+        const bool rescoring = d_->rescoreMode(context) != Impl::RescoreMode::None;
         auto found = d_->engine.decode(pts, aspect, rescoring ? std::max(want, d_->rescore.pool) : want);
-        if (rescoring) d_->rescoreFound(found, context, size_t(want));
+        if (rescoring) d_->rescoreFound(found, context, size_t(want), pts, aspect);
         for (const auto &c : found) {
             const std::string &w = d_->engine.lexicon().text(c.word);
             if (!w.empty() && c.ctc > bestCtc) { bestCtc = c.ctc; d_->bestShape = w; }
@@ -862,11 +1000,18 @@ void LanguageEngine::setContextRescore(ContextRescore rescore) { d_->rescore = s
 //   French + German (FUTO swipe-5 validation, 648 swipes, 575 with words before): 88.43 % -> 90.43 % (+13) at
 //     neural 1, n-gram 0.25 (a flat top: 1.5 / 0 and 2 / 0.5 score within one swipe). Spanish has no tuning set and
 //     takes these.
+// Joint-model step 3 (2026-10-30): the learned re-ranker compiled into the engine (SwipeReranker::builtIn, one shared
+// set for every language, trained by scripts/swipe/train_rerank.py on English swipes the swipe model never saw) takes
+// the place of these two weights, and also orders swipes with no words before. The weights above stay as the fallback
+// when no built-in model is there. WHY switched on: it won on the validation swipes AND on the one test-set run
+// (first guess bench-2000 90.95 -> 91.45 %, test-extra-10000 91.09 -> 91.48 %, HeliBoard en/es/fr/de +2.1 to +3.2
+// points; docs/methods.md).
 ContextRescore ContextRescore::forLanguage(const std::string &language)
 {
     ContextRescore r;
     r.neuralWeight = 1.f;
     r.ngramWeight = language.rfind("en", 0) == 0 ? 0.f : 0.25f;
+    r.reranker = SwipeReranker::builtIn(language);
     return r;
 }
 
@@ -891,6 +1036,31 @@ std::vector<RawSwipeCandidate> LanguageEngine::rawCandidates(const std::vector<T
             const std::string &w = d_->engine.lexicon().text(c.word);
             if (!w.empty()) out.push_back({w, c.score, c.ctc, d_->priorOf(c.word)});
         }
+        return out;
+    } catch (...) {
+        return {};
+    }
+}
+
+std::vector<RerankCandidate> LanguageEngine::rerankCandidates(const std::vector<TracePoint> &trace, const std::vector<KeyRect> &rects,
+                                                             const std::vector<std::string> &context)
+{
+    if (!d_->ok || trace.size() < 2) return {};
+    try {
+        std::vector<SwipePoint> pts;
+        float aspect = 0;
+        if (!d_->toSwipePoints(trace, rects, pts, aspect)) return {};
+        d_->setSentencePrior(context);
+        // WHY the same width and pool as recognize() with re-scoring on: the training data must be the very lists the
+        // keyboard re-orders.
+        const int want = std::max(30, d_->alt.pool);
+        const auto found = d_->engine.decode(pts, aspect, std::max(want, d_->rescore.pool));
+        const size_t n = std::min(found.size(), size_t(std::max(0, d_->rescore.pool)));
+        std::vector<float> neural;
+        if (!context.empty() && d_->rescore.scorer) neural = d_->askScorer(found, n, context);
+        const auto rows = d_->rerankFeatures(found, n, neural, pts, aspect);
+        std::vector<RerankCandidate> out;
+        for (size_t i = 0; i < n; ++i) out.push_back({d_->engine.lexicon().text(found[i].word), rows[i]});
         return out;
     } catch (...) {
         return {};

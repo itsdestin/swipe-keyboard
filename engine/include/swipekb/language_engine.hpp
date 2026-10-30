@@ -31,6 +31,7 @@
 
 #include "swipekb/spellings.hpp"
 #include "swipekb/swap.hpp"
+#include "swipekb/swipe_rerank.hpp"
 #include "swipekb/text.hpp"
 
 namespace swipekb {
@@ -75,12 +76,23 @@ struct ContextRescore {
     // WHY only with words before (default): with none, the neural model only says how common a word is at a
     // sentence start, which the n-gram prior already says; HeliBoard sets (single words) are then unchanged.
     bool needWordsBefore = true;
+    // Joint-model step 3 (optional): a small learned model (SwipeReranker) orders the pool instead of the two fixed
+    // weights above. With it, a swipe with no words before is re-ordered too (its "no sentence" weights; the scorer is
+    // not asked), and needWordsBefore is ignored. A swipe with words before whose scorer gives no usable answer keeps
+    // the search's order, as without the model. nullptr (or a model lacking that weight set) = the fixed weights.
+    std::shared_ptr<const SwipeReranker> reranker;
     // The weights tuned per language on tuning swipes only (tools/swipekb-rescore-bench, bench/rescore-tune.py); see
     // the .cpp. The scorer is left empty: the caller must still set it.
     static ContextRescore forLanguage(const std::string &language);
 };
 
 // One word the swipe search found, with the parts of its score (for measurement tools: swipekb-rescore-bench).
+// One found word and the facts the learned re-ranker sees about it (measurement tools: swipekb-rescore-bench --dump).
+struct RerankCandidate {
+    std::string word;   // display spelling
+    RerankRow features;
+};
+
 struct RawSwipeCandidate {
     std::string word;   // display spelling
     float score = 0;    // what recognize() ranks by before any re-scoring: path + prior - geometry (nats)
@@ -168,6 +180,11 @@ public:
     // For measurement tools (how far down the right word is, and whether a wider search finds it).
     std::vector<RawSwipeCandidate> rawCandidates(const std::vector<TracePoint> &trace, const std::vector<KeyRect> &keys,
                                                  const std::vector<std::string> &context, int topN, int beamWidth = 0);
+    // The words recognize() would re-order for this swipe (the search's best ContextRescore::pool, in its order) with
+    // the re-ranker's features, exactly as recognize() computes them; the neural score comes from the ContextRescore
+    // scorer that is set (asked only with words before). Empty when not ready or unusable. For the training script.
+    std::vector<RerankCandidate> rerankCandidates(const std::vector<TracePoint> &trace, const std::vector<KeyRect> &keys,
+                                                  const std::vector<std::string> &context);
     // The dictionary frequency (0..255) of this spelling (learned and texting words included); 0 = unknown.
     int frequency(const std::string &word) const;
 

@@ -40,6 +40,8 @@ add_library(swipekb69_core STATIC
     ${_engine}/swipe_geo.cpp ${_engine}/swipe_layout.cpp ${_engine}/swipe_lm.cpp ${_engine}/swipe_net.cpp
     # WHY swap.cpp: LanguageEngine::swapCandidates (tap-to-swap) uses its made-up finger path for typed words.
     ${_engine}/swap.cpp
+    # WHY swipe_rerank.cpp: the learned re-ranker of a swipe's found words (joint-model step 3, ContextRescore::reranker).
+    ${_engine}/swipe_rerank.cpp
     ${_plugin}/languageprofile.cpp ${_plugin}/languageruntime.cpp ${_plugin}/languagetextrules.cpp ${_plugin}/language-assets.qrc
     ${_plugin}/swipesession.cpp ${_plugin}/nextwordsession.cpp ${_plugin}/predictionpolicy.cpp ${_plugin}/wordswap.cpp ${_plugin}/swapflow.cpp ${_plugin}/barflow.cpp
     ${_plugin}/nextwordworker.cpp ${_plugin}/nextwordworker.h ${_plugin}/learningmanager.cpp ${_plugin}/learningmanager.h

@@ -411,6 +411,8 @@ TEST(LanguageEngine, ContextRescoreKeepsWordsTheScorerDoesNotKnow)
     const auto plain = words(e.recognize(trace, keys, before, 3));
     ASSERT_FALSE(plain.empty());
     auto r = ContextRescore::forLanguage("en");
+    // WHY no learned model here: this checks the fixed weights' fallback (the learned one has its own test below).
+    r.reranker = nullptr;
     r.scorer = [](const std::vector<std::string> &, const std::vector<std::string> &w) {
         return std::vector<float>(w.size(), std::numeric_limits<float>::quiet_NaN());
     };
@@ -429,4 +431,144 @@ TEST(LanguageEngine, ContextRescoreKeepsWordsTheScorerDoesNotKnow)
     r.neuralWeight = 100.f;
     e.setContextRescore(r);
     EXPECT_EQ(e.recognize(trace, keys, before, 3).front().word, other);
+}
+
+// Joint-model step 3: the learned re-ranker (SwipeReranker). A hand-written model file: every feature has mean 0 and
+// scale 1, and only the weights given are non-zero.
+static std::string rerankerText(const std::vector<std::pair<int, float>> &sentence, const std::vector<std::pair<int, float>> &noSentence)
+{
+    std::string t = "swipekb-rerank 1\nfeatures " + std::to_string(kRrCount) + "\n";
+    const auto set = [&](const char *name, const std::vector<std::pair<int, float>> &w) {
+        std::vector<float> lin(kRrCount, 0.f);
+        for (const auto &[i, v] : w) lin[size_t(i)] = v;
+        t += std::string("set ") + name + " hidden 0\nmean";
+        for (int i = 0; i < kRrCount; ++i) t += " 0";
+        t += "\nscale";
+        for (int i = 0; i < kRrCount; ++i) t += " 1";
+        t += "\nlin";
+        for (float v : lin) t += " " + std::to_string(v);
+        t += "\n";
+    };
+    if (!sentence.empty()) set("sentence", sentence);
+    if (!noSentence.empty()) set("nosentence", noSentence);
+    return t + "end\n";
+}
+
+static std::shared_ptr<const SwipeReranker> reranker(const std::string &text)
+{
+    auto r = std::make_shared<SwipeReranker>();
+    EXPECT_TRUE(r->parse(text));
+    return r;
+}
+
+// The file format: a damaged file switches the model off; the score is lin . z + out . relu(W z + b).
+TEST(SwipeReranker, ReadsOnlyCompleteFilesAndScoresAsWritten)
+{
+    SwipeReranker r;
+    EXPECT_FALSE(r.parse(""));
+    EXPECT_FALSE(r.ready());
+    EXPECT_TRUE(r.parse(rerankerText({{kRrPath, 2.f}}, {})));
+    EXPECT_TRUE(r.has(SwipeReranker::WithSentence));
+    EXPECT_FALSE(r.has(SwipeReranker::NoSentence));
+    RerankRow f{};
+    f[kRrPath] = -1.5f;
+    EXPECT_FLOAT_EQ(r.score(SwipeReranker::WithSentence, f), -3.f);
+    // A value that is not a number counts as the mean: it says nothing.
+    f[kRrPath] = std::numeric_limits<float>::quiet_NaN();
+    EXPECT_FLOAT_EQ(r.score(SwipeReranker::WithSentence, f), 0.f);
+    // Wrong feature count, a NaN weight, a zero scale, a truncated file: refused.
+    std::string bad = rerankerText({{kRrPath, 2.f}}, {});
+    EXPECT_FALSE(r.parse(std::string(bad).replace(bad.find("features ") + 9, 2, "99")));
+    EXPECT_FALSE(r.ready());
+    EXPECT_FALSE(r.parse(std::string(bad).replace(bad.find(" 2.000000"), 9, " nan")));
+    EXPECT_FALSE(r.parse(std::string(bad).replace(bad.find("scale 1"), 7, "scale 0")));
+    EXPECT_FALSE(r.parse(bad.substr(0, bad.size() / 2)));
+    // One hidden unit: relu(1 * z_path + 0.5) * 2, plus nothing linear.
+    std::string h = "swipekb-rerank 1\nfeatures " + std::to_string(kRrCount) + "\nset nosentence hidden 1\nmean";
+    for (int i = 0; i < kRrCount; ++i) h += " 0";
+    h += "\nscale";
+    for (int i = 0; i < kRrCount; ++i) h += " 1";
+    h += "\nlin";
+    for (int i = 0; i < kRrCount; ++i) h += " 0";
+    h += "\nw1";
+    for (int i = 0; i < kRrCount; ++i) h += i == kRrPath ? " 1" : " 0";
+    h += "\nb1 0.5\nout 2\nend\n";
+    ASSERT_TRUE(r.parse(h));
+    RerankRow g{};
+    g[kRrPath] = 1.f;
+    EXPECT_FLOAT_EQ(r.score(SwipeReranker::NoSentence, g), 3.f);
+    g[kRrPath] = -2.f;
+    EXPECT_FLOAT_EQ(r.score(SwipeReranker::NoSentence, g), 0.f);
+}
+
+// With a re-ranker, a swipe with no words before is re-ordered by its "no sentence" weights (no scorer needed); one
+// with words before uses the "sentence" weights only when the scorer answers, and otherwise keeps the search's order.
+TEST(LanguageEngine, LearnedRerankerOrdersBothKindsOfSwipeAndNeverBreaksOne)
+{
+    Dict d(kEnglish);
+    LanguageEngine e;
+    ASSERT_TRUE(open(e, d));
+    const auto keys = qwertyRects(0, 0, 1);
+    const auto trace = traceThrough("help", keys);
+    const std::vector<std::string> before{"please"};
+    const auto plain = words(e.recognize(trace, keys, before, 3));
+    const auto plainNoContext = words(e.recognize(trace, keys, {}, 3));
+    const auto raw = e.rawCandidates(trace, keys, {}, 30);
+    ASSERT_GE(raw.size(), 2u);
+    // "No sentence" weights that prefer the search's LAST word: it comes first.
+    ContextRescore r;
+    r.reranker = reranker(rerankerText({}, {{kRrRankLog, 100.f}}));
+    e.setContextRescore(r);
+    EXPECT_EQ(e.recognize(trace, keys, {}, 3).front().word, raw.back().word);
+    // Words before but no "sentence" weights and no scorer: as found.
+    EXPECT_EQ(words(e.recognize(trace, keys, before, 3)), plain);
+    // The features recognize() uses are the ones the training script reads.
+    const auto cands = e.rerankCandidates(trace, keys, {});
+    ASSERT_EQ(cands.size(), raw.size());
+    EXPECT_EQ(cands.front().word, raw.front().word);
+    EXPECT_EQ(cands.front().features[kRrFirst], 1.f);
+    EXPECT_EQ(cands[1].features[kRrFirst], 0.f);
+    for (const auto &c : cands)
+        for (float v : c.features) EXPECT_TRUE(std::isfinite(v));
+    // "Sentence" weights that follow the neural score: the word the scorer favours comes first.
+    std::string other;
+    for (const auto &c : e.rawCandidates(trace, keys, before, 30)) if (c.word != "help") { other = c.word; break; }
+    ASSERT_FALSE(other.empty());
+    r.reranker = reranker(rerankerText({{kRrNeural, 100.f}}, {}));
+    r.scorer = [&](const std::vector<std::string> &, const std::vector<std::string> &w) {
+        std::vector<float> s;
+        for (const auto &x : w) s.push_back(x == other ? 0.f : -10.f);
+        return s;
+    };
+    e.setContextRescore(r);
+    EXPECT_EQ(e.recognize(trace, keys, before, 3).front().word, other);
+    // No "no sentence" weights: a swipe without words before is as found (and the scorer is not asked).
+    EXPECT_EQ(words(e.recognize(trace, keys, {}, 3)), plainNoContext);
+    // A scorer that throws or answers short: as found.
+    r.scorer = [](const std::vector<std::string> &, const std::vector<std::string> &) -> std::vector<float> { throw 1; };
+    e.setContextRescore(r);
+    EXPECT_EQ(words(e.recognize(trace, keys, before, 3)), plain);
+    r.scorer = [](const std::vector<std::string> &, const std::vector<std::string> &) { return std::vector<float>{0.f}; };
+    e.setContextRescore(r);
+    EXPECT_EQ(words(e.recognize(trace, keys, before, 3)), plain);
+    // A word the scorer has no opinion on (NaN, e.g. a learned word) is not read as "very unlikely": with every other
+    // word scored very low it stays first.
+    r.scorer = [](const std::vector<std::string> &, const std::vector<std::string> &w) {
+        std::vector<float> s;
+        for (const auto &x : w) s.push_back(x == "help" ? std::numeric_limits<float>::quiet_NaN() : -12.f);
+        return s;
+    };
+    e.setContextRescore(r);
+    EXPECT_EQ(e.recognize(trace, keys, before, 3).front().word, "help");
+}
+
+// The weights compiled into the engine, when there are any, read without error and hold both sets.
+TEST(SwipeReranker, BuiltInWeightsAreComplete)
+{
+    for (const char *lang : {"en", "es", "fr", "de"}) {
+        const auto r = SwipeReranker::builtIn(lang);
+        if (!r) continue;
+        EXPECT_TRUE(r->has(SwipeReranker::WithSentence)) << lang;
+        EXPECT_TRUE(r->has(SwipeReranker::NoSentence)) << lang;
+    }
 }
