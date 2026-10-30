@@ -193,6 +193,8 @@ def check_versions(contract):
         ('packaging/arch/PKGBUILD', r'^pkgrel=(.+)$', str(contract['release'])),
         ('packaging/fedora/swipe-keyboard.spec', r'^Version: (.+)$', contract['version']),
         ('packaging/fedora/swipe-keyboard.spec', r'^Release: (\d+)', str(contract['release'])),
+        ('packaging/opensuse/swipe-keyboard.spec', r'^Version: (.+)$', contract['version']),
+        ('packaging/opensuse/swipe-keyboard.spec', r'^Release: (\d+)', str(contract['release'])),
     ]:
         match = re.search(pattern, (ROOT/path).read_text(), re.M)
         if not match or match[1] != expected:
