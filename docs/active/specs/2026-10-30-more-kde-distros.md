@@ -23,12 +23,13 @@ apart from the update units and the package-manager source file.
 
 ## Steps, in order
 
-1. **Debian package** (`packaging/debian/`), one recipe built twice: in `ubuntu:26.10` and in `debian:testing`.
-   Dependencies name the distro's own package names (`plasma-keyboard`, `qml6-module-qtquick-virtualkeyboard` or its
-   equivalent, KF6 Kirigami); the exact names are read from each distro's index during the build, not guessed. The
-   Qt dependency pins the **Qt minor** the package was built with (Qt plugins load only on the same minor or newer, and
-   QML ahead-of-time code needs the same minor; `docs/compatibility-investigation.md`).
+1. **Debian package** (`packaging/debian/`, built by `packaging/debian/build.sh TARGET`), one recipe built twice: in
+   `ubuntu:26.10` and in `debian:testing`. Dependencies use each distro's own package names, checked on real systems.
+   The Qt dependency comes out as "this Qt version or newer" (Qt plugins load on the same minor or newer;
+   `docs/compatibility-investigation.md`). The launcher reads the running Qt version from the package's own probe
+   (`swipekb-preflight --qt-version`), so no Qt developer tool is needed on any distro.
 2. **openSUSE package** (`packaging/opensuse/swipe-keyboard.spec`), built in `opensuse/tumbleweed`; same rules.
+   Both stop the update timer when removed (Arch and Fedora get that from their package managers).
 3. **Bazzite**: the SteamOS download's installer recognises Bazzite (`/etc/os-release` `ID=bazzite`) and installs the
    Desktop Mode Flatpak and the Gaming Mode helper the same way as on a Deck. What differs on Bazzite (Steam's location,
    the Gaming Mode session, the administrator password step) is found in the Bazzite VM first and handled explicitly.
@@ -36,15 +37,18 @@ apart from the update units and the package-manager source file.
 
 ## Updates
 
-Same behaviour as Arch and Fedora today: a daily timer updates **only this package**, from a signed source the package
-installs, and never upgrades the rest of the system (`integration/update.py`).
-- **apt:** the package installs `/etc/apt/sources.list.d/swipe-keyboard.sources` with a `Signed-By` key file (the
-  update key in `packaging/updates/`). The update site gains a signed apt repository per target (`InRelease`).
-  The updater runs `apt-get update` limited to that one source, then `apt-get install --only-upgrade swipe-keyboard`.
-- **zypper:** the package installs `/etc/zypp/repos.d/swipe-keyboard.repo` (signed rpm-md, `repomd.xml.asc`, same key).
-  The updater runs `zypper --non-interactive update swipe-keyboard`.
-- `update.py`'s `manager()` learns `apt` and `zypper`; a copy installed by neither is never updated automatically
-  (as today).
+Same behaviour as Arch and Fedora today: a daily timer updates **only this package**, never the rest of the system
+(`integration/update.py`).
+- **Changed during the build (2026-10-30):** the first design used an apt source and a zypper repository. The update site
+  is GitHub Pages, which does not hold the packages (they stay on the release page), and apt needs the packages on the
+  same site as its index. So Kubuntu/Debian and openSUSE use the **Arch method**: the site holds a signed
+  `deb/<target>/latest.json` or `opensuse/<target>/latest.json` naming the newest package, its URL on the release page,
+  size and SHA256. The updater checks the signature and the hash, then installs that one file with `apt-get install`
+  or `zypper install --allow-unsigned-rpm`. For users: install by downloading the package and running one command
+  (like Arch); updates arrive daily on their own; they do not show in Discover's update list (like Arch).
+- `<target>` is written into the package at build time (`/usr/share/swipe-keyboard/integration/update-target`), so a
+  Kubuntu 26.10 computer only ever fetches the Kubuntu 26.10 build.
+- `update.py`'s `manager()` knows `apt` (a package dpkg reports as installed) and `zypper`.
 
 ## When the distro moves faster than we do
 
