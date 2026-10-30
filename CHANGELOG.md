@@ -1,6 +1,6 @@
 # Changes
 
-## Unreleased
+## v0.5.1-1
 
 ### Swipes pick the right word more often, also for the first word of a message
 
@@ -70,8 +70,6 @@
   about 9 ms (limit 20). Details: `docs/active/investigations/2026-10-24-swap-results.md`.
 - **Learned words:** words the keyboard learned from you still move up in the bar after a swipe (at half strength, as
   before). Tap-back lists are ordered by the swipe and the sentence only; forgotten words never appear in either.
-
-## v0.5.1-1
 
 ### Steam Deck: Gaming Mode is part of the one install
 
