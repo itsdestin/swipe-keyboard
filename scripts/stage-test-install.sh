@@ -85,7 +85,13 @@ install)
     (cd "$(dirname "$ROLLBACK")" && sha256sum -c SHA256SUMS)
     echo "installed before: $(pacman -Q swipe-keyboard)"
     pacman_install "$PKG"
-    restart_keyboard ;;
+    restart_keyboard
+    # WHY: test builds use a lower release number (0.5.0-0.7 < 0.5.0-1), so the daily auto-update sees the release as
+    # "newer" and silently puts it back overnight (2026-10-29: the owner's test build was undone this way).
+    if [ -x /usr/bin/swipe-keyboard ] && ! swipe-keyboard updates status 2>/dev/null | grep -q 'are off'; then
+        echo "WARNING: automatic updates are on and will replace this test build with the release overnight."
+        echo "         Keep it while testing: pkexec swipe-keyboard updates off   (back on later: pkexec swipe-keyboard updates on)"
+    fi ;;
 rollback)
     (cd "$(dirname "$ROLLBACK")" && sha256sum -c SHA256SUMS)
     # WHY no extra cleanup: pacman removes the test package's files as part of replacing it with the saved one.
