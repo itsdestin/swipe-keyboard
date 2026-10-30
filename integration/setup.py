@@ -166,9 +166,10 @@ class Controller:
         except (OSError, ValueError, KeyError, TypeError) as error:
             raise SetupError('Package compatibility metadata is missing or damaged. Reinstall the package.') from error
         qt = None
-        # WHY explicit Arch path: qt6-base installs this tool under /usr/lib/qt6/bin,
-        # which is not on a fresh desktop user's PATH. Fedora also supplies /usr/bin aliases.
-        for binary in ('qtpaths6', 'qtpaths-qt6', '/usr/lib/qt6/bin/qtpaths6'):
+        # WHY our own probe first: it is installed with the package and reports the Qt it really loads; qtpaths6 is a
+        # developer tool on openSUSE (card #502). The qtpaths names stay as a fallback. WHY explicit Arch path: qt6-base
+        # installs qtpaths6 under /usr/lib/qt6/bin, which is not on a fresh desktop user's PATH.
+        for binary in (str(self.root / 'integration/swipekb-preflight'), 'qtpaths6', 'qtpaths-qt6', '/usr/lib/qt6/bin/qtpaths6'):
             try:
                 qt = self.command([binary, '--qt-version'])
                 break

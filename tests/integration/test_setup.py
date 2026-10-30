@@ -25,6 +25,7 @@ class Commands:
         self.fedora_commands = False
         self.live_mode = 0
         self.arch_qtpaths = False
+        self.probe_answers_qt = True
         self.preflight_error = None
         self.defaults = {}
         self.immutable = set()
@@ -41,6 +42,10 @@ class Commands:
         elif command in ('qtpaths6', 'qtpaths-qt6'):
             if self.arch_qtpaths and args[0] != '/usr/lib/qt6/bin/qtpaths6':
                 raise FileNotFoundError('Arch keeps qtpaths6 outside the default PATH')
+            value = self.qt_version
+        elif command == 'swipekb-preflight' and args[1] == '--qt-version':
+            if not self.probe_answers_qt:
+                raise FileNotFoundError('an install from before the probe learned --qt-version')
             value = self.qt_version
         elif command == 'swipekb-preflight':
             if self.preflight_error:
@@ -406,7 +411,14 @@ class SetupTests(unittest.TestCase):
                 self.controller.enable(always_available=True)
         self.assertFalse((self.base / 'data').exists())
 
+    def test_the_installed_probe_reports_qt_so_no_developer_tool_is_needed(self):
+        # WHY (card #502): openSUSE ships qtpaths6 only in a developer package; the package's own probe answers instead.
+        self.controller.check()
+        self.assertTrue(any(Path(c[0]).name == 'swipekb-preflight' and c[1:] == ['--qt-version'] for c in self.commands.calls))
+        self.assertFalse(any(Path(c[0]).name.startswith('qtpaths') for c in self.commands.calls))
+
     def test_arch_qt_version_tool_outside_default_path(self):
+        self.commands.probe_answers_qt = False
         self.commands.arch_qtpaths = True
         self.controller.check()
         self.assertTrue(any(c[0] == '/usr/lib/qt6/bin/qtpaths6' for c in self.commands.calls))

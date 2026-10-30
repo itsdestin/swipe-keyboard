@@ -15,12 +15,12 @@ Rules-Requires-Root: no
 
 Package: swipe-keyboard
 Architecture: amd64
-# WHY each: python3 runs the launcher and updater; kwriteconfig6 (libkf6config-bin), qdbus6 (qdbus-qt6), qtpaths6 and
-# busctl (systemd) are what the launcher calls to check versions and switch the keyboard; gpgv and apt check and install
+# WHY each: python3 runs the launcher and updater; kwriteconfig6 (libkf6config-bin), qdbus6 (qdbus-qt6) and busctl
+# (systemd) are what the launcher calls to switch the keyboard (the package's own probe reports the Qt version); gpgv and apt check and install
 # updates. WHY no upper bound on plasma-keyboard: a Plasma 6.9 upgrade must never be blocked by this package; on 6.9+
 # the launcher starts the matching front end, or KDE's plain keyboard if nothing fits.
 Depends: ${shlibs:Depends}, ${misc:Depends}, python3, systemd, apt, gpgv, plasma-keyboard (>= 6.7),
- qml6-module-org-kde-kirigami, libkf6config-bin, qdbus-qt6, qtpaths6
+ qml6-module-org-kde-kirigami, libkf6config-bin, qdbus-qt6
 Description: Swipe typing, completions and next-word suggestions for Plasma Keyboard
  English (US/UK), Spanish, French and German swipe typing, current-word completions and next-word suggestions for
  KDE's on-screen keyboard, with its own open swipe engine. Everything runs offline on this computer.
