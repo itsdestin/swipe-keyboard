@@ -61,6 +61,9 @@ SYSTEMCTL = '''#!/bin/sh
 if [ -n "$FAKE_ROOT" ]; then printf 'root-systemctl %s\\n' "$*" >> "$FAKE_LOG"; else printf 'systemctl %s\\n' "$*" >> "$FAKE_LOG"; fi
 case "$1" in
   cat) [ -z "$FAKE_NO_SOCKET" ]; exit $? ;;
+  # WHY FAKE_SOCKET_OFF: Bazzite ships the same socket as SteamOS but switched off (seen in the Bazzite VM, card #502).
+  is-enabled) if [ -n "$FAKE_SOCKET_OFF" ]; then echo disabled; exit 1; fi; echo enabled ;;
+  is-active) [ -z "$FAKE_SOCKET_OFF" ]; exit $? ;;
   # WHY stop/start and a failing restart: real SteamOS runs a helper service (steam-web-debug-portforward.service)
   # that systemd keeps for 5 minutes after the last connection. While it runs, `restart` of the socket FAILS
   # ("Socket service ... already active, refusing") and the old wide-open listener stays in use (seen in the M8 VM run).
@@ -73,6 +76,10 @@ case "$1" in
 esac
 exit 0
 '''
+# WHY a logging stand-in: the uninstaller hands the keyboard choice back to KDE through kwriteconfig6 (card #502).
+KWRITECONFIG = '''#!/bin/sh
+printf 'kwriteconfig6 %s\\n' "$*" >> "$FAKE_LOG"
+'''
 SUDO = '''#!/bin/sh
 printf 'sudo %s\\n' "$*" >> "$FAKE_LOG"
 [ "$FAKE_SUDO" = deny ] && { echo 'sudo: a password is required' >&2; exit 1; }
@@ -82,6 +89,8 @@ FAKE_ROOT=1 exec "$@"
 
 
 UPDATE_UNITS = ['swipekb-update.service', 'swipekb-update.timer']
+SOCKET_QUERIES = {'systemctl cat steam-web-debug-portforward.socket', 'systemctl is-enabled steam-web-debug-portforward.socket',
+                  'systemctl is-active -q steam-web-debug-portforward.socket'}
 
 
 def gaming_units(f):
@@ -90,7 +99,7 @@ def gaming_units(f):
 
 
 class Fixture:
-    def __init__(self, test, version='0.3.1-1', steam=True, symlink=False):
+    def __init__(self, test, version='0.3.1-1', steam=True, symlink=False, system='steamos'):
         self.tmp = tempfile.TemporaryDirectory()
         test.addCleanup(self.tmp.cleanup)
         base = Path(self.tmp.name)
@@ -102,7 +111,7 @@ class Fixture:
         self.apps.write_text('')
         shims, tools = base / 'shims', base / 'tools'
         shims.mkdir(), tools.mkdir()
-        for name, body in (('flatpak', FLATPAK), ('systemctl', SYSTEMCTL), ('sudo', SUDO)):
+        for name, body in (('flatpak', FLATPAK), ('systemctl', SYSTEMCTL), ('sudo', SUDO), ('kwriteconfig6', KWRITECONFIG)):
             (shims / name).write_text(body)
             (shims / name).chmod(0o755)
         for name in TOOLS:
@@ -122,6 +131,12 @@ class Fixture:
             if symlink:
                 (self.home / '.steam').mkdir()
                 (self.home / '.steam/steam').symlink_to(self.steam)
+        # WHY a stand-in /etc/os-release: the installer's wording names the system it runs on (SteamOS or e.g. Bazzite)
+        self.os_release = base / 'os-release'
+        self.os_release.write_text({'steamos': 'NAME="SteamOS"\nID=steamos\n',
+                                    'bazzite': 'NAME="Bazzite"\nPRETTY_NAME="Bazzite"\nID=bazzite\nID_LIKE="fedora"\n'}[system])
+        self.appdir = base / 'usr-share-applications'     # stands in for /usr/share/applications
+        self.appdir.mkdir()
         self.bundle = base / 'download'
         self.make_bundle(version)
 
@@ -152,14 +167,19 @@ class Fixture:
         return self.sysdir / 'steam-web-debug-portforward.socket.d/swipekb-loopback-only.conf'
 
     def run(self, script, *args, stdin='y\n', fail=None, shims=True, extra=None):
-        env = {'SWIPEKB_SYSTEM_UNIT_DIR': str(self.sysdir), 'SWIPEKB_PROC_NET': str(self.proc), **(extra or {}), 'HOME': str(self.home), 'PATH': (str(self.shims) + ':' if shims else '') + str(self.tools),
+        env = {'SWIPEKB_SYSTEM_UNIT_DIR': str(self.sysdir), 'SWIPEKB_PROC_NET': str(self.proc),
+               'SWIPEKB_OS_RELEASE': str(self.os_release), 'SWIPEKB_APPLICATIONS_DIR': str(self.appdir), **(extra or {}), 'HOME': str(self.home), 'PATH': (str(self.shims) + ':' if shims else '') + str(self.tools),
                'LANG': 'C', 'FAKE_LOG': str(self.log), 'FAKE_APPS': str(self.apps), 'FAKE_FAIL': fail or ''}
         env.update(extra or {})
         return subprocess.run(['bash', str(self.bundle / script), *args], input=stdin, env=env,
                               capture_output=True, text=True, timeout=60)
 
     def calls(self):
-        return self.log.read_text().splitlines()
+        """Every command run, except the read-only questions about SteamOS's socket (does it exist, is it on).
+
+        WHY left out: they change nothing and are asked before the plan is shown (also in a dry run), so "nothing was
+        run" checks would otherwise fail on them. What the installer does with the answers is tested on its own."""
+        return [c for c in self.log.read_text().splitlines() if c not in SOCKET_QUERIES]
 
     def snapshot(self):
         """Every file and symlink under HOME with its content, so 'nothing changed' is checkable."""
@@ -290,7 +310,7 @@ class InstallTests(unittest.TestCase):
         f.run('install.sh', '--gaming', '--block-outside')
         f.run('uninstall.sh', '--yes', '--remove-apps')
         for call in f.calls():
-            if call.startswith(('sudo ', 'root-systemctl ')) or call == 'systemctl cat steam-web-debug-portforward.socket':
+            if call.startswith(('sudo ', 'root-systemctl ')):
                 continue   # the few administrator steps are pinned by the outside-door tests below
             self.assertIn('--user', call, call)
         for script in ('install.sh', 'uninstall.sh'):
@@ -582,6 +602,41 @@ class ChoiceTests(unittest.TestCase):
         self.assertEqual(sys_files(f), [])
         self.assertTrue((f.steam / MARKER).is_file())
 
+    def test_a_system_that_keeps_the_socket_switched_off_needs_no_password_and_no_system_change(self):
+        # WHY (Bazzite VM, card #502): Bazzite ships SteamOS's forwarding socket but disabled, so port 8081 is closed
+        # already. Writing the block would ask for a password and START a socket nobody had running; the helper's own
+        # check (exposure.py) turns Gaming Mode swipe off if anything opens the port later.
+        f = Fixture(self, system='bazzite')
+        (f.proc / 'tcp').write_text('header\n')
+        result = f.run('install.sh', '--gaming', '--block-outside', extra={'FAKE_SOCKET_OFF': '1', 'FAKE_SUDO': 'deny'})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(sys_files(f), [])
+        self.assertEqual([c for c in f.calls() if c.startswith(('sudo', 'root-'))], [])
+        self.assertTrue((f.steam / MARKER).is_file())
+        self.assertEqual(f.record()['outside_access'], 'blocked')
+        self.assertIn('already closed', result.stdout)
+
+    def test_a_switched_off_socket_with_the_port_open_anyway_does_not_turn_gaming_on(self):
+        # Something else listening on 8081 for every device: the final look must still catch it.
+        f = Fixture(self, system='bazzite')
+        result = f.run('install.sh', '--gaming', '--block-outside', stdin='y\n\n', extra={'FAKE_SOCKET_OFF': '1', 'FAKE_SUDO': 'deny'})
+        self.assertIn('NOT closed', result.stdout + result.stderr)
+        self.assertFalse((f.steam / MARKER).exists())
+        self.assertEqual(sys_files(f), [])
+
+    def test_wording_names_the_system_it_runs_on(self):
+        deck = Fixture(self).run('install.sh', '--dry-run', stdin='').stdout
+        self.assertIn('Swipe Keyboard for Steam Deck', deck)
+        self.assertIn("your Deck's administrator password", deck)
+        f = Fixture(self, system='bazzite')
+        (f.proc / 'tcp').write_text('header\n')
+        out = f.run('install.sh', '--dry-run', stdin='', extra={'FAKE_SOCKET_OFF': '1'}).stdout
+        self.assertIn('Swipe Keyboard for Bazzite', out)
+        self.assertNotIn('Deck', out)
+        self.assertNotIn('SteamOS', out)
+        self.assertNotIn('passwd', out)   # nothing asks for a password here, so no hint about setting one
+        self.assertIn('already closed', out)
+
     def test_interactive_answers_map_to_the_right_choices(self):
         # WHY Enter = yes with other devices blocked (Destin, card #201, 2026-10-24)
         cases = (('\n', True, 'blocked'), ('y\n', True, 'blocked'), ('Yes\n', True, 'blocked'),
@@ -697,6 +752,54 @@ class ChoiceTests(unittest.TestCase):
         out = Fixture(self).run('install.sh', '--dry-run', '--gaming', '--leave-open', stdin='').stdout
         self.assertIn('leave SteamOS', out)
         self.assertNotIn('write one small file', out)
+
+
+class KeyboardChoiceTests(unittest.TestCase):
+    """Card #502, edge case 1: removing the app must never leave the person with no on-screen keyboard after the next login."""
+    OURS = '/home/x/.local/share/flatpak/exports/share/applications/org.itsdestin.SwipeKeyboard.desktop'
+
+    def setup(self, chosen, kde_keyboard=True):
+        f = Fixture(self)
+        f.run('install.sh', '--desktop-only', '--yes')
+        (f.home / '.config').mkdir(exist_ok=True)
+        (f.home / '.config/kwinrc').write_text(f'[Wayland]\nInputMethod={chosen}\n')
+        if kde_keyboard:
+            (f.appdir / 'org.kde.plasma.keyboard.desktop').write_text('[Desktop Entry]\n')
+        f.log.write_text('')
+        return f
+
+    def keyboard_calls(self, f):
+        return [c for c in f.calls() if c.startswith('kwriteconfig6')]
+
+    def test_removing_the_chosen_keyboard_hands_the_choice_back_to_kdes_own(self):
+        f = self.setup(self.OURS)
+        result = f.run('uninstall.sh', '--yes', '--remove-apps')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.keyboard_calls(f), [
+            f'kwriteconfig6 --file kwinrc --group Wayland --key InputMethod --notify {f.appdir}/org.kde.plasma.keyboard.desktop'])
+        self.assertIn("KDE's own on-screen keyboard", result.stdout)
+
+    def test_without_kdes_keyboard_the_choice_becomes_none_and_says_so(self):
+        f = self.setup(self.OURS, kde_keyboard=False)
+        result = f.run('uninstall.sh', '--yes', '--remove-apps')
+        self.assertEqual(self.keyboard_calls(f), ['kwriteconfig6 --file kwinrc --group Wayland --key InputMethod --notify '])
+        self.assertIn('System Settings', result.stdout)
+
+    def test_another_chosen_keyboard_is_left_alone(self):
+        f = self.setup('/usr/share/applications/org.fcitx.Fcitx5.desktop')
+        f.run('uninstall.sh', '--yes', '--remove-apps')
+        self.assertEqual(self.keyboard_calls(f), [])
+
+    def test_keeping_the_app_keeps_the_choice(self):
+        f = self.setup(self.OURS)
+        f.run('uninstall.sh', '--yes')
+        self.assertEqual(self.keyboard_calls(f), [])
+
+    def test_the_plan_mentions_it(self):
+        f = self.setup(self.OURS)
+        out = f.run('uninstall.sh', '--dry-run', '--remove-apps').stdout
+        self.assertIn('Virtual Keyboard', out)
+        self.assertEqual(self.keyboard_calls(f), [])
 
 
 class UninstallBlockTests(unittest.TestCase):

@@ -30,6 +30,9 @@ UNITS=(swipekb-engine.service swipekb-helper.service swipekb-switch-watch.servic
 MAIN_ID=org.itsdestin.SwipeKeyboard
 MARKER_NAME=.cef-enable-remote-debugging
 HELPER_ID=org.itsdestin.SwipeKeyboard.GamingHelper
+# Where KDE's own on-screen keyboard is listed (test hook; on a real system never set).
+APPLICATIONS_DIR="${SWIPEKB_APPLICATIONS_DIR:-/usr/share/applications}"
+KDE_KEYBOARD="$APPLICATIONS_DIR/org.kde.plasma.keyboard.desktop"
 
 DRY_RUN=0; ASSUME_YES=0; REMOVE_APPS=0
 for arg in "$@"; do
@@ -72,6 +75,23 @@ marker_is_switch_file() {
     return 1
 }
 
+# WHY (card #502, edge case 1): KDE remembers which on-screen keyboard to start in kwinrc. If that is still our app
+# after the app is gone, the next login starts no on-screen keyboard at all, which on a handheld means no typing.
+# Read the file directly: no KDE tool is needed to look, and a missing file simply means "not ours".
+keyboard_choice() {
+    [ -f "$CONFIG_HOME/kwinrc" ] || return 0
+    sed -n '/^\[Wayland\]/,/^\[/{s/^InputMethod=//p}' "$CONFIG_HOME/kwinrc" | head -n 1
+}
+removes_main_app() {
+    [ "$REMOVE_APPS" = 1 ] || return 1
+    local id; for id in "${INSTALLED_APPS[@]+"${INSTALLED_APPS[@]}"}"; do [ "$id" = "$MAIN_ID" ] && return 0; done
+    return 1
+}
+RESET_CHOICE=0
+if removes_main_app; then
+    case "$(keyboard_choice)" in "$MAIN_ID.desktop"|*/"$MAIN_ID.desktop") RESET_CHOICE=1 ;; esac
+fi
+
 echo "Swipe Keyboard for Gaming Mode: removal. This will:"
 echo "  - stop and turn off the background services (the engine, the helper and the once-a-minute switch check), and delete their files from $UNIT_DIR (only files this installer wrote)"
 if [ -f "$RECORD" ]; then
@@ -98,6 +118,13 @@ else
     echo "  - leave the two apps installed; to remove them yourself:"
     echo "      flatpak uninstall --user $HELPER_ID"
     echo "      flatpak uninstall --user $MAIN_ID"
+fi
+if [ "$RESET_CHOICE" = 1 ]; then
+    if [ -f "$KDE_KEYBOARD" ]; then
+        echo "  - switch the on-screen keyboard (System Settings > Keyboard > Virtual Keyboard) back to KDE's own, so the next login still has one"
+    else
+        echo "  - clear the on-screen keyboard choice (System Settings > Keyboard > Virtual Keyboard): it names the app being removed"
+    fi
 fi
 echo "Steam keeps nothing of ours on disk: the keyboard layer lives only in Steam's memory and is gone after Steam's next restart."
 
@@ -150,6 +177,16 @@ done
 
 if [ "$REMOVE_APPS" = 1 ]; then
     for id in "${INSTALLED_APPS[@]+"${INSTALLED_APPS[@]}"}"; do flatpak uninstall --user -y "$id" || true; done
+fi
+# WHY after the removal: the choice is only wrong once the app is really gone. --notify tells KWin at once.
+if [ "$RESET_CHOICE" = 1 ]; then
+    if [ -f "$KDE_KEYBOARD" ]; then
+        kwriteconfig6 --file kwinrc --group Wayland --key InputMethod --notify "$KDE_KEYBOARD" || true
+        echo "The on-screen keyboard is now KDE's own on-screen keyboard (change it in System Settings > Keyboard > Virtual Keyboard)."
+    else
+        kwriteconfig6 --file kwinrc --group Wayland --key InputMethod --notify "" || true
+        echo "No on-screen keyboard is chosen now. Pick one in System Settings > Keyboard > Virtual Keyboard."
+    fi
 fi
 rm -rf "${STATE_DIR:?}" "${RECORD_DIR:?}"
 

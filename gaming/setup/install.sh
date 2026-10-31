@@ -4,8 +4,9 @@
 #
 # SPDX-License-Identifier: MIT
 
-# Swipe Keyboard for Steam Deck: installer. Runs as you, in Desktop Mode, in a terminal.
-# Gaming Mode part asks for the Deck's administrator password ONCE, to close SteamOS's outside door (see below).
+# Swipe Keyboard for Steam Deck (and SteamOS-like systems such as Bazzite): installer. Runs as you, in Desktop Mode,
+# in a terminal. The Gaming Mode part asks for the administrator password ONCE, to close SteamOS's outside door (see
+# below); where that door is already shut (Bazzite) it asks for nothing.
 # Plan: docs/active/plans/2026-10-22-gaming-mode.md, Sections 5 and 9.
 #
 #   bash install.sh                  show what will change, ask "Also swipe in Gaming Mode? [Y/n]", then do it
@@ -59,6 +60,13 @@ SYSTEM_UNIT_DIR="${SWIPEKB_SYSTEM_UNIT_DIR:-/etc/systemd/system}"
 PROC_NET="${SWIPEKB_PROC_NET:-/proc/net}"
 DROPIN_DIR="$SYSTEM_UNIT_DIR/$SOCKET_UNIT.d"
 DROPIN="$DROPIN_DIR/swipekb-loopback-only.conf"
+# Which system this is, for the wording only (card #502): the same download serves the Deck and Bazzite, and a Bazzite
+# user should not read about "your Deck". A missing or odd os-release keeps the Deck wording.
+OS_RELEASE="${SWIPEKB_OS_RELEASE:-/etc/os-release}"
+OS_ID="$(sed -n 's/^ID=//p' "$OS_RELEASE" 2>/dev/null | tr -d '"' | head -n 1)" || true
+OS_NAME="$(sed -n 's/^NAME=//p' "$OS_RELEASE" 2>/dev/null | tr -d '"' | head -n 1)" || true
+if [ "$OS_ID" = steamos ] || [ -z "$OS_NAME" ]; then OS_NAME=SteamOS; DEVICE=Deck; PRODUCT="Steam Deck"
+else DEVICE=computer; PRODUCT="$OS_NAME"; fi
 
 DRY_RUN=0; ASSUME_YES=0; SKIP_FLATPAKS=0; FORCE=0; CHOICE=""; OUTSIDE=""; AUTO=""
 for arg in "$@"; do
@@ -176,6 +184,13 @@ outside_doors() { # print each watched port (8080, 8081) that is listening on so
 # reopened door ends up with no listener at all. Stopping both and starting the socket fresh always works.
 restart_socket() { sudo systemctl stop "$SOCKET_UNIT" "$PROXY_UNIT" && sudo systemctl start "$SOCKET_UNIT"; }
 socket_unit_exists() { systemctl cat "$SOCKET_UNIT" >/dev/null 2>&1; }
+# WHY (Bazzite VM, card #502): Bazzite ships SteamOS's socket but switched off and not running, so port 8081 is already
+# closed. Writing our block there would ask for a password and START a socket nobody had running. If something turns
+# it on later, the helper's own check (exposure.py) switches Gaming Mode swipe off and says to run this again.
+socket_switched_off() {
+    systemctl is-active -q "$SOCKET_UNIT" && return 1
+    case "$(systemctl is-enabled "$SOCKET_UNIT" 2>/dev/null)" in disabled|masked) return 0 ;; *) return 1 ;; esac
+}
 dropin_is_ours() { [ -f "$DROPIN" ] && [ "$(head -n 1 "$DROPIN")" = '# swipekb-gaming-managed' ]; }
 dropin_text() {
     echo '# swipekb-gaming-managed'
@@ -214,14 +229,16 @@ close_outside_door() {
         echo "The outside door was NOT closed: $DROPIN already exists and was not made by this installer. Move it away and run this again." >&2
         return 1
     fi
-    if socket_unit_exists; then
+    local off=0
+    if socket_unit_exists && socket_switched_off; then off=1; fi
+    if socket_unit_exists && [ "$off" = 0 ]; then
         echo
-        echo "Closing the outside door needs your Deck's administrator password, once."
+        echo "Closing the outside door needs your $DEVICE's administrator password, once."
         echo "(Type it when asked; nothing shows while you type. If you have never set one, press Ctrl+C, open Konsole, run: passwd)"
         if ! command -v sudo >/dev/null 2>&1 || ! sudo -v; then
-            cat >&2 <<'TEXT'
+            cat >&2 <<TEXT
 
-The outside door was NOT closed: the administrator password was not given (or none is set on this Deck).
+The outside door was NOT closed: the administrator password was not given (or none is set on this $DEVICE).
 To set one: open Konsole and run: passwd
 TEXT
             return 1
@@ -244,13 +261,17 @@ TEXT
         echo "The outside door was NOT closed: Steam's debug port is still reachable from other devices after the change (port $still). The change was undone." >&2
         return 1
     fi
-    echo "The outside door is closed: Steam's debug switch now answers this Deck only."
+    if [ "$off" = 1 ]; then
+        echo "The outside door is already closed: $OS_NAME keeps Steam's debug switch away from other devices. No password needed."
+    else
+        echo "The outside door is closed: Steam's debug switch now answers this $DEVICE only."
+    fi
     return 0
 }
 
 # --- 1. Checks that change nothing -----------------------------------------------------------------
-command -v flatpak >/dev/null 2>&1 || die "'flatpak' was not found. This installer is for SteamOS, where it comes with the system."
-command -v systemctl >/dev/null 2>&1 || die "'systemctl' was not found. This installer is for SteamOS, where it comes with the system."
+command -v flatpak >/dev/null 2>&1 || die "'flatpak' was not found. This installer is for SteamOS and similar systems such as Bazzite, where it comes with the system."
+command -v systemctl >/dev/null 2>&1 || die "'systemctl' was not found. This installer is for SteamOS and similar systems such as Bazzite, where it comes with the system."
 
 [ -f "$HERE/$WATCH_NAME" ] || die "$WATCH_NAME missing from the download."
 [ -f "$HERE/VERSION" ] || die "VERSION file missing next to install.sh. Run it from the folder you extracted the download into."
@@ -321,8 +342,24 @@ if [ -z "$CHOICE" ]; then
     else CHOICE="$DEFAULT_CHOICE"; fi
 fi
 
+# Is the outside door already shut by the system itself (Bazzite)? Then nothing below asks for a password; the last
+# look at port 8081 (close_outside_door) still stops Gaming Mode if something else has it open.
+# WHY only read-only systemctl queries here: the plan must be the same in a dry run and a real run.
+DOOR_ALREADY_SHUT=0
+if socket_unit_exists && socket_switched_off; then DOOR_ALREADY_SHUT=1; fi
+if [ "$DOOR_ALREADY_SHUT" = 1 ]; then
+    DOOR_LINE="  - Steam's developer switch can be reachable from other devices on a network (port 8081). $OS_NAME already
+    keeps it closed, so no password is needed. If that ever changes, Gaming Mode swipe switches itself off."
+elif [ "$DEVICE" = Deck ]; then
+    DOOR_LINE="  - SteamOS lets other devices on your network reach that switch too (port 8081). The installer blocks them, which
+    asks for your Deck's administrator password once. Never set one? Press Ctrl+C, open Konsole and run: passwd"
+else
+    DOOR_LINE="  - $OS_NAME may let other devices on your network reach that switch too (port 8081). The installer blocks them,
+    which asks for your administrator password once."
+fi
+
 cat <<TEXT
-Swipe Keyboard for Steam Deck, version $VERSION
+Swipe Keyboard for $PRODUCT, version $VERSION
 
 Swipe typing and word suggestions for Desktop Mode and, if you say yes below, for Gaming Mode too. You can change
 your mind later: run this installer again, or remove everything with uninstall.sh.
@@ -333,8 +370,7 @@ How Gaming Mode works, and what to know first (details: https://github.com/itsde
   - Valve has not approved this and could stop it or object at any time. Steam's Subscriber Agreement says you may
     not modify software accessed through Steam without Valve's written consent; whether this counts is unclear. We
     change no Steam file and do not touch games or anti-cheat. This is not legal advice.
-  - SteamOS lets other devices on your network reach that switch too (port 8081). The installer blocks them, which
-    asks for your Deck's administrator password once. Never set one? Press Ctrl+C, open Konsole and run: passwd
+$DOOR_LINE
   - Steam needs one restart before it notices the switch. This installer never restarts it for you.
   - Passwords: inside Steam's own password boxes it does nothing. Over games Steam does not say which box is a
     password box, so nothing is learned or saved there.
@@ -372,14 +408,17 @@ if [ "$SKIP_FLATPAKS" = 0 ]; then
 fi
 if [ "$SHOW_GAMING" = 1 ]; then
     [ "$CHOICE" != gaming ] && echo "  If you answer yes to Gaming Mode, these are added:"
-    if [ "$OUTSIDE" = blocked ]; then
-        echo "  - ask for your Deck's administrator password once, then close the outside door: write one small file"
+    if [ "$OUTSIDE" = blocked ] && [ "$DOOR_ALREADY_SHUT" = 1 ]; then
+        echo "  - nothing to close: the outside door is already closed ($OS_NAME keeps $SOCKET_UNIT switched off)."
+        echo "    No password, no system change. The installer checks port 8081 once more before turning Gaming Mode on."
+    elif [ "$OUTSIDE" = blocked ]; then
+        echo "  - ask for your $DEVICE's administrator password once, then close the outside door: write one small file"
         echo "      $DROPIN"
-        echo "    so that SteamOS's $SOCKET_UNIT answers only this Deck (it takes effect at once and survives restarts)."
+        echo "    so that $OS_NAME's $SOCKET_UNIT answers only this $DEVICE (it takes effect at once and survives restarts)."
         echo "    The installer then checks that port 8081 really is closed to the network. If not, it undoes the change"
         echo "    and asks whether to leave it open or skip Gaming Mode."
     else
-        echo "  - leave SteamOS's outside door open, as you chose: no password, no system change. Other devices on your"
+        echo "  - leave $OS_NAME's outside door open, as you chose: no password, no system change. Other devices on your"
         echo "    network can control Steam while the developer switch is on."
     fi
     echo "  - write the word '$OUTSIDE' to $OUTSIDE_FILE so the helper knows your choice."
