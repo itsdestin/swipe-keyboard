@@ -428,6 +428,28 @@ class Controller:
         if self.config_state()['InputMethod']['raw'] == self.wanted['InputMethod']:
             self.write_setting('InputMethod', state['previous']['InputMethod'])
 
+    def adopt_flatpak_learning(self):
+        """Moving up from the Flatpak (older KDE desktops) to this package: bring the learned words along.
+
+        WHY (card #502, edge case 7): someone who starts on Kubuntu 26.04 with the Flatpak and later upgrades to a release
+        served by this package should not lose what the keyboard learned. Flatpak keeps an app's files in its own folder
+        (~/.var/app/<id>/data) even after the app is removed, so they are still there to copy. Copied, not moved: the
+        Flatpak keeps working if they go back. Only into an empty store, so nothing learned here is ever overwritten.
+        Returns how many language files were copied (0 = nothing to do)."""
+        old = Path(self.env['HOME']) / '.var/app/org.itsdestin.SwipeKeyboard/data/swipe-keyboard'
+        files = learning.stored_files(old)
+        if not files or learning.stored_files(self.data):
+            return 0
+        store = self.data / learning.STORE
+        store.mkdir(mode=0o700, parents=True, exist_ok=True)
+        for source in files:
+            target = store / source.name
+            shutil.copyfile(source, target)
+            target.chmod(0o600)
+        if (old / learning.FLAG).exists():
+            (self.data / learning.FLAG).touch()   # learning stays on if it was on
+        return len(files)
+
     def enable(self, always_available=False):
         self.check()
         with self.locked():
@@ -443,6 +465,11 @@ class Controller:
                 self.rebuild_layout()
                 return
             previous = {key: config[key]['raw'] for key in self.wanted}
+            # WHY (card #502): coming from the Flatpak, "the keyboard to go back to" would be the Flatpak, which is usually being
+            # removed; disable would then leave no keyboard. Go back to KDE's own keyboard instead (or none, where there is none).
+            if str(previous.get('InputMethod') or '').endswith('/org.itsdestin.SwipeKeyboard.desktop'):
+                kde = [Path(d) / 'applications/org.kde.plasma.keyboard.desktop' for d in self.system_data_dirs()]
+                previous['InputMethod'] = next((str(k) for k in kde if k.is_file()), '')
             if config['InputMethod']['effective'] == self.wanted['InputMethod']:
                 raise SetupError('Swipe Keyboard is selected without a setup record. Select your old keyboard before enabling.')
             live_mode = self.read_live_mode()
@@ -587,6 +614,9 @@ def main():
             if not confirm_activation(controller, assume_yes=args.yes, always_available=args.always_available):
                 return 0
             report = controller.enable(always_available=args.always_available)
+            copied = controller.adopt_flatpak_learning()
+            if copied:
+                print(f'Brought along what the Flatpak version learned from your typing ({copied} language file(s)).')
         else:
             report = getattr(controller, args.action)()
         if args.action == 'check':

@@ -584,6 +584,37 @@ class SetupTests(unittest.TestCase):
         self.assertEqual(self.commands.settings, original)
         self.assertFalse(self.controller.state_file.exists())
 
+    def test_learned_words_come_along_from_the_flatpak_into_an_empty_store_only(self):
+        # WHY (card #502, edge case 7): moving up from the Flatpak (older KDE) to this package keeps what was learned
+        old = self.base / 'home/.var/app/org.itsdestin.SwipeKeyboard/data/swipe-keyboard'
+        (old / 'learning').mkdir(parents=True)
+        (old / 'learning/en.swklearn').write_bytes(b'learned-en')
+        (old / 'learning/de.swklearn').write_bytes(b'learned-de')
+        (old / 'learn-typing').touch()
+        self.assertEqual(self.controller.adopt_flatpak_learning(), 2)
+        store = self.controller.data / 'learning'
+        self.assertEqual((store / 'en.swklearn').read_bytes(), b'learned-en')
+        self.assertEqual((store / 'en.swklearn').stat().st_mode & 0o777, 0o600)
+        self.assertTrue((self.controller.data / 'learn-typing').exists(), 'learning stays on')
+        self.assertTrue((old / 'learning/en.swklearn').exists(), 'copied, not moved')
+        (old / 'learning/en.swklearn').write_bytes(b'newer-flatpak')
+        self.assertEqual(self.controller.adopt_flatpak_learning(), 0, 'never over what is already learned here')
+        self.assertEqual((store / 'en.swklearn').read_bytes(), b'learned-en')
+
+    def test_nothing_to_bring_along_without_a_flatpak(self):
+        self.assertEqual(self.controller.adopt_flatpak_learning(), 0)
+        self.assertFalse((self.controller.data / 'learning').exists())
+
+    def test_coming_from_the_flatpak_disable_goes_back_to_kdes_keyboard_not_the_flatpak(self):
+        flatpak = str(self.base / 'home/.local/share/flatpak/exports/share/applications/org.itsdestin.SwipeKeyboard.desktop')
+        self.commands.settings['InputMethod'] = flatpak
+        kde = self.base / 'system-data/applications/org.kde.plasma.keyboard.desktop'
+        kde.parent.mkdir(parents=True)
+        kde.write_text('[Desktop Entry]\n')
+        self.controller.enable()
+        self.controller.disable()
+        self.assertEqual(self.commands.settings['InputMethod'], str(kde))
+
     def test_enable_applies_live_visibility_and_disable_restores_it(self):
         self.commands.live_mode = 2
         self.controller.enable(always_available=True)
