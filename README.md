@@ -2,6 +2,10 @@
 
 Swipe across the letters to type a word, or tap as usual. Test release **v0.5.1-1**.
 
+<!-- WHY (Destin, 2026-11-02): versions before 0.5.1-1 cannot find updates after the move to the new name (GitHub does not
+     forward the update website), and 0.4.0 and older never updated themselves. Keep this line for the next few releases. -->
+> **Installed before 30 October 2026 (older than version 0.5.1-1)?** Install it once more from the instructions below. Older versions can't find updates after the move to the new name. After that it updates itself.
+
 ## What you get
 
 - Swipe typing, word suggestions and spelling help on KDE Plasma's on-screen keyboard.
