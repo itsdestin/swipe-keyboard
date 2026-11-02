@@ -47,6 +47,27 @@ def _int(v, lo, hi):
     return isinstance(v, int) and not isinstance(v, bool) and lo <= v <= hi
 
 
+def _keys(keys):
+    """The page's letter keys (centre and size), checked; None when anything is off."""
+    if not (isinstance(keys, list) and 1 <= len(keys) <= MAX_KEYS):
+        return None
+    ks, seen = [], set()
+    for k in keys:
+        if not (isinstance(k, dict) and isinstance(k.get('k'), str) and len(k['k']) == 1 and k['k'].isalpha()
+                and all(_num(k.get(f), -MAX_COORD, MAX_COORD) for f in 'xy') and all(_num(k.get(f), 0, MAX_COORD) and k[f] > 0 for f in 'wh')):
+            return None
+        if k['k'].lower() in seen:
+            return None
+        seen.add(k['k'].lower())
+        ks.append({'k': k['k'], 'x': k['x'], 'y': k['y'], 'w': k['w'], 'h': k['h']})
+    return ks
+
+
+def _engine_keys(ks):
+    # the layer sends the centre of each key; the engine wants the top-left corner and the size
+    return [{'c': k['k'].lower(), 'x': k['x'] - k['w'] / 2, 'y': k['y'] - k['h'] / 2, 'w': k['w'], 'h': k['h']} for k in ks]
+
+
 def validate(raw):
     """-> a clean message dict, or None. The page is not trusted: shape, sizes and ranges are all checked."""
     if not isinstance(raw, str) or len(raw) > MAX_MESSAGE:
@@ -63,10 +84,17 @@ def validate(raw):
     if t == 'warm':
         # WHY (card #502): "the keyboard just opened, with this layout", so the engine loads its words before the first swipe.
         # Only the layout's name travels: no text, no keys, no touches.
+        # The key positions may come along, so the engine can also build its word list for this keyboard's letters.
         layout = m.get('layout', 'qwerty')
         if not (isinstance(layout, str) and _LAYOUT.fullmatch(layout)):
             return None
-        return {'type': 'warm', 'layout': layout}
+        out = {'type': 'warm', 'layout': layout}
+        if 'keys' in m:
+            ks = _keys(m['keys'])
+            if ks is None:
+                return None
+            out['keys'] = ks
+        return out
     if t == 'pick':
         if not (_int(m.get('id'), 0, 2**31) and _int(m.get('req'), 0, 2**53) and isinstance(m.get('cand'), str)
                 and _ID.fullmatch(m['cand']) and _int(m.get('erase'), 1, MAX_ERASE)):
@@ -74,9 +102,9 @@ def validate(raw):
         return {'type': 'pick', 'id': m['id'], 'req': m['req'], 'cand': m['cand'], 'erase': m['erase']}
     if t != 'stroke':
         return None
-    tr, keys, ctx = m.get('trace'), m.get('keys'), m.get('ctx', [])
-    if not (_int(m.get('id'), 0, 2**31) and isinstance(tr, list) and 2 <= len(tr) <= MAX_POINTS and isinstance(keys, list)
-            and 1 <= len(keys) <= MAX_KEYS and isinstance(ctx, list) and len(ctx) <= MAX_CTX):
+    tr, ks, ctx = m.get('trace'), _keys(m.get('keys')), m.get('ctx', [])
+    if not (_int(m.get('id'), 0, 2**31) and isinstance(tr, list) and 2 <= len(tr) <= MAX_POINTS and ks is not None
+            and isinstance(ctx, list) and len(ctx) <= MAX_CTX):
         return None
     pts = []
     for p in tr:
@@ -84,15 +112,6 @@ def validate(raw):
                 and _num(p[2], 0, MAX_TIME_MS)):
             return None
         pts.append([p[0], p[1], p[2]])
-    ks, seen = [], set()
-    for k in keys:
-        if not (isinstance(k, dict) and isinstance(k.get('k'), str) and len(k['k']) == 1 and k['k'].isalpha()
-                and all(_num(k.get(f), -MAX_COORD, MAX_COORD) for f in 'xy') and all(_num(k.get(f), 0, MAX_COORD) and k[f] > 0 for f in 'wh')):
-            return None
-        if k['k'].lower() in seen:
-            return None
-        seen.add(k['k'].lower())
-        ks.append({'k': k['k'], 'x': k['x'], 'y': k['y'], 'w': k['w'], 'h': k['h']})
     words = []
     for w in ctx:
         if not (isinstance(w, str) and 0 < len(w) <= 60 and _CTXWORD.fullmatch(w)):
@@ -209,7 +228,7 @@ class Bridge:
                 elif m['type'] == 'stroke':
                     self._stroke(pid, m, t)
                 elif m['type'] == 'warm':
-                    self._warm(m['layout'])
+                    self._warm(m['layout'], m.get('keys'))
                 else:
                     self._pick(pid, m, t)
             except Exception:
@@ -250,7 +269,7 @@ class Bridge:
         js = ('(function(){var L=window.__swipekbLayer;if(L&&L.session)L.session.result(%s);})()' % json.dumps(body))
         self.deliver(pid, js)
 
-    def _warm(self, layout):
+    def _warm(self, layout, keys=None):
         # WHY a separate short connection in "unknown" mode: it leaves the page's own connection (its layout, its candidates,
         # its mode) exactly as it was, and "unknown" is the stricter mode should anything ever be asked on it. The engine's
         # loaded words are shared by every connection, so the swipe that follows benefits anyway.
@@ -258,7 +277,10 @@ class Bridge:
         conn = None
         try:
             conn = EngineConn(self.cfg.engine_socket, self.cfg.engine_token, 'unknown')
-            conn.call('warm', steam_layout=layout)
+            if keys:
+                conn.call('warm', steam_layout=layout, keys=_engine_keys(keys))
+            else:
+                conn.call('warm', steam_layout=layout)
             self.stats['warmed'] += 1
         except (EngineError, EngineGone):
             pass
@@ -276,9 +298,7 @@ class Bridge:
             t_engine = time.monotonic()
             sig = (m['layout'], tuple(sorted((k['k'], round(k['x']), round(k['y']), round(k['w']), round(k['h'])) for k in m['keys'])))
             if st.layout_sig != sig:
-                # the layer sends the centre of each key; the engine wants the top-left corner and the size
-                conn.call('layout', steam_layout=m['layout'], keys=[
-                    {'c': k['k'].lower(), 'x': k['x'] - k['w'] / 2, 'y': k['y'] - k['h'] / 2, 'w': k['w'], 'h': k['h']} for k in m['keys']])
+                conn.call('layout', steam_layout=m['layout'], keys=_engine_keys(m['keys']))
                 st.layout_sig = sig
             r = conn.call('swipe', points=m['trace'], context=m['ctx'], top_k=3)
             raw = [c for c in r.get('candidates', []) if isinstance(c, dict)]

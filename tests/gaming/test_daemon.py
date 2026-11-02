@@ -530,6 +530,10 @@ class TestEquivalence(DaemonCase):
         self.assertEqual(len(oracle), 50)
         # 2. the daemon, same input
         self.start()
+        # WHY a warm-up first (card #502): it builds the word list with a throw-away guess, and must leave every later guess
+        # exactly as it would have been. Done on its own connection, as the helper does.
+        w = self.connect()
+        self.assertEqual(w.call("warm", steam_layout="qwerty", keys=keys), {"ok": True, "op": "warm"})
         c = self.connect("plain")
         self.assertTrue(c.call("layout", keys=keys)["ok"])
         mismatches = []
@@ -597,6 +601,8 @@ class TestResources(DaemonCase):
         self.assertTrue(c.call("layout", keys=keys_from_layout(LAYOUT))["ok"])
         self.assertTrue(c.call("swipe", points=pts)["ok"])
         self.assertEqual(c.call("warm", steam_layout=7)["error"], "bad_request")
+        self.assertEqual(c.call("warm", steam_layout="qwerty", keys=[{"c": "q"}])["error"], "bad_request", "bad keys refused")
+        self.assertEqual(c.call("warm", steam_layout="qwerty", keys=keys_from_layout(LAYOUT)), {"ok": True, "op": "warm"})
         self.wait_status(c, "recognizer_loaded", False)   # warmed models still unload after idle
 
     def test_idle_memory_and_cpu_within_budget(self):

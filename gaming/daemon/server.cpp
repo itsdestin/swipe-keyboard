@@ -514,7 +514,21 @@ void Server::handle(Session &s, const QByteArray &body)
             const QString locale = pickLocale(effectiveLocales(readEnabledLocales(QString::fromStdString(settingsFile())), system), choice->language);
             if (locale.isEmpty()) { refuse(s, kErrLanguageOff); return; }
             if (!engine_.profileAvailable(locale, choice->physicalLayout, opt_.idleUnloadMs)) { refuse(s, kErrLanguageUnavailable); return; }
-            if (!engine_.recognizer(locale, choice->physicalLayout)) { fail(s, kErrModelUnavailable, false); return; }
+            auto *rec = engine_.recognizer(locale, choice->physicalLayout);
+            if (!rec) { fail(s, kErrModelUnavailable, false); return; }
+            // WHY a throw-away guess when the keys came along: the first swipe on a keyboard also builds the word list for its
+            // set of letters (LanguageEngine::recognize, "a short pause"; 0.9 s on the Bazzite VM even after loading). That build
+            // depends only on WHICH letters there are, so doing it now with the same keys leaves the real swipe nothing to build.
+            // Its answer is thrown away and nothing is issued: later guesses are exactly what they would have been.
+            if (req.contains("keys")) {
+                auto l = parseLayout(req);
+                if (!l.value) { fail(s, l.error, false); return; }
+                if (geometryCoversLanguage(*l.value, choice->language) && l.value->size() >= 2) {
+                    const auto &a = (*l.value)[0], &b = (*l.value)[1];
+                    const std::vector<swipekb::TracePoint> primer{{a.x + a.w / 2, a.y + a.h / 2, 0.f}, {b.x + b.w / 2, b.y + b.h / 2, 100.f}};
+                    rec->recognize(primer, *l.value, {}, 1);
+                }
+            }
             // WHY touch after loading: recognizer() notes the time the load STARTED; a load slower than the idle window would
             // otherwise count as idle the moment it finished and be unloaded again (as a swipe does, mark it used now).
             engine_.touch(locale, choice->physicalLayout);

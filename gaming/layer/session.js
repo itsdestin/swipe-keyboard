@@ -399,6 +399,19 @@ function swipekbSession(w, L, opts) {
     canvas = null; ctx2d = null; lastPt = null;
   }
 
+  // The letter keys in the same form a stroke carries them (gesture.js), or none when the gesture layer cannot list them or the
+  // keyboard is not showing letters right now (numbers page): then the engine only loads its words.
+  function warmMessage(layout) {
+    var m = { v: 1, type: 'warm', layout: layout };
+    var all = (L.gestures && typeof L.gestures.keys === 'function') ? L.gestures.keys() : [], ks = [];
+    for (var i = 0; i < all.length; i++) {
+      var k = all[i];
+      if (k.letter) ks.push({ k: k.key, x: Math.round(k.x * 10) / 10, y: Math.round(k.y * 10) / 10, w: Math.round(k.w), h: Math.round(k.h) });
+    }
+    if (ks.length >= 24) m.keys = ks;   // same minimum as the gesture layer's own swipe check (MIN_LETTERS)
+    return m;
+  }
+
   // ---- watching the keyboard come and go --------------------------------------------------------------------
   function tick() {
     guard(function () {
@@ -415,9 +428,9 @@ function swipekbSession(w, L, opts) {
       if (pol === 'inert') { removeStrip(); return; }
       // WHY (card #502): the engine loads its words on first use, which made the first swipe wait about 3.6 s on a Bazzite VM. Saying
       // "the keyboard is open, with this layout" as soon as it appears lets that load happen while the user finds the first letter.
-      // Once per opening and layout; never for a password box or a box set to Private (we stay silent there); only the layout's
-      // name is sent, nothing typed.
-      if (pol !== 'private' && warmedFor !== lastLayout) { warmedFor = lastLayout; send({ v: 1, type: 'warm', layout: lastLayout }); }
+      // Once per opening and layout; never for a password box or a box set to Private (we stay silent there). Sent: the layout's
+      // name and where the letter keys are (the engine builds its word list for those letters too); nothing typed.
+      if (pol !== 'private' && warmedFor !== lastLayout) { warmedFor = lastLayout; send(warmMessage(lastLayout)); }
       ensureStrip(); place(list); render();
     });
   }

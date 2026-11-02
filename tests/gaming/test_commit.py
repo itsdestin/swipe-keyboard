@@ -327,6 +327,20 @@ class Typing(unittest.TestCase):
         self.assertTrue(self.wait_got(1)[0]['committed'])
         self.assertEqual(len(self.d.ops('layout')), 1)
 
+    def test_a_warm_up_with_the_keys_passes_them_on_in_the_engines_form(self):
+        self.start()
+        self.send({'v': 1, 'type': 'warm', 'layout': 'qwerty', 'keys': keys_msg()})
+        wait_for(lambda: self.d.ops('warm'), what='warm passed on')
+        sent = self.d.ops('warm')[0][2]
+        self.assertEqual(sorted(sent), ['keys', 'steam_layout'])
+        k0, m0 = sent['keys'][0], keys_msg()[0]
+        self.assertEqual((k0['c'], k0['x'], k0['y']), (m0['k'].lower(), m0['x'] - m0['w'] / 2, m0['y'] - m0['h'] / 2), 'top-left corner, as for layout')
+        # bad keys make the whole warm-up refused, like a bad stroke
+        n = len(self.d.ops('warm'))
+        self.send({'v': 1, 'type': 'warm', 'layout': 'qwerty', 'keys': [{'k': '1', 'x': 1, 'y': 1, 'w': 1, 'h': 1}]})
+        self.send(stroke(1)); self.wait_got(1)
+        self.assertEqual(len(self.d.ops('warm')), n)
+
     def test_a_warm_up_the_engine_refuses_or_cannot_answer_changes_nothing(self):
         self.start()
         self.send({'v': 1, 'type': 'warm', 'layout': 'Bad Name!'})     # refused by the helper itself

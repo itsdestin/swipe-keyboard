@@ -256,8 +256,13 @@ test('a word still being typed is not context', async () => {
 
 test('the keyboard opening asks the engine to get ready, once per opening and layout, with nothing but the layout name', async () => {
   const r = setup({ layoutName: 'german', rows: ['qwertzuiop', 'asdfghjkl', 'yxcvbnm'] }, 'text'); await settle(); await settle();
-  assert.deepEqual(r.warms.map((m) => JSON.stringify(m)), [JSON.stringify({ v: 1, type: 'warm', layout: 'german' })], 'one warm-up, before any swipe');
-  assert.equal(r.calls.length, 0);
+  assert.equal(r.warms.length, 1, 'one warm-up, before any swipe');
+  assert.deepEqual(Object.keys(r.warms[0]).sort(), ['keys', 'layout', 'type', 'v'], 'the layout name and the keys, nothing else');
+  assert.equal(r.warms[0].layout, 'german');
+  assert.equal(r.warms[0].keys.map((k) => k.k).sort().join(''), [...'qwertzuiopasdfghjklyxcvbnm'].sort().join(''), 'every letter key once');
+  await swipe(r, ['h', 'a', 'l', 'l', 'o']); await settle();
+  assert.deepEqual(r.warms[0].keys, r.calls[0].keys, 'the keys in exactly the form a stroke carries them');
+  r.calls.length = 0;
   r.doc.activeElement = { tagName: 'INPUT', type: 'search' }; await settle();
   assert.equal(r.warms.length, 1, 'another box in the same opening needs none');
   const saved = Object.values(r.page.keyEls).map((el) => [el, el.rect]);
