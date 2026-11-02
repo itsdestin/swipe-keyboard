@@ -1,0 +1,15 @@
+# swipekb-gaming-managed
+# swipekb-gaming-version: @VERSION@
+# swipekb-gaming-unit-revision: 1
+# WHY the lines above: see swipekb-switch-watch.service.
+[Unit]
+Description=Swipe Keyboard: notice when Flatpak's list of apps changes (to catch Swipe Keyboard being removed)
+
+[Path]
+# WHY this folder: Flatpak lists every app's menu and keyboard entries here; removing an app removes its entry, which
+# wakes the check at once instead of at the next login. Nothing runs while the folder stays the same.
+PathChanged=%h/.local/share/flatpak/exports/share/applications
+Unit=swipekb-keyboard-check.service
+
+[Install]
+WantedBy=default.target

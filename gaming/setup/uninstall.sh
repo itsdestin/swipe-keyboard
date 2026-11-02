@@ -26,7 +26,7 @@ SYSTEM_UNIT_DIR="${SWIPEKB_SYSTEM_UNIT_DIR:-/etc/systemd/system}"
 DROPIN_DIR="$SYSTEM_UNIT_DIR/$SOCKET_UNIT.d"
 DROPIN="$DROPIN_DIR/swipekb-loopback-only.conf"
 UNITS=(swipekb-engine.service swipekb-helper.service swipekb-switch-watch.service swipekb-switch-watch.timer
-       swipekb-update.service swipekb-update.timer)
+       swipekb-update.service swipekb-update.timer swipekb-keyboard-check.path swipekb-keyboard-check.service)
 MAIN_ID=org.itsdestin.SwipeKeyboard
 MARKER_NAME=.cef-enable-remote-debugging
 HELPER_ID=org.itsdestin.SwipeKeyboard.GamingHelper
@@ -49,6 +49,11 @@ done
 record_list() {
     [ -f "$RECORD" ] || return 0
     sed -n "/^  \"$1\": \[/,/^  \]/p" "$RECORD" | grep '^    "' | sed 's/^    "//; s/",\{0,1\}$//' || true
+}
+
+record_value() {
+    [ -f "$RECORD" ] || return 0
+    sed -n "s/^  \"$1\": \"\(.*\)\",\{0,1\}$/\1/p" "$RECORD" | head -n 1
 }
 
 CREATED_MARKERS=(); CREATED_SYSTEM_FILES=(); INSTALLED_APPS=()
@@ -92,9 +97,19 @@ if removes_main_app; then
     case "$(keyboard_choice)" in "$MAIN_ID.desktop"|*/"$MAIN_ID.desktop") RESET_CHOICE=1 ;; esac
 fi
 
-echo "Swipe Keyboard for Gaming Mode: removal. This will:"
-echo "  - stop and turn off the background services (the engine, the helper and the once-a-minute switch check), and delete their files from $UNIT_DIR (only files this installer wrote)"
-if [ -f "$RECORD" ]; then
+# WHY (card #502): on an ordinary desktop (Kubuntu, Debian...) Gaming Mode was never possible, so the removal text says nothing
+# about Steam there. Steam is mentioned when this install ever had Gaming Mode, or there is no record to tell.
+STEAM_TOO=1
+[ -f "$RECORD" ] && [ "$(record_value gaming)" = no ] && [ "${#CREATED_MARKERS[@]}" = 0 ] && [ "${#CREATED_SYSTEM_FILES[@]}" = 0 ] && STEAM_TOO=0
+if [ "$STEAM_TOO" = 1 ]; then
+    echo "Swipe Keyboard for Gaming Mode: removal. This will:"
+    echo "  - stop and turn off the background services (the engine, the helper and the once-a-minute switch check), and delete their files from $UNIT_DIR (only files this installer wrote)"
+else
+    echo "Swipe Keyboard: removal. This will:"
+    echo "  - stop and turn off its background jobs (daily update check, removal safety check), and delete their files from $UNIT_DIR (only files this installer wrote)"
+fi
+if [ "$STEAM_TOO" = 0 ]; then :
+elif [ -f "$RECORD" ]; then
     for marker in "${CREATED_MARKERS[@]+"${CREATED_MARKERS[@]}"}"; do
         if ! marker_is_switch_file "$marker"; then
             echo "  - leave $marker alone: it is not Steam's developer-switch file in Steam's folder"
@@ -115,9 +130,15 @@ echo "  - delete $RECORD_DIR (the install record) and $STATE_DIR (status the hel
 if [ "$REMOVE_APPS" = 1 ]; then
     for id in "${INSTALLED_APPS[@]+"${INSTALLED_APPS[@]}"}"; do echo "  - remove the app $id (it was added by this installer)"; done
 else
-    echo "  - leave the two apps installed; to remove them yourself:"
-    echo "      flatpak uninstall --user $HELPER_ID"
+    if [ "$STEAM_TOO" = 1 ]; then
+        echo "  - leave the two apps installed; to remove them yourself:"
+        echo "      flatpak uninstall --user $HELPER_ID"
+    else
+        echo "  - leave the app installed; to remove it yourself:"
+    fi
     echo "      flatpak uninstall --user $MAIN_ID"
+    # WHY: the removal safety check goes with this uninstall, so a later removal by hand would leave no keyboard chosen
+    echo "    (If Swipe Keyboard is your chosen on-screen keyboard, pick another in System Settings first, or use --remove-apps.)"
 fi
 if [ "$RESET_CHOICE" = 1 ]; then
     if [ -f "$KDE_KEYBOARD" ]; then
@@ -126,7 +147,7 @@ if [ "$RESET_CHOICE" = 1 ]; then
         echo "  - clear the on-screen keyboard choice (System Settings > Keyboard > Virtual Keyboard): it names the app being removed"
     fi
 fi
-echo "Steam keeps nothing of ours on disk: the keyboard layer lives only in Steam's memory and is gone after Steam's next restart."
+[ "$STEAM_TOO" = 0 ] || echo "Steam keeps nothing of ours on disk: the keyboard layer lives only in Steam's memory and is gone after Steam's next restart."
 
 if [ "$DRY_RUN" = 1 ]; then echo; echo "Dry run: nothing was changed."; exit 0; fi
 if [ "$ASSUME_YES" = 0 ]; then
@@ -193,4 +214,8 @@ rm -rf "${STATE_DIR:?}" "${RECORD_DIR:?}"
 if [ "$HAD_RECORD" = 0 ]; then
     echo "Note: no install record was found, so Steam's developer-switch file (if any) was not touched."
 fi
-echo "Removed. The Steam developer switch change takes effect at Steam's next restart; until then Steam may still have its debug port open."
+if [ "$STEAM_TOO" = 1 ]; then
+    echo "Removed. The Steam developer switch change takes effect at Steam's next restart; until then Steam may still have its debug port open."
+else
+    echo "Removed."
+fi

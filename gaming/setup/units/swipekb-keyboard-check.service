@@ -1,0 +1,14 @@
+# swipekb-gaming-managed
+# swipekb-gaming-version: @VERSION@
+# swipekb-gaming-unit-revision: 1
+# WHY the lines above: see swipekb-switch-watch.service.
+[Unit]
+Description=Swipe Keyboard: if it was removed while chosen, hand the on-screen keyboard back to KDE's own (only then changes anything)
+
+[Service]
+Type=oneshot
+ExecStart=@CHECK_SCRIPT@
+
+[Install]
+# WHY at login too: an app removed while logged out (or by another account's tool) is noticed before anyone needs to type.
+WantedBy=default.target

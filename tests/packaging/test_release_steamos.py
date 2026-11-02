@@ -72,11 +72,13 @@ class SteamosBundleTests(unittest.TestCase):
             top + '/units/swipekb-update.service', top + '/units/swipekb-update.timer',
             top + '/units/swipekb-engine.service', top + '/units/swipekb-helper.service',
             top + '/units/swipekb-switch-watch.service', top + '/units/swipekb-switch-watch.timer', top + '/units',
+            top + '/keyboard-check.sh', top + '/units/swipekb-keyboard-check.service', top + '/units/swipekb-keyboard-check.path',
             top + f'/swipe-keyboard-{VERSION}-x86_64.flatpak',
             top + f'/swipe-keyboard-gaming-helper-{VERSION}-x86_64.flatpak'})
         self.assertTrue(names[top + '/install.sh'].mode & 0o111)
         self.assertTrue(names[top + '/uninstall.sh'].mode & 0o111)
         self.assertTrue(names[top + '/auto-update.sh'].mode & 0o111)
+        self.assertTrue(names[top + '/keyboard-check.sh'].mode & 0o111)
 
     def test_embedded_main_bundle_is_the_given_file_byte_for_byte(self):
         result = bundle.verify(self.archive, VERSION)

@@ -39,6 +39,10 @@ WATCH_NAME=switch-watch.sh   # looks whether Steam's developer-switch file is st
 # Flatpak to update our apps from the signed update site. Separate from UNITS: it is on for the Desktop keyboard too.
 UPDATE_UNITS=(swipekb-update.service swipekb-update.timer)
 UPDATE_NAME=auto-update.sh
+# The keyboard check (card #502): if Swipe Keyboard is removed some other way while chosen, KDE's own keyboard comes back.
+# On for every install, Desktop keyboard included.
+CHECK_UNITS=(swipekb-keyboard-check.service swipekb-keyboard-check.path)
+CHECK_NAME=keyboard-check.sh
 UPDATE_SITE="${SWIPEKB_UPDATE_REPO:-https://itsdestin.github.io/swipe-keyboard/repo/}"
 CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
 DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
@@ -51,6 +55,7 @@ STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/swipekb-gaming"
 OUTSIDE_FILE="$STATE_DIR/outside-access"
 WATCH_SCRIPT="$RECORD_DIR/$WATCH_NAME"
 UPDATE_SCRIPT="$RECORD_DIR/$UPDATE_NAME"
+CHECK_SCRIPT="$RECORD_DIR/$CHECK_NAME"
 # The outside door: SteamOS's own system socket that forwards Steam's debug port (8080, this Deck only) to port
 # 8081 on EVERY network interface. The two variables below exist so the tests can point at a throwaway folder; on a
 # real Deck they are never set.
@@ -328,7 +333,8 @@ if [ "$SKIP_FLATPAKS" = 0 ]; then
         { [ -f "${HELPER_BUNDLE[0]}" ] && [ "${#HELPER_BUNDLE[@]}" = 1 ]; } || die "Expected exactly one Gaming Mode helper .flatpak file next to install.sh."
     fi
 fi
-for unit in "${UNITS[@]}" "${UPDATE_UNITS[@]}"; do [ -f "$HERE/units/$unit" ] || die "units/$unit missing from the download."; done
+for unit in "${UNITS[@]}" "${UPDATE_UNITS[@]}" "${CHECK_UNITS[@]}"; do [ -f "$HERE/units/$unit" ] || die "units/$unit missing from the download."; done
+[ -f "$HERE/$CHECK_NAME" ] || die "$CHECK_NAME missing from the download. Download it again."
 { [ -f "$HERE/$UPDATE_NAME" ] && [ -f "$HERE/update-key.gpg" ]; } || die "$UPDATE_NAME or update-key.gpg missing from the download. Download it again."
 
 OLD_VERSION="$(record_value version)"
@@ -452,6 +458,12 @@ for unit in "${UPDATE_UNITS[@]}"; do
         AUTO_BLOCKED="$UNIT_DIR/$unit already exists and was not made by this installer"
     fi
 done
+CHECK_BLOCKED=""
+for unit in "${CHECK_UNITS[@]}"; do
+    if [ -e "$UNIT_DIR/$unit" ] && [ "$(head -n 1 "$UNIT_DIR/$unit")" != '# swipekb-gaming-managed' ]; then
+        CHECK_BLOCKED="$UNIT_DIR/$unit already exists and was not made by this installer"
+    fi
+done
 DEFAULT_OUTSIDE=blocked; [ "$CURRENT_GAMING" = yes ] && DEFAULT_OUTSIDE="$CURRENT_OUTSIDE"
 [ -n "$OUTSIDE" ] || OUTSIDE="$DEFAULT_OUTSIDE"
 
@@ -509,6 +521,13 @@ elif [ "$AUTO" = yes ]; then
     echo "  - automatic updates stay off: $AUTO_BLOCKED. Move it away and run this again to turn them on."
 else
     echo "  - automatic updates off, as you chose: update by running a newer download's install.sh."
+fi
+if [ -z "$CHECK_BLOCKED" ]; then
+    echo "  - write $CHECK_SCRIPT and $UNIT_DIR/swipekb-keyboard-check.path. If Swipe Keyboard is ever removed some"
+    echo "    other way (Discover, flatpak uninstall) while it is your chosen keyboard, they hand the choice back to KDE's own"
+    echo "    on-screen keyboard, so you are never left without one. They change nothing otherwise."
+else
+    echo "  - the removal safety check is skipped: $CHECK_BLOCKED"
 fi
 echo "  - write a note of what was created to $RECORD, so uninstall.sh removes only that."
 cat <<TEXT
@@ -657,6 +676,24 @@ auto_update_off() { # stop and delete only our update timer; the apps stay as th
     write_record
 }
 
+keyboard_check_on() { # install the removal safety check (see CHECK_UNITS); safe to repeat
+    [ -z "$CHECK_BLOCKED" ] || return 0
+    local unit
+    mkdir -p "$UNIT_DIR" "$RECORD_DIR"
+    cp "$HERE/$CHECK_NAME" "$CHECK_SCRIPT.new" && chmod 755 "$CHECK_SCRIPT.new" && mv "$CHECK_SCRIPT.new" "$CHECK_SCRIPT"
+    for unit in "${CHECK_UNITS[@]}"; do
+        sed -e "s/@VERSION@/$VERSION/g" -e "s|@CHECK_SCRIPT@|$CHECK_SCRIPT|g" "$HERE/units/$unit" > "$UNIT_DIR/$unit.new"
+        mv "$UNIT_DIR/$unit.new" "$UNIT_DIR/$unit"
+        in_list "$unit" "${CREATED_UNITS[@]+"${CREATED_UNITS[@]}"}" || CREATED_UNITS+=("$unit")
+    done
+    systemctl --user daemon-reload
+    # WHY the path unit started now and the service only enabled: the service runs at each login and whenever the path
+    # unit sees Flatpak's app list change; right after installing there is nothing to check.
+    systemctl --user enable --now swipekb-keyboard-check.path
+    systemctl --user enable swipekb-keyboard-check.service
+    write_record
+}
+
 apply_auto_update() {
     if [ "$AUTO" = yes ] && [ -z "$AUTO_BLOCKED" ]; then auto_update_on
     elif [ "$AUTO" = no ]; then auto_update_off; fi
@@ -669,6 +706,7 @@ if [ "$SKIP_FLATPAKS" = 0 ]; then
     install_app "$MAIN_ID" "${MAIN_BUNDLE[0]}"
 fi
 apply_auto_update
+keyboard_check_on
 
 gaming_off() { # turn Gaming Mode off, keep the Desktop keyboard; touches only what the record says we made
     local unit marker keep item ours=()

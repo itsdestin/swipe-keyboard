@@ -93,13 +93,15 @@ FAKE_ROOT=1 exec "$@"
 
 
 UPDATE_UNITS = ['swipekb-update.service', 'swipekb-update.timer']
+# WHY (card #502): the removal safety check is on for every install, like the update timer; it is not Gaming Mode either.
+CHECK_UNITS = ['swipekb-keyboard-check.path', 'swipekb-keyboard-check.service']
 SOCKET_QUERIES = {'systemctl cat steam-web-debug-portforward.socket', 'systemctl is-enabled steam-web-debug-portforward.socket',
                   'systemctl is-active -q steam-web-debug-portforward.socket'}
 
 
 def gaming_units(f):
     """The Gaming Mode unit files present (the automatic-update timer is not Gaming Mode: it is on for the Desktop keyboard too)."""
-    return sorted(p.name for p in f.units.iterdir() if p.name not in UPDATE_UNITS) if f.units.exists() else []
+    return sorted(p.name for p in f.units.iterdir() if p.name not in UPDATE_UNITS + CHECK_UNITS) if f.units.exists() else []
 
 
 class Fixture:
@@ -161,6 +163,7 @@ class Fixture:
         shutil.copy2(SETUP / 'uninstall.sh', self.bundle)
         shutil.copy2(SETUP / 'switch-watch.sh', self.bundle)
         shutil.copy2(SETUP / 'auto-update.sh', self.bundle)
+        shutil.copy2(SETUP / 'keyboard-check.sh', self.bundle)
         shutil.copy2(ROOT / 'packaging/updates/update-key.gpg', self.bundle)
         shutil.copytree(SETUP / 'units', self.bundle / 'units')
         (self.bundle / 'VERSION').write_text(version + '\n')
@@ -258,7 +261,7 @@ class InstallTests(unittest.TestCase):
         self.assertEqual(record['version'], '0.3.1-1')
         self.assertEqual(record['created_markers'], [str(f.steam / MARKER)])
         self.assertEqual(record['existing_markers'], [])
-        self.assertEqual(sorted(record['created_units']), sorted(['swipekb-engine.service', 'swipekb-helper.service', 'swipekb-switch-watch.service', 'swipekb-switch-watch.timer'] + UPDATE_UNITS))
+        self.assertEqual(sorted(record['created_units']), sorted(['swipekb-engine.service', 'swipekb-helper.service', 'swipekb-switch-watch.service', 'swipekb-switch-watch.timer'] + UPDATE_UNITS + CHECK_UNITS))
         self.assertEqual(record['auto_update'], 'yes')
         self.assertEqual(record['installed_flatpaks'], [MAIN_ID, HELPER_ID])
         calls = f.calls()
@@ -486,9 +489,12 @@ class ChoiceTests(unittest.TestCase):
                 self.assertEqual(gaming_units(f), [])
                 self.assertEqual(sys_files(f), [])
                 self.assertEqual([c for c in f.calls() if c.startswith(('sudo', 'root-'))], [])
-                # WHY only these: automatic updates are on for the Desktop keyboard too, and need nothing else.
+                # WHY only these: automatic updates and the removal safety check (card #502) are on for the Desktop keyboard
+                # too, and need nothing else.
                 self.assertEqual([c for c in f.calls() if c.startswith('systemctl')],
-                                 ['systemctl --user daemon-reload', 'systemctl --user enable --now swipekb-update.timer'])
+                                 ['systemctl --user daemon-reload', 'systemctl --user enable --now swipekb-update.timer',
+                                  'systemctl --user daemon-reload', 'systemctl --user enable --now swipekb-keyboard-check.path',
+                                  'systemctl --user enable swipekb-keyboard-check.service'])
                 installs = [c for c in f.calls() if c.startswith('flatpak install')]
                 self.assertEqual(len(installs), 1)
                 self.assertIn('swipe-keyboard-0.3.1-1', installs[0])
@@ -861,6 +867,68 @@ class DesktopDistroTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(f.apps.read_text().split(), [])
         self.assertEqual(f.snapshot(), before)
+        self.assertNotIn('Steam', result.stdout, 'a desktop that never had Gaming Mode reads nothing about Steam')
+
+    def test_keeping_the_app_warns_to_choose_another_keyboard_first(self):
+        f = Fixture(self, system='kubuntu')
+        f.run('install.sh', '--yes')
+        out = f.run('uninstall.sh', '--dry-run').stdout
+        self.assertIn('pick another in System Settings first', out)
+        self.assertNotIn(HELPER_ID, out)
+
+
+class RemovalCheckTests(unittest.TestCase):
+    """Card #502, edge case 1: removed some other way (Discover, flatpak uninstall) while chosen -> KDE's keyboard comes back."""
+
+    def setup(self, choice, installed=False, kde=True):
+        f = Fixture(self, system='kubuntu')
+        (f.home / '.config').mkdir(parents=True, exist_ok=True)
+        (f.home / '.config/kwinrc').write_text(f'[Wayland]\nInputMethod={choice}\n')
+        if kde:
+            (f.appdir / 'org.kde.plasma.keyboard.desktop').write_text('[Desktop Entry]\n')
+        if installed:
+            f.apps.write_text(MAIN_ID + '\n')
+        return f
+
+    def kwrites(self, f):
+        return [c for c in f.calls() if c.startswith('kwriteconfig6')]
+
+    def test_ours_chosen_and_gone_hands_the_choice_to_kdes_keyboard_and_stops_our_jobs(self):
+        f = self.setup(f'{Path.home()}/.local/share/flatpak/exports/share/applications/{MAIN_ID}.desktop')
+        result = f.run('keyboard-check.sh')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.kwrites(f), [f'kwriteconfig6 --file kwinrc --group Wayland --key InputMethod --notify {f.appdir}/org.kde.plasma.keyboard.desktop'])
+        self.assertIn('systemctl --user disable --now swipekb-update.timer swipekb-keyboard-check.path', f.calls())
+
+    def test_without_kdes_keyboard_the_choice_is_cleared(self):
+        f = self.setup(f'{MAIN_ID}.desktop', kde=False)
+        f.run('keyboard-check.sh')
+        self.assertEqual(self.kwrites(f), ['kwriteconfig6 --file kwinrc --group Wayland --key InputMethod --notify '])
+
+    def test_nothing_changes_while_the_app_is_installed_or_another_keyboard_is_chosen(self):
+        for f in (self.setup(f'{MAIN_ID}.desktop', installed=True),
+                  self.setup('/usr/share/applications/org.kde.plasma.keyboard.desktop'),
+                  self.setup('/usr/share/applications/not-org.itsdestin.SwipeKeyboard.desktop.bak')):
+            before = f.snapshot()
+            f.run('keyboard-check.sh')
+            self.assertEqual(self.kwrites(f), [])
+            self.assertEqual([c for c in f.calls() if c.startswith('systemctl')], [])
+            self.assertEqual(f.snapshot(), before)
+
+    def test_no_kwinrc_means_nothing_to_do(self):
+        f = Fixture(self, system='kubuntu')
+        f.run('keyboard-check.sh')
+        self.assertEqual(f.calls(), [])
+
+    def test_the_installer_sets_it_up_and_says_so(self):
+        f = Fixture(self, system='kubuntu')
+        out = f.run('install.sh', '--dry-run', stdin='').stdout
+        self.assertIn('hand the choice back to KDE', out)
+        f.run('install.sh', '--yes')
+        script = f.home / '.local/share/swipe-keyboard-gaming/keyboard-check.sh'
+        self.assertTrue(os.access(script, os.X_OK))
+        self.assertIn(f'ExecStart={script}', (f.units / 'swipekb-keyboard-check.service').read_text())
+        self.assertIn('PathChanged=%h/.local/share/flatpak/exports/share/applications', (f.units / 'swipekb-keyboard-check.path').read_text())
 
 
 class KeyboardChoiceTests(unittest.TestCase):
@@ -987,7 +1055,7 @@ class UninstallTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(f.snapshot(), before)
         calls = f.calls()
-        self.assertIn('systemctl --user disable --now swipekb-engine.service swipekb-helper.service swipekb-switch-watch.service swipekb-switch-watch.timer swipekb-update.service swipekb-update.timer', calls)
+        self.assertIn('systemctl --user disable --now swipekb-engine.service swipekb-helper.service swipekb-switch-watch.service swipekb-switch-watch.timer swipekb-update.service swipekb-update.timer swipekb-keyboard-check.path swipekb-keyboard-check.service', calls)
         self.assertIn('systemctl --user daemon-reload', calls)
         self.assertEqual([c for c in calls if c.startswith('flatpak uninstall')], [])
         self.assertIn('flatpak uninstall --user', result.stdout)  # printed as a hint, not run
