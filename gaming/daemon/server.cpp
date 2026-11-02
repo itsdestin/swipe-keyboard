@@ -500,6 +500,25 @@ void Server::handle(Session &s, const QByteArray &body)
             logEvent("layout", long(s.layout->size()));
             return;
         }
+        if (op == QLatin1String("warm")) {
+            // WHY (card #502): the first swipe after the engine starts, or after it unloaded, waited ~3.6 s on a Bazzite VM
+            // while it checked and loaded the language's files. The layer now says "the keyboard just opened", so that wait
+            // happens while the user is still finding the first letter. Same language checks as "layout" (served layout,
+            // enabled language, genuine pack), but it changes nothing about this connection: no layout, no refusal, no
+            // candidates; it only loads the swipe models. No text is involved at all.
+            const auto steam = parseSteamLayout(req);
+            if (!steam.value) { fail(s, steam.error, false); return; }
+            const auto choice = mapSteamLayout(*steam.value);
+            if (!choice) { refuse(s, kErrUnsupported); return; }
+            const QString system = opt_.systemLocale.empty() ? systemLocaleName() : QString::fromStdString(opt_.systemLocale);
+            const QString locale = pickLocale(effectiveLocales(readEnabledLocales(QString::fromStdString(settingsFile())), system), choice->language);
+            if (locale.isEmpty()) { refuse(s, kErrLanguageOff); return; }
+            if (!engine_.profileAvailable(locale, choice->physicalLayout, opt_.idleUnloadMs)) { refuse(s, kErrLanguageUnavailable); return; }
+            if (!engine_.recognizer(locale, choice->physicalLayout)) { fail(s, kErrModelUnavailable, false); return; }
+            reply(s, out);
+            logEvent("warm");
+            return;
+        }
         if (op == QLatin1String("swipe")) {
             if (s.refusedWith) { refuse(s, s.refusedWith); return; }
             if (!s.layout) { fail(s, kErrNoLayout, false); return; }

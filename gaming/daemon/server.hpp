@@ -29,7 +29,9 @@ struct Options {
     // Where the desktop keyboard's settings page keeps the user's enabled languages (read-only here); empty = the
     // standard place. systemLocale is what "nothing enabled" falls back to; empty = this machine's own.
     std::string settingsFile, systemLocale;
-    int idleUnloadMs = 10 * 60 * 1000;   // plan Section 5: unload models after 10 idle minutes
+    // WHY 60 (was 10, card #502): with 10, someone who swipes now and then (a game's chat) met a ~3.6 s first swipe almost
+    // every time. The models take about 200 MB while loaded; an hour keeps them for a gaming session and still frees them after.
+    int idleUnloadMs = 60 * 60 * 1000;   // plan Section 5: unload models after 60 idle minutes
     int frameTimeoutMs = 5000;           // a client may not sit on a half-sent frame or skip "hello" longer than this
 };
 

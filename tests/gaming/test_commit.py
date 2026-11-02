@@ -311,6 +311,32 @@ class Typing(unittest.TestCase):
         self.assertEqual(modes, ['plain', 'unknown'])
         wait_for(lambda: self.d.open_conns == 1, what='the old connection was closed')
 
+    def test_keyboard_opened_warms_the_engine_on_its_own_short_connection_and_types_nothing(self):
+        # WHY (card #502): the engine loads its words while the user is still finding the first letter.
+        self.start()
+        self.send({'v': 1, 'type': 'warm', 'layout': 'german'})
+        wait_for(lambda: self.d.ops('warm'), what='warm passed on')
+        self.assertEqual(self.d.ops('warm')[0][2], {'steam_layout': 'german'}, 'only the layout name travels')
+        wait_for(lambda: self.d.open_conns == 0, what='warm connection closed again')
+        hello = [f for n, o, f in self.d.ops('hello')]
+        self.assertEqual(hello[0].get('mode'), 'unknown', 'the stricter mode')
+        self.assertEqual(self.sent(), [], 'nothing typed')
+        self.assertEqual(self.got(), [], 'the page waits for no answer')
+        # the swipe that follows is unaffected: its own connection, its own layout
+        self.send(stroke(1))
+        self.assertTrue(self.wait_got(1)[0]['committed'])
+        self.assertEqual(len(self.d.ops('layout')), 1)
+
+    def test_a_warm_up_the_engine_refuses_or_cannot_answer_changes_nothing(self):
+        self.start()
+        self.send({'v': 1, 'type': 'warm', 'layout': 'Bad Name!'})     # refused by the helper itself
+        self.send({'v': 1, 'type': 'warm', 'layout': 7})
+        self.d.stop()
+        self.send({'v': 1, 'type': 'warm', 'layout': 'qwerty'})       # engine down: silently nothing
+        self.send(stroke(1))
+        self.assertEqual(self.wait_got(1)[0]['error'], 'engine', 'the helper is still answering')
+        self.assertEqual(self.sent(), [])
+
     def test_keyboard_closed_hangs_up_on_the_engine(self):
         self.start()
         self.send(stroke(1)); self.wait_got(1)

@@ -583,6 +583,22 @@ class TestResources(DaemonCase):
         self.wait_status(c, "predictor_loaded", False)
         self.assertTrue(c.call("swipe", points=pts)["ok"], "must reload transparently after unloading")
 
+    def test_warm_loads_the_swipe_models_before_the_first_swipe_and_changes_nothing_else(self):
+        # WHY (card #502): the layer says "keyboard opened" so the ~3.6 s load happens before the first swipe, not during it.
+        self.start()
+        c = self.connect()
+        self.assertEqual(c.call("warm", steam_layout="qwerty"), {"ok": True, "op": "warm"})
+        s = c.call("status")
+        self.assertEqual((s["recognizer_loaded"], s["predictor_loaded"]), (True, False), "warm loads swipe models only")
+        word, pts, ctx = swipe_words(BENCH, 1)[0]
+        self.assertEqual(c.call("swipe", points=pts)["error"], "no_layout", "warm must not stand in for a layout")
+        self.assertEqual(c.call("warm", steam_layout="russian"), {"ok": False, "error": "unsupported"})
+        # a refused warm leaves no refusal behind on the connection
+        self.assertTrue(c.call("layout", keys=keys_from_layout(LAYOUT))["ok"])
+        self.assertTrue(c.call("swipe", points=pts)["ok"])
+        self.assertEqual(c.call("warm", steam_layout=7)["error"], "bad_request")
+        self.wait_status(c, "recognizer_loaded", False)   # warmed models still unload after idle
+
     def test_idle_memory_and_cpu_within_budget(self):
         p = self.start(["--idle-unload-ms", "400"])
         c = self.connect()
@@ -846,6 +862,9 @@ class TestMultilingual(DaemonCase):
         self.assertEqual(c.call("next_words", partial="ho")["error"], "language_not_enabled")
         es = next(x for x in dataset_cases() if x["id"] == "es-ES-1")
         self.assertTrue(self.layout_for(c, es)["ok"])
+        self.assertEqual(c.call("status")["profiles_loaded"], 0)
+        # WHY: warming must obey the same choice: a language the user did not enable is never loaded.
+        self.assertEqual(c.call("warm", steam_layout="qwerty"), {"ok": False, "error": "language_not_enabled"})
         self.assertEqual(c.call("status")["profiles_loaded"], 0)
 
     def test_enabling_a_language_takes_effect_without_restarting_the_daemon(self):

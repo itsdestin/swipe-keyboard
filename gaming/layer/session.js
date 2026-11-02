@@ -36,6 +36,7 @@ function swipekbSession(w, L, opts) {
   var SERVED = { qwerty: 1, spanish: 1, french: 1, german: 1 };
   var LAYOUT_CLASS = /^Layout_([a-z0-9_]+)$/;   // M6/M7 VM finding: Steam gives its key grid (role=grid) the class "Layout_<name>"
   var lastLayout = null;           // the layout name seen at the last look; a change makes the memory uncertain
+  var warmedFor = null;            // the layout the engine was last asked to get ready for, in this keyboard opening
   var setT = w.setTimeout.bind(w), clearT = w.clearTimeout.bind(w);
 
   var state = 'on';
@@ -405,12 +406,18 @@ function swipekbSession(w, L, opts) {
       if (L.gestures && L.gestures.state() !== 'on') { off(); return; }   // the arbiter failed: step aside completely
       var list = keyNodes(), r = kbRect(list);
       if (!r) {
-        if (kbOpen) { kbOpen = false; field = null; reset(true); removeStrip(); trailGone(); }
+        if (kbOpen) { kbOpen = false; field = null; warmedFor = null; reset(true); removeStrip(); trailGone(); }
         return;
       }
       kbOpen = true;
       checkField();
-      if (policy() === 'inert') { removeStrip(); return; }
+      var pol = policy();
+      if (pol === 'inert') { removeStrip(); return; }
+      // WHY (card #502): the engine loads its words on first use, which made the first swipe wait about 3.6 s on a Bazzite VM. Saying
+      // "the keyboard is open, with this layout" as soon as it appears lets that load happen while the user finds the first letter.
+      // Once per opening and layout; never for a password box or a box set to Private (we stay silent there); only the layout's
+      // name is sent, nothing typed.
+      if (pol !== 'private' && warmedFor !== lastLayout) { warmedFor = lastLayout; send({ v: 1, type: 'warm', layout: lastLayout }); }
       ensureStrip(); place(list); render();
     });
   }

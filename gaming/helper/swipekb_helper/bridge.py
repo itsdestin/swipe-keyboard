@@ -4,7 +4,7 @@
 
 """The go-between for typing (plan Sections 3, 7.4 and 8): page -> helper -> engine -> Steam's own text call -> page.
 
-The page layer reports a finished swipe (or a tap on a suggestion, or "keyboard closed") through the `__swipekb` binding.
+The page layer reports a finished swipe (or a tap on a suggestion, "keyboard opened" so the engine can load early, or "keyboard closed") through the `__swipekb` binding.
 This file checks every message like an untrusted stranger's, asks the engine for words, types the best one through
 Steam's own `ControllerKeyboardSendText`, and tells the page what happened so it can fill its strip.
 
@@ -60,6 +60,13 @@ def validate(raw):
     t = m.get('type')
     if t == 'closed':
         return {'type': 'closed'}
+    if t == 'warm':
+        # WHY (card #502): "the keyboard just opened, with this layout", so the engine loads its words before the first swipe.
+        # Only the layout's name travels: no text, no keys, no touches.
+        layout = m.get('layout', 'qwerty')
+        if not (isinstance(layout, str) and _LAYOUT.fullmatch(layout)):
+            return None
+        return {'type': 'warm', 'layout': layout}
     if t == 'pick':
         if not (_int(m.get('id'), 0, 2**31) and _int(m.get('req'), 0, 2**53) and isinstance(m.get('cand'), str)
                 and _ID.fullmatch(m['cand']) and _int(m.get('erase'), 1, MAX_ERASE)):
@@ -142,7 +149,7 @@ class Bridge:
         self.deliver = deliver
         self.q = queue.Queue(maxsize=8)
         self.pages = {}
-        self.stats = {'strokes': 0, 'picks': 0, 'typed': 0, 'rejected': 0, 'dropped': 0, 'engine_down': 0}
+        self.stats = {'strokes': 0, 'picks': 0, 'typed': 0, 'rejected': 0, 'dropped': 0, 'engine_down': 0, 'warmed': 0}
         self.rate = {}
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
@@ -201,11 +208,14 @@ class Bridge:
                     self.stats['dropped'] += 1
                 elif m['type'] == 'stroke':
                     self._stroke(pid, m, t)
+                elif m['type'] == 'warm':
+                    self._warm(m['layout'])
                 else:
                     self._pick(pid, m, t)
             except Exception:
                 # WHY catch all: nothing in here may kill the worker; the page just gets "no".
-                self._answer(pid, m, error='internal')
+                if m['type'] != 'warm':      # the page waits for no answer to a warm-up
+                    self._answer(pid, m, error='internal')
         for pid in list(self.pages):
             self._hang_up(pid, forget_page=True)
 
@@ -239,6 +249,22 @@ class Bridge:
         body.update(fields)
         js = ('(function(){var L=window.__swipekbLayer;if(L&&L.session)L.session.result(%s);})()' % json.dumps(body))
         self.deliver(pid, js)
+
+    def _warm(self, layout):
+        # WHY a separate short connection in "unknown" mode: it leaves the page's own connection (its layout, its candidates,
+        # its mode) exactly as it was, and "unknown" is the stricter mode should anything ever be asked on it. The engine's
+        # loaded words are shared by every connection, so the swipe that follows benefits anyway.
+        # WHY every failure is silent: a warm-up that fails changes nothing for the user; the first swipe just loads as before.
+        conn = None
+        try:
+            conn = EngineConn(self.cfg.engine_socket, self.cfg.engine_token, 'unknown')
+            conn.call('warm', steam_layout=layout)
+            self.stats['warmed'] += 1
+        except (EngineError, EngineGone):
+            pass
+        finally:
+            if conn:
+                conn.close()
 
     def _stroke(self, pid, m, t0):
         st = self._page(pid)

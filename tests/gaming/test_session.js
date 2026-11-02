@@ -22,10 +22,13 @@ function setup(opts, fieldType) {
   assert.ok(process.env.SWIPEKB_STUB_LONG, 'run through tests/gaming/test_layer.py');
   const page = build(opts);
   page.doc.activeElement = fieldType === null ? page.doc.body : { tagName: 'INPUT', type: fieldType || 'text' };
-  const calls = []; page.win.__swipekb = (s) => calls.push(JSON.parse(s));
+  // WHY two lists: "keyboard opened" warm-ups (card #502) go to their own list, so the stroke tests keep reading calls[0] as the
+  // stroke. The password-box tests count both.
+  const calls = [], warms = [];
+  page.win.__swipekb = (s) => { const m = JSON.parse(s); (m.type === 'warm' ? warms : calls).push(m); };
   vm.runInContext(fs.readFileSync(process.env.SWIPEKB_STUB_LONG, 'utf8'), page.ctx);
   const L = page.win.__swipekbLayer;
-  const r = { page, L, S: page.S, calls, c: page.centre, f: () => page.finger(), sess: L.session, doc: page.doc };
+  const r = { page, L, S: page.S, calls, warms, c: page.centre, f: () => page.finger(), sess: L.session, doc: page.doc };
   rigs.push(r);
   r.strip = () => page.doc.querySelector('[class=swipekb-strip]');
   r.slot = (i) => page.doc.querySelector('[data-swipekb=slot' + i + ']');
@@ -69,7 +72,7 @@ test('password box: a counting spy proves nothing is stopped, sent, drawn, remem
     await sleep(500);   // the session's own ticks keep running; they must still do nothing visible
   } finally { FakeEvent.prototype.stopImmediatePropagation = orig; }
   assert.equal(stops, 0, 'zero stopImmediatePropagation calls');
-  assert.equal(r.calls.length, 0, 'zero binding calls');
+  assert.equal(r.calls.length + r.warms.length, 0, 'zero binding calls');
   assert.ok(r.strip() === null, 'no strip in the page');
   assert.ok(r.trail() === null, 'no trail canvas');
   assert.equal(r.L.lastStrokeId, undefined, 'no stroke recorded');
@@ -87,10 +90,10 @@ test('password box: the swipe is not swallowed, so stock behaviour (the stray fi
 test('moving from a plain box (after a swipe) to a password box sends nothing at all, not even "closed"', async () => {
   const r = setup({}, 'text'); await settle();
   await swipe(r, ['h', 'e', 'l', 'l', 'o']); await settle(); answer(r);
-  const n = r.calls.length;
+  const n = r.calls.length + r.warms.length;
   r.doc.activeElement = { tagName: 'INPUT', type: 'password' };
   await tap(r, 'a'); await swipe(r, ['q', 'p'], 60); await sleep(300);
-  assert.equal(r.calls.length, n, 'no binding call while a password box has focus');
+  assert.equal(r.calls.length + r.warms.length, n, 'no binding call while a password box has focus');
   assert.equal(r.sess.debug().bufferLength, 0, 'and the memory of the earlier box is gone');
 });
 
@@ -249,6 +252,27 @@ test('a word still being typed is not context', async () => {
   await tap(r, ' '); for (const ch of 'gam') await tap(r, ch);
   await swipe(r, ['t', 'o', 'p']); await settle();
   assert.deepEqual(r.calls[0].ctx, ['we']);
+});
+
+test('the keyboard opening asks the engine to get ready, once per opening and layout, with nothing but the layout name', async () => {
+  const r = setup({ layoutName: 'german', rows: ['qwertzuiop', 'asdfghjkl', 'yxcvbnm'] }, 'text'); await settle(); await settle();
+  assert.deepEqual(r.warms.map((m) => JSON.stringify(m)), [JSON.stringify({ v: 1, type: 'warm', layout: 'german' })], 'one warm-up, before any swipe');
+  assert.equal(r.calls.length, 0);
+  r.doc.activeElement = { tagName: 'INPUT', type: 'search' }; await settle();
+  assert.equal(r.warms.length, 1, 'another box in the same opening needs none');
+  const saved = Object.values(r.page.keyEls).map((el) => [el, el.rect]);
+  for (const [el] of saved) el.rect = { left: 0, top: 0, width: 0, height: 0 };   // the keyboard closes
+  await settle();
+  for (const [el, rect] of saved) el.rect = rect;   // and opens again
+  await settle();
+  assert.equal(r.warms.length, 2, 'a new opening asks again (the engine may have unloaded meanwhile)');
+});
+
+test('no warm-up for a password box or a layout we do not serve', async () => {
+  const r = setup({}, 'password'); await settle(); await settle();
+  assert.equal(r.warms.length, 0, 'password');
+  const r2 = setup({ layoutName: 'russian', rows: ['йцукенгшщзх', 'фывапролджэ', 'ячсмитьбю'] }, 'text'); await settle(); await settle();
+  assert.equal(r2.warms.length, 0, 'unserved layout');
 });
 
 test('the memory is wiped when the keyboard closes, and the helper is told to hang up', async () => {
