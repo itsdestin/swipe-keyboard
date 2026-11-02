@@ -80,6 +80,10 @@ exit 0
 KWRITECONFIG = '''#!/bin/sh
 printf 'kwriteconfig6 %s\\n' "$*" >> "$FAKE_LOG"
 '''
+# WHY: on ordinary desktops the installer checks the KDE Plasma version (card #502, edge case 2)
+PLASMASHELL = '''#!/bin/sh
+echo "plasmashell ${FAKE_PLASMA:-6.6.3}"
+'''
 SUDO = '''#!/bin/sh
 printf 'sudo %s\\n' "$*" >> "$FAKE_LOG"
 [ "$FAKE_SUDO" = deny ] && { echo 'sudo: a password is required' >&2; exit 1; }
@@ -111,7 +115,8 @@ class Fixture:
         self.apps.write_text('')
         shims, tools = base / 'shims', base / 'tools'
         shims.mkdir(), tools.mkdir()
-        for name, body in (('flatpak', FLATPAK), ('systemctl', SYSTEMCTL), ('sudo', SUDO), ('kwriteconfig6', KWRITECONFIG)):
+        for name, body in (('flatpak', FLATPAK), ('systemctl', SYSTEMCTL), ('sudo', SUDO), ('kwriteconfig6', KWRITECONFIG),
+                           ('plasmashell', PLASMASHELL)):
             (shims / name).write_text(body)
             (shims / name).chmod(0o755)
         for name in TOOLS:
@@ -134,7 +139,14 @@ class Fixture:
         # WHY a stand-in /etc/os-release: the installer's wording names the system it runs on (SteamOS or e.g. Bazzite)
         self.os_release = base / 'os-release'
         self.os_release.write_text({'steamos': 'NAME="SteamOS"\nID=steamos\n',
-                                    'bazzite': 'NAME="Bazzite"\nPRETTY_NAME="Bazzite"\nID=bazzite\nID_LIKE="fedora"\n'}[system])
+                                    'bazzite': 'NAME="Bazzite"\nPRETTY_NAME="Bazzite"\nID=bazzite\nID_LIKE="fedora"\n',
+                                    'kubuntu': 'NAME="Ubuntu"\nPRETTY_NAME="Ubuntu 26.04 LTS"\nID=ubuntu\nID_LIKE=debian\n',
+                                    'leap': 'NAME="openSUSE Leap"\nID="opensuse-leap"\nID_LIKE="suse opensuse"\n'}[system])
+        # WHY stand-ins for the login-session folder and the regular package's folder: this very laptop has the regular
+        # package installed, and a real machine's sessions must never decide what a test sees.
+        self.sessions = base / 'wayland-sessions'
+        self.sessions.mkdir()
+        self.native = base / 'usr-share-swipe-keyboard'
         self.appdir = base / 'usr-share-applications'     # stands in for /usr/share/applications
         self.appdir.mkdir()
         self.bundle = base / 'download'
@@ -168,7 +180,8 @@ class Fixture:
 
     def run(self, script, *args, stdin='y\n', fail=None, shims=True, extra=None):
         env = {'SWIPEKB_SYSTEM_UNIT_DIR': str(self.sysdir), 'SWIPEKB_PROC_NET': str(self.proc),
-               'SWIPEKB_OS_RELEASE': str(self.os_release), 'SWIPEKB_APPLICATIONS_DIR': str(self.appdir), **(extra or {}), 'HOME': str(self.home), 'PATH': (str(self.shims) + ':' if shims else '') + str(self.tools),
+               'SWIPEKB_OS_RELEASE': str(self.os_release), 'SWIPEKB_APPLICATIONS_DIR': str(self.appdir),
+               'SWIPEKB_SESSIONS_DIR': str(self.sessions), 'SWIPEKB_NATIVE_DIR': str(self.native), **(extra or {}), 'HOME': str(self.home), 'PATH': (str(self.shims) + ':' if shims else '') + str(self.tools),
                'LANG': 'C', 'FAKE_LOG': str(self.log), 'FAKE_APPS': str(self.apps), 'FAKE_FAIL': fail or ''}
         env.update(extra or {})
         return subprocess.run(['bash', str(self.bundle / script), *args], input=stdin, env=env,
@@ -321,7 +334,12 @@ class InstallTests(unittest.TestCase):
             # WHY a whitelist: administrator rights are used for exactly these actions on our one drop-in file, nothing else.
             for line in text.splitlines():
                 if 'sudo' in line:
-                    self.assertRegex(line.strip(), r'^(if ! |\{ )?(command -v sudo|sudo -v|sudo (mkdir -p|rm -f|rmdir|systemctl (daemon-reload|stop|start)|tee)\b)|sudo -v;|&& sudo|\| sudo tee|\{ sudo mkdir', f'{script}: {line}')
+                    # WHY the one extra shape (card #502): advice TEXT telling a Kubuntu/Debian/openSUSE/Fedora user how to
+                    # install Flatpak themselves; the check below proves the installer never runs it.
+                    self.assertRegex(line.strip(), r'^(if ! |\{ )?(command -v sudo|sudo -v|sudo (mkdir -p|rm -f|rmdir|systemctl (daemon-reload|stop|start)|tee)\b)|sudo -v;|&& sudo|\| sudo tee|\{ sudo mkdir'
+                                     r'|^\*.*\) how="sudo (apt|zypper|dnf) install flatpak" ;;$', f'{script}: {line}')
+            uses = [l.strip() for l in text.splitlines() if '$how' in l]
+            self.assertTrue(all(u.startswith('die "') for u in uses), uses)
 
     def test_existing_marker_is_left_alone_and_recorded_as_not_ours(self):
         f = Fixture(self)
@@ -752,6 +770,97 @@ class ChoiceTests(unittest.TestCase):
         out = Fixture(self).run('install.sh', '--dry-run', '--gaming', '--leave-open', stdin='').stdout
         self.assertIn('leave SteamOS', out)
         self.assertNotIn('write one small file', out)
+
+
+class DesktopDistroTests(unittest.TestCase):
+    """Card #502, Flatpak on older long-term desktops (Kubuntu 26.04, Debian 13, openSUSE Leap 16): Desktop keyboard only."""
+
+    def test_the_plan_says_nothing_about_steam_or_gaming_mode(self):
+        f = Fixture(self, steam=False, system='kubuntu')
+        out = f.run('install.sh', '--dry-run', stdin='').stdout
+        for phrase in ('developer switch', '8081', 'Subscriber Agreement', 'Gaming Mode', 'Deck', 'administrator password'):
+            self.assertNotIn(phrase, out)
+        self.assertIn('Swipe Keyboard for Ubuntu', out)
+        self.assertIn('System Settings', out)
+        self.assertIn(MAIN_ID, out)
+
+    def test_install_adds_only_the_keyboard_app_and_says_where_to_choose_it(self):
+        f = Fixture(self, steam=True, system='kubuntu')   # even with Steam installed: no Gaming Mode on a plain desktop
+        result = f.run('install.sh', '--yes')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(f.apps.read_text().split(), [MAIN_ID])
+        self.assertEqual(gaming_units(f), [])
+        self.assertFalse((f.steam / MARKER).exists())
+        self.assertEqual(f.record()['gaming'], 'no')
+        self.assertIn('Virtual Keyboard', result.stdout)
+        self.assertIn('log out and back in', result.stdout, 'no Flatpak folder in this login yet')
+        ok = f.run('install.sh', '--yes', extra={'XDG_DATA_DIRS': f'{f.home}/.local/share/flatpak/exports/share:/usr/share'})
+        self.assertNotIn('log out and back in', ok.stdout)
+
+    def test_gaming_mode_is_refused_on_a_desktop_and_nothing_changes(self):
+        f = Fixture(self, system='kubuntu')
+        before = f.snapshot()
+        result = f.run('install.sh', '--gaming', '--yes')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('Gaming Mode swipe is for SteamOS and Bazzite', result.stderr)
+        self.assertEqual(f.snapshot(), before)
+        self.assertEqual(f.calls(), [])
+
+    def test_without_flatpak_it_gives_the_one_time_setup_for_that_family(self):
+        for system, how in (('kubuntu', 'sudo apt install flatpak'), ('leap', 'sudo zypper install flatpak')):
+            with self.subTest(system=system):
+                f = Fixture(self, system=system)
+                before = f.snapshot()
+                result = f.run('install.sh', '--yes', shims=False)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(how, result.stderr)
+                self.assertIn('log out and back in', result.stderr)
+                self.assertEqual(f.snapshot(), before)
+
+    def test_kde_too_old_or_missing_is_refused_plainly(self):
+        for version, ok in (('5.27.11', False), ('6.2.5', False), ('6.3.0', True), ('6.10.1', True)):
+            with self.subTest(version=version):
+                f = Fixture(self, system='kubuntu')
+                result = f.run('install.sh', '--yes', extra={'FAKE_PLASMA': version})
+                self.assertEqual(result.returncode == 0, ok, result.stderr)
+                if not ok:
+                    self.assertIn(f'this computer has {version}', result.stderr)
+                    self.assertEqual(f.calls(), [])
+        f = Fixture(self, system='kubuntu')
+        (f.shims / 'plasmashell').unlink()
+        result = f.run('install.sh', '--yes')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('KDE Plasma was not found', result.stderr)
+
+    def test_the_regular_package_already_installed_is_refused(self):
+        f = Fixture(self, system='kubuntu')
+        f.native.mkdir()
+        result = f.run('install.sh', '--yes')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('regular Swipe Keyboard package is already installed', result.stderr)
+        self.assertEqual(f.calls(), [])
+
+    def test_a_download_without_the_gaming_helper_is_fine_on_a_desktop(self):
+        f = Fixture(self, system='kubuntu')
+        for p in f.bundle.glob('swipe-keyboard-gaming-helper-*'):
+            p.unlink()
+        f.write_sums()
+        self.assertEqual(f.run('install.sh', '--yes').returncode, 0)
+
+    def test_a_system_with_a_steam_gaming_session_counts_as_a_gaming_one(self):
+        f = Fixture(self, system='kubuntu')
+        (f.sessions / 'gamescope-session-steam.desktop').write_text('[Desktop Entry]\n')
+        out = f.run('install.sh', '--dry-run', stdin='').stdout
+        self.assertIn('developer switch', out)
+
+    def test_uninstall_removes_it_again(self):
+        f = Fixture(self, system='kubuntu')
+        before = f.snapshot()
+        f.run('install.sh', '--yes')
+        result = f.run('uninstall.sh', '--yes', '--remove-apps')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(f.apps.read_text().split(), [])
+        self.assertEqual(f.snapshot(), before)
 
 
 class KeyboardChoiceTests(unittest.TestCase):

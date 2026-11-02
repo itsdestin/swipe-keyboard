@@ -67,6 +67,21 @@ OS_ID="$(sed -n 's/^ID=//p' "$OS_RELEASE" 2>/dev/null | tr -d '"' | head -n 1)" 
 OS_NAME="$(sed -n 's/^NAME=//p' "$OS_RELEASE" 2>/dev/null | tr -d '"' | head -n 1)" || true
 if [ "$OS_ID" = steamos ] || [ -z "$OS_NAME" ]; then OS_NAME=SteamOS; DEVICE=Deck; PRODUCT="Steam Deck"
 else DEVICE=computer; PRODUCT="$OS_NAME"; fi
+OS_LIKE="$(sed -n 's/^ID_LIKE=//p' "$OS_RELEASE" 2>/dev/null | tr -d '"' | head -n 1)" || true
+# WHY two kinds of system (card #502): the same download also serves ordinary KDE desktops whose KDE is too old for our
+# regular package (Kubuntu 26.04, Debian 13, openSUSE Leap 16). There is no Gaming Mode there, so those people get only
+# the Desktop keyboard and never read about Steam's developer switch. A system counts as a gaming one when it is SteamOS
+# or Bazzite, or offers a Steam Gaming Mode session (gamescope) at the login screen, as SteamOS-like systems do.
+SESSIONS_DIR="${SWIPEKB_SESSIONS_DIR:-/usr/share/wayland-sessions}"
+GAMING_SYSTEM=0
+case "$OS_ID" in steamos|bazzite) GAMING_SYSTEM=1 ;; esac
+compgen -G "$SESSIONS_DIR/*gamescope*.desktop" >/dev/null 2>&1 && GAMING_SYSTEM=1
+# The regular (non-Flatpak) package keeps everything here; both installed at once would mean two keyboards fighting
+# over one choice in System Settings.
+NATIVE_DIR="${SWIPEKB_NATIVE_DIR:-/usr/share/swipe-keyboard}"
+# WHY 6.3: the oldest Plasma we expect to work (Debian 13); raised if the test machines show otherwise. Plasma 5 cannot
+# run it (no Plasma 6 input-method handling, no kwriteconfig6 to hand the choice back on removal).
+MIN_PLASMA=6.3
 
 DRY_RUN=0; ASSUME_YES=0; SKIP_FLATPAKS=0; FORCE=0; CHOICE=""; OUTSIDE=""; AUTO=""
 for arg in "$@"; do
@@ -270,8 +285,31 @@ TEXT
 }
 
 # --- 1. Checks that change nothing -----------------------------------------------------------------
-command -v flatpak >/dev/null 2>&1 || die "'flatpak' was not found. This installer is for SteamOS and similar systems such as Bazzite, where it comes with the system."
-command -v systemctl >/dev/null 2>&1 || die "'systemctl' was not found. This installer is for SteamOS and similar systems such as Bazzite, where it comes with the system."
+if [ "$GAMING_SYSTEM" = 1 ]; then
+    command -v flatpak >/dev/null 2>&1 || die "'flatpak' was not found. This installer is for SteamOS and similar systems such as Bazzite, where it comes with the system."
+else
+    # WHY spelled out per family (edge case 6): Kubuntu and Debian ship without Flatpak. The log-out matters: only a new login
+    # tells System Settings where Flatpak apps live, so before it Swipe Keyboard would not be listed as a keyboard.
+    if ! command -v flatpak >/dev/null 2>&1; then
+        case " $OS_ID $OS_LIKE " in
+            *" debian "*|*" ubuntu "*) how="sudo apt install flatpak" ;;
+            *" opensuse"*|*" suse "*) how="sudo zypper install flatpak" ;;
+            *" fedora "*) how="sudo dnf install flatpak" ;;
+            *) how="install the 'flatpak' package with your system's software tool" ;;
+        esac
+        die "Flatpak is needed and is not installed yet. One-time setup: $how
+then log out and back in once, and run this installer again. Nothing was changed."
+    fi
+    # Edge case 2: say plainly when KDE is too old, instead of installing a keyboard that cannot appear.
+    command -v plasmashell >/dev/null 2>&1 || die "KDE Plasma was not found. Swipe Keyboard is an on-screen keyboard for KDE Plasma $MIN_PLASMA or newer. Nothing was changed."
+    PLASMA="$(plasmashell --version 2>/dev/null | sed -n 's/^plasmashell \([0-9][0-9.]*\).*/\1/p' | head -n 1)" || true
+    if [ -z "$PLASMA" ] || [ "$(printf '%s\n%s\n' "$MIN_PLASMA" "$PLASMA" | sort -V | head -n 1)" != "$MIN_PLASMA" ]; then
+        die "This needs KDE Plasma $MIN_PLASMA or newer; this computer has ${PLASMA:-an unknown version}. Nothing was changed."
+    fi
+    # Edge case 4: one install method per computer.
+    [ ! -d "$NATIVE_DIR" ] || die "The regular Swipe Keyboard package is already installed on this computer ($NATIVE_DIR). Use that one, or remove it with your package manager first. Nothing was changed."
+fi
+command -v systemctl >/dev/null 2>&1 || die "'systemctl' was not found. This installer is for systems that use systemd. Nothing was changed."
 
 [ -f "$HERE/$WATCH_NAME" ] || die "$WATCH_NAME missing from the download."
 [ -f "$HERE/VERSION" ] || die "VERSION file missing next to install.sh. Run it from the folder you extracted the download into."
@@ -285,7 +323,10 @@ MAIN_BUNDLE=( "$HERE"/swipe-keyboard-[0-9]*-x86_64.flatpak )
 HELPER_BUNDLE=( "$HERE"/swipe-keyboard-gaming-helper-*-x86_64.flatpak )
 if [ "$SKIP_FLATPAKS" = 0 ]; then
     { [ -f "${MAIN_BUNDLE[0]}" ] && [ "${#MAIN_BUNDLE[@]}" = 1 ]; } || die "Expected exactly one Swipe Keyboard .flatpak file next to install.sh."
-    { [ -f "${HELPER_BUNDLE[0]}" ] && [ "${#HELPER_BUNDLE[@]}" = 1 ]; } || die "Expected exactly one Gaming Mode helper .flatpak file next to install.sh."
+    # WHY only on gaming systems: a desktop computer never installs the helper, so a download without it is fine there
+    if [ "$GAMING_SYSTEM" = 1 ]; then
+        { [ -f "${HELPER_BUNDLE[0]}" ] && [ "${#HELPER_BUNDLE[@]}" = 1 ]; } || die "Expected exactly one Gaming Mode helper .flatpak file next to install.sh."
+    fi
 fi
 for unit in "${UNITS[@]}" "${UPDATE_UNITS[@]}"; do [ -f "$HERE/units/$unit" ] || die "units/$unit missing from the download."; done
 { [ -f "$HERE/$UPDATE_NAME" ] && [ -f "$HERE/update-key.gpg" ]; } || die "$UPDATE_NAME or update-key.gpg missing from the download. Download it again."
@@ -319,6 +360,12 @@ for unit in "${UNITS[@]}"; do
         GAMING_BLOCKED="$UNIT_DIR/$unit already exists and was not made by this installer. Move it away or rename it, then run this again."
     fi
 done
+if [ "$GAMING_SYSTEM" = 0 ]; then
+    [ "$CHOICE" != gaming ] || die "Gaming Mode swipe is for SteamOS and Bazzite (Steam's Gaming Mode). On $OS_NAME, run this without --gaming for the Desktop keyboard. Nothing was changed."
+    [ "$CURRENT_GAMING" != yes ] || die "The record says Gaming Mode is on, but $OS_NAME has no Gaming Mode. Run uninstall.sh first, then this again. Nothing was changed."
+    GAMING_BLOCKED="$OS_NAME has no Steam Gaming Mode."
+    CHOICE=desktop
+fi
 if [ "$CHOICE" = gaming ] && [ -n "$GAMING_BLOCKED" ]; then die "$GAMING_BLOCKED Nothing was changed."; fi
 
 # --- 2. The choice ---------------------------------------------------------------------------------
@@ -358,6 +405,16 @@ else
     which asks for your administrator password once."
 fi
 
+if [ "$GAMING_SYSTEM" = 0 ]; then
+    # WHY a short text of its own: on an ordinary desktop there is nothing about Steam to consent to.
+    cat <<TEXT
+Swipe Keyboard for $PRODUCT, version $VERSION
+
+Swipe typing and word suggestions for KDE's on-screen keyboard, as a Flatpak app for your user only. Installing it does
+not switch keyboards: you choose it afterwards in System Settings. Remove everything any time with uninstall.sh.
+
+TEXT
+else
 cat <<TEXT
 Swipe Keyboard for $PRODUCT, version $VERSION
 
@@ -376,7 +433,8 @@ $DOOR_LINE
     password box, so nothing is learned or saved there.
 
 TEXT
-if [ -n "$GAMING_BLOCKED" ]; then
+fi
+if [ -n "$GAMING_BLOCKED" ] && [ "$GAMING_SYSTEM" = 1 ]; then
     echo "Gaming Mode is not available right now: $GAMING_BLOCKED"
     echo
 fi
@@ -403,7 +461,8 @@ SHOW_GAMING=0; { [ "$CHOICE" = gaming ] || [ "$ASK_GAMING" = 1 ] || { [ "$DRY_RU
 echo "The exact changes:"
 if [ "$SKIP_FLATPAKS" = 0 ]; then
     echo "  - add the Flathub source for your user if missing, and install the keyboard app for your user only:"
-    echo "      $MAIN_ID  (the word-guessing engine and Desktop Mode keyboard; it has no network access)"
+    if [ "$GAMING_SYSTEM" = 1 ]; then KIND="Desktop Mode keyboard"; else KIND="on-screen keyboard"; fi
+    echo "      $MAIN_ID  (the word-guessing engine and $KIND; it has no network access)"
     echo "    Flatpak may download its supporting components (the KDE runtime) from Flathub once, if not already here."
 fi
 if [ "$SHOW_GAMING" = 1 ]; then
@@ -462,7 +521,11 @@ After this, switch to Gaming Mode. If Steam was already running, restart Steam o
 switch. This installer never restarts Steam for you.
 TEXT
 fi
-echo "To undo everything: bash uninstall.sh (in this same download). To switch Gaming Mode on or off later: run this installer again."
+if [ "$GAMING_SYSTEM" = 1 ]; then
+    echo "To undo everything: bash uninstall.sh (in this same download). To switch Gaming Mode on or off later: run this installer again."
+else
+    echo "To undo everything: bash uninstall.sh (in this same download). It also hands the keyboard choice back to KDE's own."
+fi
 
 if [ "$DRY_RUN" = 1 ]; then
     echo
@@ -655,7 +718,16 @@ if [ "$CHOICE" = desktop ]; then
     else
         write_record
         echo
-        echo "Done. The Desktop Mode keyboard is installed. To add Gaming Mode later, run this installer again and answer yes."
+        if [ "$GAMING_SYSTEM" = 1 ]; then
+            echo "Done. The Desktop Mode keyboard is installed. To add Gaming Mode later, run this installer again and answer yes."
+        else
+            echo "Done. Swipe Keyboard is installed. To use it: System Settings > Keyboard > Virtual Keyboard, choose Swipe Keyboard, Apply."
+            # WHY: System Settings only lists Flatpak apps after a login that knows Flatpak's folder (first Flatpak on this computer)
+            case ":${XDG_DATA_DIRS:-}:" in
+                *":$DATA_HOME/flatpak/exports/share:"*|*":$DATA_HOME/flatpak/exports/share/:"*) ;;
+                *) echo "First log out and back in once: until then System Settings does not list Flatpak apps." ;;
+            esac
+        fi
     fi
     exit 0
 fi
