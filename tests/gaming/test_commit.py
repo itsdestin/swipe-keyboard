@@ -136,6 +136,21 @@ class Typing(unittest.TestCase):
         self.assertEqual(self.sent(), ['Hello ', 'HELLO '])
         self.assertEqual([c['word'] for c in self.got()[1]['cands']], ['HELLO', 'HELL', 'JELLO'])
 
+    def test_a_word_swiped_right_after_tapped_letters_gets_a_space_first_and_keeps_it_when_swapped(self):
+        """Card #502 (Bazzite VM): tapping "q" then swiping "this" gave "qthis". The page asks for the space; the helper types it."""
+        self.start()
+        self.send(stroke(1, lead=True)); a = self.wait_got(1)[0]
+        self.assertEqual((self.sent(), a['typed']), ([' hello '], ' hello '))
+        self.send({'v': 1, 'type': 'pick', 'id': 1000001, 'req': a['req'], 'cand': a['cands'][1]['id'], 'erase': 7})
+        self.wait_got(2)
+        self.assertEqual(self.sent()[-1], '\b' * 7 + ' hell ', 'the swap replaces the space too, and puts it back')
+
+    def test_space_first_must_be_a_plain_yes_or_no(self):
+        self.start()
+        self.send(stroke(1, lead='yes'))
+        self.send(stroke(2)); self.wait_got(1)
+        self.assertEqual(self.sent(), ['hello '], 'the odd message was refused; the plain one typed with no space first')
+
     def test_tapping_a_candidate_erases_exactly_the_typed_word_and_types_the_other(self):
         self.start()
         self.send(stroke(1, caps='first')); a = self.wait_got(1)[0]

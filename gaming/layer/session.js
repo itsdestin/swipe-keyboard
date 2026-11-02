@@ -155,6 +155,20 @@ function swipekbSession(w, L, opts) {
     if (privateOn || !looksLikeSecret(lastRun())) return;
     goPrivate('secret');          // (which also wipes the memory)
   }
+  // WHY (card #502, Bazzite VM): tapping "q" then swiping "this" gave "qthis". Same rule as Desktop Mode
+  // (plugin/swipesession.cpp needsSpaceBefore), applied to what we remember of the box. An empty memory means the start
+  // of the box or "not known" (after Enter, arrows...): no space then, as typing a stray space is worse than a missing one.
+  function spaceBefore(text) {
+    if (!text) return false;
+    var c = text.charAt(text.length - 1);
+    if (/\s/.test(c)) return false;
+    // A straight quote opens a quote (glue the word on) at the start, after a space or an opening bracket; else it closes one.
+    if (c === '"' || c === "'") {
+      if (text.length === 1) return false;
+      return !/[\s(\[{]/.test(text.charAt(text.length - 2));
+    }
+    return '([{\u201c\u2018-/@#'.indexOf(c) < 0;   // glued on after an opening bracket, curly opening quote, - / @ #
+  }
   function contextWords(kind) {
     var toks = buf.split(/\s+/), words = [];
     if (buf.length && !/\s$/.test(buf)) toks.pop();   // the word still being typed is not context
@@ -260,7 +274,7 @@ function swipekbSession(w, L, opts) {
     if (p !== 'plain' && p !== 'unknown') return;
     var list = keyNodes();
     var out = { v: 1, type: 'stroke', id: msg.id, trace: msg.trace, vw: msg.vw, vh: msg.vh, keys: msg.keys,
-      ctx: contextWords(p), mode: p, layout: layoutName(), caps: capsFor(list) };
+      ctx: contextWords(p), mode: p, layout: layoutName(), caps: capsFor(list), lead: spaceBefore(buf) };
     pending[out.id] = { kind: 'stroke', seq: keySeq, caps: out.caps };
     if (send(out)) sentAny = true; else delete pending[out.id];
   }
@@ -427,6 +441,7 @@ function swipekbSession(w, L, opts) {
     result: result,
     off: off,
     state: function () { return state; },
+    spaceBefore: spaceBefore,   // for tests: the rule alone, on a string the test gives
     // For tests and the VM rig: sizes and flags only, never the text.
     debug: function () { return { bufferLength: buf.length, words: contextWords('plain').length, policy: policy(), shift: shift, candidates: cands ? cands.list.length : 0, stripShown: !!strip, kbOpen: kbOpen, lastMs: lastMs }; }
   };

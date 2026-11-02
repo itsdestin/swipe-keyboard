@@ -94,7 +94,13 @@ def validate(raw):
     mode, layout, caps = m.get('mode'), m.get('layout', 'qwerty'), m.get('caps', 'none')
     if mode not in ('plain', 'unknown') or caps not in ('none', 'first', 'all') or not (isinstance(layout, str) and _LAYOUT.fullmatch(layout)):
         return None
-    return {'type': 'stroke', 'id': m['id'], 'trace': pts, 'keys': ks, 'ctx': words, 'mode': mode, 'layout': layout, 'caps': caps}
+    # WHY (card #502): the page says whether the word needs a space in front (it was swiped right after tapped letters).
+    # Only a real true/false is accepted; a missing field means no space, as before.
+    lead = m.get('lead', False)
+    if not isinstance(lead, bool):
+        return None
+    return {'type': 'stroke', 'id': m['id'], 'trace': pts, 'keys': ks, 'ctx': words, 'mode': mode, 'layout': layout, 'caps': caps,
+            'lead': lead}
 
 
 def apply_caps(text, caps):
@@ -119,7 +125,7 @@ class _Page:
     def __init__(self):
         self.conn = None
         self.layout_sig = None
-        self.last = None            # {'req', 'len', 'caps', 'cands'} for the word typed last (no text, only its length)
+        self.last = None            # {'req', 'len', 'caps', 'lead', 'cands'} for the word typed last (no text, only its length)
         self.used = time.monotonic()    # last time this page asked the engine for anything
 
 
@@ -260,7 +266,7 @@ class Bridge:
             word = conn.call('commit', req=r['req'], cand=cands[0]['id'])['text']
             if not safe_text(word):
                 return self._answer(pid, m, committed=False, error='bad_text')
-            typed = apply_caps(word, m['caps']) + ' '
+            typed = (' ' if m['lead'] else '') + apply_caps(word, m['caps']) + ' '
             t_send = time.monotonic()
             self.send_text(typed)
             t_done = time.monotonic()
@@ -274,7 +280,7 @@ class Bridge:
             self.stats['engine_down'] += 1
             return self._answer(pid, m, committed=False, error='engine')
         shown = [{'id': c['id'], 'word': apply_caps(c['word'], m['caps'])} for c in cands]
-        st.last = {'req': r['req'], 'len': len(typed), 'caps': m['caps'], 'cands': shown}
+        st.last = {'req': r['req'], 'len': len(typed), 'caps': m['caps'], 'lead': m['lead'], 'cands': shown}
         self.stats['typed'] += 1
         # WHY timings in the answer: the page keeps them for diagnosis (numbers only, never text): how long the request waited, the
         # engine took, and Steam's text call took.
@@ -295,7 +301,8 @@ class Bridge:
             word = st.conn.call('commit', req=m['req'], cand=m['cand'])['text']
             if not safe_text(word):
                 return self._answer(pid, m, committed=False, error='bad_text')
-            typed = apply_caps(word, last['caps']) + ' '
+            # WHY keep the space in front: the erase count covers it, so the swapped word must put it back
+            typed = (' ' if last['lead'] else '') + apply_caps(word, last['caps']) + ' '
             t_send = time.monotonic()
             self.send_text('\b' * m['erase'] + typed)
             t_done = time.monotonic()

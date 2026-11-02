@@ -218,6 +218,31 @@ test('the typed words become context for the next swipe, newest last, capped at 
   assert.equal(r2.calls[0].ctx.length, 12);
 });
 
+// Card #502 (Bazzite VM): tapping "q" then swiping "this" gave "qthis". Same rule as Desktop Mode (plugin/swipesession.cpp).
+test('a swipe right after tapped letters asks for a space first; after a space or at the start it does not', async () => {
+  const r = setup({}, null);
+  await swipe(r, ['t', 'o', 'p']); await settle();
+  assert.equal(r.calls[0].lead, false, 'empty box (or nothing known): no space');
+  const r2 = setup({}, null);
+  await tap(r2, 'q'); await swipe(r2, ['t', 'o', 'p']); await settle();
+  assert.equal(r2.calls[0].lead, true, 'right after a tapped letter');
+  const r3 = setup({}, null);
+  await tap(r3, 'q'); await tap(r3, ' '); await swipe(r3, ['t', 'o', 'p']); await settle();
+  assert.equal(r3.calls[0].lead, false, 'after a space');
+  const r4 = setup({}, null);
+  await swipe(r4, ['t', 'o', 'p']); await settle(); answer(r4, { typed: 'Top ', cands: [{ id: 'x', word: 'Top' }] });
+  await swipe(r4, ['q', 'p']); await settle();
+  assert.equal(r4.calls[1].lead, false, 'after a swiped word, which already ends with its space');
+});
+
+test('the space-first rule matches Desktop Mode for punctuation', () => {
+  const s = setup({}, null).sess.spaceBefore;
+  for (const [text, want] of [['', false], ['we', true], ['we ', false], ['end.', true], ['hi,', true], ['(', false],
+    ['a [', false], ['x-', false], ['a/', false], ['@', false], ['#', false], ['“', false], ['‘', false],
+    ['"', false], ['say "', false], ['("', false], ['say "hi"', true], ["students'", true]])
+    assert.equal(s(text), want, JSON.stringify(text));
+});
+
 test('a word still being typed is not context', async () => {
   const r = setup({}, null);
   for (const ch of 'we') await tap(r, ch);
