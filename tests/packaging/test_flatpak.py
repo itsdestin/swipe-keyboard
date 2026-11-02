@@ -215,6 +215,8 @@ class FlatpakContractTests(unittest.TestCase):
                 execute.assert_called_once()
                 child = execute.call_args.args[2]
                 self.assertEqual(child.get('QML_NO_TOUCH_COMPRESSION'), '1')
+                # WHY: without it the keyboard was blank where KDE itself draws without a graphics card (Debian 13 VM)
+                self.assertEqual(child.get('QT_QUICK_BACKEND'), 'software')
                 self.assertEqual(child.get('QT_WAYLAND_FRAME_CALLBACK_TIMEOUT'), '5000')
                 self.assertNotIn('QT_WAYLAND_RECONNECT', child)
                 self.assertEqual(child['WAYLAND_SOCKET'], str(left.fileno()))

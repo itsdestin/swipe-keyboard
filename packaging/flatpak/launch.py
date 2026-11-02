@@ -89,6 +89,12 @@ def main():
     env['SWIPEKB_MODEL_DATA'] = '/app/share/swipe-keyboard'
     env['SWIPEKB_DATA'] = str(data)
     env['QT_QPA_PLATFORM'] = 'wayland'
+    # WHY Qt's own software drawing (card #502, Debian 13 VM): this app has no graphics-card access (no device permission,
+    # on purpose), so it always draws on the processor. By default it did so through Mesa's imitation graphics card
+    # (llvmpipe), and where KDE itself runs without a graphics card (Debian 13's KWin 6.3 in a VM; also a computer with a
+    # missing or broken driver) those pictures arrived blank: an empty keyboard, so no typing at all. Qt's plain software
+    # drawing showed the same keys and swipe trail everywhere we looked. setdefault: a person can still choose otherwise.
+    env.setdefault('QT_QUICK_BACKEND', 'software')
     # WHY: recognition needs every touch sample, not just the last position in a
     # rendered frame. Set before Qt starts; scoped to this keyboard process only.
     env['QML_NO_TOUCH_COMPRESSION'] = '1'
