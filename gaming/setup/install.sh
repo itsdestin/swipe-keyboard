@@ -87,6 +87,10 @@ NATIVE_DIR="${SWIPEKB_NATIVE_DIR:-/usr/share/swipe-keyboard}"
 # WHY 6.3: the oldest Plasma we expect to work (Debian 13); raised if the test machines show otherwise. Plasma 5 cannot
 # run it (no Plasma 6 input-method handling, no kwriteconfig6 to hand the choice back on removal).
 MIN_PLASMA=6.3
+# Where KDE's own on-screen keyboard is listed (test hook; on a real system never set). Debian 13 has none.
+APPLICATIONS_DIR="${SWIPEKB_APPLICATIONS_DIR:-/usr/share/applications}"
+KDE_KEYBOARD="$APPLICATIONS_DIR/org.kde.plasma.keyboard.desktop"
+FLATPAK_SYSTEM_DIR="${SWIPEKB_FLATPAK_SYSTEM_DIR:-/var/lib/flatpak}"   # test hook, as above
 
 DRY_RUN=0; ASSUME_YES=0; SKIP_FLATPAKS=0; FORCE=0; CHOICE=""; OUTSIDE=""; AUTO=""
 for arg in "$@"; do
@@ -308,6 +312,16 @@ then log out and back in once, and run this installer again. Nothing was changed
     # Edge case 2: say plainly when KDE is too old, instead of installing a keyboard that cannot appear.
     command -v plasmashell >/dev/null 2>&1 || die "KDE Plasma was not found. Swipe Keyboard is an on-screen keyboard for KDE Plasma $MIN_PLASMA or newer. Nothing was changed."
     PLASMA="$(plasmashell --version 2>/dev/null | sed -n 's/^plasmashell \([0-9][0-9.]*\).*/\1/p' | head -n 1)" || true
+    # WHY a second way (Debian 13 VM, card #502): plasmashell --version needs a screen and crashes without one (over SSH, or
+    # a terminal with no desktop). The package list knows the same version and needs nothing. "4:6.3.6-2" -> "6.3.6".
+    if [ -z "$PLASMA" ]; then
+        if command -v dpkg-query >/dev/null 2>&1; then
+            PLASMA="$(dpkg-query -W -f '${Version}' plasma-workspace 2>/dev/null)" || true
+        elif command -v rpm >/dev/null 2>&1; then
+            PLASMA="$(rpm -q --qf '%{VERSION}\n' plasma6-workspace plasma-workspace 2>/dev/null | grep -E '^[0-9]' | head -n 1)" || true
+        fi
+        PLASMA="$(printf '%s' "$PLASMA" | sed -e 's/^[0-9]*://' -e 's/^\([0-9][0-9.]*\).*/\1/')"
+    fi
     if [ -z "$PLASMA" ] || [ "$(printf '%s\n%s\n' "$MIN_PLASMA" "$PLASMA" | sort -V | head -n 1)" != "$MIN_PLASMA" ]; then
         die "This needs KDE Plasma $MIN_PLASMA or newer; this computer has ${PLASMA:-an unknown version}. Nothing was changed."
     fi
@@ -475,7 +489,14 @@ if [ "$SKIP_FLATPAKS" = 0 ]; then
     echo "  - add the Flathub source for your user if missing, and install the keyboard app for your user only:"
     if [ "$GAMING_SYSTEM" = 1 ]; then KIND="Desktop Mode keyboard"; else KIND="on-screen keyboard"; fi
     echo "      $MAIN_ID  (the word-guessing engine and $KIND; it has no network access)"
-    echo "    Flatpak may download its supporting components (the KDE runtime) from Flathub once, if not already here."
+    # WHY the size (edge case 5): measured in the Debian 13 VM, 2026-11-02: about 700 MB the first time (KDE runtime and
+    # graphics parts), nothing when another KDE Flatpak app already brought them. Read-only check, the same in a dry run.
+    # WHY folders and not "flatpak info": a dry run runs no program at all, and nothing here asks about system-wide installs.
+    if [ -d "$DATA_HOME/flatpak/runtime/org.kde.Platform/x86_64/6.10" ] || [ -d "$FLATPAK_SYSTEM_DIR/runtime/org.kde.Platform/x86_64/6.10" ]; then
+        echo "    Its supporting components (the KDE runtime) are already on this computer; nothing more to download."
+    else
+        echo "    Flatpak first downloads its supporting components (the KDE runtime) from Flathub: about 700 MB, once."
+    fi
 fi
 if [ "$SHOW_GAMING" = 1 ]; then
     [ "$CHOICE" != gaming ] && echo "  If you answer yes to Gaming Mode, these are added:"
@@ -524,8 +545,13 @@ else
 fi
 if [ -z "$CHECK_BLOCKED" ]; then
     echo "  - write $CHECK_SCRIPT and $UNIT_DIR/swipekb-keyboard-check.path. If Swipe Keyboard is ever removed some"
-    echo "    other way (Discover, flatpak uninstall) while it is your chosen keyboard, they hand the choice back to KDE's own"
-    echo "    on-screen keyboard, so you are never left without one. They change nothing otherwise."
+    if [ -f "$KDE_KEYBOARD" ]; then
+        echo "    other way (Discover, flatpak uninstall) while it is your chosen keyboard, they hand the choice back to KDE's own"
+        echo "    on-screen keyboard, so you are never left without one. They change nothing otherwise."
+    else
+        echo "    other way (Discover, flatpak uninstall) while it is your chosen keyboard, they clear that choice, so the screen"
+        echo "    never keeps space for a keyboard that is gone. They change nothing otherwise."
+    fi
 else
     echo "  - the removal safety check is skipped: $CHECK_BLOCKED"
 fi
@@ -543,7 +569,7 @@ fi
 if [ "$GAMING_SYSTEM" = 1 ]; then
     echo "To undo everything: bash uninstall.sh (in this same download). To switch Gaming Mode on or off later: run this installer again."
 else
-    echo "To undo everything: bash uninstall.sh (in this same download). It also hands the keyboard choice back to KDE's own."
+    echo "To undo everything: bash uninstall.sh (in this same download). It also hands the keyboard choice back."
 fi
 
 if [ "$DRY_RUN" = 1 ]; then

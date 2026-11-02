@@ -23,7 +23,9 @@ OUR_JOBS=(swipekb-update.timer swipekb-keyboard-check.path)
 
 # The keyboard KWin is told to start (System Settings > Keyboard > Virtual Keyboard), as written in kwinrc. Reads only.
 choice=""
-[ -f "$CONFIG_HOME/kwinrc" ] && choice="$(sed -n '/^\[Wayland\]/,/^\[/{s/^InputMethod=//p}' "$CONFIG_HOME/kwinrc" | head -n 1)"
+# WHY the optional [$e] (Debian 13 VM, card #502): System Settings saves the choice as InputMethod[$e]=$HOME/..., a marker
+# telling KDE to expand $HOME; reading only "InputMethod=" missed it, so the choice looked like someone else's.
+[ -f "$CONFIG_HOME/kwinrc" ] && choice="$(sed -n '/^\[Wayland\]/,/^\[/{s/^InputMethod\(\[\$e\]\)\{0,1\}=//p}' "$CONFIG_HOME/kwinrc" | head -n 1)"
 case "$choice" in
     "$MAIN_ID.desktop"|*/"$MAIN_ID.desktop") ;;
     *) exit 0 ;;   # another keyboard (or none) is chosen: not ours to touch

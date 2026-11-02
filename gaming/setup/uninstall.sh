@@ -85,7 +85,9 @@ marker_is_switch_file() {
 # Read the file directly: no KDE tool is needed to look, and a missing file simply means "not ours".
 keyboard_choice() {
     [ -f "$CONFIG_HOME/kwinrc" ] || return 0
-    sed -n '/^\[Wayland\]/,/^\[/{s/^InputMethod=//p}' "$CONFIG_HOME/kwinrc" | head -n 1
+    # WHY the optional [$e] (Debian 13 VM, card #502): System Settings saves the choice as InputMethod[$e]=$HOME/..., a marker
+    # telling KDE to expand $HOME; reading only "InputMethod=" missed it, so the choice looked like someone else's.
+    sed -n '/^\[Wayland\]/,/^\[/{s/^InputMethod\(\[\$e\]\)\{0,1\}=//p}' "$CONFIG_HOME/kwinrc" | head -n 1
 }
 removes_main_app() {
     [ "$REMOVE_APPS" = 1 ] || return 1

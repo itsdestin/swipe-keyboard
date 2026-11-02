@@ -82,7 +82,13 @@ printf 'kwriteconfig6 %s\\n' "$*" >> "$FAKE_LOG"
 '''
 # WHY: on ordinary desktops the installer checks the KDE Plasma version (card #502, edge case 2)
 PLASMASHELL = '''#!/bin/sh
+# WHY "crash": without a screen the real one aborts (seen over SSH in the Debian 13 VM)
+[ "$FAKE_PLASMA" = crash ] && exit 134
 echo "plasmashell ${FAKE_PLASMA:-6.6.3}"
+'''
+DPKG_QUERY = '''#!/bin/sh
+[ -n "$FAKE_DPKG_PLASMA" ] || exit 1
+printf '%s' "$FAKE_DPKG_PLASMA"
 '''
 SUDO = '''#!/bin/sh
 printf 'sudo %s\\n' "$*" >> "$FAKE_LOG"
@@ -184,7 +190,7 @@ class Fixture:
     def run(self, script, *args, stdin='y\n', fail=None, shims=True, extra=None):
         env = {'SWIPEKB_SYSTEM_UNIT_DIR': str(self.sysdir), 'SWIPEKB_PROC_NET': str(self.proc),
                'SWIPEKB_OS_RELEASE': str(self.os_release), 'SWIPEKB_APPLICATIONS_DIR': str(self.appdir),
-               'SWIPEKB_SESSIONS_DIR': str(self.sessions), 'SWIPEKB_NATIVE_DIR': str(self.native), **(extra or {}), 'HOME': str(self.home), 'PATH': (str(self.shims) + ':' if shims else '') + str(self.tools),
+               'SWIPEKB_SESSIONS_DIR': str(self.sessions), 'SWIPEKB_NATIVE_DIR': str(self.native), 'SWIPEKB_FLATPAK_SYSTEM_DIR': str(self.home.parent / 'var-lib-flatpak'), **(extra or {}), 'HOME': str(self.home), 'PATH': (str(self.shims) + ':' if shims else '') + str(self.tools),
                'LANG': 'C', 'FAKE_LOG': str(self.log), 'FAKE_APPS': str(self.apps), 'FAKE_FAIL': fail or ''}
         env.update(extra or {})
         return subprocess.run(['bash', str(self.bundle / script), *args], input=stdin, env=env,
@@ -832,6 +838,15 @@ class DesktopDistroTests(unittest.TestCase):
                 if not ok:
                     self.assertIn(f'this computer has {version}', result.stderr)
                     self.assertEqual(f.calls(), [])
+        # without a screen plasmashell fails; the package list gives the same version (Debian epoch and revision dropped)
+        for dpkg, ok in (('4:6.3.6-2', True), ('4:5.27.11-0ubuntu4', False), ('', False)):
+            with self.subTest(dpkg=dpkg):
+                f = Fixture(self, system='kubuntu')
+                (f.shims / 'dpkg-query').write_text(DPKG_QUERY); (f.shims / 'dpkg-query').chmod(0o755)
+                result = f.run('install.sh', '--yes', extra={'FAKE_PLASMA': 'crash', 'FAKE_DPKG_PLASMA': dpkg})
+                self.assertEqual(result.returncode == 0, ok, result.stderr)
+                if dpkg == '':
+                    self.assertIn('an unknown version', result.stderr)
         f = Fixture(self, system='kubuntu')
         (f.shims / 'plasmashell').unlink()
         result = f.run('install.sh', '--yes')
@@ -845,6 +860,14 @@ class DesktopDistroTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('regular Swipe Keyboard package is already installed', result.stderr)
         self.assertEqual(f.calls(), [])
+
+    def test_the_first_download_size_is_said_only_when_the_kde_runtime_is_missing(self):
+        f = Fixture(self, system='kubuntu')
+        self.assertIn('about 700 MB, once', f.run('install.sh', '--dry-run', stdin='').stdout)
+        (f.home.parent / 'var-lib-flatpak/runtime/org.kde.Platform/x86_64/6.10').mkdir(parents=True)
+        out = f.run('install.sh', '--dry-run', stdin='').stdout
+        self.assertNotIn('700 MB', out)
+        self.assertIn('already on this computer', out)
 
     def test_a_download_without_the_gaming_helper_is_fine_on_a_desktop(self):
         f = Fixture(self, system='kubuntu')
@@ -900,6 +923,20 @@ class RemovalCheckTests(unittest.TestCase):
         self.assertEqual(self.kwrites(f), [f'kwriteconfig6 --file kwinrc --group Wayland --key InputMethod --notify {f.appdir}/org.kde.plasma.keyboard.desktop'])
         self.assertIn('systemctl --user disable --now swipekb-update.timer swipekb-keyboard-check.path', f.calls())
 
+    def test_the_form_system_settings_really_writes_is_recognised(self):
+        # WHY exactly this line: copied from kwinrc in the Debian 13 VM after choosing Swipe Keyboard in System Settings
+        f = Fixture(self, system='kubuntu')
+        (f.home / '.config').mkdir(parents=True)
+        (f.home / '.config/kwinrc').write_text('[Wayland]\nInputMethod[$e]=$HOME/.local/share/flatpak/exports/share/applications/org.itsdestin.SwipeKeyboard.desktop\n')
+        (f.appdir / 'org.kde.plasma.keyboard.desktop').write_text('[Desktop Entry]\n')
+        f.run('keyboard-check.sh')
+        self.assertEqual(len(self.kwrites(f)), 1, 'the safety check sees it')
+        f2 = Fixture(self, system='kubuntu')
+        f2.run('install.sh', '--yes')
+        (f2.home / '.config/kwinrc').write_text((f.home / '.config/kwinrc').read_text())
+        f2.run('uninstall.sh', '--yes', '--remove-apps')
+        self.assertTrue([c for c in f2.calls() if c.startswith('kwriteconfig6')], 'and so does the uninstaller')
+
     def test_without_kdes_keyboard_the_choice_is_cleared(self):
         f = self.setup(f'{MAIN_ID}.desktop', kde=False)
         f.run('keyboard-check.sh')
@@ -922,6 +959,8 @@ class RemovalCheckTests(unittest.TestCase):
 
     def test_the_installer_sets_it_up_and_says_so(self):
         f = Fixture(self, system='kubuntu')
+        self.assertIn('clear that choice', f.run('install.sh', '--dry-run', stdin='').stdout, 'Debian 13 has no KDE keyboard')
+        (f.appdir / 'org.kde.plasma.keyboard.desktop').write_text('[Desktop Entry]\n')
         out = f.run('install.sh', '--dry-run', stdin='').stdout
         self.assertIn('hand the choice back to KDE', out)
         f.run('install.sh', '--yes')
