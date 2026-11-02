@@ -515,6 +515,9 @@ void Server::handle(Session &s, const QByteArray &body)
             if (locale.isEmpty()) { refuse(s, kErrLanguageOff); return; }
             if (!engine_.profileAvailable(locale, choice->physicalLayout, opt_.idleUnloadMs)) { refuse(s, kErrLanguageUnavailable); return; }
             if (!engine_.recognizer(locale, choice->physicalLayout)) { fail(s, kErrModelUnavailable, false); return; }
+            // WHY touch after loading: recognizer() notes the time the load STARTED; a load slower than the idle window would
+            // otherwise count as idle the moment it finished and be unloaded again (as a swipe does, mark it used now).
+            engine_.touch(locale, choice->physicalLayout);
             reply(s, out);
             logEvent("warm");
             return;
