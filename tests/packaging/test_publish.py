@@ -124,3 +124,29 @@ class ReadmeLinkTests(unittest.TestCase):
     def test_missing_file_or_no_link_is_reported(self):
         self.assertEqual(len(publish.broken_readme_links(f'[a]({self.URL}a.flatpak)', 'v0.5.0-1', self.opener(None))), 1)
         self.assertEqual(publish.broken_readme_links('no links', 'v0.5.0-1', self.opener(200)), ['README has no download link for v0.5.0-1'])
+
+    def test_a_missing_optional_package_warns_but_a_missing_required_one_fails(self):
+        # WHY (second review, card #502): a release that left out Debian testing or Tumbleweed must still build the
+        # update site for everyone else.
+        import tempfile
+        contract = publish.release.load_contract()
+        tag = 'v' + publish.release.version(contract)
+        url = f'https://github.com/itsdestin/openswipe/releases/download/{tag}/'
+        name = lambda target: publish.release.filename(contract['targets'][target]['files'][0], contract)
+        missing = {name('debian-testing')}
+        def open_url(request, timeout):
+            if request.full_url.rsplit('/', 1)[-1] in missing:
+                raise OSError('404 Not Found')
+            answer = mock.MagicMock(status=200); answer.__enter__.return_value = answer
+            return answer
+        with tempfile.TemporaryDirectory() as tmp:
+            readme = Path(tmp) / 'README.md'
+            readme.write_text(f"[deb]({url}{name('debian-testing')}) [kub]({url}{name('kubuntu-26.10')})")
+            cwd = os.getcwd(); os.chdir(tmp)
+            try:
+                publish.check_links(open_url)                  # optional missing: warning only
+                missing.add(name('kubuntu-26.10'))
+                with self.assertRaises(SystemExit):
+                    publish.check_links(open_url)              # required missing: fails
+            finally:
+                os.chdir(cwd)

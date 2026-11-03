@@ -698,7 +698,7 @@ class SetupTests(unittest.TestCase):
             (fake / tool).write_text(f'#!/bin/sh\necho "{tool} $*" >> "{log}"\n'); (fake / tool).chmod(0o755)
         config = Path(self.env['XDG_CONFIG_HOME']); config.mkdir(parents=True, exist_ok=True)
         (config / 'kwinrc').write_text('[Wayland]\nInputMethod=/usr/share/applications/swipe-keyboard.desktop\n')
-        env = {'HOME': self.env['HOME'], 'XDG_CONFIG_HOME': str(config), 'XDG_DATA_HOME': self.env['XDG_DATA_HOME'],
+        env = {"SWIPEKB_RECHECK_SECONDS": "0", "HOME": str(self.base / 'elsewhere'),
                'SWIPEKB_APPLICATIONS_DIR': str(apps), 'PATH': f'{fake}:/usr/bin:/bin'}
         (apps / 'swipe-keyboard.desktop').write_text('')          # still installed: nothing happens
         subprocess.run(['/bin/sh', str(script)], env=env, check=True)
@@ -706,10 +706,11 @@ class SetupTests(unittest.TestCase):
         (apps / 'swipe-keyboard.desktop').unlink()                # package removed
         subprocess.run(['/bin/sh', str(script)], env=env, check=True)
         calls = log.read_text().splitlines()
-        self.assertIn(f'kwriteconfig6 --file kwinrc --group Wayland --key InputMethod --notify {apps}/org.kde.plasma.keyboard.desktop', calls)
+        self.assertIn(f'kwriteconfig6 --file {config}/kwinrc --group Wayland --key InputMethod --notify {apps}/org.kde.plasma.keyboard.desktop', calls)
         self.assertFalse(script.exists(), 'it removes itself')
         self.assertFalse((units / 'swipe-keyboard-removal-check.path').exists())
         self.assertFalse(self.controller.state_file.exists(), 'a reinstall can enable afresh')
+        self.assertEqual([p for p in wants.iterdir() if 'removal-check' in p.name], [], 'no dangling links left behind')
 
     def test_any_unexpected_failure_in_the_launcher_still_starts_the_plain_keyboard(self):
         # WHY (review, card #502): a changed KDE file format, a missing HOME or a half-updated install raise errors other

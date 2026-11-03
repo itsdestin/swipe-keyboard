@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 import platform
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -67,21 +68,30 @@ REMOVAL_CHECK_SCRIPT = REMOVAL_CHECK_STAMP + r'''
 set -u
 APPS="${SWIPEKB_APPLICATIONS_DIR:-/usr/share/applications}"   # test hook; never set on a real system
 OURS=/usr/share/applications/swipe-keyboard.desktop
-[ -f "$APPS/swipe-keyboard.desktop" ] && exit 0
-CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
-DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
+# WHY written in when the check is set up (second review): systemd's environment may lack the session's XDG folders, and
+# reading the wrong kwinrc would make the check think the choice is not ours and remove itself for nothing.
+CONFIG_HOME=@CONFIG_HOME@
+DATA_DIR=@DATA_DIR@
+UNITS_DIR=@UNITS_DIR@
+still_installed() { [ -f "$APPS/swipe-keyboard.desktop" ] || [ -f "$APPS/openswipe.desktop" ]; }
+still_installed && exit 0
+# WHY a second look (second review): an upgrade or a system-image refresh can hide the file for a moment.
+sleep "${SWIPEKB_RECHECK_SECONDS:-5}"
+still_installed && exit 0
 choice="$(sed -n '/^\[Wayland\]/,/^\[/{s/^InputMethod\(\[\$e\]\)\{0,1\}=//p}' "$CONFIG_HOME/kwinrc" 2>/dev/null | head -n 1)"
 if [ "$choice" = "$OURS" ] && command -v kwriteconfig6 >/dev/null 2>&1; then
     target=""
     for candidate in "$APPS/org.kde.plasma.keyboard.desktop" "$APPS/com.github.maliit.keyboard.desktop"; do
         [ -f "$candidate" ] && { target="$candidate"; break; }
     done
-    kwriteconfig6 --file kwinrc --group Wayland --key InputMethod --notify "$target"
+    kwriteconfig6 --file "$CONFIG_HOME/kwinrc" --group Wayland --key InputMethod --notify "$target"
     # WHY: a later reinstall then starts fresh with "swipe-keyboard enable" instead of refusing an outdated record.
-    [ -f "$DATA_HOME/swipe-keyboard/setup-state.json" ] && mv -f "$DATA_HOME/swipe-keyboard/setup-state.json" "$DATA_HOME/swipe-keyboard/setup-state.json.removed"
+    [ -f "$DATA_DIR/setup-state.json" ] && mv -f "$DATA_DIR/setup-state.json" "$DATA_DIR/setup-state.json.removed"
 fi
 systemctl --user disable --now swipe-keyboard-removal-check.path >/dev/null 2>&1
-rm -f "$CONFIG_HOME/systemd/user/swipe-keyboard-removal-check.path" "$CONFIG_HOME/systemd/user/swipe-keyboard-removal-check.service" "$0"
+rm -f "$UNITS_DIR/swipe-keyboard-removal-check.path" "$UNITS_DIR/swipe-keyboard-removal-check.service" \
+      "$UNITS_DIR/default.target.wants/swipe-keyboard-removal-check.path" \
+      "$UNITS_DIR/default.target.wants/swipe-keyboard-removal-check.service" "$0"
 exit 0
 '''
 def removal_check_units(script):
@@ -571,8 +581,10 @@ class Controller:
             if existing.exists() and not existing.read_text(errors='replace').startswith(REMOVAL_CHECK_STAMP):
                 return False   # a file of the same name that is not ours: leave everything alone
         script.parent.mkdir(parents=True, exist_ok=True)
-        if not script.exists() or script.read_text(errors='replace') != REMOVAL_CHECK_SCRIPT:
-            script.write_text(REMOVAL_CHECK_SCRIPT)
+        text = (REMOVAL_CHECK_SCRIPT.replace('@CONFIG_HOME@', shlex.quote(str(units.parent.parent)))
+                .replace('@DATA_DIR@', shlex.quote(str(self.data))).replace('@UNITS_DIR@', shlex.quote(str(units))))
+        if not script.exists() or script.read_text(errors='replace') != text:
+            script.write_text(text)
         wants.mkdir(parents=True, exist_ok=True)
         for name, text in removal_check_units(script).items():
             if not (units / name).exists() or (units / name).read_text(errors='replace') != text:
@@ -725,7 +737,12 @@ def main():
             if not confirm_activation(controller, assume_yes=args.yes, always_available=args.always_available):
                 return 0
             report = controller.enable(always_available=args.always_available)
-            controller.install_removal_check()
+            try:
+                controller.install_removal_check()
+            except OSError as error:
+                # WHY (second review): enable already succeeded; this extra safety net must not turn that into a failure
+                print(f'Note: the removal safety check could not be set up ({error}). Run "swipe-keyboard disable" '
+                      'before removing the package.', file=sys.stderr)
             copied = controller.adopt_flatpak_learning()
             if copied:
                 print(f'Brought along what the Flatpak version learned from your typing ({copied} language file(s)).')

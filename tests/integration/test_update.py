@@ -257,6 +257,8 @@ if name == 'rpm' and sys.argv[1] == '-q':
     print(os.environ['FAKE_INSTALLED'], end=''); sys.exit(0)
 if name == 'rpm' and sys.argv[1] == '--eval':
     a, b = re.findall(r'"([^"]+)"', sys.argv[2]); print((key(a) > key(b)) - (key(a) < key(b))); sys.exit(0)
+if os.environ.get('FAKE_ENV_LOG'):
+    with open(os.environ['FAKE_ENV_LOG'], 'a') as f: f.write(os.environ.get('LC_ALL', '-') + '\\n')
 if '-s' in sys.argv or '--dry-run' in sys.argv:   # the preview: what installing would change (card #502 review)
     print(os.environ.get('FAKE_PREVIEW', ''), end=''); sys.exit(int(os.environ.get('FAKE_PREVIEW_RC', '0')))
 with open(os.environ['FAKE_LOG'], 'a') as f:
@@ -383,12 +385,14 @@ def _system_safety_tests():
         self.assertEqual(self.installs(), [])
 
     def test_a_target_no_longer_published_is_an_error_not_offline(self):
-        # the site answers (its arch index is there) but this release's folder is gone
+        # the site answers (its arch index is there) but this release's folder is gone. A required target (Kubuntu) is an
+        # error to act on; an optional one (Debian testing, Tumbleweed) was simply left out of this release: quiet.
         (self.site / 'arch').mkdir(exist_ok=True)
         folder, self.FOLDER = self.FOLDER, 'arch'
         ArchUpdater.publish(self, '0.4.2-1')
         self.FOLDER = folder
-        self.assertEqual(self.run_updater('check'), 1)
+        optional = (self.tmp / 'update-target').read_text().strip() in ('debian-testing', 'tumbleweed')
+        self.assertEqual(self.run_updater('check'), 0 if optional else 1)
         self.assertEqual(self.installs(), [])
 
     def test_a_system_upgraded_past_the_packages_release_is_told_to_reinstall(self):
@@ -399,14 +403,32 @@ def _system_safety_tests():
         self.assertEqual(self.run_updater('check'), 1)
         self.assertEqual(self.installs(), [])
 
-    def test_debian_testing_that_became_stable_is_told_to_reinstall(self):
+    def test_debian_testing_that_became_stable_keeps_updating_through_the_preview(self):
+        # WHY (second review): there is no per-version Debian package to send people to; the preview protects the system
         self.FOLDER = 'deb/debian-testing'
         (self.site / self.FOLDER).mkdir(parents=True, exist_ok=True)
         (self.tmp / 'update-target').write_text('debian-testing\n')
         self.publish('0.4.2-1')
         self.os_release.write_text('NAME="Debian GNU/Linux"\nID=debian\nVERSION_ID="14"\n')
-        self.assertEqual(self.run_updater('check'), 1)
-        self.assertEqual(self.installs(), [])
+        self.env['FAKE_PREVIEW'] = self.SAFE
+        self.assertEqual(self.run_updater('check'), 0)
+        self.assertEqual(len(self.installs()), 1)
+
+    def test_a_derivative_with_its_own_version_number_is_not_refused(self):
+        if self.TOOLS[0] != 'apt-get':
+            self.skipTest('Kubuntu target')
+        self.publish('0.4.2-1')
+        self.os_release.write_text('NAME="Some Derivative"\nID=derivative\nID_LIKE="ubuntu debian"\nVERSION_ID="7"\n')
+        self.env['FAKE_PREVIEW'] = self.SAFE
+        self.assertEqual(self.run_updater('check'), 0)
+
+    def test_the_preview_and_install_read_english(self):
+        # WHY (second review): zypper translates its summary; the preview must parse English
+        self.publish('0.4.2-1')
+        self.env['FAKE_PREVIEW'] = self.SAFE
+        self.env['FAKE_ENV_LOG'] = str(self.tmp / 'env.log')
+        self.run_updater('check')
+        self.assertTrue(all(line == 'C.UTF-8' for line in (self.tmp / 'env.log').read_text().split()))
 
     def test_an_unfinished_install_is_reported_with_the_fix(self):
         self.publish('0.4.2-1')
@@ -432,7 +454,8 @@ class OpenSuseUpdater(DebUpdater):
         return f'swipe-keyboard-{version}.x86_64.rpm'
 
     test_another_targets_index_is_never_read = None
-    test_debian_testing_that_became_stable_is_told_to_reinstall = None
+    test_debian_testing_that_became_stable_keeps_updating_through_the_preview = None
+    test_a_derivative_with_its_own_version_number_is_not_refused = None
     test_an_unfinished_install_is_reported_with_the_fix = None
     OS_RELEASE = 'NAME="openSUSE Tumbleweed"\nID="opensuse-tumbleweed"\nID_LIKE="opensuse suse"\n'
     SAFE = 'The following NEW package is going to be installed:\n  libswipe-new\n\nThe following package is going to be upgraded:\n  swipe-keyboard\n'
@@ -444,6 +467,27 @@ class OpenSuseUpdater(DebUpdater):
         self.env['FAKE_PREVIEW'] = self.SAFE
         self.env['FAKE_PACMAN_RC'] = '106'
         self.assertEqual(self.run_updater('check'), 0)
+
+    def test_a_harmless_preview_code_with_a_clean_summary_still_updates(self):
+        # WHY (second review): an unrelated repository that cannot refresh (code 106) must not freeze our updates
+        self.publish('0.4.2-1')
+        self.env['FAKE_PREVIEW'] = self.SAFE
+        self.env['FAKE_PREVIEW_RC'] = '106'
+        self.assertEqual(self.run_updater('check'), 0)
+        self.assertEqual(len(self.installs()), 1)
+
+    def test_an_architecture_change_is_refused(self):
+        self.publish('0.4.2-1')
+        self.env['FAKE_PREVIEW'] = ('The following package is going to change architecture:\n  libQt6Core6\n\n'
+                                    'The following package is going to be upgraded:\n  swipe-keyboard\n')
+        self.assertEqual(self.run_updater('check'), 1)
+        self.assertEqual(self.installs(), [])
+
+    def test_leap_with_the_tumbleweed_package_is_told_what_to_use(self):
+        self.publish('0.4.2-1')
+        self.os_release.write_text('NAME="openSUSE Leap"\nID="opensuse-leap"\nID_LIKE="suse opensuse"\nVERSION_ID="16.0"\n')
+        self.assertEqual(self.run_updater('check'), 1)
+        self.assertEqual(self.installs(), [])
 
     def test_dnf_on_opensuse_does_not_take_over(self):
         # WHY (review): dnf installed on openSUSE has no OpenSwipe source; zypper must stay in charge

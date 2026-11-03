@@ -79,11 +79,21 @@ def broken_readme_links(text, tag, open_url=urllib.request.urlopen):
     return broken
 
 
-def check_links():
-    broken = broken_readme_links(Path('README.md').read_text(), 'v' + release.version(release.load_contract()))
+def check_links(open_url=urllib.request.urlopen):
+    contract = release.load_contract()
+    broken = broken_readme_links(Path('README.md').read_text(), 'v' + release.version(contract), open_url)
+    # WHY (second review, card #502): a release may leave out an optional target whose build failed (Debian testing,
+    # Tumbleweed). Its README link then answers 404 for this one release. That must be visible, but it must not fail this
+    # step: the update site is built after it, and every other platform's users would miss the update too.
+    optional = {release.filename(name, contract) for target in contract['targets'].values() if target.get('optional')
+                for name in target['files']}
+    skipped = [link for link in broken if link.split(' (')[0].rsplit('/', 1)[-1] in optional]
+    broken = [link for link in broken if link not in skipped]
+    for link in skipped:
+        print('WARNING: optional package left out of this release (its build failed): ' + link)
     if broken:
         raise SystemExit('README download links that do not work:\n  ' + '\n  '.join(broken))
-    print('Every README download link for this release works')
+    print('Every required README download link for this release works')
 
 
 if __name__ == '__main__':

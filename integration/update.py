@@ -61,6 +61,8 @@ TARGET_FILE = Path(setting('SWIPEKB_UPDATE_TARGET_FILE', HERE / 'update-target')
 RELEASE_DOWNLOADS = ((setting('SWIPEKB_UPDATE_DOWNLOADS', ''),) if setting('SWIPEKB_UPDATE_DOWNLOADS', '')
                      else ('https://github.com/itsdestin/openswipe/releases/download/',
                            'https://github.com/itsdestin/swipe-keyboard/releases/download/'))
+# Targets a release may leave out when their build fails (release-targets.json "optional"; card #502).
+OPTIONAL_TARGETS = ('debian-testing', 'tumbleweed')
 OS_RELEASE = Path(setting('SWIPEKB_OS_RELEASE', '/etc/os-release'))
 MAX_PACKAGE_BYTES = 200 * 1024 * 1024
 # WHY a whole-download deadline: a socket timeout alone lets a slow server drip bytes for hours and hold the update.
@@ -219,7 +221,9 @@ def zypper_others(text):
     for line in text.splitlines():
         low = line.lower()
         if low.startswith('the following'):
-            listing = any(word in low for word in ('upgraded', 'downgraded', 'removed', 'change vendor', 'changed'))
+            # WHY "architecture" too (second review): zypper's "is going to change architecture" is a system change as well
+            listing = any(word in low for word in ('upgraded', 'downgraded', 'removed', 'change vendor', 'changed',
+                                                    'architecture'))
             continue
         if listing and line.startswith(' '):
             others += [name for name in line.split() if name != PACKAGE]
@@ -238,12 +242,15 @@ def target_matches_system(target):
     if not release:
         return None
     distro, _, version = target.partition('-')
-    if distro == 'kubuntu' and version and release.get('VERSION_ID') not in (None, version):
+    # WHY only plain Ubuntu (second review): derivatives carry their own VERSION_ID and must not be refused forever.
+    if distro == 'kubuntu' and version and release.get('ID') == 'ubuntu' and release.get('VERSION_ID') not in (None, version):
         return (f'this computer now runs Ubuntu {release.get("VERSION_ID")}, but this OpenSwipe was built for '
                 f'{version}. Install the package for your version once from the release page')
-    if distro == 'debian' and version == 'testing' and release.get('VERSION_ID'):
-        return (f'this computer now runs Debian {release.get("VERSION_ID")} (stable), but this OpenSwipe follows '
-                'Debian testing. Install the package for your Debian version once from the release page')
+    if target == 'tumbleweed' and release.get('ID', '').startswith('opensuse-leap'):
+        return ('this computer runs openSUSE Leap, but this OpenSwipe is the Tumbleweed build. On Leap use the Flatpak '
+                '(see "Older KDE" on the release page)')
+    # WHY no check for Debian testing becoming stable (second review): there is no per-version Debian package to send
+    # people to; the testing builds keep working for a while, and the preview below refuses any that would not fit.
     return None
 
 
@@ -303,6 +310,11 @@ def update_from_index(owner):
                 verified_index(work, 'arch')
             except Unreachable:
                 raise
+            if update_target() in OPTIONAL_TARGETS:
+                # WHY quiet (second review): a release may leave out a fast-moving target whose build failed; the next
+                # release brings it back. Nothing to reinstall, nothing broken.
+                print(f'No update for {update_target()} in this release; staying on the installed version.')
+                return 0
             raise UpdateError(f'updates for {how["folder"]} are not published (any more). Install the package for '
                               'your system once from https://github.com/itsdestin/openswipe/releases')
         installed = how['installed']()
@@ -333,17 +345,22 @@ def update_from_index(owner):
         # private temporary folder otherwise.
         work.chmod(0o755)
         package.chmod(0o644)
-        env = {**os.environ, 'DEBIAN_FRONTEND': 'noninteractive'}
+        # WHY C.UTF-8 (second review): zypper prints its summary in the system's language; the preview must read English.
+        env = {**os.environ, 'DEBIAN_FRONTEND': 'noninteractive', 'LC_ALL': 'C.UTF-8', 'LANGUAGE': ''}
         if 'preview' in how:
             # WHY a dry run first (review, card #502): installing our package must never upgrade, downgrade or remove the
             # system's own packages (Qt, KWin, Plasma) in the background; on Debian testing that could leave no desktop.
             preview = run(how['preview'](package), env=env)
-            others = how['others'](preview.stdout) if preview.returncode == 0 else None
-            if others is None or others:
-                detail = (', '.join(sorted(set(others))[:8]) if others
-                          else (preview.stderr.strip() or preview.stdout.strip())[-400:])
-                raise UpdateError(f'installing OpenSwipe {version} would also change system packages ({detail}). '
-                                  'Nothing was installed. Update your system as usual; this is tried again tomorrow.')
+            # WHY the same harmless codes as the install (second review): an unrelated repository that cannot refresh
+            # must not freeze our updates, as long as the preview itself is clean.
+            if preview.returncode not in how.get('ok_codes', (0,)):
+                raise UpdateError(f'{owner} could not check the update (code {preview.returncode}); nothing was installed, '
+                                  'tried again tomorrow:\n' + (preview.stderr.strip() or preview.stdout.strip())[-400:])
+            others = how['others'](preview.stdout)
+            if others:
+                raise UpdateError(f'installing OpenSwipe {version} would also change system packages '
+                                  f'({", ".join(sorted(set(others))[:8])}). Nothing was installed. Update your system as '
+                                  'usual; this is tried again tomorrow.')
         result = run(how['install'](package), env=env)
         if result.returncode not in how.get('ok_codes', (0,)):
             hint = ''
