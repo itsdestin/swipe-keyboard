@@ -652,6 +652,36 @@ class SetupTests(unittest.TestCase):
                 self.module.main()
             execute.assert_called_once_with('plasma-keyboard', ['plasma-keyboard'], dict(os.environ))
 
+    def test_any_unexpected_failure_in_the_launcher_still_starts_the_plain_keyboard(self):
+        # WHY (review, card #502): a changed KDE file format, a missing HOME or a half-updated install raise errors other
+        # than OSError; the person must still get KDE's keyboard, never none at all.
+        for failure in (AttributeError("'list' object has no attribute 'get'"), KeyError('HOME'), ImportError('half updated')):
+            with self.subTest(failure=type(failure).__name__), \
+                 mock.patch.object(self.module, 'Controller') as factory, \
+                 mock.patch.object(self.module.sys, 'argv', ['swipe-keyboard', 'launch']), \
+                 mock.patch.object(self.module.os, 'execvpe', side_effect=SystemExit(0)) as execute:
+                factory.side_effect = failure
+                with self.assertRaises(SystemExit):
+                    self.module.main()
+                execute.assert_called_once_with('plasma-keyboard', ['plasma-keyboard'], dict(os.environ))
+
+    def test_a_half_updated_install_whose_helpers_do_not_load_still_starts_the_plain_keyboard(self):
+        import subprocess
+        import sys
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            setup = (Path(self.module.__file__).read_text())
+            (root / 'setup.py').write_text(setup)
+            (root / 'layout.py').write_text('this is not python (a file from a cut-off update)\n')
+            fake = root / 'bin'; fake.mkdir()
+            (fake / 'plasma-keyboard').write_text('#!/bin/sh\necho stock-keyboard-started\n'); (fake / 'plasma-keyboard').chmod(0o755)
+            env = {**os.environ, 'PATH': f'{fake}:{os.environ["PATH"]}'}
+            done = subprocess.run([sys.executable, str(root / 'setup.py'), 'launch'], env=env, capture_output=True, text=True)
+            self.assertIn('stock-keyboard-started', done.stdout)
+            self.assertIn('Starting the unmodified stock keyboard instead', done.stderr)
+
     def test_plasma_keyboard_6_9_without_its_packages_or_7_steps_aside_to_the_plain_keyboard(self):
         # WHY: the packages no longer cap plasma-keyboard, so a Plasma 6.9 upgrade installs with this add-on present. This
         # fixture has no 6.9 keyboard packages (and 7.x is a new Qt major), so launch must start KDE's keyboard unchanged

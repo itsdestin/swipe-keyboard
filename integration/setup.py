@@ -20,9 +20,17 @@ import tempfile
 import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from layout import build_overlay
-import learning
-import plasma69
+try:
+    from layout import build_overlay
+    import learning
+    import plasma69
+except Exception as _import_error:   # noqa: BLE001
+    # WHY (review, card #502): KDE starts the keyboard through "launch". If an update was cut off half way, these files
+    # can be a mix of old and new versions and fail to load; then there must still be a keyboard: KDE's plain one.
+    if sys.argv[1:2] == ['launch']:
+        print(f'Swipe Keyboard: {_import_error}\nStarting the unmodified stock keyboard instead.', file=sys.stderr)
+        os.execvp('plasma-keyboard', ['plasma-keyboard'])
+    raise
 
 REQUIRED_ASSETS = (
     'integration/swipekb-preflight', 'integration/swipekb-config',
@@ -597,18 +605,20 @@ def main():
         parser.error('use: swipe-keyboard learning on|off|forget|status')
     if os.geteuid() == 0:
         parser.error('Run as your normal desktop user, not root or sudo.')
+    if args.action == 'launch':
+        # WHY before anything else and inside one guard (review, card #502): KDE starts the keyboard with this; whatever
+        # goes wrong while preparing ours, KDE's plain keyboard must start, so the person can always type.
+        try:
+            env = Controller(Path(__file__).resolve().parent.parent).launch_environment()
+        except Exception as error:   # noqa: BLE001
+            print(f'Swipe Keyboard: {error}\nStarting the unmodified stock keyboard instead.', file=sys.stderr)
+            env = dict(os.environ)
+        os.execvpe('plasma-keyboard', ['plasma-keyboard'], env)
     controller = Controller(Path(__file__).resolve().parent.parent)
     try:
         if args.action == 'learning':
             # WHY the controller's data folder: it is the folder `launch` hands the keyboard as SWIPEKB_DATA.
             return learning.run(args.learning_action, controller.data)
-        if args.action == 'launch':
-            try:
-                env = controller.launch_environment()
-            except (SetupError, OSError) as error:
-                print(f'Swipe Keyboard: {error}\nStarting the unmodified stock keyboard instead.', file=sys.stderr)
-                env = dict(os.environ)
-            os.execvpe('plasma-keyboard', ['plasma-keyboard'], env)
         if args.action == 'enable':
             controller.check()  # Refuse incompatible systems before offering activation.
             if not confirm_activation(controller, assume_yes=args.yes, always_available=args.always_available):

@@ -61,6 +61,7 @@ TARGET_FILE = Path(setting('SWIPEKB_UPDATE_TARGET_FILE', HERE / 'update-target')
 RELEASE_DOWNLOADS = ((setting('SWIPEKB_UPDATE_DOWNLOADS', ''),) if setting('SWIPEKB_UPDATE_DOWNLOADS', '')
                      else ('https://github.com/itsdestin/openswipe/releases/download/',
                            'https://github.com/itsdestin/swipe-keyboard/releases/download/'))
+OS_RELEASE = Path(setting('SWIPEKB_OS_RELEASE', '/etc/os-release'))
 MAX_PACKAGE_BYTES = 200 * 1024 * 1024
 # WHY a whole-download deadline: a socket timeout alone lets a slow server drip bytes for hours and hold the update.
 FETCH_DEADLINE_SECONDS = 15 * 60
@@ -111,17 +112,43 @@ def fetch(url, limit):
     return b''.join(chunks)
 
 
+def os_release():
+    """/etc/os-release as a dict (empty when it cannot be read)."""
+    out = {}
+    try:
+        for line in OS_RELEASE.read_text().splitlines():
+            key, sep, value = line.partition('=')
+            if sep:
+                out[key.strip()] = value.strip().strip('"')
+    except OSError:
+        pass
+    return out
+
+
 def manager():
     """Which installer owns this keyboard: 'pacman', 'dnf', 'apt', 'zypper', or None (for example a developer build)."""
     if shutil.which('pacman') and run(['pacman', '-Q', PACKAGE]).returncode == 0:
         return 'pacman'
-    if shutil.which('dnf') and shutil.which('rpm') and run(['rpm', '-q', PACKAGE]).returncode == 0:
+    rpm_owned = shutil.which('rpm') and run(['rpm', '-q', PACKAGE]).returncode == 0
+    # WHY openSUSE first (review, card #502): dnf can be installed on openSUSE too; it has no Swipe Keyboard source there,
+    # so it would answer "nothing to do" every day and the keyboard would silently never update.
+    release = os_release()
+    if rpm_owned and shutil.which('zypper') and 'suse' in (release.get('ID', '') + ' ' + release.get('ID_LIKE', '')):
+        return 'zypper'
+    if rpm_owned and shutil.which('dnf'):
         return 'dnf'
     # WHY the status text: dpkg-query also answers for a package that was removed but whose settings were kept.
-    if (shutil.which('apt-get') and shutil.which('dpkg-query')
-            and run(['dpkg-query', '-W', '-f=${Status}', PACKAGE]).stdout.strip() == 'install ok installed'):
-        return 'apt'
-    if shutil.which('zypper') and shutil.which('rpm') and run(['rpm', '-q', PACKAGE]).returncode == 0:
+    if shutil.which('apt-get') and shutil.which('dpkg-query'):
+        status = run(['dpkg-query', '-W', '-f=${Status}', PACKAGE]).stdout.strip()
+        if status == 'install ok installed':
+            return 'apt'
+        # WHY loud (review): an install cut off half way (power loss during an update) leaves "unpacked" or
+        # "half-configured"; treating that as "not ours" would stop updates for good without a word.
+        if status.startswith('install ') and status.split()[-1] in ('unpacked', 'half-installed', 'half-configured',
+                                                                    'triggers-awaited', 'triggers-pending'):
+            raise UpdateError('the last Swipe Keyboard install did not finish (power loss or a stopped update). '
+                              'Run: sudo dpkg --configure -a')
+    if rpm_owned and shutil.which('zypper'):
         return 'zypper'
     return None
 
@@ -173,6 +200,53 @@ def update_target():
     return target
 
 
+def apt_others(text):
+    """From `apt-get install -s` output: the OTHER packages it would upgrade, downgrade or remove (new ones are fine)."""
+    others = []
+    for line in text.splitlines():
+        words = line.split()
+        if len(words) < 2 or words[1] == PACKAGE:
+            continue
+        # "Inst name [old] (new ...)" is an upgrade or downgrade; "Inst name (new ...)" is a new package, which is fine.
+        if (words[0] == 'Inst' and len(words) > 2 and words[2].startswith('[')) or words[0] == 'Remv':
+            others.append(words[1])
+    return others
+
+
+def zypper_others(text):
+    """From `zypper install --dry-run` output: other packages it would upgrade, downgrade, change or remove."""
+    others, listing = [], False
+    for line in text.splitlines():
+        low = line.lower()
+        if low.startswith('the following'):
+            listing = any(word in low for word in ('upgraded', 'downgraded', 'removed', 'change vendor', 'changed'))
+            continue
+        if listing and line.startswith(' '):
+            others += [name for name in line.split() if name != PACKAGE]
+        elif not line.strip():
+            listing = False
+    return others
+
+
+def target_matches_system(target):
+    """None when this computer still runs the release the package was built for, else a plain explanation.
+
+    WHY (review, card #502): a Kubuntu 26.10 computer upgraded to 27.04 keeps our 26.10 package, and Debian testing
+    becomes the next stable at a release; either way the builds offered no longer fit, and the updater must say so
+    instead of failing quietly every day."""
+    release = os_release()
+    if not release:
+        return None
+    distro, _, version = target.partition('-')
+    if distro == 'kubuntu' and version and release.get('VERSION_ID') not in (None, version):
+        return (f'this computer now runs Ubuntu {release.get("VERSION_ID")}, but this Swipe Keyboard was built for '
+                f'{version}. Install the package for your version once from the release page')
+    if distro == 'debian' and version == 'testing' and release.get('VERSION_ID'):
+        return (f'this computer now runs Debian {release.get("VERSION_ID")} (stable), but this Swipe Keyboard follows '
+                'Debian testing. Install the package for your Debian version once from the release page')
+    return None
+
+
 def index_updater(owner):
     """What differs between the index-based updaters: where the index is, what the file is called, how versions compare
     and how the one checked file is installed."""
@@ -188,8 +262,11 @@ def index_updater(owner):
                 'name_ok': lambda name, version: name.startswith(f'{PACKAGE}_{version}_') and name.endswith('.deb'),
                 # WHY apt-get with the file (not dpkg -i): apt fetches any new dependency from the distro, and only this
                 # package is upgraded. WHY confold: a setting file the owner changed is kept, never overwritten unasked.
-                'install': lambda package: ['apt-get', 'install', '-y', '-q', '-o', 'Dpkg::Options::=--force-confold',
-                                            str(package)]}
+                # WHY --no-remove (review): this runs as root with nobody watching; it must never take a package away.
+                'install': lambda package: ['apt-get', 'install', '-y', '-q', '--no-remove',
+                                            '-o', 'Dpkg::Options::=--force-confold', str(package)],
+                'preview': lambda package: ['apt-get', 'install', '-s', '-q', '--no-remove', str(package)],
+                'others': apt_others}
     if owner == 'zypper':
         return {'folder': f'opensuse/{update_target()}',
                 'installed': lambda: run(['rpm', '-q', '--qf', '%{VERSION}-%{RELEASE}', PACKAGE], check=True).stdout.strip(),
@@ -198,15 +275,36 @@ def index_updater(owner):
                 'name_ok': lambda name, version: name.startswith(f'{PACKAGE}-{version}.') and name.endswith('.rpm'),
                 # WHY --allow-unsigned-rpm: the file is checked against the signed index instead (as on Arch).
                 'install': lambda package: ['zypper', '--non-interactive', 'install', '--allow-unsigned-rpm',
-                                            str(package)]}
+                                            str(package)],
+                'preview': lambda package: ['zypper', '--non-interactive', 'install', '--dry-run',
+                                            '--allow-unsigned-rpm', str(package)],
+                'others': zypper_others,
+                # WHY: zypper's 102-107 are notes (reboot or restart advised, some scripts warned), not failures
+                'ok_codes': (0, 102, 103, 106, 107)}
     raise UpdateError(f'no index updater for {owner}')
 
 
 def update_from_index(owner):
     how = index_updater(owner)
+    if owner in ('apt', 'zypper'):
+        moved = target_matches_system(update_target())
+        if moved:
+            raise UpdateError(moved + ': https://github.com/itsdestin/openswipe/releases')
     with tempfile.TemporaryDirectory(prefix='swipekb-update-') as tmp:
         work = Path(tmp)
-        index = verified_index(work, how['folder'])
+        try:
+            index = verified_index(work, how['folder'])
+        except Unreachable:
+            # WHY (review): a missing index for this release while the site itself answers means this release is no
+            # longer published (retired, or left out of a release), not that we are offline. Say so, loudly.
+            if how['folder'] == 'arch':
+                raise
+            try:
+                verified_index(work, 'arch')
+            except Unreachable:
+                raise
+            raise UpdateError(f'updates for {how["folder"]} are not published (any more). Install the package for '
+                              'your system once from https://github.com/itsdestin/openswipe/releases')
         installed = how['installed']()
         version = str(index.get('version', ''))
         # WHY the shape check first: the version reaches a version-compare command, so it must be a plain version.
@@ -235,8 +333,19 @@ def update_from_index(owner):
         # private temporary folder otherwise.
         work.chmod(0o755)
         package.chmod(0o644)
-        result = run(how['install'](package), env={**os.environ, 'DEBIAN_FRONTEND': 'noninteractive'})
-        if result.returncode != 0:
+        env = {**os.environ, 'DEBIAN_FRONTEND': 'noninteractive'}
+        if 'preview' in how:
+            # WHY a dry run first (review, card #502): installing our package must never upgrade, downgrade or remove the
+            # system's own packages (Qt, KWin, Plasma) in the background; on Debian testing that could leave no desktop.
+            preview = run(how['preview'](package), env=env)
+            others = how['others'](preview.stdout) if preview.returncode == 0 else None
+            if others is None or others:
+                detail = (', '.join(sorted(set(others))[:8]) if others
+                          else (preview.stderr.strip() or preview.stdout.strip())[-400:])
+                raise UpdateError(f'installing Swipe Keyboard {version} would also change system packages ({detail}). '
+                                  'Nothing was installed. Update your system as usual; this is tried again tomorrow.')
+        result = run(how['install'](package), env=env)
+        if result.returncode not in how.get('ok_codes', (0,)):
             hint = ''
             if owner == 'pacman' and 'signature' in result.stderr.lower():
                 # WHY say so: the package file is checked against the signed index, not signed itself, so a pacman.conf
