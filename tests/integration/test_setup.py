@@ -652,6 +652,65 @@ class SetupTests(unittest.TestCase):
                 self.module.main()
             execute.assert_called_once_with('plasma-keyboard', ['plasma-keyboard'], dict(os.environ))
 
+    def test_enable_sets_up_the_removal_check_and_disable_takes_it_away(self):
+        # WHY (review, card #502): removing the package while it is chosen must not leave the person without a keyboard
+        script, units, wants = self.controller.removal_check_paths()
+        self.controller.enable()
+        self.assertTrue(self.controller.install_removal_check())
+        self.assertTrue(script.read_text().startswith(self.module.REMOVAL_CHECK_STAMP))
+        for name in ('swipe-keyboard-removal-check.path', 'swipe-keyboard-removal-check.service'):
+            self.assertTrue((units / name).is_file())
+            self.assertTrue((wants / name).is_symlink())
+        self.assertIn(f'ExecStart=/bin/sh "{script}"', (units / 'swipe-keyboard-removal-check.service').read_text())
+        self.controller.disable()
+        self.assertFalse(script.exists())
+        self.assertFalse((units / 'swipe-keyboard-removal-check.path').exists())
+        self.assertFalse((wants / 'swipe-keyboard-removal-check.path').exists())
+
+    def test_the_launcher_adds_the_removal_check_for_existing_installs_only(self):
+        script, units, wants = self.controller.removal_check_paths()
+        self.controller.launch_environment()
+        self.assertFalse(script.exists(), 'not set up: nothing to protect')
+        self.controller.enable()
+        self.controller.remove_removal_check()
+        self.controller.launch_environment()
+        self.assertTrue(script.exists(), 'an existing install gets it through a normal update')
+
+    def test_a_unit_of_the_same_name_that_is_not_ours_is_left_alone(self):
+        script, units, wants = self.controller.removal_check_paths()
+        units.mkdir(parents=True)
+        (units / 'swipe-keyboard-removal-check.path').write_text('[Path]\nmine=1\n')
+        self.assertFalse(self.controller.install_removal_check())
+        self.assertEqual((units / 'swipe-keyboard-removal-check.path').read_text(), '[Path]\nmine=1\n')
+        self.controller.remove_removal_check()
+        self.assertTrue((units / 'swipe-keyboard-removal-check.path').exists())
+
+    def test_the_removal_check_hands_the_choice_back_only_when_the_package_is_gone(self):
+        import subprocess
+        script, units, wants = self.controller.removal_check_paths()
+        self.controller.enable()
+        self.controller.install_removal_check()
+        apps = self.base / 'apps'; apps.mkdir()
+        (apps / 'org.kde.plasma.keyboard.desktop').write_text('')
+        fake = self.base / 'fakebin'; fake.mkdir()
+        log = self.base / 'calls.log'
+        for tool in ('kwriteconfig6', 'systemctl'):
+            (fake / tool).write_text(f'#!/bin/sh\necho "{tool} $*" >> "{log}"\n'); (fake / tool).chmod(0o755)
+        config = Path(self.env['XDG_CONFIG_HOME']); config.mkdir(parents=True, exist_ok=True)
+        (config / 'kwinrc').write_text('[Wayland]\nInputMethod=/usr/share/applications/swipe-keyboard.desktop\n')
+        env = {'HOME': self.env['HOME'], 'XDG_CONFIG_HOME': str(config), 'XDG_DATA_HOME': self.env['XDG_DATA_HOME'],
+               'SWIPEKB_APPLICATIONS_DIR': str(apps), 'PATH': f'{fake}:/usr/bin:/bin'}
+        (apps / 'swipe-keyboard.desktop').write_text('')          # still installed: nothing happens
+        subprocess.run(['/bin/sh', str(script)], env=env, check=True)
+        self.assertFalse(log.exists())
+        (apps / 'swipe-keyboard.desktop').unlink()                # package removed
+        subprocess.run(['/bin/sh', str(script)], env=env, check=True)
+        calls = log.read_text().splitlines()
+        self.assertIn(f'kwriteconfig6 --file kwinrc --group Wayland --key InputMethod --notify {apps}/org.kde.plasma.keyboard.desktop', calls)
+        self.assertFalse(script.exists(), 'it removes itself')
+        self.assertFalse((units / 'swipe-keyboard-removal-check.path').exists())
+        self.assertFalse(self.controller.state_file.exists(), 'a reinstall can enable afresh')
+
     def test_any_unexpected_failure_in_the_launcher_still_starts_the_plain_keyboard(self):
         # WHY (review, card #502): a changed KDE file format, a missing HOME or a half-updated install raise errors other
         # than OSError; the person must still get KDE's keyboard, never none at all.

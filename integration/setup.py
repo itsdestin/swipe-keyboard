@@ -56,6 +56,62 @@ class SetupError(RuntimeError):
     pass
 
 
+# The removal safety check for the regular package (review, card #502). WHY it lives in the person's own folders: removing
+# the package (pacman -R, apt remove, Discover) deletes everything under /usr, and package scripts run as root and cannot
+# change each person's keyboard choice. If the package disappears while it is the chosen keyboard, KDE would start
+# nothing at the next login. This check, woken when the system's app list changes and at login, then hands the choice
+# to KDE's own keyboard (or Maliit), and removes itself. It changes nothing while the package is installed.
+REMOVAL_CHECK_STAMP = '# swipe-keyboard-removal-check'
+REMOVAL_CHECK_SCRIPT = REMOVAL_CHECK_STAMP + r'''
+# Written by "swipe-keyboard enable" (or at keyboard start); removed by "swipe-keyboard disable" or by itself.
+set -u
+APPS="${SWIPEKB_APPLICATIONS_DIR:-/usr/share/applications}"   # test hook; never set on a real system
+OURS=/usr/share/applications/swipe-keyboard.desktop
+[ -f "$APPS/swipe-keyboard.desktop" ] && exit 0
+CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
+DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
+choice="$(sed -n '/^\[Wayland\]/,/^\[/{s/^InputMethod\(\[\$e\]\)\{0,1\}=//p}' "$CONFIG_HOME/kwinrc" 2>/dev/null | head -n 1)"
+if [ "$choice" = "$OURS" ] && command -v kwriteconfig6 >/dev/null 2>&1; then
+    target=""
+    for candidate in "$APPS/org.kde.plasma.keyboard.desktop" "$APPS/com.github.maliit.keyboard.desktop"; do
+        [ -f "$candidate" ] && { target="$candidate"; break; }
+    done
+    kwriteconfig6 --file kwinrc --group Wayland --key InputMethod --notify "$target"
+    # WHY: a later reinstall then starts fresh with "swipe-keyboard enable" instead of refusing an outdated record.
+    [ -f "$DATA_HOME/swipe-keyboard/setup-state.json" ] && mv -f "$DATA_HOME/swipe-keyboard/setup-state.json" "$DATA_HOME/swipe-keyboard/setup-state.json.removed"
+fi
+systemctl --user disable --now swipe-keyboard-removal-check.path >/dev/null 2>&1
+rm -f "$CONFIG_HOME/systemd/user/swipe-keyboard-removal-check.path" "$CONFIG_HOME/systemd/user/swipe-keyboard-removal-check.service" "$0"
+exit 0
+'''
+def removal_check_units(script):
+    """The two unit files, naming the script where it really is (a custom XDG_DATA_HOME moves it)."""
+    return {
+    'swipe-keyboard-removal-check.service': REMOVAL_CHECK_STAMP + f'''
+[Unit]
+Description=Swipe Keyboard: if its package was removed while chosen, hand the on-screen keyboard back to KDE's own
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh "{script}"
+
+[Install]
+WantedBy=default.target
+''',
+    'swipe-keyboard-removal-check.path': REMOVAL_CHECK_STAMP + '''
+[Unit]
+Description=Swipe Keyboard: notice when the system's list of apps changes (to catch the package being removed)
+
+[Path]
+PathChanged=/usr/share/applications
+Unit=swipe-keyboard-removal-check.service
+
+[Install]
+WantedBy=default.target
+''',
+    }
+
+
 def atomic_json(path, value):
     with tempfile.NamedTemporaryFile(mode='w', dir=path.parent, delete=False) as stream:
         temporary = Path(stream.name)
@@ -499,8 +555,46 @@ class Controller:
                 self.state_file.unlink()
                 raise
 
+    def removal_check_paths(self):
+        config_home = Path(self.env.get('XDG_CONFIG_HOME') or Path(self.env['HOME']) / '.config')
+        units = config_home / 'systemd/user'
+        return self.data / 'removal-check.sh', units, units / 'default.target.wants'
+
+    def install_removal_check(self):
+        """Write the removal safety check (see REMOVAL_CHECK_SCRIPT). Idempotent; never touches files that are not ours.
+
+        WHY links instead of "systemctl enable": this also runs at every keyboard start, which must stay fast and must
+        not depend on the user's service manager answering. systemd picks the units up at the next login."""
+        script, units, wants = self.removal_check_paths()
+        for name in removal_check_units(script):
+            existing = units / name
+            if existing.exists() and not existing.read_text(errors='replace').startswith(REMOVAL_CHECK_STAMP):
+                return False   # a file of the same name that is not ours: leave everything alone
+        script.parent.mkdir(parents=True, exist_ok=True)
+        if not script.exists() or script.read_text(errors='replace') != REMOVAL_CHECK_SCRIPT:
+            script.write_text(REMOVAL_CHECK_SCRIPT)
+        wants.mkdir(parents=True, exist_ok=True)
+        for name, text in removal_check_units(script).items():
+            if not (units / name).exists() or (units / name).read_text(errors='replace') != text:
+                (units / name).write_text(text)
+            link = wants / name
+            if not link.is_symlink():
+                link.unlink(missing_ok=True)
+                link.symlink_to(units / name)
+        return True
+
+    def remove_removal_check(self):
+        script, units, wants = self.removal_check_paths()
+        for name in removal_check_units(script):
+            if (units / name).exists() and (units / name).read_text(errors='replace').startswith(REMOVAL_CHECK_STAMP):
+                (wants / name).unlink(missing_ok=True)
+                (units / name).unlink()
+        if script.exists() and script.read_text(errors='replace').startswith(REMOVAL_CHECK_STAMP):
+            script.unlink()
+
     def disable(self):
         # WHY no compatibility check: removal must work after an upstream update or package removal.
+        self.remove_removal_check()   # WHY first: once disabled, the package may be removed freely
         if not self.state_file.exists():
             return
         with self.locked():
@@ -523,6 +617,13 @@ class Controller:
             raise SetupError(str(error)) from error
 
     def launch_environment(self):
+        # WHY here too: existing installs get the removal safety check through a normal update, without running enable
+        # again. Only while this keyboard is set up (a record exists); best effort, never in the way of starting.
+        if self.state_file.exists():
+            try:
+                self.install_removal_check()
+            except OSError:
+                pass
         self.check()
         with self.locked(wait=True):
             generated = self.rebuild_layout()
@@ -624,6 +725,7 @@ def main():
             if not confirm_activation(controller, assume_yes=args.yes, always_available=args.always_available):
                 return 0
             report = controller.enable(always_available=args.always_available)
+            controller.install_removal_check()
             copied = controller.adopt_flatpak_learning()
             if copied:
                 print(f'Brought along what the Flatpak version learned from your typing ({copied} language file(s)).')
