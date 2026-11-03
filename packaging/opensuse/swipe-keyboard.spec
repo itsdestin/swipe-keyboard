@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: MIT
 
 Name: swipe-keyboard
-Version: 0.5.1
+Version: 0.6.0
 # WHY the target in the release: the updater fetches only builds for this distro release (opensuse/<target>/ on the
 # update site, integration/update.py), and the file name must differ from other targets' on a release page.
 %global update_target tumbleweed

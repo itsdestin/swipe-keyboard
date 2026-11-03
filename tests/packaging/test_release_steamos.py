@@ -28,7 +28,8 @@ def load(name, path):
 
 release = load('release', 'scripts/release.py')
 bundle = load('steamos_bundle', 'scripts/steamos_bundle.py')
-VERSION = '0.5.1-1'
+# WHY read from the contract: a version typed here broke this test at every release (0.6.0-1).
+VERSION = release.version(release.load_contract())
 
 
 class SteamosBundleTests(unittest.TestCase):

@@ -35,10 +35,10 @@ Run `bash install.sh` again to add or remove Gaming Mode. `--block-outside` or `
 
 ## Desktop Mode only, without the installer (no automatic updates)
 
-[Download the Flatpak](https://github.com/itsdestin/openswipe/releases/download/v0.5.1-1/swipe-keyboard-0.5.1-1-x86_64.flatpak), then in Konsole:
+[Download the Flatpak](https://github.com/itsdestin/openswipe/releases/download/v0.6.0-1/swipe-keyboard-0.6.0-1-x86_64.flatpak), then in Konsole:
 
 ```sh
-flatpak install --user ~/Downloads/swipe-keyboard-0.5.1-1-x86_64.flatpak
+flatpak install --user ~/Downloads/swipe-keyboard-0.6.0-1-x86_64.flatpak
 ```
 
 Then select OpenSwipe in **System Settings → Virtual Keyboard**. To update, install a newer file. Remove with `flatpak uninstall --user org.itsdestin.SwipeKeyboard`. Before choosing it, you can read what changes with `flatpak run --user --command=swipe-keyboard-setup org.itsdestin.SwipeKeyboard` (read-only; the installer's route does not require it).

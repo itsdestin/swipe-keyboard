@@ -10,6 +10,10 @@ import tempfile
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
+# WHY read from the contract: versions typed into these tests broke them at every release (0.6.0-1).
+_CONTRACT = __import__('json').loads((ROOT/'packaging/release-targets.json').read_text())
+UPSTREAM = _CONTRACT['version']
+PACKAGE = f"{_CONTRACT['version']}-{_CONTRACT['release']}"
 
 class Packaging(unittest.TestCase):
     def test_multilingual_context_payload_license_and_package_copy_are_pinned(self):
@@ -148,9 +152,9 @@ class Packaging(unittest.TestCase):
             output = pathlib.Path(tmp)/'dist'
             result = subprocess.run(['bash', str(fixture/'scripts/package-source.sh'), str(output)], text=True, capture_output=True)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            with tarfile.open(output/'swipe-keyboard-0.5.1.tar.gz') as archive:
+            with tarfile.open(output/f'swipe-keyboard-{UPSTREAM}.tar.gz') as archive:
                 names = {name.replace('/./', '/') for name in archive.getnames()}
-            prefix = 'swipe-keyboard-0.5.1/'
+            prefix = f'swipe-keyboard-{UPSTREAM}/'
             self.assertNotIn(prefix + 'personal-secret.txt', names)
             self.assertIn(prefix + tracked, names)
             for name in generated:
@@ -229,7 +233,7 @@ include("{ROOT}/cmake/Install.cmake")
                 self.assertTrue((stage/f'share/swipe-keyboard/language-packs/{language}.json').is_file())
             self.assertFalse((stage/'share/swipe-keyboard/eval').exists())
             self.assertFalse((stage/'share/swipe-keyboard/models').exists())
-            self.assertEqual((stage/'share/swipe-keyboard/runtime.json').read_text(), '{"qt": "6.10", "package": "0.5.1-1"}\n')
+            self.assertEqual((stage/'share/swipe-keyboard/runtime.json').read_text(), '{"qt": "6.10", "package": "%s"}\n' % PACKAGE)
             self.assertTrue((stage/'bin/swipe-keyboard').stat().st_mode & 0o111)
             self.assertTrue((stage/'share/swipe-keyboard/qml/SwipeKeyboard/libswipekb_engine.so').stat().st_mode & 0o111,
                             'Native libraries must retain executable mode for RPM debug-info discovery')

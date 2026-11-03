@@ -227,7 +227,12 @@ def update_readme(text, contract):
     if len(old) != 1:
         raise ValueError('README download links name ' + (', '.join(sorted(old)) or 'no version') + '; fix by hand')
     (previous,) = old
-    return text.replace(previous, version(contract)), previous
+    # WHY lines are kept (0.6.0-1, 2026-11-03): the reinstall notice names a fixed cut-off ("older than version 0.5.1-1")
+    # that must not follow each release; the plain replacement moved it to the new version, telling everyone to reinstall.
+    keep = ('older than version', 'versions before')
+    lines = text.splitlines(keepends=True)
+    moved = [line if any(k in line for k in keep) else line.replace(previous, version(contract)) for line in lines]
+    return ''.join(moved), previous
 
 
 def steamos_bundle():

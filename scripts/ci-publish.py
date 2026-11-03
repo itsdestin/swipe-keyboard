@@ -40,7 +40,13 @@ def publish():
     # one to the stable/latest channel when replacing the former manual procedure.
     subprocess.run(['gh', 'release', 'create', tag, '--verify-tag', '--target', sha, '--draft', '--prerelease',
                     '--title', 'OpenSwipe ' + release.version(contract), '--notes',
-                    'Arch/CachyOS x86_64, Fedora 44 x86_64/aarch64 (ARM64 Linux Plasma Mobile) and SteamOS Desktop Flatpak x86_64. '
+                    # WHY first (Destin, 2026-11-02): versions before 0.5.1-1 cannot find updates after the rename; keep this
+                    # line on the release page for the next few releases (from 0.6.0-1).
+                    '**Installed before 30 October 2026 (older than version 0.5.1-1)?** Install it once more '
+                    f'([how](https://github.com/itsdestin/openswipe/blob/{tag}/README.md#install)). Older versions can\'t find '
+                    'updates after the move to the new name. After that it updates itself.\n\n'
+                    'Arch/CachyOS x86_64, Fedora 44 x86_64/aarch64 (ARM64 Linux Plasma Mobile), Kubuntu 26.10, '
+                    'SteamOS/Bazzite and older KDE (Flatpak) x86_64; Debian testing and openSUSE Tumbleweed when their build passed. '
                     'Complete corresponding source and SHA256SUMS included. CI checks package/build/loader contracts; '
                     'physical compositor/input acceptance is separate and must identify package hashes. '
                     'ARM session acceptance is required; emulated ARM input does not certify physical-phone performance. '

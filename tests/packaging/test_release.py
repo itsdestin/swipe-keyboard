@@ -527,6 +527,17 @@ class ReadmeTests(unittest.TestCase):
         self.assertEqual(new.count('0.5.0-1'), 6)
         self.assertIn('0.4.0 or older', new)   # prose about other versions is left alone
 
+    def test_the_reinstall_notice_keeps_its_cut_off_version(self):
+        # WHY: the README's reinstall notice names the last version that cannot find updates after the rename; moving
+        # it with each release would tell every user to reinstall.
+        text = (f'[get]({self.URL}v0.4.1-1/a.flatpak)\n'
+                '> **Installed before 30 October 2026 (older than version 0.4.1-1)?** Install it once more.\n'
+                '<!-- WHY: versions before 0.4.1-1 cannot find updates -->\n')
+        new, _ = release.update_readme(text, self.CONTRACT)
+        self.assertIn(f'{self.URL}v0.5.0-1/a.flatpak', new)
+        self.assertIn('older than version 0.4.1-1', new)
+        self.assertIn('versions before 0.4.1-1', new)
+
     def test_links_naming_two_versions_are_refused(self):
         text = f'{self.URL}v0.4.1-1/a {self.URL}v0.4.0-1/b'
         with self.assertRaises(ValueError):
