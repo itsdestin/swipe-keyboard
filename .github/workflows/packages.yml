@@ -938,12 +938,19 @@ jobs:
           - target: kubuntu-26.10
             image: ubuntu:26.10
             kind: deb
+            required: true
           - target: debian-testing
             image: debian:testing
             kind: deb
+            required: false
           - target: tumbleweed
             image: opensuse/tumbleweed
             kind: rpm
+            required: false
+    # WHY (review, card #502; Destin approved 2026-11-02): Debian testing and Tumbleweed change every day; a temporary
+    # hiccup there (a Qt transition, a package briefly missing) must not block an urgent fix for every other platform.
+    # Those rows still run and still show red when they fail; only the fixed release (Kubuntu 26.10) is required.
+    continue-on-error: ${{ !matrix.required }}
     container: ${{ matrix.image }}
     env:
       VERSION: ${{ needs.prepare.outputs.version }}
