@@ -32,7 +32,11 @@ MARKER_NAME=.cef-enable-remote-debugging
 HELPER_ID=org.itsdestin.SwipeKeyboard.GamingHelper
 # Where KDE's own on-screen keyboard is listed (test hook; on a real system never set).
 APPLICATIONS_DIR="${SWIPEKB_APPLICATIONS_DIR:-/usr/share/applications}"
-KDE_KEYBOARD="$APPLICATIONS_DIR/org.kde.plasma.keyboard.desktop"
+# WHY a list (review, card #502): Debian 13 has no KDE keyboard but may have Maliit; "none" only when neither is there.
+FALLBACK=""
+for candidate in "$APPLICATIONS_DIR/org.kde.plasma.keyboard.desktop" "$APPLICATIONS_DIR/com.github.maliit.keyboard.desktop"; do
+    [ -f "$candidate" ] && { FALLBACK="$candidate"; break; }
+done
 
 DRY_RUN=0; ASSUME_YES=0; REMOVE_APPS=0
 for arg in "$@"; do
@@ -89,15 +93,11 @@ keyboard_choice() {
     # telling KDE to expand $HOME; reading only "InputMethod=" missed it, so the choice looked like someone else's.
     sed -n '/^\[Wayland\]/,/^\[/{s/^InputMethod\(\[\$e\]\)\{0,1\}=//p}' "$CONFIG_HOME/kwinrc" | head -n 1
 }
-removes_main_app() {
-    [ "$REMOVE_APPS" = 1 ] || return 1
-    local id; for id in "${INSTALLED_APPS[@]+"${INSTALLED_APPS[@]}"}"; do [ "$id" = "$MAIN_ID" ] && return 0; done
-    return 1
-}
+# WHY always, not only with --remove-apps (review, card #502): this uninstall also removes the safety check that would
+# hand the choice back later. Someone who keeps the app now and removes it in Discover tomorrow would then be left with
+# no keyboard. Uninstalling means "stop using Swipe Keyboard", so the system's own keyboard takes over now.
 RESET_CHOICE=0
-if removes_main_app; then
-    case "$(keyboard_choice)" in "$MAIN_ID.desktop"|*/"$MAIN_ID.desktop") RESET_CHOICE=1 ;; esac
-fi
+case "$(keyboard_choice)" in "$MAIN_ID.desktop"|*/"$MAIN_ID.desktop") RESET_CHOICE=1 ;; esac
 
 # WHY (card #502): on an ordinary desktop (Kubuntu, Debian...) Gaming Mode was never possible, so the removal text says nothing
 # about Steam there. Steam is mentioned when this install ever had Gaming Mode, or there is no record to tell.
@@ -139,12 +139,10 @@ else
         echo "  - leave the app installed; to remove it yourself:"
     fi
     echo "      flatpak uninstall --user $MAIN_ID"
-    # WHY: the removal safety check goes with this uninstall, so a later removal by hand would leave no keyboard chosen
-    echo "    (If Swipe Keyboard is your chosen on-screen keyboard, pick another in System Settings first, or use --remove-apps.)"
 fi
 if [ "$RESET_CHOICE" = 1 ]; then
-    if [ -f "$KDE_KEYBOARD" ]; then
-        echo "  - switch the on-screen keyboard (System Settings > Keyboard > Virtual Keyboard) back to KDE's own, so the next login still has one"
+    if [ -n "$FALLBACK" ]; then
+        echo "  - switch the on-screen keyboard (System Settings > Keyboard > Virtual Keyboard) back to your system's own, so you always have one"
     else
         echo "  - clear the on-screen keyboard choice (System Settings > Keyboard > Virtual Keyboard): it names the app being removed"
     fi
@@ -201,11 +199,11 @@ done
 if [ "$REMOVE_APPS" = 1 ]; then
     for id in "${INSTALLED_APPS[@]+"${INSTALLED_APPS[@]}"}"; do flatpak uninstall --user -y "$id" || true; done
 fi
-# WHY after the removal: the choice is only wrong once the app is really gone. --notify tells KWin at once.
+# WHY after the removal: KWin then never tries to start an app that is half removed. --notify tells KWin at once.
 if [ "$RESET_CHOICE" = 1 ]; then
-    if [ -f "$KDE_KEYBOARD" ]; then
-        kwriteconfig6 --file kwinrc --group Wayland --key InputMethod --notify "$KDE_KEYBOARD" || true
-        echo "The on-screen keyboard is now KDE's own on-screen keyboard (change it in System Settings > Keyboard > Virtual Keyboard)."
+    if [ -n "$FALLBACK" ]; then
+        kwriteconfig6 --file kwinrc --group Wayland --key InputMethod --notify "$FALLBACK" || true
+        echo "The on-screen keyboard is now your system's own (change it in System Settings > Keyboard > Virtual Keyboard)."
     else
         kwriteconfig6 --file kwinrc --group Wayland --key InputMethod --notify "" || true
         echo "No on-screen keyboard is chosen now. Pick one in System Settings > Keyboard > Virtual Keyboard."

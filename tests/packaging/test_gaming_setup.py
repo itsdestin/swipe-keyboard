@@ -853,13 +853,23 @@ class DesktopDistroTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('KDE Plasma was not found', result.stderr)
 
-    def test_the_regular_package_already_installed_is_refused(self):
+    def test_the_regular_package_already_installed_is_refused_with_disable_first(self):
+        for system in ('kubuntu', 'steamos'):
+            with self.subTest(system=system):
+                f = Fixture(self, system=system)
+                (f.native / 'integration').mkdir(parents=True)
+                (f.native / 'integration/setup.py').write_text('')
+                result = f.run('install.sh', '--yes')
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('regular Swipe Keyboard package is already installed', result.stderr)
+                self.assertIn('swipe-keyboard disable', result.stderr, 'switch off before removing, or no keyboard')
+                self.assertEqual(f.calls(), [])
+
+    def test_a_leftover_folder_from_a_removed_package_does_not_block(self):
+        # WHY (review): package managers leave a folder with stray cache files behind; that is not an installed package
         f = Fixture(self, system='kubuntu')
-        f.native.mkdir()
-        result = f.run('install.sh', '--yes')
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn('regular Swipe Keyboard package is already installed', result.stderr)
-        self.assertEqual(f.calls(), [])
+        (f.native / 'integration/__pycache__').mkdir(parents=True)
+        self.assertEqual(f.run('install.sh', '--yes').returncode, 0)
 
     def test_the_first_download_size_is_said_only_when_the_kde_runtime_is_missing(self):
         f = Fixture(self, system='kubuntu')
@@ -892,11 +902,11 @@ class DesktopDistroTests(unittest.TestCase):
         self.assertEqual(f.snapshot(), before)
         self.assertNotIn('Steam', result.stdout, 'a desktop that never had Gaming Mode reads nothing about Steam')
 
-    def test_keeping_the_app_warns_to_choose_another_keyboard_first(self):
+    def test_keeping_the_app_names_only_the_keyboard_app(self):
         f = Fixture(self, system='kubuntu')
         f.run('install.sh', '--yes')
         out = f.run('uninstall.sh', '--dry-run').stdout
-        self.assertIn('pick another in System Settings first', out)
+        self.assertIn(f'flatpak uninstall --user {MAIN_ID}', out)
         self.assertNotIn(HELPER_ID, out)
 
 
@@ -921,7 +931,8 @@ class RemovalCheckTests(unittest.TestCase):
         result = f.run('keyboard-check.sh')
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.kwrites(f), [f'kwriteconfig6 --file kwinrc --group Wayland --key InputMethod --notify {f.appdir}/org.kde.plasma.keyboard.desktop'])
-        self.assertIn('systemctl --user disable --now swipekb-update.timer swipekb-keyboard-check.path', f.calls())
+        for unit in ('swipekb-update.timer', 'swipekb-keyboard-check.path', 'swipekb-engine.service', 'swipekb-helper.service'):
+            self.assertIn(f'systemctl --user disable --now {unit}', f.calls())
 
     def test_the_form_system_settings_really_writes_is_recognised(self):
         # WHY exactly this line: copied from kwinrc in the Debian 13 VM after choosing Swipe Keyboard in System Settings
@@ -942,27 +953,34 @@ class RemovalCheckTests(unittest.TestCase):
         f.run('keyboard-check.sh')
         self.assertEqual(self.kwrites(f), ['kwriteconfig6 --file kwinrc --group Wayland --key InputMethod --notify '])
 
-    def test_nothing_changes_while_the_app_is_installed_or_another_keyboard_is_chosen(self):
-        for f in (self.setup(f'{MAIN_ID}.desktop', installed=True),
-                  self.setup('/usr/share/applications/org.kde.plasma.keyboard.desktop'),
-                  self.setup('/usr/share/applications/not-org.itsdestin.SwipeKeyboard.desktop.bak')):
+    def test_nothing_changes_while_the_app_is_installed(self):
+        for chosen in (f'{MAIN_ID}.desktop', '/usr/share/applications/org.kde.plasma.keyboard.desktop'):
+            f = self.setup(chosen, installed=True)
             before = f.snapshot()
             f.run('keyboard-check.sh')
-            self.assertEqual(self.kwrites(f), [])
-            self.assertEqual([c for c in f.calls() if c.startswith('systemctl')], [])
+            self.assertEqual([c for c in f.calls() if not c.startswith('flatpak info')], [])
             self.assertEqual(f.snapshot(), before)
 
-    def test_no_kwinrc_means_nothing_to_do(self):
+    def test_app_gone_but_another_keyboard_chosen_only_stops_our_jobs(self):
+        # WHY (review): the Gaming Mode engine would otherwise restart every two minutes for an app that is gone
+        for chosen in ('/usr/share/applications/org.kde.plasma.keyboard.desktop',
+                       '/usr/share/applications/not-org.itsdestin.SwipeKeyboard.desktop.bak'):
+            f = self.setup(chosen)
+            f.run('keyboard-check.sh')
+            self.assertEqual(self.kwrites(f), [])
+            self.assertIn('systemctl --user disable --now swipekb-engine.service', f.calls())
+
+    def test_no_kwinrc_means_no_keyboard_change(self):
         f = Fixture(self, system='kubuntu')
         f.run('keyboard-check.sh')
-        self.assertEqual(f.calls(), [])
+        self.assertEqual([c for c in f.calls() if c.startswith('kwriteconfig6')], [])
 
     def test_the_installer_sets_it_up_and_says_so(self):
         f = Fixture(self, system='kubuntu')
         self.assertIn('clear that choice', f.run('install.sh', '--dry-run', stdin='').stdout, 'Debian 13 has no KDE keyboard')
         (f.appdir / 'org.kde.plasma.keyboard.desktop').write_text('[Desktop Entry]\n')
         out = f.run('install.sh', '--dry-run', stdin='').stdout
-        self.assertIn('hand the choice back to KDE', out)
+        self.assertIn("hand the choice back to your system's", out)
         f.run('install.sh', '--yes')
         script = f.home / '.local/share/swipe-keyboard-gaming/keyboard-check.sh'
         self.assertTrue(os.access(script, os.X_OK))
@@ -993,7 +1011,7 @@ class KeyboardChoiceTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(self.keyboard_calls(f), [
             f'kwriteconfig6 --file kwinrc --group Wayland --key InputMethod --notify {f.appdir}/org.kde.plasma.keyboard.desktop'])
-        self.assertIn("KDE's own on-screen keyboard", result.stdout)
+        self.assertIn("your system's own", result.stdout)
 
     def test_without_kdes_keyboard_the_choice_becomes_none_and_says_so(self):
         f = self.setup(self.OURS, kde_keyboard=False)
@@ -1006,10 +1024,20 @@ class KeyboardChoiceTests(unittest.TestCase):
         f.run('uninstall.sh', '--yes', '--remove-apps')
         self.assertEqual(self.keyboard_calls(f), [])
 
-    def test_keeping_the_app_keeps_the_choice(self):
+    def test_keeping_the_app_still_hands_the_choice_back(self):
+        # WHY (review, card #502): this uninstall removes the safety check too; keeping the choice would leave no keyboard
+        # the day the app is removed in Discover.
         f = self.setup(self.OURS)
         f.run('uninstall.sh', '--yes')
-        self.assertEqual(self.keyboard_calls(f), [])
+        self.assertEqual(self.keyboard_calls(f), [
+            f'kwriteconfig6 --file kwinrc --group Wayland --key InputMethod --notify {f.appdir}/org.kde.plasma.keyboard.desktop'])
+
+    def test_maliit_is_the_fallback_where_kde_has_no_keyboard(self):
+        f = self.setup(self.OURS, kde_keyboard=False)
+        (f.appdir / 'com.github.maliit.keyboard.desktop').write_text('[Desktop Entry]\n')
+        f.run('uninstall.sh', '--yes', '--remove-apps')
+        self.assertEqual(self.keyboard_calls(f), [
+            f'kwriteconfig6 --file kwinrc --group Wayland --key InputMethod --notify {f.appdir}/com.github.maliit.keyboard.desktop'])
 
     def test_the_plan_mentions_it(self):
         f = self.setup(self.OURS)

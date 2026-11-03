@@ -16,38 +16,47 @@
 set -u
 MAIN_ID=org.itsdestin.SwipeKeyboard
 CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
-# Where KDE's own on-screen keyboard is listed (test hook; on a real system never set).
+# Where the system's own on-screen keyboards are listed (test hook; on a real system never set).
 APPLICATIONS_DIR="${SWIPEKB_APPLICATIONS_DIR:-/usr/share/applications}"
-KDE_KEYBOARD="$APPLICATIONS_DIR/org.kde.plasma.keyboard.desktop"
-OUR_JOBS=(swipekb-update.timer swipekb-keyboard-check.path)
+# WHY a list (review, card #502): Debian 13 has no KDE keyboard, but may have Maliit; "none" only when neither is there.
+FALLBACKS=("$APPLICATIONS_DIR/org.kde.plasma.keyboard.desktop" "$APPLICATIONS_DIR/com.github.maliit.keyboard.desktop")
+# WHY all of ours (review): with the app gone, the Gaming Mode engine would restart every two minutes for nothing, and the
+# helper would keep its layer in Steam with no engine behind it.
+OUR_JOBS=(swipekb-update.timer swipekb-keyboard-check.path swipekb-engine.service swipekb-helper.service
+          swipekb-switch-watch.timer swipekb-switch-watch.service)
 
-# The keyboard KWin is told to start (System Settings > Keyboard > Virtual Keyboard), as written in kwinrc. Reads only.
-choice=""
-# WHY the optional [$e] (Debian 13 VM, card #502): System Settings saves the choice as InputMethod[$e]=$HOME/..., a marker
-# telling KDE to expand $HOME; reading only "InputMethod=" missed it, so the choice looked like someone else's.
-[ -f "$CONFIG_HOME/kwinrc" ] && choice="$(sed -n '/^\[Wayland\]/,/^\[/{s/^InputMethod\(\[\$e\]\)\{0,1\}=//p}' "$CONFIG_HOME/kwinrc" | head -n 1)"
-case "$choice" in
-    "$MAIN_ID.desktop"|*/"$MAIN_ID.desktop") ;;
-    *) exit 0 ;;   # another keyboard (or none) is chosen: not ours to touch
-esac
 # WHY ask Flatpak and not look for the file: during an update the app's files are swapped, but Flatpak still reports it.
 if command -v flatpak >/dev/null 2>&1; then
     flatpak info --user "$MAIN_ID" >/dev/null 2>&1 && exit 0
     flatpak info --system "$MAIN_ID" >/dev/null 2>&1 && exit 0
 fi
-command -v kwriteconfig6 >/dev/null 2>&1 || exit 0
 
-if [ -f "$KDE_KEYBOARD" ]; then
-    kwriteconfig6 --file kwinrc --group Wayland --key InputMethod --notify "$KDE_KEYBOARD" || exit 0
-    msg="KDE's own on-screen keyboard is back. Change it any time in System Settings > Keyboard > Virtual Keyboard."
-else
-    kwriteconfig6 --file kwinrc --group Wayland --key InputMethod --notify "" || exit 0
-    msg="No on-screen keyboard is chosen now. Pick one in System Settings > Keyboard > Virtual Keyboard."
-fi
-if command -v notify-send >/dev/null 2>&1; then
-    notify-send --app-name="Swipe Keyboard" --icon=input-keyboard "Swipe Keyboard was removed" "$msg" >/dev/null 2>&1 || true
+# The app is gone. The keyboard KWin is told to start (System Settings > Keyboard > Virtual Keyboard), as in kwinrc.
+choice=""
+# WHY the optional [$e] (Debian 13 VM, card #502): System Settings saves the choice as InputMethod[$e]=$HOME/..., a marker
+# telling KDE to expand $HOME; reading only "InputMethod=" missed it, so the choice looked like someone else's.
+[ -f "$CONFIG_HOME/kwinrc" ] && choice="$(sed -n '/^\[Wayland\]/,/^\[/{s/^InputMethod\(\[\$e\]\)\{0,1\}=//p}' "$CONFIG_HOME/kwinrc" | head -n 1)"
+case "$choice" in
+    "$MAIN_ID.desktop"|*/"$MAIN_ID.desktop") ours=1 ;;
+    *) ours=0 ;;   # another keyboard (or none) is chosen: not ours to touch
+esac
+if [ "$ours" = 1 ] && command -v kwriteconfig6 >/dev/null 2>&1; then
+    target=""
+    for candidate in "${FALLBACKS[@]}"; do [ -f "$candidate" ] && { target="$candidate"; break; }; done
+    if kwriteconfig6 --file kwinrc --group Wayland --key InputMethod --notify "$target"; then
+        if [ -n "$target" ]; then
+            msg="Your system's own on-screen keyboard is back. Change it any time in System Settings > Keyboard > Virtual Keyboard."
+        else
+            msg="No on-screen keyboard is chosen now. Pick one in System Settings > Keyboard > Virtual Keyboard."
+        fi
+        if command -v notify-send >/dev/null 2>&1; then
+            notify-send --app-name="Swipe Keyboard" --icon=input-keyboard "Swipe Keyboard was removed" "$msg" >/dev/null 2>&1 || true
+        fi
+    fi
 fi
 # WHY switch off and not delete: deleting our files is uninstall.sh's job (it knows what was ours); stopping is enough so
-# nothing keeps running for an app that is gone. The daily update job would otherwise try to update nothing, every day.
-command -v systemctl >/dev/null 2>&1 && systemctl --user disable --now "${OUR_JOBS[@]}" >/dev/null 2>&1
+# nothing keeps running for an app that is gone. Only units that exist are touched; missing ones are simply skipped.
+if command -v systemctl >/dev/null 2>&1; then
+    for unit in "${OUR_JOBS[@]}"; do systemctl --user disable --now "$unit" >/dev/null 2>&1; done
+fi
 exit 0

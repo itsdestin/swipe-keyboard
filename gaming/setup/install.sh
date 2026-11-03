@@ -89,7 +89,11 @@ NATIVE_DIR="${SWIPEKB_NATIVE_DIR:-/usr/share/swipe-keyboard}"
 MIN_PLASMA=6.3
 # Where KDE's own on-screen keyboard is listed (test hook; on a real system never set). Debian 13 has none.
 APPLICATIONS_DIR="${SWIPEKB_APPLICATIONS_DIR:-/usr/share/applications}"
-KDE_KEYBOARD="$APPLICATIONS_DIR/org.kde.plasma.keyboard.desktop"
+# WHY a list (review): Debian 13 has no KDE keyboard but may have Maliit; the removal check falls back to either.
+HAS_FALLBACK=0
+for candidate in "$APPLICATIONS_DIR/org.kde.plasma.keyboard.desktop" "$APPLICATIONS_DIR/com.github.maliit.keyboard.desktop"; do
+    [ -f "$candidate" ] && HAS_FALLBACK=1
+done
 FLATPAK_SYSTEM_DIR="${SWIPEKB_FLATPAK_SYSTEM_DIR:-/var/lib/flatpak}"   # test hook, as above
 
 DRY_RUN=0; ASSUME_YES=0; SKIP_FLATPAKS=0; FORCE=0; CHOICE=""; OUTSIDE=""; AUTO=""
@@ -325,9 +329,14 @@ then log out and back in once, and run this installer again. Nothing was changed
     if [ -z "$PLASMA" ] || [ "$(printf '%s\n%s\n' "$MIN_PLASMA" "$PLASMA" | sort -V | head -n 1)" != "$MIN_PLASMA" ]; then
         die "This needs KDE Plasma $MIN_PLASMA or newer; this computer has ${PLASMA:-an unknown version}. Nothing was changed."
     fi
-    # Edge case 4: one install method per computer.
-    [ ! -d "$NATIVE_DIR" ] || die "The regular Swipe Keyboard package is already installed on this computer ($NATIVE_DIR). Use that one, or remove it with your package manager first. Nothing was changed."
 fi
+# Edge case 4: one install method per computer, on every system (a gamescope session from a PPA must not skip it).
+# WHY the program file, not the folder (review, card #502): a removed package can leave an empty or cache-only folder
+# behind, which must not block this installer forever. WHY "disable" first: removing the package while it is the chosen
+# keyboard would leave KDE pointing at nothing, so no keyboard at the next login.
+[ ! -f "$NATIVE_DIR/integration/setup.py" ] || die "The regular Swipe Keyboard package is already installed on this computer. Use that one, or switch it off and remove it first:
+  swipe-keyboard disable
+then remove the package 'swipe-keyboard' with your package manager. Nothing was changed."
 command -v systemctl >/dev/null 2>&1 || die "'systemctl' was not found. This installer is for systems that use systemd. Nothing was changed."
 
 [ -f "$HERE/$WATCH_NAME" ] || die "$WATCH_NAME missing from the download."
@@ -545,9 +554,9 @@ else
 fi
 if [ -z "$CHECK_BLOCKED" ]; then
     echo "  - write $CHECK_SCRIPT and $UNIT_DIR/swipekb-keyboard-check.path. If Swipe Keyboard is ever removed some"
-    if [ -f "$KDE_KEYBOARD" ]; then
-        echo "    other way (Discover, flatpak uninstall) while it is your chosen keyboard, they hand the choice back to KDE's own"
-        echo "    on-screen keyboard, so you are never left without one. They change nothing otherwise."
+    if [ "$HAS_FALLBACK" = 1 ]; then
+        echo "    other way (Discover, flatpak uninstall) while it is your chosen keyboard, they hand the choice back to your system's"
+        echo "    own on-screen keyboard, so you are never left without one. They change nothing otherwise."
     else
         echo "    other way (Discover, flatpak uninstall) while it is your chosen keyboard, they clear that choice, so the screen"
         echo "    never keeps space for a keyboard that is gone. They change nothing otherwise."
