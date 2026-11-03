@@ -50,19 +50,19 @@ model-index:
       name: right word in top 3 (word-level, case-insensitive)
 ---
 
-# youcoded/next-word-french: French next-word model for the Swipe Keyboard
+# youcoded/next-word-french: French next-word model for the OpenSwipe
 
 > **Result:** used together with its n-gram pack, this model offered the right word more often than Gboard 14.2 on every measure we recorded: 4.29 to 14.56 points ahead, from before typing to three letters typed, on everyday and web sentences (100 sentences per set). Gboard 14.2 here is the copy built into Google's Android 35 x86_64 emulator image, with learning off, tested on 22 October 2026. Newer Gboard versions, and Gboard after it has learned from a user, were not measured.
 
-A small neural network that predicts the next word of a sentence in French. It is one of four (English, Spanish, French, German) and runs on the user's own computer inside the Swipe Keyboard, an open-source swipe-typing and word-prediction add-on for KDE Plasma's on-screen keyboard.
+A small neural network that predicts the next word of a sentence in French. It is one of four (English, Spanish, French, German) and runs on the user's own computer inside the OpenSwipe, an open-source swipe-typing and word-prediction add-on for KDE Plasma's on-screen keyboard.
 
 Models trained and released by Destin Moss via youcoded.ai, 2026.
 
-Code, scripts and tests: https://github.com/itsdestin/swipe-keyboard. How every number below was measured: [methods page](../../methods.md) (published copy: https://github.com/itsdestin/swipe-keyboard/blob/main/docs/methods.md).
+Code, scripts and tests: https://github.com/itsdestin/openswipe. How every number below was measured: [methods page](../../methods.md) (published copy: https://github.com/itsdestin/openswipe/blob/main/docs/methods.md).
 
 ## At a glance
 
-- **What it is:** a small neural next-word predictor for French (4.70 MB). It reads the sentence typed so far and scores likely next words. It runs on the user's own device inside the Swipe Keyboard; nothing is sent anywhere.
+- **What it is:** a small neural next-word predictor for French (4.70 MB). It reads the sentence typed so far and scores likely next words. It runs on the user's own device inside the OpenSwipe; nothing is sent anywhere.
 - **How to use it:** the file is `fr.nwp.bin`. Load it with `engine/src/nwp_model.cpp` (about 250 lines of C++, no machine-learning library) and blend it with the French n-gram pack through `NwpPredictor` (`engine/include/swipekb/nwp_predictor.hpp`). It is not meant to be used alone. File layout: "File format" below.
 - **Licence:** ODC-By-1.0 AND CC-BY-2.0-FR. Attribution only, no share-alike. Keep the credits listed under "Licence of the model file". The code that reads it is MIT.
 - **How good it is:** see the Result above for the Gboard comparison, and "Evaluation" for every table. All test sets are small (300 sentences per set; 100 against Gboard), so differences under about 1 to 2 points are noise.
@@ -197,7 +197,7 @@ How to read this: Gboard had its learning from the user turned off, so it shows 
 
 ## How to reproduce
 
-From a checkout of https://github.com/itsdestin/swipe-keyboard (needs a CUDA GPU for training, the Qt build for scoring). Data: the FineWeb / FineWeb-2 parquet files and Tatoeba export named in the scripts' headers; test sets from `scripts/lm/make-nextword-testsets.py`.
+From a checkout of https://github.com/itsdestin/openswipe (needs a CUDA GPU for training, the Qt build for scoring). Data: the FineWeb / FineWeb-2 parquet files and Tatoeba export named in the scripts' headers; test sets from `scripts/lm/make-nextword-testsets.py`.
 
 ```
 python -I scripts/lm/nwp/prepare.py fr fr.wordcounts.tsv fr.vocab.tsv OUT/data \

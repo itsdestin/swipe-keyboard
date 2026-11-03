@@ -4,7 +4,7 @@
 #
 # SPDX-License-Identifier: MIT
 
-# Swipe Keyboard for Steam Deck (and SteamOS-like systems such as Bazzite): installer. Runs as you, in Desktop Mode,
+# OpenSwipe for Steam Deck (and SteamOS-like systems such as Bazzite): installer. Runs as you, in Desktop Mode,
 # in a terminal. The Gaming Mode part asks for the administrator password ONCE, to close SteamOS's outside door (see
 # below); where that door is already shut (Bazzite) it asks for nothing.
 # Plan: docs/active/plans/2026-10-22-gaming-mode.md, Sections 5 and 9.
@@ -39,11 +39,11 @@ WATCH_NAME=switch-watch.sh   # looks whether Steam's developer-switch file is st
 # Flatpak to update our apps from the signed update site. Separate from UNITS: it is on for the Desktop keyboard too.
 UPDATE_UNITS=(swipekb-update.service swipekb-update.timer)
 UPDATE_NAME=auto-update.sh
-# The keyboard check (card #502): if Swipe Keyboard is removed some other way while chosen, KDE's own keyboard comes back.
+# The keyboard check (card #502): if OpenSwipe is removed some other way while chosen, KDE's own keyboard comes back.
 # On for every install, Desktop keyboard included.
 CHECK_UNITS=(swipekb-keyboard-check.service swipekb-keyboard-check.path)
 CHECK_NAME=keyboard-check.sh
-UPDATE_SITE="${SWIPEKB_UPDATE_REPO:-https://itsdestin.github.io/swipe-keyboard/repo/}"
+UPDATE_SITE="${SWIPEKB_UPDATE_REPO:-https://itsdestin.github.io/openswipe/repo/}"
 CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
 DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
 UNIT_DIR="$CONFIG_HOME/systemd/user"
@@ -115,7 +115,7 @@ for arg in "$@"; do
 done
 CHOICE_FROM_FLAG=0; [ -n "$CHOICE" ] && CHOICE_FROM_FLAG=1
 
-die() { echo "Swipe Keyboard setup: $*" >&2; exit 1; }
+die() { echo "OpenSwipe setup: $*" >&2; exit 1; }
 
 # --- Record helpers --------------------------------------------------------------------------------
 # WHY a record: uninstall must remove only what THIS install created. A developer-switch file that already
@@ -222,7 +222,7 @@ socket_switched_off() {
 dropin_is_ours() { [ -f "$DROPIN" ] && [ "$(head -n 1 "$DROPIN")" = '# swipekb-gaming-managed' ]; }
 dropin_text() {
     echo '# swipekb-gaming-managed'
-    echo '# Written by the Swipe Keyboard installer. Makes SteamOS answer Steam debug requests from this Deck only,'
+    echo '# Written by the OpenSwipe installer. Makes SteamOS answer Steam debug requests from this Deck only,'
     echo '# not from other devices on the network. Remove with: bash uninstall.sh (or delete this file, then'
     echo "# run: systemctl daemon-reload && systemctl stop $SOCKET_UNIT $PROXY_UNIT"
     echo "# && systemctl start $SOCKET_UNIT)."
@@ -302,7 +302,7 @@ if [ "$GAMING_SYSTEM" = 1 ]; then
     command -v flatpak >/dev/null 2>&1 || die "'flatpak' was not found. This installer is for SteamOS and similar systems such as Bazzite, where it comes with the system."
 else
     # WHY spelled out per family (edge case 6): Kubuntu and Debian ship without Flatpak. The log-out matters: only a new login
-    # tells System Settings where Flatpak apps live, so before it Swipe Keyboard would not be listed as a keyboard.
+    # tells System Settings where Flatpak apps live, so before it OpenSwipe would not be listed as a keyboard.
     if ! command -v flatpak >/dev/null 2>&1; then
         case " $OS_ID $OS_LIKE " in
             *" debian "*|*" ubuntu "*) how="sudo apt install flatpak" ;;
@@ -314,7 +314,7 @@ else
 then log out and back in once, and run this installer again. Nothing was changed."
     fi
     # Edge case 2: say plainly when KDE is too old, instead of installing a keyboard that cannot appear.
-    command -v plasmashell >/dev/null 2>&1 || die "KDE Plasma was not found. Swipe Keyboard is an on-screen keyboard for KDE Plasma $MIN_PLASMA or newer. Nothing was changed."
+    command -v plasmashell >/dev/null 2>&1 || die "KDE Plasma was not found. OpenSwipe is an on-screen keyboard for KDE Plasma $MIN_PLASMA or newer. Nothing was changed."
     PLASMA="$(plasmashell --version 2>/dev/null | sed -n 's/^plasmashell \([0-9][0-9.]*\).*/\1/p' | head -n 1)" || true
     # WHY a second way (Debian 13 VM, card #502): plasmashell --version needs a screen and crashes without one (over SSH, or
     # a terminal with no desktop). The package list knows the same version and needs nothing. "4:6.3.6-2" -> "6.3.6".
@@ -334,7 +334,7 @@ fi
 # WHY the program file, not the folder (review, card #502): a removed package can leave an empty or cache-only folder
 # behind, which must not block this installer forever. WHY "disable" first: removing the package while it is the chosen
 # keyboard would leave KDE pointing at nothing, so no keyboard at the next login.
-[ ! -f "$NATIVE_DIR/integration/setup.py" ] || die "The regular Swipe Keyboard package is already installed on this computer. Use that one, or switch it off and remove it first:
+[ ! -f "$NATIVE_DIR/integration/setup.py" ] || die "The regular OpenSwipe package is already installed on this computer. Use that one, or switch it off and remove it first:
   swipe-keyboard disable
 then remove the package 'swipe-keyboard' with your package manager. Nothing was changed."
 command -v systemctl >/dev/null 2>&1 || die "'systemctl' was not found. This installer is for systems that use systemd. Nothing was changed."
@@ -350,7 +350,7 @@ VERSION="$(head -n 1 "$HERE/VERSION")"
 MAIN_BUNDLE=( "$HERE"/swipe-keyboard-[0-9]*-x86_64.flatpak )
 HELPER_BUNDLE=( "$HERE"/swipe-keyboard-gaming-helper-*-x86_64.flatpak )
 if [ "$SKIP_FLATPAKS" = 0 ]; then
-    { [ -f "${MAIN_BUNDLE[0]}" ] && [ "${#MAIN_BUNDLE[@]}" = 1 ]; } || die "Expected exactly one Swipe Keyboard .flatpak file next to install.sh."
+    { [ -f "${MAIN_BUNDLE[0]}" ] && [ "${#MAIN_BUNDLE[@]}" = 1 ]; } || die "Expected exactly one OpenSwipe .flatpak file next to install.sh."
     # WHY only on gaming systems: a desktop computer never installs the helper, so a download without it is fine there
     if [ "$GAMING_SYSTEM" = 1 ]; then
         { [ -f "${HELPER_BUNDLE[0]}" ] && [ "${#HELPER_BUNDLE[@]}" = 1 ]; } || die "Expected exactly one Gaming Mode helper .flatpak file next to install.sh."
@@ -437,7 +437,7 @@ fi
 if [ "$GAMING_SYSTEM" = 0 ]; then
     # WHY a short text of its own: on an ordinary desktop there is nothing about Steam to consent to.
     cat <<TEXT
-Swipe Keyboard for $PRODUCT, version $VERSION
+OpenSwipe for $PRODUCT, version $VERSION
 
 Swipe typing and word suggestions for KDE's on-screen keyboard, as a Flatpak app for your user only. Installing it does
 not switch keyboards: you choose it afterwards in System Settings. Remove everything any time with uninstall.sh.
@@ -445,12 +445,12 @@ not switch keyboards: you choose it afterwards in System Settings. Remove everyt
 TEXT
 else
 cat <<TEXT
-Swipe Keyboard for $PRODUCT, version $VERSION
+OpenSwipe for $PRODUCT, version $VERSION
 
 Swipe typing and word suggestions for Desktop Mode and, if you say yes below, for Gaming Mode too. You can change
 your mind later: run this installer again, or remove everything with uninstall.sh.
 
-How Gaming Mode works, and what to know first (details: https://github.com/itsdestin/swipe-keyboard/blob/main/docs/steam-deck.md):
+How Gaming Mode works, and what to know first (details: https://github.com/itsdestin/openswipe/blob/main/docs/steam-deck.md):
   - It adds swipe on top of Steam's own keyboard, over Steam and over games, through a hidden Steam developer
     switch. If anything goes wrong you simply have Steam's normal keyboard.
   - Valve has not approved this and could stop it or object at any time. Steam's Subscriber Agreement says you may
@@ -545,7 +545,7 @@ fi
 if [ "$AUTO" = yes ] && [ -z "$AUTO_BLOCKED" ]; then
     echo "  - turn on automatic updates: point the installed apps at the signed update site"
     echo "      $UPDATE_SITE"
-    echo "    and write $UNIT_DIR/swipekb-update.timer, which once a day asks Flatpak to install a newer Swipe Keyboard"
+    echo "    and write $UNIT_DIR/swipekb-update.timer, which once a day asks Flatpak to install a newer OpenSwipe"
     echo "    (only our apps; Flatpak refuses anything not signed with our key). Turn off: run this with --no-auto-update."
 elif [ "$AUTO" = yes ]; then
     echo "  - automatic updates stay off: $AUTO_BLOCKED. Move it away and run this again to turn them on."
@@ -553,7 +553,7 @@ else
     echo "  - automatic updates off, as you chose: update by running a newer download's install.sh."
 fi
 if [ -z "$CHECK_BLOCKED" ]; then
-    echo "  - write $CHECK_SCRIPT and $UNIT_DIR/swipekb-keyboard-check.path. If Swipe Keyboard is ever removed some"
+    echo "  - write $CHECK_SCRIPT and $UNIT_DIR/swipekb-keyboard-check.path. If OpenSwipe is ever removed some"
     if [ "$HAS_FALLBACK" = 1 ]; then
         echo "    other way (Discover, flatpak uninstall) while it is your chosen keyboard, they hand the choice back to your system's"
         echo "    own on-screen keyboard, so you are never left without one. They change nothing otherwise."
@@ -567,7 +567,7 @@ fi
 echo "  - write a note of what was created to $RECORD, so uninstall.sh removes only that."
 cat <<TEXT
 
-The keyboard itself never uses the internet. Automatic updates only fetch new versions of Swipe Keyboard.
+The keyboard itself never uses the internet. Automatic updates only fetch new versions of OpenSwipe.
 TEXT
 if [ "$SHOW_GAMING" = 1 ]; then
     cat <<TEXT
@@ -794,7 +794,7 @@ if [ "$CHOICE" = desktop ]; then
         if [ "$GAMING_SYSTEM" = 1 ]; then
             echo "Done. The Desktop Mode keyboard is installed. To add Gaming Mode later, run this installer again and answer yes."
         else
-            echo "Done. Swipe Keyboard is installed. To use it: System Settings > Keyboard > Virtual Keyboard, choose Swipe Keyboard, Apply."
+            echo "Done. OpenSwipe is installed. To use it: System Settings > Keyboard > Virtual Keyboard, choose OpenSwipe, Apply."
             # WHY: System Settings only lists Flatpak apps after a login that knows Flatpak's folder (first Flatpak on this computer)
             case ":${XDG_DATA_DIRS:-}:" in
                 *":$DATA_HOME/flatpak/exports/share:"*|*":$DATA_HOME/flatpak/exports/share/:"*) ;;

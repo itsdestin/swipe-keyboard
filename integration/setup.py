@@ -28,7 +28,7 @@ except Exception as _import_error:   # noqa: BLE001
     # WHY (review, card #502): KDE starts the keyboard through "launch". If an update was cut off half way, these files
     # can be a mix of old and new versions and fail to load; then there must still be a keyboard: KDE's plain one.
     if sys.argv[1:2] == ['launch']:
-        print(f'Swipe Keyboard: {_import_error}\nStarting the unmodified stock keyboard instead.', file=sys.stderr)
+        print(f'OpenSwipe: {_import_error}\nStarting the unmodified stock keyboard instead.', file=sys.stderr)
         os.execvp('plasma-keyboard', ['plasma-keyboard'])
     raise
 
@@ -89,7 +89,7 @@ def removal_check_units(script):
     return {
     'swipe-keyboard-removal-check.service': REMOVAL_CHECK_STAMP + f'''
 [Unit]
-Description=Swipe Keyboard: if its package was removed while chosen, hand the on-screen keyboard back to KDE's own
+Description=OpenSwipe: if its package was removed while chosen, hand the on-screen keyboard back to KDE's own
 
 [Service]
 Type=oneshot
@@ -100,7 +100,7 @@ WantedBy=default.target
 ''',
     'swipe-keyboard-removal-check.path': REMOVAL_CHECK_STAMP + '''
 [Unit]
-Description=Swipe Keyboard: notice when the system's list of apps changes (to catch the package being removed)
+Description=OpenSwipe: notice when the system's list of apps changes (to catch the package being removed)
 
 [Path]
 PathChanged=/usr/share/applications
@@ -201,18 +201,18 @@ class Controller:
 
         WHY both the version AND the files must agree: the version says which engine the plasma-keyboard binary runs,
         the files say what it will load. A disagreement (half-finished upgrade, distro patch) or an unknown version
-        starts KDE's plain keyboard: typing always works, swiping waits for a matching Swipe Keyboard.
+        starts KDE's plain keyboard: typing always works, swiping waits for a matching OpenSwipe.
         """
         text, found = self.plasma_keyboard_version()
         new_core = plasma69.is_new_core(self.system_data_dirs())
         legacy = (self.stock / 'en_US').is_dir()
         if found and found >= (7, 0, 0):
             # WHY: a new major version means a new Qt major; our Qt 6 modules could not load there.
-            raise SetupError(f'Plasma Keyboard {text.split()[-1]} is newer than this Swipe Keyboard supports (6.7 to 6.x); '
+            raise SetupError(f'Plasma Keyboard {text.split()[-1]} is newer than this OpenSwipe supports (6.7 to 6.x); '
                              'it steps aside and the plain KDE keyboard is used.')
         if found and found >= NEW_CORE_VERSION:
             if not new_core:
-                raise SetupError('Plasma Keyboard ' + text + ' has no keyboard packages Swipe Keyboard can extend; '
+                raise SetupError('Plasma Keyboard ' + text + ' has no keyboard packages OpenSwipe can extend; '
                                  'the plain KDE keyboard is used.')
             return 'plasma69', text
         if found and found >= (6, 7, 0):
@@ -284,7 +284,7 @@ class Controller:
                 'Session': 'KDE Plasma Wayland',
                 'Front end': 'Plasma 6.9 keyboard core (no Qt Virtual Keyboard, no FUTO)',
                 'Keyboard packages': f'Compatible ({len(generated)} languages)',
-                'Selected input method': 'Swipe Keyboard' if selected else 'Other / stock',
+                'Selected input method': 'OpenSwipe' if selected else 'Other / stock',
                 'Setup record': 'Present' if self.state_file.exists() else 'Absent'}
 
     def check_legacy(self, version):
@@ -320,7 +320,7 @@ class Controller:
                 'Front end': 'Plasma 6.7/6.8 (Qt Virtual Keyboard)',
                 'Language overlays': 'Compatible',
                 'Profile capability queries (not active runtime)': self.profile_checks(),
-                'Selected input method': 'Swipe Keyboard' if selected else 'Other / stock',
+                'Selected input method': 'OpenSwipe' if selected else 'Other / stock',
                 'Setup record': 'Present' if self.state_file.exists() else 'Absent'}
 
     def config_state(self, writable=False, keys=None):
@@ -535,7 +535,7 @@ class Controller:
                 kde = [Path(d) / 'applications/org.kde.plasma.keyboard.desktop' for d in self.system_data_dirs()]
                 previous['InputMethod'] = next((str(k) for k in kde if k.is_file()), '')
             if config['InputMethod']['effective'] == self.wanted['InputMethod']:
-                raise SetupError('Swipe Keyboard is selected without a setup record. Select your old keyboard before enabling.')
+                raise SetupError('OpenSwipe is selected without a setup record. Select your old keyboard before enabling.')
             live_mode = self.read_live_mode()
             self.rebuild_layout()
             # WHY snapshot before writes: interrupted activation can be recovered with disable.
@@ -661,7 +661,7 @@ def confirm_activation(controller, assume_yes=False, always_available=False):
     # WHY: package installation and desktop activation are different consent boundaries.
     # Read current values before asking; declining must not create an overlay/journal or write settings.
     state = controller.config_state()
-    print('Swipe Keyboard will change these per-user KDE settings:')
+    print('OpenSwipe will change these per-user KDE settings:')
     print(f"  InputMethod: {state['InputMethod']['effective']!r} -> {controller.wanted['InputMethod']!r}")
     if always_available:
         print(f"  VirtualKeyboardMode: {state['VirtualKeyboardMode']['effective']!r} -> '1' (explicit always-available choice)")
@@ -682,7 +682,7 @@ def confirm_activation(controller, assume_yes=False, always_available=False):
         print('No settings changed. Use an interactive terminal or pass --yes for explicit automation consent.')
         return False
     try:
-        answer = input('Enable Swipe Keyboard with these changes? [y/N] ').strip().lower()
+        answer = input('Enable OpenSwipe with these changes? [y/N] ').strip().lower()
     except (EOFError, KeyboardInterrupt):
         answer = ''
     if answer not in ('y', 'yes'):
@@ -712,7 +712,7 @@ def main():
         try:
             env = Controller(Path(__file__).resolve().parent.parent).launch_environment()
         except Exception as error:   # noqa: BLE001
-            print(f'Swipe Keyboard: {error}\nStarting the unmodified stock keyboard instead.', file=sys.stderr)
+            print(f'OpenSwipe: {error}\nStarting the unmodified stock keyboard instead.', file=sys.stderr)
             env = dict(os.environ)
         os.execvpe('plasma-keyboard', ['plasma-keyboard'], env)
     controller = Controller(Path(__file__).resolve().parent.parent)
@@ -735,11 +735,11 @@ def main():
             for label, value in report.items():
                 print(f'{label}: {value}')
         print({'check': 'Compatibility checks passed. Touch activation and typing still need a real KDE session test.',
-               'enable': 'Swipe Keyboard enabled. Choose English (US/UK), Spanish, French or German in the keyboard language menu.',
-               'disable': 'Swipe Keyboard disabled; settings still owned by setup were restored.'}[args.action])
+               'enable': 'OpenSwipe enabled. Choose English (US/UK), Spanish, French or German in the keyboard language menu.',
+               'disable': 'OpenSwipe disabled; settings still owned by setup were restored.'}[args.action])
     except (SetupError, OSError) as error:
-        print('Swipe Keyboard: ' + str(error), file=sys.stderr)
-        print('Help: https://github.com/itsdestin/swipe-keyboard#troubleshooting\n'
+        print('OpenSwipe: ' + str(error), file=sys.stderr)
+        print('Help: https://github.com/itsdestin/openswipe#troubleshooting\n'
               'Share the error and versions, not typing recordings or private logs. '
               'Do not force dependencies or overwrite custom layouts.', file=sys.stderr)
         return 1

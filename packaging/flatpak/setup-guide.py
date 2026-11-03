@@ -11,7 +11,7 @@ import sys
 def main():
     # WHY: the sandbox deliberately cannot inspect/write host keyboard settings.
     # Consent explains the change; KDE Settings remains the explicit selection boundary.
-    print('Swipe Keyboard for SteamOS Desktop Mode\n\n'
+    print('OpenSwipe for SteamOS Desktop Mode\n\n'
           'This Flatpak contains a separate bundled Plasma Keyboard. It does not replace '
           'SteamOS libraries, remove Maliit, or change Steam\'s Gaming Mode keyboard.\n'
           'Installing the bundle does not activate it or change your selected input method.\n\n'
@@ -32,7 +32,7 @@ def main():
         return 0
     print('\nNext steps:\n'
           '1. Open System Settings → Virtual Keyboard and note your previous selection (including None).\n'
-          '2. Select Swipe Keyboard and apply. This changes the Desktop Mode input method.\n'
+          '2. Select OpenSwipe and apply. This changes the Desktop Mode input method.\n'
           '3. Enable languages with:\n'
           '   flatpak run --user --command=kcmshell6 org.itsdestin.SwipeKeyboard kcm_plasmakeyboard\n'
           '   Maximize the settings window if the language list is clipped.\n'

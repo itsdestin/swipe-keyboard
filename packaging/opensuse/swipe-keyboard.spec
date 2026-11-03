@@ -16,7 +16,7 @@ Summary: English, Spanish, French and German swipe typing, completions and next-
 # swear-word list CC-BY-4.0; texting words CC0-1.0.
 # SPDX lists CC-BY-2.0 (Generic), not the Tatoeba France port: its terms are a custom LicenseRef with its notice.
 License: MIT AND (GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL) AND Apache-2.0 AND ODC-By-1.0 AND CC-BY-4.0 AND CC0-1.0 AND LicenseRef-Tatoeba-CC-BY-2.0-FR
-URL: https://github.com/itsdestin/swipe-keyboard
+URL: https://github.com/itsdestin/openswipe
 Source0: %{name}-%{version}.tar.gz
 ExclusiveArch: x86_64
 # openSUSE Tumbleweed package (card #502), adapted from packaging/fedora/swipe-keyboard.spec with openSUSE's names.

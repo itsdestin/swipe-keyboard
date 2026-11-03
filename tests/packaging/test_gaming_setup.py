@@ -519,7 +519,7 @@ class ChoiceTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual((f.dropin).read_text(), '\n'.join([
             '# swipekb-gaming-managed',
-            '# Written by the Swipe Keyboard installer. Makes SteamOS answer Steam debug requests from this Deck only,',
+            '# Written by the OpenSwipe installer. Makes SteamOS answer Steam debug requests from this Deck only,',
             '# not from other devices on the network. Remove with: bash uninstall.sh (or delete this file, then',
             '# run: systemctl daemon-reload && systemctl stop steam-web-debug-portforward.socket steam-web-debug-portforward.service',
             '# && systemctl start steam-web-debug-portforward.socket).',
@@ -656,12 +656,12 @@ class ChoiceTests(unittest.TestCase):
 
     def test_wording_names_the_system_it_runs_on(self):
         deck = Fixture(self).run('install.sh', '--dry-run', stdin='').stdout
-        self.assertIn('Swipe Keyboard for Steam Deck', deck)
+        self.assertIn('OpenSwipe for Steam Deck', deck)
         self.assertIn("your Deck's administrator password", deck)
         f = Fixture(self, system='bazzite')
         (f.proc / 'tcp').write_text('header\n')
         out = f.run('install.sh', '--dry-run', stdin='', extra={'FAKE_SOCKET_OFF': '1'}).stdout
-        self.assertIn('Swipe Keyboard for Bazzite', out)
+        self.assertIn('OpenSwipe for Bazzite', out)
         self.assertNotIn('Deck', out)
         self.assertNotIn('SteamOS', out)
         self.assertNotIn('passwd', out)   # nothing asks for a password here, so no hint about setting one
@@ -792,7 +792,7 @@ class DesktopDistroTests(unittest.TestCase):
         out = f.run('install.sh', '--dry-run', stdin='').stdout
         for phrase in ('developer switch', '8081', 'Subscriber Agreement', 'Gaming Mode', 'Deck', 'administrator password'):
             self.assertNotIn(phrase, out)
-        self.assertIn('Swipe Keyboard for Ubuntu', out)
+        self.assertIn('OpenSwipe for Ubuntu', out)
         self.assertIn('System Settings', out)
         self.assertIn(MAIN_ID, out)
 
@@ -861,7 +861,7 @@ class DesktopDistroTests(unittest.TestCase):
                 (f.native / 'integration/setup.py').write_text('')
                 result = f.run('install.sh', '--yes')
                 self.assertNotEqual(result.returncode, 0)
-                self.assertIn('regular Swipe Keyboard package is already installed', result.stderr)
+                self.assertIn('regular OpenSwipe package is already installed', result.stderr)
                 self.assertIn('swipe-keyboard disable', result.stderr, 'switch off before removing, or no keyboard')
                 self.assertEqual(f.calls(), [])
 
@@ -935,7 +935,7 @@ class RemovalCheckTests(unittest.TestCase):
             self.assertIn(f'systemctl --user disable --now {unit}', f.calls())
 
     def test_the_form_system_settings_really_writes_is_recognised(self):
-        # WHY exactly this line: copied from kwinrc in the Debian 13 VM after choosing Swipe Keyboard in System Settings
+        # WHY exactly this line: copied from kwinrc in the Debian 13 VM after choosing OpenSwipe in System Settings
         f = Fixture(self, system='kubuntu')
         (f.home / '.config').mkdir(parents=True)
         (f.home / '.config/kwinrc').write_text('[Wayland]\nInputMethod[$e]=$HOME/.local/share/flatpak/exports/share/applications/org.itsdestin.SwipeKeyboard.desktop\n')
@@ -1292,7 +1292,7 @@ class AutoUpdateTests(unittest.TestCase):
         self.assertEqual(f.run('install.sh', '--gaming', '--leave-open', '--yes').returncode, 0)
         calls = f.calls()
         for origin in ('orgitsdestinswipekeyboard-origin', 'orgitsdestinswipekeyboardgaminghelper-origin'):
-            self.assertIn(f'flatpak remote-modify --user --url=https://itsdestin.github.io/swipe-keyboard/repo/ --gpg-verify '
+            self.assertIn(f'flatpak remote-modify --user --url=https://itsdestin.github.io/openswipe/repo/ --gpg-verify '
                           f'--gpg-import={f.bundle}/update-key.gpg {origin}', calls)
         self.assertIn('systemctl --user enable --now swipekb-update.timer', calls)
         service = (f.units / 'swipekb-update.service').read_text()
@@ -1305,7 +1305,7 @@ class AutoUpdateTests(unittest.TestCase):
         f = Fixture(self)
         self.assertEqual(f.run('install.sh', '--gaming', '--leave-open', '--yes', extra={'FAKE_LOST_ORIGIN': '1'}).returncode, 0)
         self.assertIn(f'flatpak remote-add --user --no-enumerate --gpg-import={f.bundle}/update-key.gpg '
-                      'orgitsdestinswipekeyboardgaminghelper-origin https://itsdestin.github.io/swipe-keyboard/repo/', f.calls())
+                      'orgitsdestinswipekeyboardgaminghelper-origin https://itsdestin.github.io/openswipe/repo/', f.calls())
         # The main app's origin still exists, so it is modified, never re-added (re-adding fails: "already exists").
         self.assertFalse([c for c in f.calls() if c.startswith('flatpak remote-add') and 'orgitsdestinswipekeyboard-origin' in c])
 

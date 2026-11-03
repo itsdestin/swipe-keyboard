@@ -10,7 +10,7 @@ Build-Depends: debhelper-compat (= 13), cmake (>= 3.29), ninja-build, g++, pytho
  qt6-base-dev, qt6-declarative-dev, qt6-virtualkeyboard-dev, libkf6windowsystem-dev, libkf6config-dev,
  qml6-module-org-kde-kirigami, qml6-module-qtquick-virtualkeyboard, libgtest-dev, plasma-keyboard, dbus, systemd
 Standards-Version: 4.7.0
-Homepage: https://github.com/itsdestin/swipe-keyboard
+Homepage: https://github.com/itsdestin/openswipe
 Rules-Requires-Root: no
 
 Package: swipe-keyboard

@@ -3,15 +3,15 @@
 #
 # SPDX-License-Identifier: MIT
 
-# Swipe Keyboard: never leave the computer without an on-screen keyboard. Installed by install.sh; removed by uninstall.sh.
+# OpenSwipe: never leave the computer without an on-screen keyboard. Installed by install.sh; removed by uninstall.sh.
 #
 #   keyboard-check.sh   (run by swipekb-keyboard-check.path whenever Flatpak's list of apps changes, and once at login)
 #
-# WHY this exists (card #502, edge case 1): KDE remembers the chosen on-screen keyboard by its app file. If Swipe Keyboard
+# WHY this exists (card #502, edge case 1): KDE remembers the chosen on-screen keyboard by its app file. If OpenSwipe
 # is removed some other way than uninstall.sh (Discover, "flatpak uninstall"), that choice would point at nothing and the
 # person would be left with no on-screen keyboard at all, which on a tablet means no typing. Flatpak has no "app removed"
 # hook, so this small script, which lives outside the app, looks instead. It changes something only when the chosen keyboard
-# IS Swipe Keyboard and the app is really gone: then it hands the choice back to KDE's own keyboard (KWin switches at once),
+# IS OpenSwipe and the app is really gone: then it hands the choice back to KDE's own keyboard (KWin switches at once),
 # says so in a notification, and switches off our own background jobs, which have nothing left to do.
 set -u
 MAIN_ID=org.itsdestin.SwipeKeyboard
@@ -50,7 +50,7 @@ if [ "$ours" = 1 ] && command -v kwriteconfig6 >/dev/null 2>&1; then
             msg="No on-screen keyboard is chosen now. Pick one in System Settings > Keyboard > Virtual Keyboard."
         fi
         if command -v notify-send >/dev/null 2>&1; then
-            notify-send --app-name="Swipe Keyboard" --icon=input-keyboard "Swipe Keyboard was removed" "$msg" >/dev/null 2>&1 || true
+            notify-send --app-name="OpenSwipe" --icon=input-keyboard "OpenSwipe was removed" "$msg" >/dev/null 2>&1 || true
         fi
     fi
 fi

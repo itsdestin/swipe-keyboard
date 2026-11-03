@@ -29,8 +29,8 @@ import tarfile
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
-BASE_URL = 'https://itsdestin.github.io/swipe-keyboard'
-DOWNLOADS = 'https://github.com/itsdestin/swipe-keyboard/releases/download'
+BASE_URL = 'https://itsdestin.github.io/openswipe'
+DOWNLOADS = 'https://github.com/itsdestin/openswipe/releases/download'
 MAIN_ID = 'org.itsdestin.SwipeKeyboard'
 REDIRECT_FILE = ROOT / 'packaging/updates/flatpak-redirect.txt'
 HELPER_ID = 'org.itsdestin.SwipeKeyboard.GamingHelper'
@@ -143,7 +143,7 @@ def copy_without_redirect(repo, out, key_id=None):
     out = Path(out)
     shutil.copytree(repo, out, symlinks=True)
     subprocess.run(['ostree', 'config', f'--repo={out}', 'unset', 'flatpak.redirect-url'], capture_output=True)
-    run('flatpak', 'build-update-repo', *([f'--gpg-sign={key_id}'] if key_id else []), '--title=Swipe Keyboard', str(out))
+    run('flatpak', 'build-update-repo', *([f'--gpg-sign={key_id}'] if key_id else []), '--title=OpenSwipe', str(out))
     return out
 
 
@@ -161,7 +161,7 @@ def build_flatpak(release, site, version_release, key_id):
     # WHY no static deltas: a recent libostree refuses large delta parts, and a whole update is only about 30 MB.
     # WHY the redirect is part of the signed summary: a Deck only follows a "moved" note signed with our key.
     redirect = flatpak_redirect()
-    run('flatpak', 'build-update-repo', f'--gpg-sign={key_id}', '--title=Swipe Keyboard',
+    run('flatpak', 'build-update-repo', f'--gpg-sign={key_id}', '--title=OpenSwipe',
         *([f'--redirect-url={redirect}'] if redirect else []), str(repo))
 
 
@@ -177,12 +177,12 @@ def write_key_files(site, key_id, base_url, test_key=False):
     if binary != committed and not test_key:
         raise SystemExit('the signing key is not the committed packaging/updates/update-key.gpg')
     key = base64.b64encode(binary).decode()
-    for app_id, title in ((MAIN_ID, 'Swipe Keyboard'), (HELPER_ID, 'Swipe Keyboard Gaming Mode helper')):
+    for app_id, title in ((MAIN_ID, 'OpenSwipe'), (HELPER_ID, 'OpenSwipe Gaming Mode helper')):
         (site / f'{app_id}.flatpakref').write_text(
             f'[Flatpak Ref]\nTitle={title}\nName={app_id}\nBranch=master\nIsRuntime=false\nUrl={base_url}/repo/\n'
             f'SuggestRemoteName=swipe-keyboard\nGPGKey={key}\n')
     (site / 'swipe-keyboard.flatpakrepo').write_text(
-        f'[Flatpak Repo]\nTitle=Swipe Keyboard\nUrl={base_url}/repo/\nGPGKey={key}\n')
+        f'[Flatpak Repo]\nTitle=OpenSwipe\nUrl={base_url}/repo/\nGPGKey={key}\n')
     (site / '.nojekyll').write_text('')
 
 
@@ -201,9 +201,9 @@ def build(release, tag, key_id, out, base_url=BASE_URL, downloads=DOWNLOADS, tes
     build_fedora(release, site, tag, version_release, key_id, downloads)
     build_flatpak(release, site, version_release, key_id)
     (site / 'index.html').write_text(
-        '<!doctype html><meta charset="utf-8"><title>Swipe Keyboard updates</title>'
-        f'<p>Update site for Swipe Keyboard {version_release}. Installed keyboards check here once a day. '
-        '<a href="https://github.com/itsdestin/swipe-keyboard">Project page</a></p>\n')
+        '<!doctype html><meta charset="utf-8"><title>OpenSwipe updates</title>'
+        f'<p>Update site for OpenSwipe {version_release}. Installed keyboards check here once a day. '
+        '<a href="https://github.com/itsdestin/openswipe">Project page</a></p>\n')
     return site
 
 
@@ -248,7 +248,7 @@ def newer_copy(site, key_id):
     ref = f'app/{MAIN_ID}/x86_64/master'
     run('flatpak', 'build-commit-from', '--force', '--timestamp=NOW', f'--gpg-sign={key_id}', f'--src-ref={ref}',
         str(newer / 'repo'), ref)
-    run('flatpak', 'build-update-repo', f'--gpg-sign={key_id}', '--title=Swipe Keyboard', str(newer / 'repo'))
+    run('flatpak', 'build-update-repo', f'--gpg-sign={key_id}', '--title=OpenSwipe', str(newer / 'repo'))
     return newer
 
 

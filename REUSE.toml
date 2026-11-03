@@ -1,7 +1,7 @@
 version = 1
 SPDX-PackageName = "swipe-keyboard"
 SPDX-PackageSupplier = "Destin Moss <https://youcoded.ai>"
-SPDX-PackageDownloadLocation = "https://github.com/itsdestin/swipe-keyboard"
+SPDX-PackageDownloadLocation = "https://github.com/itsdestin/openswipe"
 
 # Licensing (owner decision 2026-10-23, "MIT where possible"): source files carry their own SPDX header. MIT for the
 # engine, tools, scripts, benchmarks, launcher/CLI, Gaming Mode daemon, the shared language/session rules in plugin/

@@ -44,7 +44,7 @@ class DistroIndexes(unittest.TestCase):
                 (release / name).write_bytes(b'package ' + folder.encode())
         with mock.patch.dict(os.environ, self.env):
             self.site_module.build_distro_indexes(release, site, 'v0.5.1-1', '0.5.1-1', 'Test site',
-                                                  'https://github.com/itsdestin/swipe-keyboard/releases/download')
+                                                  'https://github.com/itsdestin/openswipe/releases/download')
         return site
 
     def test_each_present_package_gets_a_signed_index_its_updater_accepts(self):

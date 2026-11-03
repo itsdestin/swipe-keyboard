@@ -1,6 +1,6 @@
 # Contributing
 
-Swipe Keyboard adds swipe typing and word suggestions to KDE Plasma's on-screen keyboard. Help is welcome with recognition, languages, packaging, accessibility, testing and documentation. Report bugs and ideas in [GitHub Issues](https://github.com/itsdestin/swipe-keyboard/issues).
+OpenSwipe adds swipe typing and word suggestions to KDE Plasma's on-screen keyboard. Help is welcome with recognition, languages, packaging, accessibility, testing and documentation. Report bugs and ideas in [GitHub Issues](https://github.com/itsdestin/openswipe/issues).
 
 ## Where things are
 
@@ -19,7 +19,7 @@ Keep recognition, Qt integration, per-user activation and packaging separate. Do
 ## Build and test
 
 ```sh
-git clone https://github.com/itsdestin/swipe-keyboard.git
+git clone https://github.com/itsdestin/openswipe.git
 cd swipe-keyboard
 python3 -m unittest discover -s tests/integration -v
 ```

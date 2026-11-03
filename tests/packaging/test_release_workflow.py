@@ -30,7 +30,7 @@ class WorkflowTests(unittest.TestCase):
                 continue
             installer = target['files'][0].format(version=contract['version'], release=contract['release'])
             with self.subTest(target=name):
-                self.assertIn(f'https://github.com/itsdestin/swipe-keyboard/releases/download/{tag}/{installer}', guide)
+                self.assertIn(f'https://github.com/itsdestin/openswipe/releases/download/{tag}/{installer}', guide)
         self.assertTrue((ROOT/'docs/releases'/f'{tag}.md').is_file())
         # WHY (card #200): every download link must name this release; one left on an older version sends people
         # to old files. `python3 scripts/release.py readme` moves them all after a version change.
@@ -104,7 +104,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('needs: [keyboard-ci, gaming-tests]', self.jobs['publish'])
         self.assertIn('environment: keyboard-release', self.jobs['publish'])
         self.assertIn("github.event_name == 'push'", self.jobs['publish'])
-        self.assertIn("github.repository == 'itsdestin/swipe-keyboard'", self.jobs['publish'])
+        self.assertIn("github.repository == 'itsdestin/openswipe'", self.jobs['publish'])
         # WHY (v0.5.1-1, 2026-10-30): a tag reusing main's packages skips the builders; with only the implicit
         # success() GitHub then skipped publish too. Both publishing jobs must name the results they wait for.
         self.assertIn("!cancelled() && needs.keyboard-ci.result == 'success' && needs.gaming-tests.result == 'success'", self.jobs['publish'])
@@ -472,10 +472,10 @@ class DeckRedirectTests(unittest.TestCase):
         spec.loader.exec_module(module)
         return module
 
-    def test_it_points_decks_at_the_openswipe_site(self):
-        # WHY exactly this address: once a Deck follows the note it never asks the old site again, so a typo would
-        # strand every Deck. It must be the renamed project's own site (on from 0.5.1-1; emptied after the rename).
-        self.assertEqual(self.load().flatpak_redirect(), 'https://itsdestin.github.io/openswipe/repo/')
+    def test_the_note_is_off_after_the_rename(self):
+        # WHY (card #501): the update site lives at the OpenSwipe address now; a note pointing a Deck at the site it is
+        # already reading would only add a step that can go wrong.
+        self.assertEqual(self.load().flatpak_redirect(), '')
 
     def test_only_one_https_address_is_accepted(self):
         import tempfile

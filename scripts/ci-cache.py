@@ -45,7 +45,7 @@ def policy(env):
     """Return (may_restore, may_save). Tags never use caches; only trusted pushes write."""
     ref = env.get('GITHUB_REF', '')
     event = env.get('GITHUB_EVENT_NAME', '')
-    if env.get('GITHUB_REPOSITORY') != 'itsdestin/swipe-keyboard' or ref.startswith('refs/tags/'):
+    if env.get('GITHUB_REPOSITORY') != 'itsdestin/openswipe' or ref.startswith('refs/tags/'):
         return False, False
     if event in ('push', 'workflow_dispatch'):
         return True, ref.startswith('refs/heads/')

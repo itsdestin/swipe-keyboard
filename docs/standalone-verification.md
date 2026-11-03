@@ -1,6 +1,6 @@
 # Standalone v1 verification
 
-Status: v0.1.0 native test-candidate verification passed. Firefox physical-edit spacing is an accepted v1 limitation. Downloads and publication status: [v0.1.0 test release](https://github.com/itsdestin/swipe-keyboard/releases/tag/v0.1.0).
+Status: v0.1.0 native test-candidate verification passed. Firefox physical-edit spacing is an accepted v1 limitation. Downloads and publication status: [v0.1.0 test release](https://github.com/itsdestin/openswipe/releases/tag/v0.1.0).
 
 ## Boundaries
 

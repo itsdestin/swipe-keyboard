@@ -21,7 +21,7 @@ from layout import build_overlay
 # service ONE question, "does the person prefer dark?", and give the keyboard a stock Breeze Dark scheme in the app's own
 # private config folder. Nothing else is read; custom colour schemes and accent colours are not followed. A change of mode
 # shows the next time KDE starts the keyboard (for example the next login).
-OUR_COLORS = '# Written by Swipe Keyboard: the stock Breeze Dark colours, because the desktop prefers dark. Deleted when it does not.\n'
+OUR_COLORS = '# Written by OpenSwipe: the stock Breeze Dark colours, because the desktop prefers dark. Deleted when it does not.\n'
 SCHEMES = Path('/usr/share/color-schemes')
 
 
@@ -113,5 +113,5 @@ if __name__ == '__main__':
     try:
         main()
     except (OSError, ValueError, KeyError, RuntimeError) as error:
-        print('Swipe Keyboard: ' + str(error), file=sys.stderr)
+        print('OpenSwipe: ' + str(error), file=sys.stderr)
         sys.exit(1)

@@ -130,7 +130,7 @@ def manager():
     if shutil.which('pacman') and run(['pacman', '-Q', PACKAGE]).returncode == 0:
         return 'pacman'
     rpm_owned = shutil.which('rpm') and run(['rpm', '-q', PACKAGE]).returncode == 0
-    # WHY openSUSE first (review, card #502): dnf can be installed on openSUSE too; it has no Swipe Keyboard source there,
+    # WHY openSUSE first (review, card #502): dnf can be installed on openSUSE too; it has no OpenSwipe source there,
     # so it would answer "nothing to do" every day and the keyboard would silently never update.
     release = os_release()
     if rpm_owned and shutil.which('zypper') and 'suse' in (release.get('ID', '') + ' ' + release.get('ID_LIKE', '')):
@@ -146,7 +146,7 @@ def manager():
         # "half-configured"; treating that as "not ours" would stop updates for good without a word.
         if status.startswith('install ') and status.split()[-1] in ('unpacked', 'half-installed', 'half-configured',
                                                                     'triggers-awaited', 'triggers-pending'):
-            raise UpdateError('the last Swipe Keyboard install did not finish (power loss or a stopped update). '
+            raise UpdateError('the last OpenSwipe install did not finish (power loss or a stopped update). '
                               'Run: sudo dpkg --configure -a')
     if rpm_owned and shutil.which('zypper'):
         return 'zypper'
@@ -182,7 +182,7 @@ def verified_index(work, folder='arch'):
         raise UpdateError(f'update key missing: {KEYRING}')
     check = run(['gpgv', '--keyring', str(KEYRING), str(signature), str(index)])
     if check.returncode != 0:
-        raise UpdateError('the update index is not signed by the Swipe Keyboard update key; nothing was installed')
+        raise UpdateError('the update index is not signed by the OpenSwipe update key; nothing was installed')
     data = json.loads(index.read_text())
     if data.get('schema') != 1 or data.get('package') != PACKAGE:
         raise UpdateError('the update index is not for this package')
@@ -239,10 +239,10 @@ def target_matches_system(target):
         return None
     distro, _, version = target.partition('-')
     if distro == 'kubuntu' and version and release.get('VERSION_ID') not in (None, version):
-        return (f'this computer now runs Ubuntu {release.get("VERSION_ID")}, but this Swipe Keyboard was built for '
+        return (f'this computer now runs Ubuntu {release.get("VERSION_ID")}, but this OpenSwipe was built for '
                 f'{version}. Install the package for your version once from the release page')
     if distro == 'debian' and version == 'testing' and release.get('VERSION_ID'):
-        return (f'this computer now runs Debian {release.get("VERSION_ID")} (stable), but this Swipe Keyboard follows '
+        return (f'this computer now runs Debian {release.get("VERSION_ID")} (stable), but this OpenSwipe follows '
                 'Debian testing. Install the package for your Debian version once from the release page')
     return None
 
@@ -311,7 +311,7 @@ def update_from_index(owner):
         if not version or not all(c.isalnum() or c in '.-~+:' for c in version):
             raise UpdateError('the update index is malformed; nothing was installed')
         if not how['newer'](version, installed):
-            print(f'Swipe Keyboard {installed} is up to date.')
+            print(f'OpenSwipe {installed} is up to date.')
             return 0
         entry = index.get('files', {}).get(platform.machine())
         if not entry:
@@ -342,7 +342,7 @@ def update_from_index(owner):
             if others is None or others:
                 detail = (', '.join(sorted(set(others))[:8]) if others
                           else (preview.stderr.strip() or preview.stdout.strip())[-400:])
-                raise UpdateError(f'installing Swipe Keyboard {version} would also change system packages ({detail}). '
+                raise UpdateError(f'installing OpenSwipe {version} would also change system packages ({detail}). '
                                   'Nothing was installed. Update your system as usual; this is tried again tomorrow.')
         result = run(how['install'](package), env=env)
         if result.returncode not in how.get('ok_codes', (0,)):
@@ -351,10 +351,10 @@ def update_from_index(owner):
                 # WHY say so: the package file is checked against the signed index, not signed itself, so a pacman.conf
                 # with LocalFileSigLevel = Required refuses it every day.
                 hint = ('\nYour pacman.conf requires signed local packages (LocalFileSigLevel). Update by hand from '
-                        'https://github.com/itsdestin/swipe-keyboard/releases or run "sudo swipe-keyboard updates off".')
+                        'https://github.com/itsdestin/openswipe/releases or run "sudo swipe-keyboard updates off".')
             raise UpdateError(f'{owner} could not install the update (it will be tried again tomorrow):\n'
                               + result.stderr.strip() + hint)
-        print(f'Swipe Keyboard updated from {installed} to {version}. It takes effect at your next login.')
+        print(f'OpenSwipe updated from {installed} to {version}. It takes effect at your next login.')
         return 0
 
 
@@ -362,7 +362,7 @@ def update_dnf():
     # WHY only our package: dnf may pull a needed dependency, but never upgrades the rest of the system here.
     result = run(['dnf', '-y', 'upgrade', '--refresh', PACKAGE])
     if result.returncode != 0:
-        raise UpdateError('dnf could not update Swipe Keyboard (it will be tried again tomorrow):\n' + result.stderr.strip())
+        raise UpdateError('dnf could not update OpenSwipe (it will be tried again tomorrow):\n' + result.stderr.strip())
     print(result.stdout.strip())
     return 0
 
@@ -377,7 +377,7 @@ def check_now():
         return 0
     owner = manager()
     if owner is None:
-        print('This copy of Swipe Keyboard was not installed by pacman, dnf, apt or zypper; it is not updated automatically.')
+        print('This copy of OpenSwipe was not installed by pacman, dnf, apt or zypper; it is not updated automatically.')
         return 0
     return UPDATERS[owner]()
 
@@ -387,17 +387,17 @@ def set_enabled(enabled):
         raise UpdateError('changing this needs administrator rights: run it with sudo')
     if enabled:
         OFF_FLAG.unlink(missing_ok=True)
-        print('Automatic updates are on. Swipe Keyboard checks for a new version once a day.')
+        print('Automatic updates are on. OpenSwipe checks for a new version once a day.')
     else:
         OFF_FLAG.parent.mkdir(parents=True, exist_ok=True)
-        OFF_FLAG.write_text('Swipe Keyboard automatic updates are off. Delete this file (or run '
+        OFF_FLAG.write_text('OpenSwipe automatic updates are off. Delete this file (or run '
                             '"sudo swipe-keyboard updates on") to turn them back on.\n')
-        print('Automatic updates are off. Update by hand from https://github.com/itsdestin/swipe-keyboard/releases')
+        print('Automatic updates are off. Update by hand from https://github.com/itsdestin/openswipe/releases')
     return 0
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(prog='swipe-keyboard updates', description='Swipe Keyboard automatic updates')
+    parser = argparse.ArgumentParser(prog='swipe-keyboard updates', description='OpenSwipe automatic updates')
     parser.add_argument('action', nargs='?', default='status', choices=('status', 'on', 'off', 'now', 'check'))
     args = parser.parse_args(argv)
     try:
@@ -405,7 +405,7 @@ def main(argv=None):
             # WHY ask the package manager first: a copy pacman or dnf did not install (KDE Linux's system extension,
             # a developer build) is never updated, whatever the setting says.
             if manager() is None:
-                print('This copy of Swipe Keyboard was not installed by pacman, dnf, apt or zypper; it is not updated automatically.')
+                print('This copy of OpenSwipe was not installed by pacman, dnf, apt or zypper; it is not updated automatically.')
                 return 0
             print('Automatic updates are ' + ('off.' if OFF_FLAG.exists() else 'on (checked once a day).'))
             return 0
@@ -417,11 +417,11 @@ def main(argv=None):
         return check_now()
     except Unreachable as error:
         # WHY success: being offline is normal; a failed unit every day would hide the failures that matter.
-        print(f'Swipe Keyboard update: the update site is not reachable right now ({error}); trying again tomorrow.')
+        print(f'OpenSwipe update: the update site is not reachable right now ({error}); trying again tomorrow.')
         return 0
     except (UpdateError, OSError, ValueError, TypeError, AttributeError, KeyError,
             subprocess.CalledProcessError) as error:
-        print('Swipe Keyboard update: ' + str(error), file=sys.stderr)
+        print('OpenSwipe update: ' + str(error), file=sys.stderr)
         return 1
 
 

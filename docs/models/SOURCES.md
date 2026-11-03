@@ -1,6 +1,6 @@
 # Sources for the numbers in the model cards and the methods page
 
-Each section lists the passages of one document that quote a number or a factual claim, with the repository file (and section or commit) it comes from. Paths are relative to the root of https://github.com/itsdestin/swipe-keyboard unless they start with `~/.cache/` (the training machine's cache, not in the repository). `bench/scoreboard.tsv` commits: a2041d8 = n-gram files only; d63a2ce = n-gram files plus the neural next-word models; 7f53d8c = the keyboard's older Tatoeba-only files.
+Each section lists the passages of one document that quote a number or a factual claim, with the repository file (and section or commit) it comes from. Paths are relative to the root of https://github.com/itsdestin/openswipe unless they start with `~/.cache/` (the training machine's cache, not in the repository). `bench/scoreboard.tsv` commits: a2041d8 = n-gram files only; d63a2ce = n-gram files plus the neural next-word models; 7f53d8c = the keyboard's older Tatoeba-only files.
 
 ## models/README.md
 

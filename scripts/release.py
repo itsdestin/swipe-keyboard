@@ -202,7 +202,7 @@ def check_versions(contract):
 
 
 README = ROOT/'README.md'
-DOWNLOAD = re.compile(r'https://github\.com/itsdestin/swipe-keyboard/releases/download/v([0-9][0-9.]*-[0-9][0-9.]*)/')
+DOWNLOAD = re.compile(r'https://github\.com/itsdestin/openswipe/releases/download/v([0-9][0-9.]*-[0-9][0-9.]*)/')
 
 
 def readme_versions(text):

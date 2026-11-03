@@ -25,7 +25,7 @@ rm -rf debian && cp -a packaging/debian debian && rm -f debian/build.sh
 cat > debian/changelog <<EOF
 swipe-keyboard ($DEBVERSION) unstable; urgency=medium
 
-  * Swipe Keyboard $VERSION-$RELEASE for $TARGET. Changes: CHANGELOG.md.
+  * OpenSwipe $VERSION-$RELEASE for $TARGET. Changes: CHANGELOG.md.
 
  -- Destin Moss <itsdestin@users.noreply.github.com>  $(date -R -d "@${SOURCE_DATE_EPOCH:-$(git log -1 --format=%ct 2>/dev/null || date +%s)}")
 EOF

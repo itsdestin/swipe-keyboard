@@ -4,7 +4,7 @@
 # WHY the two lines above: install.sh and uninstall.sh only overwrite or delete a unit file that carries them,
 # so a file of yours with the same name is never touched.
 [Unit]
-Description=Swipe Keyboard Gaming Mode engine (word guessing; no network)
+Description=OpenSwipe Gaming Mode engine (word guessing; no network)
 # WHY no start limit (review fix 5): "30 starts in 300 s" was used up after about 90 s of a crash loop, and the unit then stayed
 # dead with nothing to say why. systemd waits longer between tries instead (3 s, growing to 2 minutes), so a program that cannot
 # start costs almost nothing, and one that recovers (Steam updated, Flatpak reinstalled) comes back by itself.

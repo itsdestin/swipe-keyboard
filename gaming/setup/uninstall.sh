@@ -4,7 +4,7 @@
 #
 # SPDX-License-Identifier: MIT
 
-# Swipe Keyboard, Steam Deck Gaming Mode: uninstaller. Removes only what install.sh recorded as created.
+# OpenSwipe, Steam Deck Gaming Mode: uninstaller. Removes only what install.sh recorded as created.
 #
 #   bash uninstall.sh              show what will be removed, ask, then do it
 #   bash uninstall.sh --dry-run    show only
@@ -95,7 +95,7 @@ keyboard_choice() {
 }
 # WHY always, not only with --remove-apps (review, card #502): this uninstall also removes the safety check that would
 # hand the choice back later. Someone who keeps the app now and removes it in Discover tomorrow would then be left with
-# no keyboard. Uninstalling means "stop using Swipe Keyboard", so the system's own keyboard takes over now.
+# no keyboard. Uninstalling means "stop using OpenSwipe", so the system's own keyboard takes over now.
 RESET_CHOICE=0
 case "$(keyboard_choice)" in "$MAIN_ID.desktop"|*/"$MAIN_ID.desktop") RESET_CHOICE=1 ;; esac
 
@@ -104,10 +104,10 @@ case "$(keyboard_choice)" in "$MAIN_ID.desktop"|*/"$MAIN_ID.desktop") RESET_CHOI
 STEAM_TOO=1
 [ -f "$RECORD" ] && [ "$(record_value gaming)" = no ] && [ "${#CREATED_MARKERS[@]}" = 0 ] && [ "${#CREATED_SYSTEM_FILES[@]}" = 0 ] && STEAM_TOO=0
 if [ "$STEAM_TOO" = 1 ]; then
-    echo "Swipe Keyboard for Gaming Mode: removal. This will:"
+    echo "OpenSwipe for Gaming Mode: removal. This will:"
     echo "  - stop and turn off the background services (the engine, the helper and the once-a-minute switch check), and delete their files from $UNIT_DIR (only files this installer wrote)"
 else
-    echo "Swipe Keyboard: removal. This will:"
+    echo "OpenSwipe: removal. This will:"
     echo "  - stop and turn off its background jobs (daily update check, removal safety check), and delete their files from $UNIT_DIR (only files this installer wrote)"
 fi
 if [ "$STEAM_TOO" = 0 ]; then :

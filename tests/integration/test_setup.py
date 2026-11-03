@@ -255,7 +255,7 @@ class SetupTests(unittest.TestCase):
         self.assertFalse(any(Path(c[0]).name in ('kwriteconfig6', 'busctl') for c in self.commands.calls))
         self.controller.enable(always_available=True)
         report = self.controller.check()
-        self.assertEqual(report['Selected input method'], 'Swipe Keyboard')
+        self.assertEqual(report['Selected input method'], 'OpenSwipe')
         self.assertEqual(report['Setup record'], 'Present')
 
     def notification_failure(self, count, later_choice=None):

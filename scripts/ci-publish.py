@@ -20,7 +20,7 @@ def publish():
     contract = release.load_contract()
     tag = 'v' + release.version(contract)
     if (os.environ.get('GITHUB_EVENT_NAME') != 'push' or
-            os.environ.get('GITHUB_REPOSITORY') != 'itsdestin/swipe-keyboard' or
+            os.environ.get('GITHUB_REPOSITORY') != 'itsdestin/openswipe' or
             os.environ.get('GITHUB_REF') != 'refs/tags/' + tag):
         raise ValueError('Publication requires the matching trusted repository tag push')
     subprocess.run(['git', 'merge-base', '--is-ancestor', sha, 'refs/remotes/origin/main'], check=True)
@@ -39,14 +39,14 @@ def publish():
     # WHY: all current keyboard releases are test releases; do not silently promote
     # one to the stable/latest channel when replacing the former manual procedure.
     subprocess.run(['gh', 'release', 'create', tag, '--verify-tag', '--target', sha, '--draft', '--prerelease',
-                    '--title', 'Swipe Keyboard ' + release.version(contract), '--notes',
+                    '--title', 'OpenSwipe ' + release.version(contract), '--notes',
                     'Arch/CachyOS x86_64, Fedora 44 x86_64/aarch64 (ARM64 Linux Plasma Mobile) and SteamOS Desktop Flatpak x86_64. '
                     'Complete corresponding source and SHA256SUMS included. CI checks package/build/loader contracts; '
                     'physical compositor/input acceptance is separate and must identify package hashes. '
                     'ARM session acceptance is required; emulated ARM input does not certify physical-phone performance. '
                     'Android, iOS, musl and Gaming Mode are not certified.\n\n'
-                    f'[Install and enable](https://github.com/itsdestin/swipe-keyboard/blob/{tag}/README.md#install) · '
-                    f'[Release scope](https://github.com/itsdestin/swipe-keyboard/blob/{tag}/docs/releases/{tag}.md)'], check=True)
+                    f'[Install and enable](https://github.com/itsdestin/openswipe/blob/{tag}/README.md#install) · '
+                    f'[Release scope](https://github.com/itsdestin/openswipe/blob/{tag}/docs/releases/{tag}.md)'], check=True)
     # Manifest-derived exact list, no glob, --clobber, rebuild, or unrelated run download.
     subprocess.run(['gh', 'release', 'upload', tag, *(str(directory/n) for n in names)], check=True)
     with tempfile.TemporaryDirectory() as tmp:
@@ -65,7 +65,7 @@ def publish():
 def broken_readme_links(text, tag, open_url=urllib.request.urlopen):
     """README download links for this release that do not answer (card #200). Run after the release is public:
     a draft's files are not downloadable, so earlier every link would look broken."""
-    links = sorted(set(re.findall(r'https://github\.com/itsdestin/swipe-keyboard/releases/download/' + re.escape(tag) + r'/[^\s)"\']+', text)))
+    links = sorted(set(re.findall(r'https://github\.com/itsdestin/openswipe/releases/download/' + re.escape(tag) + r'/[^\s)"\']+', text)))
     if not links:
         return ['README has no download link for ' + tag]
     broken = []

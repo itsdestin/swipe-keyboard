@@ -3,7 +3,7 @@
 # swipekb-gaming-unit-revision: 1
 # WHY the lines above: see swipekb-switch-watch.service.
 [Unit]
-Description=Swipe Keyboard: notice when Flatpak's list of apps changes (to catch Swipe Keyboard being removed)
+Description=OpenSwipe: notice when Flatpak's list of apps changes (to catch OpenSwipe being removed)
 
 [Path]
 # WHY this folder: Flatpak lists every app's menu and keyboard entries here; removing an app removes its entry, which

@@ -120,7 +120,7 @@ class AssetFetch(unittest.TestCase):
         self.assertEqual(set(assets), {'language-files/en.nwp.bin', 'language-files/es.nwp.bin', 'language-files/fr.nwp.bin',
                                        'language-files/de.nwp.bin', 'language-files/swipe-model.bin', 'language-files/MODELS-NOTICE.md',
                                        'language-files/FUTO-SWIPE-DATA-LICENSE.txt'})
-        base = 'https://github.com/itsdestin/swipe-keyboard/releases/download/models-2026-10-23/'
+        base = 'https://github.com/itsdestin/openswipe/releases/download/models-2026-10-23/'
         for name, asset in assets.items():
             self.assertRegex(asset['sha256'], r'^[a-f0-9]{64}$')
             self.assertTrue(asset['url'].startswith(base), name)

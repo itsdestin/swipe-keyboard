@@ -1,6 +1,6 @@
-# Swipe Keyboard for KDE Plasma
+# OpenSwipe for KDE Plasma
 
-Swipe across the letters to type a word, or tap as usual. Test release **v0.5.1-1**.
+Swipe across the letters to type a word, or tap as usual. Test release **v0.5.1-1**. Formerly **Swipe Keyboard**: same keyboard, new name (the package and command are still called `swipe-keyboard`).
 
 <!-- WHY (Destin, 2026-11-02): versions before 0.5.1-1 cannot find updates after the move to the new name (GitHub does not
      forward the update website), and 0.4.0 and older never updated themselves. Keep this line for the next few releases. -->
@@ -23,7 +23,7 @@ Swipe across the letters to type a word, or tap as usual. Test release **v0.5.1-
 
 ### Steam Deck
 
-**[Download for Steam Deck](https://github.com/itsdestin/swipe-keyboard/releases/download/v0.5.1-1/swipe-keyboard-0.5.1-1-steamos-x86_64.tar.gz)**, one file for Desktop Mode and Gaming Mode.
+**[Download for Steam Deck](https://github.com/itsdestin/openswipe/releases/download/v0.5.1-1/swipe-keyboard-0.5.1-1-steamos-x86_64.tar.gz)**, one file for Desktop Mode and Gaming Mode.
 
 1. In **Desktop Mode**, save it to **Downloads**, open **Konsole** and run this **without `sudo`**:
 
@@ -33,9 +33,9 @@ Swipe across the letters to type a word, or tap as usual. Test release **v0.5.1-
    ```
 
 2. It shows everything it will change, then asks **Also swipe in Gaming Mode? [Y/n]**. Press **Enter** for yes. It asks for your Deck's administrator password once, to keep other devices on your network away from Steam's developer switch. Never set one? Run `passwd` in Konsole first.
-3. Open **System Settings → Virtual Keyboard**, select **Swipe Keyboard** and apply (missing? log out and back into Desktop Mode). Restart Steam once. Then touch any text field, in either mode, and swipe.
+3. Open **System Settings → Virtual Keyboard**, select **OpenSwipe** and apply (missing? log out and back into Desktop Mode). Restart Steam once. Then touch any text field, in either mode, and swipe.
 
-Gaming Mode uses a hidden Steam developer switch that Valve hasn't approved and could break ([details](docs/steam-deck.md)). It is new: [tell us if anything looks wrong](https://github.com/itsdestin/swipe-keyboard/issues). Do not unlock SteamOS or install the Arch/Fedora packages on a Deck.
+Gaming Mode uses a hidden Steam developer switch that Valve hasn't approved and could break ([details](docs/steam-deck.md)). It is new: [tell us if anything looks wrong](https://github.com/itsdestin/openswipe/issues). Do not unlock SteamOS or install the Arch/Fedora packages on a Deck.
 
 **Languages:** run this, enable yours, then switch with the globe key.
 
@@ -49,7 +49,7 @@ flatpak run --user --command=kcmshell6 org.itsdestin.SwipeKeyboard kcm_plasmakey
 
 ### Arch / CachyOS
 
-**[Download the package](https://github.com/itsdestin/swipe-keyboard/releases/download/v0.5.1-1/swipe-keyboard-0.5.1-1-x86_64.pkg.tar.zst)**, then in Konsole:
+**[Download the package](https://github.com/itsdestin/openswipe/releases/download/v0.5.1-1/swipe-keyboard-0.5.1-1-x86_64.pkg.tar.zst)**, then in Konsole:
 
 ```sh
 sudo pacman -U ~/Downloads/swipe-keyboard-0.5.1-1-x86_64.pkg.tar.zst
@@ -63,13 +63,13 @@ Then [turn it on](#turn-it-on-arch-and-fedora).
 
 Pick your device (unsure? run `uname -m`), download its file, then run its line in Konsole:
 
-**Intel / AMD (x86_64):** [download](https://github.com/itsdestin/swipe-keyboard/releases/download/v0.5.1-1/swipe-keyboard-0.5.1-1.fc44.x86_64.rpm)
+**Intel / AMD (x86_64):** [download](https://github.com/itsdestin/openswipe/releases/download/v0.5.1-1/swipe-keyboard-0.5.1-1.fc44.x86_64.rpm)
 
 ```sh
 sudo dnf install ~/Downloads/swipe-keyboard-0.5.1-1.fc44.x86_64.rpm
 ```
 
-**ARM64 (aarch64):** [download](https://github.com/itsdestin/swipe-keyboard/releases/download/v0.5.1-1/swipe-keyboard-0.5.1-1.fc44.aarch64.rpm)
+**ARM64 (aarch64):** [download](https://github.com/itsdestin/openswipe/releases/download/v0.5.1-1/swipe-keyboard-0.5.1-1.fc44.aarch64.rpm)
 
 ```sh
 sudo dnf install ~/Downloads/swipe-keyboard-0.5.1-1.fc44.aarch64.rpm
@@ -112,7 +112,7 @@ On version 0.4.0 or older? Those did not update themselves: install the package 
 - **No next-word suggestions?** Pick a supported language, type a word with this keyboard, then press Space. Password fields offer none.
 - **Only one app misbehaves?** Try another KDE Wayland app; support varies.
 
-[More help, recovery and privacy](docs/install-details.md) · [Steam Deck details](docs/steam-deck.md) · [Report a bug](https://github.com/itsdestin/swipe-keyboard/issues/new?template=bug.yml) · [Release notes](docs/releases/v0.5.1-1.md) · [Changelog](CHANGELOG.md)
+[More help, recovery and privacy](docs/install-details.md) · [Steam Deck details](docs/steam-deck.md) · [Report a bug](https://github.com/itsdestin/openswipe/issues/new?template=bug.yml) · [Release notes](docs/releases/v0.5.1-1.md) · [Changelog](CHANGELOG.md)
 
 In bug reports, use made-up text. **Do not send passwords, recordings or personal typing.**
 

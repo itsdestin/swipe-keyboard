@@ -16,7 +16,7 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass
 
-USER_AGENT = 'swipe-keyboard-steam-canary (+https://github.com/itsdestin/swipe-keyboard)'
+USER_AGENT = 'swipe-keyboard-steam-canary (+https://github.com/itsdestin/openswipe)'
 _NAME_OK = re.compile(r'^[A-Za-z0-9_]+$')
 _SHA1 = re.compile(r'^[0-9a-f]{40}$')
 _SHA256 = re.compile(r'^[0-9a-f]{64}$')

@@ -16,7 +16,7 @@ HOOK = '''
         try {
             return Qt.createQmlObject('import QtQuick; import SwipeKeyboard; SwipeInputMethod {}', parent, "swipe-keyboard")
         } catch (e) {
-            console.warn("Swipe Keyboard unavailable; using normal tapping:", e)
+            console.warn("OpenSwipe unavailable; using normal tapping:", e)
             return null
         }
     }

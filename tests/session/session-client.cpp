@@ -72,7 +72,7 @@ int main(int argc, char **argv)
                 var start = editor.text.indexOf(" ")
                 if (start > 0) editor.select(editor.text.length, start)
             }
-            Text { x: 56; y: 36; text: "Swipe Keyboard · isolated KDE test"; font.pixelSize: 30; color: "#17243b" }
+            Text { x: 56; y: 36; text: "OpenSwipe · isolated KDE test"; font.pixelSize: 30; color: "#17243b" }
             Text { x: 56; y: 84; text: "Packaged keyboard → real KWin input method → ordinary Wayland fields"; font.pixelSize: 18; color: "#52647b" }
             Text { x: 56; y: 124; text: "Normal text"; font.pixelSize: 17; color: "#52647b" }
             Rectangle {
@@ -103,7 +103,7 @@ int main(int argc, char **argv)
         return 1;
     }
     QQuickWindow view;
-    view.setTitle(QStringLiteral("Swipe Keyboard — isolated acceptance"));
+    view.setTitle(QStringLiteral("OpenSwipe — isolated acceptance"));
     view.resize(1280, 900);
     item->setParentItem(view.contentItem());
     Acceptance acceptance(item.get());

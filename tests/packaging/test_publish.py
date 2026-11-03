@@ -29,7 +29,7 @@ class PublishTests(unittest.TestCase):
         sha = 'a'*40
         env = {'GITHUB_SHA': sha, 'GITHUB_REF': 'refs/tags/v' + release.version(contract),
                'GITHUB_EVENT_NAME': 'pull_request' if untrusted else 'push',
-               'GITHUB_REPOSITORY': 'itsdestin/swipe-keyboard'}
+               'GITHUB_REPOSITORY': 'itsdestin/openswipe'}
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             directory = root/'release'
@@ -105,7 +105,7 @@ if __name__ == '__main__':
 
 class ReadmeLinkTests(unittest.TestCase):
     """After publishing, every README download link for the release must answer (card #200)."""
-    URL = 'https://github.com/itsdestin/swipe-keyboard/releases/download/v0.5.0-1/'
+    URL = 'https://github.com/itsdestin/openswipe/releases/download/v0.5.0-1/'
 
     def opener(self, status):
         def open_url(request, timeout):

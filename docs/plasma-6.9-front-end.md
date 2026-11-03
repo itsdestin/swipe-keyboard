@@ -1,7 +1,7 @@
-# Swipe Keyboard on Plasma 6.9's rebuilt keyboard
+# OpenSwipe on Plasma 6.9's rebuilt keyboard
 
 Plasma 6.9 (due 23 February 2027; feature freeze 5 January, beta 19 January) replaces Plasma Keyboard's Qt Virtual
-Keyboard base with its own keyboard core. Swipe Keyboard therefore ships **two front ends in one package**:
+Keyboard base with its own keyboard core. OpenSwipe therefore ships **two front ends in one package**:
 
 | Installed plasma-keyboard | Files the launcher finds | Front end started |
 |---|---|---|

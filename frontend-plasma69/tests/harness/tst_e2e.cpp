@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
 // SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
 
-// Swipe Keyboard's 6.9 front end inside KDE's REAL keyboard core (plasma-keyboard master, built unmodified by
+// OpenSwipe's 6.9 front end inside KDE's REAL keyboard core (plasma-keyboard master, built unmodified by
 // CMakeLists.txt here), driven by synthesized touches, offscreen. A fake Wayland backend plays the application:
 // it applies commits and byte-based deletions to its text and echoes the result, like KWin + an app do.
 //

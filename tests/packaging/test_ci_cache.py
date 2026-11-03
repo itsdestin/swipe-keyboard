@@ -18,7 +18,7 @@ memspec = importlib.util.spec_from_file_location('ci_memwatch', ROOT/'scripts/ci
 memwatch = importlib.util.module_from_spec(memspec)
 memspec.loader.exec_module(memwatch)
 
-REPO = 'itsdestin/swipe-keyboard'
+REPO = 'itsdestin/openswipe'
 
 
 def env(event, ref, repo=REPO, fork=''):

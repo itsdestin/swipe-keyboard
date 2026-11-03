@@ -4,7 +4,7 @@
 # WHY the lines above: install.sh and uninstall.sh only overwrite or delete a unit file that carries the first one,
 # so a file of yours with the same name is never touched. The revision changes whenever these unit files change.
 [Unit]
-Description=Swipe Keyboard: check that Steam's developer switch file is still there (only looks, never changes it)
+Description=OpenSwipe: check that Steam's developer switch file is still there (only looks, never changes it)
 StartLimitIntervalSec=300
 StartLimitBurst=30
 

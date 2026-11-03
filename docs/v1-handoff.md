@@ -1,6 +1,6 @@
 # V1 candidate handoff
 
-Preparation record for v0.1.0: final Arch/Fedora native candidates and package checks passed, including whole-word/candidate undo from the exact Fedora RPM in the full KDE VM. The owner subsequently approved publication. Current downloads/status: [v0.1.0 test release](https://github.com/itsdestin/swipe-keyboard/releases/tag/v0.1.0).
+Preparation record for v0.1.0: final Arch/Fedora native candidates and package checks passed, including whole-word/candidate undo from the exact Fedora RPM in the full KDE VM. The owner subsequently approved publication. Current downloads/status: [v0.1.0 test release](https://github.com/itsdestin/openswipe/releases/tag/v0.1.0).
 
 ## Approved scope
 

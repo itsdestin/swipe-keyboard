@@ -484,7 +484,7 @@ if __name__ == '__main__':
 
 class ReadmeTests(unittest.TestCase):
     """`release.py readme` moves every download link, file name and command to the release (card #200)."""
-    URL = 'https://github.com/itsdestin/swipe-keyboard/releases/download/'
+    URL = 'https://github.com/itsdestin/openswipe/releases/download/'
     CONTRACT = {'version': '0.5.0', 'release': 1, 'targets': {}}
 
     def test_every_mention_of_the_old_version_moves_together(self):

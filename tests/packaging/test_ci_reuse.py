@@ -12,7 +12,7 @@ spec = importlib.util.spec_from_file_location('ci_reuse', ROOT/'scripts/ci-reuse
 reuse = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(reuse)
 
-SHA, REPO = 'a'*40, 'itsdestin/swipe-keyboard'
+SHA, REPO = 'a'*40, 'itsdestin/openswipe'
 
 
 def run(**over):

@@ -3,7 +3,7 @@
 # swipekb-gaming-unit-revision: 1
 # WHY the lines above: see swipekb-switch-watch.service.
 [Unit]
-Description=Swipe Keyboard: if it was removed while chosen, hand the on-screen keyboard back to KDE's own (only then changes anything)
+Description=OpenSwipe: if it was removed while chosen, hand the on-screen keyboard back to KDE's own (only then changes anything)
 
 [Service]
 Type=oneshot

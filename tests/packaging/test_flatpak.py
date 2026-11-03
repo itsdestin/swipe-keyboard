@@ -290,7 +290,7 @@ class FlatpakContractTests(unittest.TestCase):
         self.assertIn('X-KDE-Wayland-VirtualKeyboard=true', desktop)
         self.assertIn('NoDisplay=true', desktop)
         self.assertIn('Exec=swipe-keyboard-flatpak', desktop)
-        self.assertIn('\nName=Swipe Keyboard\n', desktop)
+        self.assertIn('\nName=OpenSwipe\n', desktop)
         self.assertIn('Comment=English, Spanish, French and German swipe typing, completions and next-word suggestions;', desktop)
         self.assertNotIn('English-only', desktop)
         self.assertNotIn('Desktop build candidate', desktop)

@@ -446,7 +446,7 @@ class OpenSuseUpdater(DebUpdater):
         self.assertEqual(self.run_updater('check'), 0)
 
     def test_dnf_on_opensuse_does_not_take_over(self):
-        # WHY (review): dnf installed on openSUSE has no Swipe Keyboard source; zypper must stay in charge
+        # WHY (review): dnf installed on openSUSE has no OpenSwipe source; zypper must stay in charge
         (self.tmp / 'bin' / 'dnf').write_text(DEB_TOOL); (self.tmp / 'bin' / 'dnf').chmod(0o755)
         self.TOOLS = self.TOOLS + ('dnf',)
         self.publish('0.4.2-1')

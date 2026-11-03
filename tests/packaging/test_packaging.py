@@ -106,7 +106,7 @@ class Packaging(unittest.TestCase):
                 self.assertFalse((folder/name).exists(),name)
         lock=json.loads((ROOT/'packaging/assets.lock.json').read_text())
         self.assertEqual(set(lock['multilingual_context_models']),{'en','es','fr','de'})
-        self.assertTrue(lock['language_files']['baseUrl'].startswith('https://github.com/itsdestin/swipe-keyboard/releases/download/'))
+        self.assertTrue(lock['language_files']['baseUrl'].startswith('https://github.com/itsdestin/openswipe/releases/download/'))
 
     def test_package_descriptions_and_license_metadata_match_multilingual_payloads(self):
         texts=[(ROOT/'packaging/arch/PKGBUILD').read_text(),
