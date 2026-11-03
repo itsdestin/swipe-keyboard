@@ -60,6 +60,16 @@ class Statuses(unittest.TestCase):
         with self.assertRaises(ValueError):
             reuse.producer_statuses(self.JOBS + [{'name': 'arch', 'conclusion': 'success'}])
 
+    def test_distro_rows_count_as_one_producer_that_needs_only_the_required_row(self):
+        # WHY (card #502): the API lists one job per distro row; optional rows may fail without blocking a release
+        base = [{'name': n, 'conclusion': 'success'} for n in reuse.PRODUCERS if n != 'distro-packages']
+        rows = lambda kub, deb: [
+            {'name': 'distro-packages (kubuntu-26.10, ubuntu:26.10, deb, true)', 'conclusion': kub},
+            {'name': 'distro-packages (debian-testing, debian:testing, deb, false)', 'conclusion': deb},
+            {'name': 'distro-packages (tumbleweed, opensuse/tumbleweed, rpm, false)', 'conclusion': 'success'}]
+        self.assertEqual(reuse.producer_statuses(base + rows('success', 'failure'))['distro-packages'], {'result': 'success'})
+        self.assertEqual(reuse.producer_statuses(base + rows('failure', 'success'))['distro-packages'], {'result': 'failure'})
+
     def test_producer_list_matches_the_gate(self):
         spec = importlib.util.spec_from_file_location('release', ROOT/'scripts/release.py')
         release = importlib.util.module_from_spec(spec)

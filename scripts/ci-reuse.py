@@ -24,7 +24,7 @@ import time
 
 WORKFLOW = '.github/workflows/packages.yml'
 # Same producer list as release.py; the gate requires every one of them.
-PRODUCERS = ('prepare', 'arch', 'fedora', 'fedora-arm64', 'flatpak', 'steamos')
+PRODUCERS = ('prepare', 'arch', 'fedora', 'fedora-arm64', 'flatpak', 'steamos', 'distro-packages')
 ARTIFACTS = {t + suffix for t in ('source', 'arch', 'fedora', 'fedora-arm64', 'flatpak', 'steamos')
              for suffix in ('-files', '-evidence')}
 
@@ -67,6 +67,14 @@ def choose(runs, sha, repo):
 def producer_statuses(jobs):
     """Gate input from that run's jobs: every producer exactly once, as {'job': {'result': conclusion}}."""
     out = {}
+    # WHY combined (card #502): the API lists one job per distro row, "distro-packages (target, image, kind, required)".
+    # Like the live run, the producer counts as succeeded when every REQUIRED row succeeded; an optional row (Debian
+    # testing, Tumbleweed) may fail, and the release gate then leaves that target out.
+    rows = [job for job in jobs if str(job.get('name', '')).startswith('distro-packages (')]
+    if rows:
+        required = [job for job in rows if str(job.get('name', '')).rstrip(')').split(', ')[-1] == 'true']
+        ok = bool(required) and all(job.get('conclusion') == 'success' for job in required)
+        out['distro-packages'] = {'result': 'success' if ok else 'failure'}
     for job in jobs:
         name = job.get('name')
         if name in PRODUCERS:

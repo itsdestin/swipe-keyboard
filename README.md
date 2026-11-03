@@ -13,15 +13,15 @@ Swipe across the letters to type a word, or tap as usual. Test release **v0.5.1-
 - Works offline. Nothing you type leaves your device, and learning from your typing is off unless you turn it on.
 - Updates itself.
 
-**Works on:** Steam Deck (Desktop Mode and Gaming Mode), Arch/CachyOS, and Fedora 44 including Plasma Mobile (ARM64). Needs KDE Plasma on Wayland with Plasma Keyboard 6.7 or newer.
+**Works on:** Steam Deck and Bazzite (Desktop Mode and Gaming Mode), Arch/CachyOS, Fedora 44 including Plasma Mobile (ARM64), Kubuntu 26.10, Debian testing and openSUSE Tumbleweed. Older KDE releases (Kubuntu 26.04, Debian 13, openSUSE Leap 16) use the Flatpak. Needs KDE Plasma on Wayland: Plasma Keyboard 6.7 or newer for the regular packages, Plasma 6.3 or newer for the Flatpak.
 
 **Honest limits:** English, Spanish and German swipes are a few points less accurate than the FUTO engine used up to version 0.4.1 ([numbers](#how-good-is-it)). Spanish, French and German next-word suggestions are early baselines. Plasma 6.9 has not been tried on a real device; if something does not fit, KDE's plain keyboard starts and typing still works.
 
 ## Install
 
-[Steam Deck](#steam-deck) · [Arch / CachyOS](#arch--cachyos) · [Fedora 44 / Plasma Mobile](#fedora-44--plasma-mobile)
+[Steam Deck / Bazzite](#steam-deck--bazzite) · [Arch / CachyOS](#arch--cachyos) · [Fedora 44 / Plasma Mobile](#fedora-44--plasma-mobile) · [Kubuntu / Debian](#kubuntu-2610--debian-testing) · [openSUSE Tumbleweed](#opensuse-tumbleweed) · [Older KDE (Kubuntu 26.04, Debian 13, Leap 16)](#older-kde-kubuntu-2604-debian-13-opensuse-leap-16)
 
-### Steam Deck
+### Steam Deck / Bazzite
 
 **[Download for Steam Deck](https://github.com/itsdestin/openswipe/releases/download/v0.5.1-1/swipe-keyboard-0.5.1-1-steamos-x86_64.tar.gz)**, one file for Desktop Mode and Gaming Mode.
 
@@ -55,7 +55,7 @@ flatpak run --user --command=kcmshell6 org.itsdestin.SwipeKeyboard kcm_plasmakey
 sudo pacman -U ~/Downloads/swipe-keyboard-0.5.1-1-x86_64.pkg.tar.zst
 ```
 
-Then [turn it on](#turn-it-on-arch-and-fedora).
+Then [turn it on](#turn-it-on).
 
 **Remove:** `swipe-keyboard disable && sudo pacman -R swipe-keyboard`. **Updates:** automatic; `sudo swipe-keyboard updates off` stops them.
 
@@ -75,11 +75,56 @@ sudo dnf install ~/Downloads/swipe-keyboard-0.5.1-1.fc44.x86_64.rpm
 sudo dnf install ~/Downloads/swipe-keyboard-0.5.1-1.fc44.aarch64.rpm
 ```
 
-Then [turn it on](#turn-it-on-arch-and-fedora).
+Then [turn it on](#turn-it-on).
 
 **Remove:** `swipe-keyboard disable && sudo dnf remove swipe-keyboard`. **Updates:** automatic; `sudo swipe-keyboard updates off` stops them.
 
-### Turn it on (Arch and Fedora)
+### Kubuntu 26.10 / Debian testing
+
+Pick your system, download its file, then run its line in Konsole:
+
+**Kubuntu 26.10:** [download](https://github.com/itsdestin/openswipe/releases/download/v0.5.1-1/swipe-keyboard_0.5.1-1.kubuntu26.10_amd64.deb)
+
+```sh
+sudo apt install ~/Downloads/swipe-keyboard_0.5.1-1.kubuntu26.10_amd64.deb
+```
+
+**Debian testing:** [download](https://github.com/itsdestin/openswipe/releases/download/v0.5.1-1/swipe-keyboard_0.5.1-1.debiantesting_amd64.deb)
+
+```sh
+sudo apt install ~/Downloads/swipe-keyboard_0.5.1-1.debiantesting_amd64.deb
+```
+
+Then [turn it on](#turn-it-on). **Remove:** `swipe-keyboard disable && sudo apt remove swipe-keyboard`. **Updates:** automatic, once a day, only this package (they never change the rest of your system); `sudo swipe-keyboard updates off` stops them.
+
+### openSUSE Tumbleweed
+
+**[Download the package](https://github.com/itsdestin/openswipe/releases/download/v0.5.1-1/swipe-keyboard-0.5.1-1.tumbleweed.x86_64.rpm)**, then in Konsole:
+
+```sh
+sudo zypper install --allow-unsigned-rpm ~/Downloads/swipe-keyboard-0.5.1-1.tumbleweed.x86_64.rpm
+```
+
+`--allow-unsigned-rpm` because the file itself is not signed; automatic updates check every new version against a signed list instead. Then [turn it on](#turn-it-on). **Remove:** `swipe-keyboard disable && sudo zypper remove swipe-keyboard`. **Updates:** automatic; `sudo swipe-keyboard updates off` stops them.
+
+### Older KDE (Kubuntu 26.04, Debian 13, openSUSE Leap 16)
+
+Their KDE is too old for the regular packages, so they use the Flatpak: the same download as the Steam Deck, without Gaming Mode.
+
+1. Kubuntu and Debian come without Flatpak. Once: `sudo apt install flatpak`, then **log out and back in**.
+2. Download the **[Steam Deck file](https://github.com/itsdestin/openswipe/releases/download/v0.5.1-1/swipe-keyboard-0.5.1-1-steamos-x86_64.tar.gz)** to **Downloads** and run, **without `sudo`**:
+
+   ```sh
+   cd ~/Downloads && tar xzf swipe-keyboard-0.5.1-1-steamos-x86_64.tar.gz && cd swipe-keyboard-steamos-0.5.1-1
+   bash install.sh
+   ```
+
+   The first time it downloads KDE's app runtime from Flathub (about 700 MB).
+3. **System Settings → Keyboard → Virtual Keyboard**, select **OpenSwipe** and apply.
+
+Tested on Kubuntu 26.04 and Debian 13 (virtual machines); Leap 16 not yet. **Remove:** `bash uninstall.sh --remove-apps` from the download folder; your system's own on-screen keyboard comes back by itself. **Updates:** automatic, like on the Deck.
+
+### Turn it on
 
 Run **without `sudo`**, read the changes it proposes, and answer **y**:
 

@@ -425,10 +425,22 @@ exit "$result"
         self.assertIn('CURRENT_ARCH_RESULT: ${{ needs.arch-current.result }}', gate)
         self.assertIn('GAMING_RESULT: ${{ needs.gaming-tests.result }}', gate)
         self.assertIn('if [[ "$GAMING_RESULT" != success ]]', gate)
-        self.assertIn('''del(."gaming-tests", ."arch-current", ."update-site-check", ."distro-packages")''', gate)
+        # WHY distro-packages is not removed (card #502): it produces release files now, so the gate counts it.
+        self.assertIn('''del(."gaming-tests", ."arch-current", ."update-site-check")''', gate)
         self.assertIn('DISTRO_RESULT: ${{ needs.distro-packages.result }}', gate)
         self.assertIn('--statuses "$statuses"', gate)
         self.assertIn('needs: [keyboard-ci, gaming-tests]', self.jobs['publish'])
+
+    def test_distro_rows_record_evidence_and_only_the_fast_moving_ones_are_optional(self):
+        distro = self.jobs['distro-packages']
+        self.assertIn('release.py record --target "$TARGET"', distro)
+        self.assertIn('name: ${{ matrix.target }}-files', distro)
+        self.assertIn('name: ${{ matrix.target }}-evidence', distro)
+        self.assertIn('continue-on-error: ${{ !matrix.required }}', distro)
+        import json
+        contract = json.loads((ROOT / 'packaging/release-targets.json').read_text())['targets']
+        self.assertEqual({t for t, v in contract.items() if v.get('optional')}, {'debian-testing', 'tumbleweed'})
+        self.assertRegex(distro, r'target: kubuntu-26\.10\n.*\n.*\n\s*required: true')
 
     def test_flatpak_runner_supports_inherited_wayland_permission(self):
         # WHY Ubuntu 26.04: its signed distribution tools support the unchanged

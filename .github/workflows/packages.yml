@@ -926,8 +926,7 @@ jobs:
           python3 -I -m unittest discover -s tests/packaging -p test_switch_watch.py -v
   distro-packages:
     # WHY (card #502): Kubuntu, Debian testing and openSUSE Tumbleweed packages are built, installed into a clean copy of
-    # their own distro, checked and removed on every full run. They are checks for now, not release producers: they are
-    # first published after the OpenSwipe rename (card #501), so release-targets.json does not list them yet.
+    # their own distro, checked and removed on every full run, and are release files (release-targets.json).
     needs: prepare
     if: ${{ needs.prepare.outputs.mode == 'full' && needs.prepare.outputs.reuse_run == '' }}
     runs-on: ubuntu-24.04
@@ -1008,13 +1007,23 @@ jobs:
           if [ "${{ matrix.kind }}" = deb ]; then apt-get remove -y -q swipe-keyboard; else zypper --non-interactive remove swipe-keyboard; fi
           test ! -e /usr/bin/swipe-keyboard
           test ! -e /usr/share/swipe-keyboard
+      # WHY (card #502): these packages are release files now. The same proof every other platform gives: the package's
+      # own name/version/architecture header and the exact bytes, recorded here and checked again by the release gate.
+      - name: Record release evidence
+        run: python3 scripts/release.py record --target "$TARGET" --directory dist --sha "$GITHUB_SHA" --evidence evidence
       - uses: actions/upload-artifact@v4
         with:
-          name: distro-${{ matrix.target }}-files
+          name: ${{ matrix.target }}-files
           path: dist/swipe-keyboard*
           if-no-files-found: error
           retention-days: 7
           compression-level: 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}-evidence
+          path: evidence/
+          if-no-files-found: error
+          retention-days: 7
   keyboard-ci:
     # WHY the name changes with the mode: branch protection requires the exact check "Keyboard CI".
     # A fast-path run reports under a different name, so it can never satisfy that requirement; only
@@ -1105,9 +1114,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           # WHY removed: the producer check wants exactly the producer jobs; gaming-tests has its own step above.
-          # WHY also removed: arch-current, update-site-check and distro-packages are checks, not producers; they are judged
-          # in their own step above.
-          statuses=$(jq -c 'del(."gaming-tests", ."arch-current", ."update-site-check", ."distro-packages")' <<< "$PRODUCER_STATUSES")
+          # WHY also removed: arch-current and update-site-check are checks, not producers; they are judged in their own
+          # step above. distro-packages is a producer since the OpenSwipe release (card #502).
+          statuses=$(jq -c 'del(."gaming-tests", ."arch-current", ."update-site-check")' <<< "$PRODUCER_STATUSES")
           if [[ -n "$REUSE_RUN" ]]; then
             # WHY: this run's producers were skipped on purpose; the results that count are those of the main run
             # whose files are checked below. Only a tag whose own prepare succeeded may do this.
