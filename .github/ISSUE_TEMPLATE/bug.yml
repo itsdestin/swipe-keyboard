@@ -13,7 +13,7 @@ body:
   - type: input
     id: version
     attributes:
-      label: Swipe Keyboard package version
+      label: OpenSwipe package version
     validations:
       required: true
   - type: input

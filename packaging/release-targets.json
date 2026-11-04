@@ -1,5 +1,5 @@
 {
-  "version": "0.5.1",
+  "version": "0.6.0",
   "release": 1,
   "targets": {
     "source": {"arch": "source", "files": ["swipe-keyboard-{version}.tar.gz"]},
@@ -7,6 +7,9 @@
     "fedora": {"arch": "x86_64", "files": ["swipe-keyboard-{version}-{release}.fc44.x86_64.rpm", "swipe-keyboard-{version}-{release}.fc44.src.rpm"]},
     "fedora-arm64": {"arch": "aarch64", "files": ["swipe-keyboard-{version}-{release}.fc44.aarch64.rpm"]},
     "flatpak": {"arch": "x86_64", "files": ["swipe-keyboard-{version}-{release}-x86_64.flatpak", "swipe-keyboard-{version}-{release}-flatpak-build-inputs.tar.gz"]},
-    "steamos": {"arch": "x86_64", "files": ["swipe-keyboard-{version}-{release}-steamos-x86_64.tar.gz"]}
+    "steamos": {"arch": "x86_64", "files": ["swipe-keyboard-{version}-{release}-steamos-x86_64.tar.gz"]},
+    "kubuntu-26.10": {"arch": "x86_64", "files": ["swipe-keyboard_{version}-{release}.kubuntu26.10_amd64.deb"]},
+    "debian-testing": {"arch": "x86_64", "optional": true, "files": ["swipe-keyboard_{version}-{release}.debiantesting_amd64.deb"]},
+    "tumbleweed": {"arch": "x86_64", "optional": true, "files": ["swipe-keyboard-{version}-{release}.tumbleweed.x86_64.rpm"]}
   }
 }

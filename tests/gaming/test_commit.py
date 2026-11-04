@@ -136,6 +136,21 @@ class Typing(unittest.TestCase):
         self.assertEqual(self.sent(), ['Hello ', 'HELLO '])
         self.assertEqual([c['word'] for c in self.got()[1]['cands']], ['HELLO', 'HELL', 'JELLO'])
 
+    def test_a_word_swiped_right_after_tapped_letters_gets_a_space_first_and_keeps_it_when_swapped(self):
+        """Card #502 (Bazzite VM): tapping "q" then swiping "this" gave "qthis". The page asks for the space; the helper types it."""
+        self.start()
+        self.send(stroke(1, lead=True)); a = self.wait_got(1)[0]
+        self.assertEqual((self.sent(), a['typed']), ([' hello '], ' hello '))
+        self.send({'v': 1, 'type': 'pick', 'id': 1000001, 'req': a['req'], 'cand': a['cands'][1]['id'], 'erase': 7})
+        self.wait_got(2)
+        self.assertEqual(self.sent()[-1], '\b' * 7 + ' hell ', 'the swap replaces the space too, and puts it back')
+
+    def test_space_first_must_be_a_plain_yes_or_no(self):
+        self.start()
+        self.send(stroke(1, lead='yes'))
+        self.send(stroke(2)); self.wait_got(1)
+        self.assertEqual(self.sent(), ['hello '], 'the odd message was refused; the plain one typed with no space first')
+
     def test_tapping_a_candidate_erases_exactly_the_typed_word_and_types_the_other(self):
         self.start()
         self.send(stroke(1, caps='first')); a = self.wait_got(1)[0]
@@ -295,6 +310,46 @@ class Typing(unittest.TestCase):
         modes = [f['mode'] for _, _, f in self.d.ops('hello')]
         self.assertEqual(modes, ['plain', 'unknown'])
         wait_for(lambda: self.d.open_conns == 1, what='the old connection was closed')
+
+    def test_keyboard_opened_warms_the_engine_on_its_own_short_connection_and_types_nothing(self):
+        # WHY (card #502): the engine loads its words while the user is still finding the first letter.
+        self.start()
+        self.send({'v': 1, 'type': 'warm', 'layout': 'german'})
+        wait_for(lambda: self.d.ops('warm'), what='warm passed on')
+        self.assertEqual(self.d.ops('warm')[0][2], {'steam_layout': 'german'}, 'only the layout name travels')
+        wait_for(lambda: self.d.open_conns == 0, what='warm connection closed again')
+        hello = [f for n, o, f in self.d.ops('hello')]
+        self.assertEqual(hello[0].get('mode'), 'unknown', 'the stricter mode')
+        self.assertEqual(self.sent(), [], 'nothing typed')
+        self.assertEqual(self.got(), [], 'the page waits for no answer')
+        # the swipe that follows is unaffected: its own connection, its own layout
+        self.send(stroke(1))
+        self.assertTrue(self.wait_got(1)[0]['committed'])
+        self.assertEqual(len(self.d.ops('layout')), 1)
+
+    def test_a_warm_up_with_the_keys_passes_them_on_in_the_engines_form(self):
+        self.start()
+        self.send({'v': 1, 'type': 'warm', 'layout': 'qwerty', 'keys': keys_msg()})
+        wait_for(lambda: self.d.ops('warm'), what='warm passed on')
+        sent = self.d.ops('warm')[0][2]
+        self.assertEqual(sorted(sent), ['keys', 'steam_layout'])
+        k0, m0 = sent['keys'][0], keys_msg()[0]
+        self.assertEqual((k0['c'], k0['x'], k0['y']), (m0['k'].lower(), m0['x'] - m0['w'] / 2, m0['y'] - m0['h'] / 2), 'top-left corner, as for layout')
+        # bad keys make the whole warm-up refused, like a bad stroke
+        n = len(self.d.ops('warm'))
+        self.send({'v': 1, 'type': 'warm', 'layout': 'qwerty', 'keys': [{'k': '1', 'x': 1, 'y': 1, 'w': 1, 'h': 1}]})
+        self.send(stroke(1)); self.wait_got(1)
+        self.assertEqual(len(self.d.ops('warm')), n)
+
+    def test_a_warm_up_the_engine_refuses_or_cannot_answer_changes_nothing(self):
+        self.start()
+        self.send({'v': 1, 'type': 'warm', 'layout': 'Bad Name!'})     # refused by the helper itself
+        self.send({'v': 1, 'type': 'warm', 'layout': 7})
+        self.d.stop()
+        self.send({'v': 1, 'type': 'warm', 'layout': 'qwerty'})       # engine down: silently nothing
+        self.send(stroke(1))
+        self.assertEqual(self.wait_got(1)[0]['error'], 'engine', 'the helper is still answering')
+        self.assertEqual(self.sent(), [])
 
     def test_keyboard_closed_hangs_up_on_the_engine(self):
         self.start()

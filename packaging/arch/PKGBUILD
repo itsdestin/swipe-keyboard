@@ -4,11 +4,11 @@
 
 # Local build candidate only; no install hooks and no publication.
 pkgname=swipe-keyboard
-pkgver=0.5.1
+pkgver=0.6.0
 pkgrel=1
 pkgdesc='English, Spanish, French and German swipe typing, completions and next-word suggestions for Plasma Keyboard'
 arch=('x86_64')
-url='https://github.com/itsdestin/swipe-keyboard'
+url='https://github.com/itsdestin/openswipe'
 # WHY these licences (owner decision 2026-10-23: MIT where possible; each data file keeps its own, see REUSE.toml):
 # engine, tools and launcher MIT; the keyboard add-on layers that plug into GPL code (Qt Virtual
 # Keyboard plugin, Plasma 6.9 front end) GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL; AOSP word list Apache-2.0; FineWeb text ODC-By-1.0;

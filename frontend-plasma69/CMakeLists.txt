@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
 # SPDX-License-Identifier: MIT
 #
-# Swipe Keyboard's front end for Plasma 6.9's rebuilt keyboard (plasma-keyboard >= 6.8.80): the QML module
+# OpenSwipe's front end for Plasma 6.9's rebuilt keyboard (plasma-keyboard >= 6.8.80): the QML module
 # SwipeKeyboard69. It does not use Qt Virtual Keyboard and does not link or load FUTO code.
 #
 # WHY it also builds on its own (cmake -S frontend-plasma69): the top-level project still requires FUTO's

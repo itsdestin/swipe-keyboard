@@ -1,8 +1,8 @@
-# Open models of the Swipe Keyboard
+# Open models of the OpenSwipe
 
 Models trained and released by Destin Moss via youcoded.ai, 2026.
 
-Five small model files plus a tiny re-ranker built into the engine, used by the [Swipe Keyboard](https://github.com/itsdestin/swipe-keyboard), an open-source swipe-typing and word-prediction add-on for KDE Plasma's on-screen keyboard (English, Spanish, French, German). They run on the user's own computer with the project's own C++ code. Nothing is sent anywhere.
+Five small model files plus a tiny re-ranker built into the engine, used by the [OpenSwipe](https://github.com/itsdestin/openswipe), an open-source swipe-typing and word-prediction add-on for KDE Plasma's on-screen keyboard (English, Spanish, French, German). They run on the user's own computer with the project's own C++ code. Nothing is sent anywhere.
 
 | Model | What it does | Size | Licence | Card |
 |---|---|---|---|---|

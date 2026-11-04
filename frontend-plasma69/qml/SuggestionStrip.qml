@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
 // SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
 
-// Swipe Keyboard's suggestion row on Plasma 6.9: the swiped word's alternatives, completions of tapped letters,
+// OpenSwipe's suggestion row on Plasma 6.9: the swiped word's alternatives, completions of tapped letters,
 // next-word suggestions and tap-to-swap alternatives, three at a time with the strongest in the middle.
 //
 // WHY our own row: KDE's row (KeyboardStrip) only shows candidates a built-in text composer sets, which an add-on

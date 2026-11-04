@@ -2,7 +2,7 @@
 
 Every number is traced to a file in the repository in an HTML comment next to it. Where a number does not exist in our records, this page says "not measured" instead of estimating one.
 
-Models trained and released by Destin Moss via youcoded.ai, 2026. Project: https://github.com/itsdestin/swipe-keyboard. Model cards: [docs/models/](models/README.md).
+Models trained and released by Destin Moss via youcoded.ai, 2026. Project: https://github.com/itsdestin/openswipe. Model cards: [docs/models/](models/README.md).
 
 ## What a typist feels
 
@@ -428,7 +428,7 @@ The first two columns ran the same swipes; the third used larger word lists than
 
 ## How to reproduce
 
-From a checkout of https://github.com/itsdestin/swipe-keyboard, build the tools (the Qt build produces `build/tools/swipekb-nextword-eval` and `build/tools/swipekb-swipenet-bench`).
+From a checkout of https://github.com/itsdestin/openswipe, build the tools (the Qt build produces `build/tools/swipekb-nextword-eval` and `build/tools/swipekb-swipenet-bench`).
 
 ```
 # Typing: build the three test sets (needs the Tatoeba export, Common Voice sentences, a FineWeb-2 test parquet)

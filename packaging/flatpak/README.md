@@ -4,7 +4,7 @@ This folder builds the Steam Deck app `org.itsdestin.SwipeKeyboard`. For install
 
 ## What it is
 
-A self-contained Plasma Keyboard with Swipe Keyboard in it, on the KDE Flatpak runtime (`org.kde.Platform` 6.10). It does not replace any SteamOS library or touch the read-only system. Installing it does not select it: the person picks it in **System Settings → Virtual Keyboard**, and must pick their previous keyboard again before removing it (there is no automatic restore for the Flatpak).
+A self-contained Plasma Keyboard with OpenSwipe in it, on the KDE Flatpak runtime (`org.kde.Platform` 6.10). It does not replace any SteamOS library or touch the read-only system. Installing it does not select it: the person picks it in **System Settings → Virtual Keyboard**, and must pick their previous keyboard again before removing it (there is no automatic restore for the Flatpak).
 
 ## Build
 

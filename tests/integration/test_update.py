@@ -43,6 +43,8 @@ print((a > b) - (a < b))
 
 @unittest.skipUnless(shutil.which('gpg') and shutil.which('gpgv'), 'needs gpg and gpgv')
 class ArchUpdater(unittest.TestCase):
+    FOLDER = 'arch'
+
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
@@ -80,7 +82,7 @@ class ArchUpdater(unittest.TestCase):
         index = {'schema': 1, 'package': 'swipe-keyboard', 'version': version,
                  'files': {'x86_64': {'url': url or (self.downloads / name).as_uri(),
                                       'sha256': sha256 or hashlib.sha256(payload).hexdigest(), 'size': len(payload)}}}
-        path = self.site / 'arch/latest.json'
+        path = self.site / self.FOLDER / 'latest.json'
         path.write_text(json.dumps(index))
         if sign:
             self.gpg('--yes', '--detach-sign', '--output', str(path) + '.sig', str(path))
@@ -114,7 +116,7 @@ class ArchUpdater(unittest.TestCase):
 
     def test_an_index_changed_after_signing_is_refused(self):
         self.publish('0.4.2-1')
-        index = self.site / 'arch/latest.json'
+        index = self.site / self.FOLDER / 'latest.json'
         index.write_text(index.read_text().replace('0.4.2-1', '0.4.3-1'))
         self.assertEqual(self.run_updater('check'), 1)
         self.assertEqual(self.installs(), [])
@@ -125,7 +127,7 @@ class ArchUpdater(unittest.TestCase):
         other.mkdir(mode=0o700)
         subprocess.run(['gpg', '--batch', '--quiet', '--homedir', str(other), '--passphrase', '',
                         '--quick-generate-key', 'Someone else', 'ed25519', 'sign', '1d'], check=True, capture_output=True)
-        index = self.site / 'arch/latest.json'
+        index = self.site / self.FOLDER / 'latest.json'
         subprocess.run(['gpg', '--batch', '--quiet', '--homedir', str(other), '--yes', '--detach-sign',
                         '--output', str(index) + '.sig', str(index)], check=True, capture_output=True)
         self.assertEqual(self.run_updater('check'), 1)
@@ -189,7 +191,7 @@ class ArchUpdater(unittest.TestCase):
         good = self.tmp / 'good-site'
         self.publish('0.4.2-1')
         shutil.copytree(self.site, good)
-        (self.site / 'arch/latest.json.sig').write_bytes(b'not a signature')
+        (self.site / self.FOLDER / 'latest.json.sig').write_bytes(b'not a signature')
         self.env['SWIPEKB_UPDATE_SITE'] = f'{self.site.as_uri()} {good.as_uri()}'
         self.assertEqual(self.run_updater('check'), 1)
         self.assertEqual(self.installs(), [])
@@ -216,7 +218,7 @@ class ArchUpdater(unittest.TestCase):
 
     def test_a_malformed_but_signed_index_is_refused_without_a_crash(self):
         self.publish('0.4.2-1')
-        index = self.site / 'arch/latest.json'
+        index = self.site / self.FOLDER / 'latest.json'
         data = json.loads(index.read_text())
         data['files']['x86_64']['size'] = 'big'
         index.write_text(json.dumps(data))
@@ -239,6 +241,263 @@ class ArchUpdater(unittest.TestCase):
         self.publish('0.4.2-1')
         self.env['FAKE_PACMAN_RC'] = '1'
         self.assertEqual(self.run_updater('check'), 1)
+
+
+# Stand-ins for Kubuntu/Debian and openSUSE (card #502): installed version, version order, and a recorded install.
+DEB_TOOL = '''#!/usr/bin/env python3
+import os, re, sys
+name = os.path.basename(sys.argv[0])
+key = lambda v: [int(x) if x.isdigit() else x for x in re.split(r'[.-]', v)]
+if name == 'dpkg-query':
+    status = os.environ.get('FAKE_DPKG_STATUS', 'install ok installed')
+    print(status if '${Status}' in ' '.join(sys.argv) else os.environ['FAKE_INSTALLED'], end=''); sys.exit(0)
+if name == 'dpkg' and sys.argv[1] == '--compare-versions':
+    sys.exit(0 if key(sys.argv[2]) > key(sys.argv[4]) else 1)
+if name == 'rpm' and sys.argv[1] == '-q':
+    print(os.environ['FAKE_INSTALLED'], end=''); sys.exit(0)
+if name == 'rpm' and sys.argv[1] == '--eval':
+    a, b = re.findall(r'"([^"]+)"', sys.argv[2]); print((key(a) > key(b)) - (key(a) < key(b))); sys.exit(0)
+if os.environ.get('FAKE_ENV_LOG'):
+    with open(os.environ['FAKE_ENV_LOG'], 'a') as f: f.write(os.environ.get('LC_ALL', '-') + '\\n')
+if '-s' in sys.argv or '--dry-run' in sys.argv:   # the preview: what installing would change (card #502 review)
+    print(os.environ.get('FAKE_PREVIEW', ''), end=''); sys.exit(int(os.environ.get('FAKE_PREVIEW_RC', '0')))
+with open(os.environ['FAKE_LOG'], 'a') as f:
+    f.write(name + ' ' + ' '.join(sys.argv[1:]) + '\\n')
+sys.exit(int(os.environ.get('FAKE_PACMAN_RC', '0')))
+'''
+
+
+class DebUpdater(ArchUpdater):
+    """Kubuntu/Debian: the Arch checks (signed index, hash, fixed download prefix) against deb/<target>/latest.json."""
+    TOOLS = ('apt-get', 'dpkg-query', 'dpkg')
+    FOLDER = 'deb/kubuntu-26.10'
+    OS_RELEASE = 'NAME="Ubuntu"\nID=ubuntu\nID_LIKE=debian\nVERSION_ID="26.10"\n'
+    # WHAT a harmless preview looks like: our package upgraded, one brand-new dependency added
+    SAFE = 'Inst libswipe-new (1.0 Ubuntu:26.10)\nInst swipe-keyboard [0.4.1-1] (0.4.2-1 local)\n'
+    UPGRADES_QT = 'Inst libqt6core6t64 [6.10.2-1] (6.11.0-1 Debian:testing)\nInst swipe-keyboard [0.4.1-1] (0.4.2-1 local)\n'
+    REMOVES = 'Remv kwin-wayland [6.3.6-1]\nInst swipe-keyboard [0.4.1-1] (0.4.2-1 local)\n'
+
+    def setUp(self):
+        super().setUp()
+        bin_dir = self.tmp / 'bin'
+        for name in self.TOOLS + ('rpm',):
+            (bin_dir / name).write_text(DEB_TOOL)
+            (bin_dir / name).chmod(0o755)
+        (self.tmp / 'update-target').write_text(self.FOLDER.split('/')[1] + '\n')
+        self.env['SWIPEKB_UPDATE_TARGET_FILE'] = str(self.tmp / 'update-target')
+        self.env['FAKE_INSTALLED'] = self.version('0.4.1-1')
+        (self.site / self.FOLDER).mkdir(parents=True)
+        # WHY a stand-in os-release: the updater compares it with the package's target; this machine's own must not count
+        self.os_release = self.tmp / 'os-release'
+        self.os_release.write_text(self.OS_RELEASE)
+        self.env['SWIPEKB_OS_RELEASE'] = str(self.os_release)
+
+    def version(self, v):
+        return v + '.kubuntu26.10'
+
+    def file_name(self, version):
+        return f'swipe-keyboard_{version}_amd64.deb'
+
+    def publish(self, version, payload=b'package bytes', sha256=None, url=None, sign=True):
+        version = self.version(version)
+        name = self.file_name(version)
+        (self.downloads / name).write_bytes(payload)
+        index = {'schema': 1, 'package': 'swipe-keyboard', 'version': version,
+                 'files': {'x86_64': {'url': url or (self.downloads / name).as_uri(),
+                                      'sha256': sha256 or hashlib.sha256(payload).hexdigest(), 'size': len(payload)}}}
+        path = self.site / self.FOLDER / 'latest.json'
+        path.write_text(json.dumps(index))
+        if sign:
+            self.gpg('--yes', '--detach-sign', '--output', str(path) + '.sig', str(path))
+        return name
+
+    def run_updater(self, *args):
+        tools = set(self.TOOLS) | ({'rpm'} if 'zypper' in self.TOOLS else set())
+        with mock.patch.dict(os.environ, self.env):
+            spec = importlib.util.spec_from_file_location('swipekb_update', UPDATE)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            which = lambda n: (str(self.tmp / 'bin' / n) if n in tools
+                               else None if n in ('pacman', 'dnf', 'apt-get', 'dpkg-query', 'zypper', 'rpm') else REAL_WHICH(n))
+            with mock.patch.object(module.platform, 'machine', return_value='x86_64'), \
+                 mock.patch.object(module.os, 'geteuid', return_value=0), \
+                 mock.patch.object(module.shutil, 'which', side_effect=which):
+                return module.main(list(args))
+
+    def test_a_signed_newer_package_is_checked_then_installed_with_pacman(self):
+        name = self.publish('0.4.2-1')
+        self.env['FAKE_PREVIEW'] = self.SAFE
+        self.assertEqual(self.run_updater('check'), 0)
+        [install] = self.installs()
+        self.assertTrue(install.startswith(self.TOOLS[0] + ' ') and ' install ' in install, install)
+        self.assertTrue(install.endswith('/' + name), install)
+
+    # Arch-only cases: pacman.conf signature hints and the old-site fallback are covered once, in ArchUpdater.
+    test_a_failed_pacman_run_is_reported = None
+    test_a_copy_no_package_manager_owns_says_so_and_installs_nothing = None
+
+    def test_a_removed_package_with_kept_settings_is_not_updated(self):
+        if 'apt-get' not in self.TOOLS:
+            self.skipTest('dpkg only')
+        self.publish('0.4.2-1')
+        self.env['FAKE_DPKG_STATUS'] = 'deinstall ok config-files'
+        self.assertEqual(self.run_updater('check'), 0)
+        self.assertEqual(self.installs(), [])
+
+    def test_a_missing_target_file_is_an_error_and_installs_nothing(self):
+        self.publish('0.4.2-1')
+        (self.tmp / 'update-target').unlink()
+        self.assertEqual(self.run_updater('check'), 1)
+        self.assertEqual(self.installs(), [])
+
+    def test_another_targets_index_is_never_read(self):
+        # WHY: a Kubuntu 26.10 package must never be offered the Debian testing build, even if only that one is newer.
+        other = self.site / 'deb/debian-testing'
+        other.mkdir(parents=True, exist_ok=True)
+        self.publish('0.4.2-1')
+        (self.site / self.FOLDER / 'latest.json').rename(other / 'latest.json')
+        (self.site / self.FOLDER / 'latest.json.sig').rename(other / 'latest.json.sig')
+        self.run_updater('check')
+        self.assertEqual(self.installs(), [])
+
+
+def _system_safety_tests():
+    def test_the_install_never_removes_anything(self):
+        self.publish('0.4.2-1')
+        self.env['FAKE_PREVIEW'] = self.SAFE
+        self.assertEqual(self.run_updater('check'), 0)
+        [install] = self.installs()
+        if self.TOOLS[0] == 'apt-get':
+            self.assertIn(' --no-remove ', install)
+
+    def test_an_update_that_would_upgrade_or_remove_system_packages_is_refused(self):
+        for preview in (self.UPGRADES_QT, self.REMOVES):
+            with self.subTest(preview=preview.splitlines()[0]):
+                self.publish('0.4.2-1')
+                self.env['FAKE_PREVIEW'] = preview
+                self.assertEqual(self.run_updater('check'), 1)
+                self.assertEqual(self.installs(), [])
+
+    def test_a_preview_that_fails_installs_nothing(self):
+        self.publish('0.4.2-1')
+        self.env['FAKE_PREVIEW_RC'] = '100'
+        self.assertEqual(self.run_updater('check'), 1)
+        self.assertEqual(self.installs(), [])
+
+    def test_a_target_no_longer_published_is_an_error_not_offline(self):
+        # the site answers (its arch index is there) but this release's folder is gone. A required target (Kubuntu) is an
+        # error to act on; an optional one (Debian testing, Tumbleweed) was simply left out of this release: quiet.
+        (self.site / 'arch').mkdir(exist_ok=True)
+        folder, self.FOLDER = self.FOLDER, 'arch'
+        ArchUpdater.publish(self, '0.4.2-1')
+        self.FOLDER = folder
+        optional = (self.tmp / 'update-target').read_text().strip() in ('debian-testing', 'tumbleweed')
+        self.assertEqual(self.run_updater('check'), 0 if optional else 1)
+        self.assertEqual(self.installs(), [])
+
+    def test_a_system_upgraded_past_the_packages_release_is_told_to_reinstall(self):
+        if self.TOOLS[0] != 'apt-get':
+            self.skipTest('Kubuntu target')
+        self.publish('0.4.2-1')
+        self.os_release.write_text(self.OS_RELEASE.replace('26.10', '27.04'))
+        self.assertEqual(self.run_updater('check'), 1)
+        self.assertEqual(self.installs(), [])
+
+    def test_debian_testing_that_became_stable_keeps_updating_through_the_preview(self):
+        # WHY (second review): there is no per-version Debian package to send people to; the preview protects the system
+        self.FOLDER = 'deb/debian-testing'
+        (self.site / self.FOLDER).mkdir(parents=True, exist_ok=True)
+        (self.tmp / 'update-target').write_text('debian-testing\n')
+        self.publish('0.4.2-1')
+        self.os_release.write_text('NAME="Debian GNU/Linux"\nID=debian\nVERSION_ID="14"\n')
+        self.env['FAKE_PREVIEW'] = self.SAFE
+        self.assertEqual(self.run_updater('check'), 0)
+        self.assertEqual(len(self.installs()), 1)
+
+    def test_a_derivative_with_its_own_version_number_is_not_refused(self):
+        if self.TOOLS[0] != 'apt-get':
+            self.skipTest('Kubuntu target')
+        self.publish('0.4.2-1')
+        self.os_release.write_text('NAME="Some Derivative"\nID=derivative\nID_LIKE="ubuntu debian"\nVERSION_ID="7"\n')
+        self.env['FAKE_PREVIEW'] = self.SAFE
+        self.assertEqual(self.run_updater('check'), 0)
+
+    def test_the_preview_and_install_read_english(self):
+        # WHY (second review): zypper translates its summary; the preview must parse English
+        self.publish('0.4.2-1')
+        self.env['FAKE_PREVIEW'] = self.SAFE
+        self.env['FAKE_ENV_LOG'] = str(self.tmp / 'env.log')
+        self.run_updater('check')
+        self.assertTrue(all(line == 'C.UTF-8' for line in (self.tmp / 'env.log').read_text().split()))
+
+    def test_an_unfinished_install_is_reported_with_the_fix(self):
+        self.publish('0.4.2-1')
+        self.env['FAKE_DPKG_STATUS'] = 'install ok half-configured'
+        self.assertEqual(self.run_updater('check'), 1)
+        self.assertEqual(self.installs(), [])
+    return {k: v for k, v in locals().items() if k.startswith('test_')}
+
+
+for _name, _test in _system_safety_tests().items():
+    setattr(DebUpdater, _name, _test)
+
+
+class OpenSuseUpdater(DebUpdater):
+    """openSUSE Tumbleweed: the same checks against opensuse/<target>/latest.json, installed with zypper."""
+    TOOLS = ('zypper', 'rpm')
+    FOLDER = 'opensuse/tumbleweed'
+
+    def version(self, v):
+        return v + '.tumbleweed'
+
+    def file_name(self, version):
+        return f'swipe-keyboard-{version}.x86_64.rpm'
+
+    test_another_targets_index_is_never_read = None
+    test_debian_testing_that_became_stable_keeps_updating_through_the_preview = None
+    test_a_derivative_with_its_own_version_number_is_not_refused = None
+    test_an_unfinished_install_is_reported_with_the_fix = None
+    OS_RELEASE = 'NAME="openSUSE Tumbleweed"\nID="opensuse-tumbleweed"\nID_LIKE="opensuse suse"\n'
+    SAFE = 'The following NEW package is going to be installed:\n  libswipe-new\n\nThe following package is going to be upgraded:\n  swipe-keyboard\n'
+    UPGRADES_QT = 'The following 2 packages are going to be upgraded:\n  libQt6Core6 swipe-keyboard\n'
+    REMOVES = 'The following package is going to be REMOVED:\n  kwin6\n\nThe following package is going to be upgraded:\n  swipe-keyboard\n'
+
+    def test_zyppers_notes_after_a_good_install_are_not_failures(self):
+        self.publish('0.4.2-1')
+        self.env['FAKE_PREVIEW'] = self.SAFE
+        self.env['FAKE_PACMAN_RC'] = '106'
+        self.assertEqual(self.run_updater('check'), 0)
+
+    def test_a_harmless_preview_code_with_a_clean_summary_still_updates(self):
+        # WHY (second review): an unrelated repository that cannot refresh (code 106) must not freeze our updates
+        self.publish('0.4.2-1')
+        self.env['FAKE_PREVIEW'] = self.SAFE
+        self.env['FAKE_PREVIEW_RC'] = '106'
+        self.assertEqual(self.run_updater('check'), 0)
+        self.assertEqual(len(self.installs()), 1)
+
+    def test_an_architecture_change_is_refused(self):
+        self.publish('0.4.2-1')
+        self.env['FAKE_PREVIEW'] = ('The following package is going to change architecture:\n  libQt6Core6\n\n'
+                                    'The following package is going to be upgraded:\n  swipe-keyboard\n')
+        self.assertEqual(self.run_updater('check'), 1)
+        self.assertEqual(self.installs(), [])
+
+    def test_leap_with_the_tumbleweed_package_is_told_what_to_use(self):
+        self.publish('0.4.2-1')
+        self.os_release.write_text('NAME="openSUSE Leap"\nID="opensuse-leap"\nID_LIKE="suse opensuse"\nVERSION_ID="16.0"\n')
+        self.assertEqual(self.run_updater('check'), 1)
+        self.assertEqual(self.installs(), [])
+
+    def test_dnf_on_opensuse_does_not_take_over(self):
+        # WHY (review): dnf installed on openSUSE has no OpenSwipe source; zypper must stay in charge
+        (self.tmp / 'bin' / 'dnf').write_text(DEB_TOOL); (self.tmp / 'bin' / 'dnf').chmod(0o755)
+        self.TOOLS = self.TOOLS + ('dnf',)
+        self.publish('0.4.2-1')
+        self.env['FAKE_PREVIEW'] = self.SAFE
+        self.run_updater('check')
+        [install] = self.installs()
+        self.assertTrue(install.startswith('zypper '), install)
 
 
 class Units(unittest.TestCase):

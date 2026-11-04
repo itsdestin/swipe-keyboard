@@ -1,6 +1,10 @@
-# Swipe Keyboard for KDE Plasma
+# OpenSwipe for KDE Plasma
 
-Swipe across the letters to type a word, or tap as usual. Test release **v0.5.1-1**.
+Swipe across the letters to type a word, or tap as usual. Test release **v0.6.0-1**. Formerly **Swipe Keyboard**: same keyboard, new name (the package and command are still called `swipe-keyboard`).
+
+<!-- WHY (Destin, 2026-11-02): versions before 0.5.1-1 cannot find updates after the move to the new name (GitHub does not
+     forward the update website), and 0.4.0 and older never updated themselves. Keep this line for the next few releases. -->
+> **Installed before 30 October 2026 (older than version 0.5.1-1)?** Install it once more from the instructions below. Older versions can't find updates after the move to the new name. After that it updates itself.
 
 ## What you get
 
@@ -9,29 +13,29 @@ Swipe across the letters to type a word, or tap as usual. Test release **v0.5.1-
 - Works offline. Nothing you type leaves your device, and learning from your typing is off unless you turn it on.
 - Updates itself.
 
-**Works on:** Steam Deck (Desktop Mode and Gaming Mode), Arch/CachyOS, and Fedora 44 including Plasma Mobile (ARM64). Needs KDE Plasma on Wayland with Plasma Keyboard 6.7 or newer.
+**Works on:** Steam Deck and Bazzite (Desktop Mode and Gaming Mode), Arch/CachyOS, Fedora 44 including Plasma Mobile (ARM64), Kubuntu 26.10, Debian testing and openSUSE Tumbleweed. Older KDE releases (Kubuntu 26.04, Debian 13, openSUSE Leap 16) use the Flatpak. Needs KDE Plasma on Wayland: Plasma Keyboard 6.7 or newer for the regular packages, Plasma 6.3 or newer for the Flatpak.
 
 **Honest limits:** English, Spanish and German swipes are a few points less accurate than the FUTO engine used up to version 0.4.1 ([numbers](#how-good-is-it)). Spanish, French and German next-word suggestions are early baselines. Plasma 6.9 has not been tried on a real device; if something does not fit, KDE's plain keyboard starts and typing still works.
 
 ## Install
 
-[Steam Deck](#steam-deck) · [Arch / CachyOS](#arch--cachyos) · [Fedora 44 / Plasma Mobile](#fedora-44--plasma-mobile)
+[Steam Deck / Bazzite](#steam-deck--bazzite) · [Arch / CachyOS](#arch--cachyos) · [Fedora 44 / Plasma Mobile](#fedora-44--plasma-mobile) · [Kubuntu / Debian](#kubuntu-2610--debian-testing) · [openSUSE Tumbleweed](#opensuse-tumbleweed) · [Older KDE (Kubuntu 26.04, Debian 13, Leap 16)](#older-kde-kubuntu-2604-debian-13-opensuse-leap-16)
 
-### Steam Deck
+### Steam Deck / Bazzite
 
-**[Download for Steam Deck](https://github.com/itsdestin/swipe-keyboard/releases/download/v0.5.1-1/swipe-keyboard-0.5.1-1-steamos-x86_64.tar.gz)**, one file for Desktop Mode and Gaming Mode.
+**[Download for Steam Deck](https://github.com/itsdestin/openswipe/releases/download/v0.6.0-1/swipe-keyboard-0.6.0-1-steamos-x86_64.tar.gz)**, one file for Desktop Mode and Gaming Mode.
 
 1. In **Desktop Mode**, save it to **Downloads**, open **Konsole** and run this **without `sudo`**:
 
    ```sh
-   cd ~/Downloads && tar xzf swipe-keyboard-0.5.1-1-steamos-x86_64.tar.gz && cd swipe-keyboard-steamos-0.5.1-1
+   cd ~/Downloads && tar xzf swipe-keyboard-0.6.0-1-steamos-x86_64.tar.gz && cd swipe-keyboard-steamos-0.6.0-1
    bash install.sh
    ```
 
 2. It shows everything it will change, then asks **Also swipe in Gaming Mode? [Y/n]**. Press **Enter** for yes. It asks for your Deck's administrator password once, to keep other devices on your network away from Steam's developer switch. Never set one? Run `passwd` in Konsole first.
-3. Open **System Settings → Virtual Keyboard**, select **Swipe Keyboard** and apply (missing? log out and back into Desktop Mode). Restart Steam once. Then touch any text field, in either mode, and swipe.
+3. Open **System Settings → Virtual Keyboard**, select **OpenSwipe** and apply (missing? log out and back into Desktop Mode). Restart Steam once. Then touch any text field, in either mode, and swipe.
 
-Gaming Mode uses a hidden Steam developer switch that Valve hasn't approved and could break ([details](docs/steam-deck.md)). It is new: [tell us if anything looks wrong](https://github.com/itsdestin/swipe-keyboard/issues). Do not unlock SteamOS or install the Arch/Fedora packages on a Deck.
+Gaming Mode uses a hidden Steam developer switch that Valve hasn't approved and could break ([details](docs/steam-deck.md)). It is new: [tell us if anything looks wrong](https://github.com/itsdestin/openswipe/issues). Do not unlock SteamOS or install the Arch/Fedora packages on a Deck.
 
 **Languages:** run this, enable yours, then switch with the globe key.
 
@@ -45,13 +49,13 @@ flatpak run --user --command=kcmshell6 org.itsdestin.SwipeKeyboard kcm_plasmakey
 
 ### Arch / CachyOS
 
-**[Download the package](https://github.com/itsdestin/swipe-keyboard/releases/download/v0.5.1-1/swipe-keyboard-0.5.1-1-x86_64.pkg.tar.zst)**, then in Konsole:
+**[Download the package](https://github.com/itsdestin/openswipe/releases/download/v0.6.0-1/swipe-keyboard-0.6.0-1-x86_64.pkg.tar.zst)**, then in Konsole:
 
 ```sh
-sudo pacman -U ~/Downloads/swipe-keyboard-0.5.1-1-x86_64.pkg.tar.zst
+sudo pacman -U ~/Downloads/swipe-keyboard-0.6.0-1-x86_64.pkg.tar.zst
 ```
 
-Then [turn it on](#turn-it-on-arch-and-fedora).
+Then [turn it on](#turn-it-on).
 
 **Remove:** `swipe-keyboard disable && sudo pacman -R swipe-keyboard`. **Updates:** automatic; `sudo swipe-keyboard updates off` stops them.
 
@@ -59,23 +63,68 @@ Then [turn it on](#turn-it-on-arch-and-fedora).
 
 Pick your device (unsure? run `uname -m`), download its file, then run its line in Konsole:
 
-**Intel / AMD (x86_64):** [download](https://github.com/itsdestin/swipe-keyboard/releases/download/v0.5.1-1/swipe-keyboard-0.5.1-1.fc44.x86_64.rpm)
+**Intel / AMD (x86_64):** [download](https://github.com/itsdestin/openswipe/releases/download/v0.6.0-1/swipe-keyboard-0.6.0-1.fc44.x86_64.rpm)
 
 ```sh
-sudo dnf install ~/Downloads/swipe-keyboard-0.5.1-1.fc44.x86_64.rpm
+sudo dnf install ~/Downloads/swipe-keyboard-0.6.0-1.fc44.x86_64.rpm
 ```
 
-**ARM64 (aarch64):** [download](https://github.com/itsdestin/swipe-keyboard/releases/download/v0.5.1-1/swipe-keyboard-0.5.1-1.fc44.aarch64.rpm)
+**ARM64 (aarch64):** [download](https://github.com/itsdestin/openswipe/releases/download/v0.6.0-1/swipe-keyboard-0.6.0-1.fc44.aarch64.rpm)
 
 ```sh
-sudo dnf install ~/Downloads/swipe-keyboard-0.5.1-1.fc44.aarch64.rpm
+sudo dnf install ~/Downloads/swipe-keyboard-0.6.0-1.fc44.aarch64.rpm
 ```
 
-Then [turn it on](#turn-it-on-arch-and-fedora).
+Then [turn it on](#turn-it-on).
 
 **Remove:** `swipe-keyboard disable && sudo dnf remove swipe-keyboard`. **Updates:** automatic; `sudo swipe-keyboard updates off` stops them.
 
-### Turn it on (Arch and Fedora)
+### Kubuntu 26.10 / Debian testing
+
+Pick your system, download its file, then run its line in Konsole:
+
+**Kubuntu 26.10:** [download](https://github.com/itsdestin/openswipe/releases/download/v0.6.0-1/swipe-keyboard_0.6.0-1.kubuntu26.10_amd64.deb)
+
+```sh
+sudo apt install ~/Downloads/swipe-keyboard_0.6.0-1.kubuntu26.10_amd64.deb
+```
+
+**Debian testing:** [download](https://github.com/itsdestin/openswipe/releases/download/v0.6.0-1/swipe-keyboard_0.6.0-1.debiantesting_amd64.deb)
+
+```sh
+sudo apt install ~/Downloads/swipe-keyboard_0.6.0-1.debiantesting_amd64.deb
+```
+
+Then [turn it on](#turn-it-on). **Remove:** `swipe-keyboard disable && sudo apt remove swipe-keyboard`. **Updates:** automatic, once a day, only this package (they never change the rest of your system); `sudo swipe-keyboard updates off` stops them.
+
+### openSUSE Tumbleweed
+
+**[Download the package](https://github.com/itsdestin/openswipe/releases/download/v0.6.0-1/swipe-keyboard-0.6.0-1.tumbleweed.x86_64.rpm)**, then in Konsole:
+
+```sh
+sudo zypper install --allow-unsigned-rpm ~/Downloads/swipe-keyboard-0.6.0-1.tumbleweed.x86_64.rpm
+```
+
+`--allow-unsigned-rpm` because the file itself is not signed; automatic updates check every new version against a signed list instead. Then [turn it on](#turn-it-on). **Remove:** `swipe-keyboard disable && sudo zypper remove swipe-keyboard`. **Updates:** automatic; `sudo swipe-keyboard updates off` stops them.
+
+### Older KDE (Kubuntu 26.04, Debian 13, openSUSE Leap 16)
+
+Their KDE is too old for the regular packages, so they use the Flatpak: the same download as the Steam Deck, without Gaming Mode.
+
+1. Kubuntu and Debian come without Flatpak. Once: `sudo apt install flatpak`, then **log out and back in**.
+2. Download the **[Steam Deck file](https://github.com/itsdestin/openswipe/releases/download/v0.6.0-1/swipe-keyboard-0.6.0-1-steamos-x86_64.tar.gz)** to **Downloads** and run, **without `sudo`**:
+
+   ```sh
+   cd ~/Downloads && tar xzf swipe-keyboard-0.6.0-1-steamos-x86_64.tar.gz && cd swipe-keyboard-steamos-0.6.0-1
+   bash install.sh
+   ```
+
+   The first time it downloads KDE's app runtime from Flathub (about 700 MB).
+3. **System Settings → Keyboard → Virtual Keyboard**, select **OpenSwipe** and apply.
+
+Tested on Kubuntu 26.04 and Debian 13 (virtual machines); Leap 16 not yet. **Remove:** `bash uninstall.sh --remove-apps` from the download folder; your system's own on-screen keyboard comes back by itself. **Updates:** automatic, like on the Deck.
+
+### Turn it on
 
 Run **without `sudo`**, read the changes it proposes, and answer **y**:
 
@@ -108,7 +157,7 @@ On version 0.4.0 or older? Those did not update themselves: install the package 
 - **No next-word suggestions?** Pick a supported language, type a word with this keyboard, then press Space. Password fields offer none.
 - **Only one app misbehaves?** Try another KDE Wayland app; support varies.
 
-[More help, recovery and privacy](docs/install-details.md) · [Steam Deck details](docs/steam-deck.md) · [Report a bug](https://github.com/itsdestin/swipe-keyboard/issues/new?template=bug.yml) · [Release notes](docs/releases/v0.5.1-1.md) · [Changelog](CHANGELOG.md)
+[More help, recovery and privacy](docs/install-details.md) · [Steam Deck details](docs/steam-deck.md) · [Report a bug](https://github.com/itsdestin/openswipe/issues/new?template=bug.yml) · [Release notes](docs/releases/v0.6.0-1.md) · [Changelog](CHANGELOG.md)
 
 In bug reports, use made-up text. **Do not send passwords, recordings or personal typing.**
 

@@ -1,9 +1,9 @@
-# Releasing Swipe Keyboard
+# Releasing OpenSwipe
 
 ## Supported required set
 
 `packaging/release-targets.json` is the authoritative version/release number and exact
-required file list. Current published release: **0.5.0-1** (tag **v0.5.0-1**).
+required file list. Current published release: **0.5.1-1** (tag **v0.5.1-1**).
 It requires Arch/CachyOS x86_64, Fedora **44** x86_64, Fedora **44 aarch64**
 for Linux ARM64 Plasma Mobile, SteamOS **Desktop** x86_64 Flatpak, complete
 corresponding source, one shared Fedora source RPM, Flatpak build inputs,
@@ -209,7 +209,7 @@ Cold dependency work is cached, never the keyboard itself. Rules, enforced by
 - **Release tags (`refs/tags/v*`) never read or write any cache.** They normally reuse main's packages for the
   same commit (see "Corrective tag and publication"); only without such a run do they rebuild everything cold.
   Fork pull requests use none. Pull requests of this repository may read, never write.
-  Only pushes and manual dispatch on a branch of `itsdestin/swipe-keyboard` write.
+  Only pushes and manual dispatch on a branch of `itsdestin/openswipe` write.
 - **Flatpak Qt/Plasma stages**: flatpak-builder's stage store, packed by a `--dependencies-only`
   run that stops before the keyboard module, so no product output can enter it. Exact key only
   (manifest, SDK/runtime commits, Plasma patches, `build.py`, flatpak-builder and runner-image

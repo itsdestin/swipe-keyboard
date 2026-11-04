@@ -44,11 +44,11 @@ model-index:
 
 > **Headline:** in the keyboard, on 1,946 real English swipes typed inside sentences, the first guess is right 91.47 % of the time against 93.32 % for FUTO's engine measured the same way: 1.85 points behind (top 3: 94.55 % against 96.56 %). In the next release, where a small learned re-ranker (with the suggestion bar's sentence model as one of its inputs) orders each swipe's candidate words, the same swipes give 92.86 % (0.46 points behind) and top 3 94.91 % (1.65 behind). No Gboard swipe comparison was made (Gboard swipe typing was not measured).
 
-A small neural network that turns the path of a finger across an on-screen keyboard into a ranked list of words, for the Swipe Keyboard: an open-source swipe-typing and word-prediction add-on for KDE Plasma's on-screen keyboard. One model serves all four languages and any layout, because the keys are given to it as positions.
+A small neural network that turns the path of a finger across an on-screen keyboard into a ranked list of words, for the OpenSwipe: an open-source swipe-typing and word-prediction add-on for KDE Plasma's on-screen keyboard. One model serves all four languages and any layout, because the keys are given to it as positions.
 
 Models trained and released by Destin Moss via youcoded.ai, 2026.
 
-Code, scripts and tests: https://github.com/itsdestin/swipe-keyboard. How every number below was measured: [methods page](../../methods.md) (published copy: https://github.com/itsdestin/swipe-keyboard/blob/main/docs/methods.md).
+Code, scripts and tests: https://github.com/itsdestin/openswipe. How every number below was measured: [methods page](../../methods.md) (published copy: https://github.com/itsdestin/openswipe/blob/main/docs/methods.md).
 
 **Status: the keyboard's only swipe engine.** FUTO's engine is no longer part of the keyboard; every FUTO comparison below is a measurement against the engine it replaced. On English this model is **not yet as accurate** as that engine (numbers below). If the model file is missing or fails its checksum, the keyboard decodes by key geometry alone.
 
@@ -214,7 +214,7 @@ For a day, the validation sets named `devhold-5000`, `tune-2000` and `tune-10000
 
 ## How to reproduce
 
-From a checkout of https://github.com/itsdestin/swipe-keyboard. You need FUTO's public swipe data (MIT, from swipe.futo.org) and a CUDA GPU; scoring needs the Qt build.
+From a checkout of https://github.com/itsdestin/openswipe. You need FUTO's public swipe data (MIT, from swipe.futo.org) and a CUDA GPU; scoring needs the Qt build.
 
 ```
 # 1. Collect the evaluation keys so training data can be checked against them

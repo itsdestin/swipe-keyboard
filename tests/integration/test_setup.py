@@ -25,6 +25,7 @@ class Commands:
         self.fedora_commands = False
         self.live_mode = 0
         self.arch_qtpaths = False
+        self.probe_answers_qt = True
         self.preflight_error = None
         self.defaults = {}
         self.immutable = set()
@@ -41,6 +42,10 @@ class Commands:
         elif command in ('qtpaths6', 'qtpaths-qt6'):
             if self.arch_qtpaths and args[0] != '/usr/lib/qt6/bin/qtpaths6':
                 raise FileNotFoundError('Arch keeps qtpaths6 outside the default PATH')
+            value = self.qt_version
+        elif command == 'swipekb-preflight' and args[1] == '--qt-version':
+            if not self.probe_answers_qt:
+                raise FileNotFoundError('an install from before the probe learned --qt-version')
             value = self.qt_version
         elif command == 'swipekb-preflight':
             if self.preflight_error:
@@ -250,7 +255,7 @@ class SetupTests(unittest.TestCase):
         self.assertFalse(any(Path(c[0]).name in ('kwriteconfig6', 'busctl') for c in self.commands.calls))
         self.controller.enable(always_available=True)
         report = self.controller.check()
-        self.assertEqual(report['Selected input method'], 'Swipe Keyboard')
+        self.assertEqual(report['Selected input method'], 'OpenSwipe')
         self.assertEqual(report['Setup record'], 'Present')
 
     def notification_failure(self, count, later_choice=None):
@@ -406,7 +411,14 @@ class SetupTests(unittest.TestCase):
                 self.controller.enable(always_available=True)
         self.assertFalse((self.base / 'data').exists())
 
+    def test_the_installed_probe_reports_qt_so_no_developer_tool_is_needed(self):
+        # WHY (card #502): openSUSE ships qtpaths6 only in a developer package; the package's own probe answers instead.
+        self.controller.check()
+        self.assertTrue(any(Path(c[0]).name == 'swipekb-preflight' and c[1:] == ['--qt-version'] for c in self.commands.calls))
+        self.assertFalse(any(Path(c[0]).name.startswith('qtpaths') for c in self.commands.calls))
+
     def test_arch_qt_version_tool_outside_default_path(self):
+        self.commands.probe_answers_qt = False
         self.commands.arch_qtpaths = True
         self.controller.check()
         self.assertTrue(any(c[0] == '/usr/lib/qt6/bin/qtpaths6' for c in self.commands.calls))
@@ -572,6 +584,37 @@ class SetupTests(unittest.TestCase):
         self.assertEqual(self.commands.settings, original)
         self.assertFalse(self.controller.state_file.exists())
 
+    def test_learned_words_come_along_from_the_flatpak_into_an_empty_store_only(self):
+        # WHY (card #502, edge case 7): moving up from the Flatpak (older KDE) to this package keeps what was learned
+        old = self.base / 'home/.var/app/org.itsdestin.SwipeKeyboard/data/swipe-keyboard'
+        (old / 'learning').mkdir(parents=True)
+        (old / 'learning/en.swklearn').write_bytes(b'learned-en')
+        (old / 'learning/de.swklearn').write_bytes(b'learned-de')
+        (old / 'learn-typing').touch()
+        self.assertEqual(self.controller.adopt_flatpak_learning(), 2)
+        store = self.controller.data / 'learning'
+        self.assertEqual((store / 'en.swklearn').read_bytes(), b'learned-en')
+        self.assertEqual((store / 'en.swklearn').stat().st_mode & 0o777, 0o600)
+        self.assertTrue((self.controller.data / 'learn-typing').exists(), 'learning stays on')
+        self.assertTrue((old / 'learning/en.swklearn').exists(), 'copied, not moved')
+        (old / 'learning/en.swklearn').write_bytes(b'newer-flatpak')
+        self.assertEqual(self.controller.adopt_flatpak_learning(), 0, 'never over what is already learned here')
+        self.assertEqual((store / 'en.swklearn').read_bytes(), b'learned-en')
+
+    def test_nothing_to_bring_along_without_a_flatpak(self):
+        self.assertEqual(self.controller.adopt_flatpak_learning(), 0)
+        self.assertFalse((self.controller.data / 'learning').exists())
+
+    def test_coming_from_the_flatpak_disable_goes_back_to_kdes_keyboard_not_the_flatpak(self):
+        flatpak = str(self.base / 'home/.local/share/flatpak/exports/share/applications/org.itsdestin.SwipeKeyboard.desktop')
+        self.commands.settings['InputMethod'] = flatpak
+        kde = self.base / 'system-data/applications/org.kde.plasma.keyboard.desktop'
+        kde.parent.mkdir(parents=True)
+        kde.write_text('[Desktop Entry]\n')
+        self.controller.enable()
+        self.controller.disable()
+        self.assertEqual(self.commands.settings['InputMethod'], str(kde))
+
     def test_enable_applies_live_visibility_and_disable_restores_it(self):
         self.commands.live_mode = 2
         self.controller.enable(always_available=True)
@@ -608,6 +651,96 @@ class SetupTests(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 self.module.main()
             execute.assert_called_once_with('plasma-keyboard', ['plasma-keyboard'], dict(os.environ))
+
+    def test_enable_sets_up_the_removal_check_and_disable_takes_it_away(self):
+        # WHY (review, card #502): removing the package while it is chosen must not leave the person without a keyboard
+        script, units, wants = self.controller.removal_check_paths()
+        self.controller.enable()
+        self.assertTrue(self.controller.install_removal_check())
+        self.assertTrue(script.read_text().startswith(self.module.REMOVAL_CHECK_STAMP))
+        for name in ('swipe-keyboard-removal-check.path', 'swipe-keyboard-removal-check.service'):
+            self.assertTrue((units / name).is_file())
+            self.assertTrue((wants / name).is_symlink())
+        self.assertIn(f'ExecStart=/bin/sh "{script}"', (units / 'swipe-keyboard-removal-check.service').read_text())
+        self.controller.disable()
+        self.assertFalse(script.exists())
+        self.assertFalse((units / 'swipe-keyboard-removal-check.path').exists())
+        self.assertFalse((wants / 'swipe-keyboard-removal-check.path').exists())
+
+    def test_the_launcher_adds_the_removal_check_for_existing_installs_only(self):
+        script, units, wants = self.controller.removal_check_paths()
+        self.controller.launch_environment()
+        self.assertFalse(script.exists(), 'not set up: nothing to protect')
+        self.controller.enable()
+        self.controller.remove_removal_check()
+        self.controller.launch_environment()
+        self.assertTrue(script.exists(), 'an existing install gets it through a normal update')
+
+    def test_a_unit_of_the_same_name_that_is_not_ours_is_left_alone(self):
+        script, units, wants = self.controller.removal_check_paths()
+        units.mkdir(parents=True)
+        (units / 'swipe-keyboard-removal-check.path').write_text('[Path]\nmine=1\n')
+        self.assertFalse(self.controller.install_removal_check())
+        self.assertEqual((units / 'swipe-keyboard-removal-check.path').read_text(), '[Path]\nmine=1\n')
+        self.controller.remove_removal_check()
+        self.assertTrue((units / 'swipe-keyboard-removal-check.path').exists())
+
+    def test_the_removal_check_hands_the_choice_back_only_when_the_package_is_gone(self):
+        import subprocess
+        script, units, wants = self.controller.removal_check_paths()
+        self.controller.enable()
+        self.controller.install_removal_check()
+        apps = self.base / 'apps'; apps.mkdir()
+        (apps / 'org.kde.plasma.keyboard.desktop').write_text('')
+        fake = self.base / 'fakebin'; fake.mkdir()
+        log = self.base / 'calls.log'
+        for tool in ('kwriteconfig6', 'systemctl'):
+            (fake / tool).write_text(f'#!/bin/sh\necho "{tool} $*" >> "{log}"\n'); (fake / tool).chmod(0o755)
+        config = Path(self.env['XDG_CONFIG_HOME']); config.mkdir(parents=True, exist_ok=True)
+        (config / 'kwinrc').write_text('[Wayland]\nInputMethod=/usr/share/applications/swipe-keyboard.desktop\n')
+        env = {"SWIPEKB_RECHECK_SECONDS": "0", "HOME": str(self.base / 'elsewhere'),
+               'SWIPEKB_APPLICATIONS_DIR': str(apps), 'PATH': f'{fake}:/usr/bin:/bin'}
+        (apps / 'swipe-keyboard.desktop').write_text('')          # still installed: nothing happens
+        subprocess.run(['/bin/sh', str(script)], env=env, check=True)
+        self.assertFalse(log.exists())
+        (apps / 'swipe-keyboard.desktop').unlink()                # package removed
+        subprocess.run(['/bin/sh', str(script)], env=env, check=True)
+        calls = log.read_text().splitlines()
+        self.assertIn(f'kwriteconfig6 --file {config}/kwinrc --group Wayland --key InputMethod --notify {apps}/org.kde.plasma.keyboard.desktop', calls)
+        self.assertFalse(script.exists(), 'it removes itself')
+        self.assertFalse((units / 'swipe-keyboard-removal-check.path').exists())
+        self.assertFalse(self.controller.state_file.exists(), 'a reinstall can enable afresh')
+        self.assertEqual([p for p in wants.iterdir() if 'removal-check' in p.name], [], 'no dangling links left behind')
+
+    def test_any_unexpected_failure_in_the_launcher_still_starts_the_plain_keyboard(self):
+        # WHY (review, card #502): a changed KDE file format, a missing HOME or a half-updated install raise errors other
+        # than OSError; the person must still get KDE's keyboard, never none at all.
+        for failure in (AttributeError("'list' object has no attribute 'get'"), KeyError('HOME'), ImportError('half updated')):
+            with self.subTest(failure=type(failure).__name__), \
+                 mock.patch.object(self.module, 'Controller') as factory, \
+                 mock.patch.object(self.module.sys, 'argv', ['swipe-keyboard', 'launch']), \
+                 mock.patch.object(self.module.os, 'execvpe', side_effect=SystemExit(0)) as execute:
+                factory.side_effect = failure
+                with self.assertRaises(SystemExit):
+                    self.module.main()
+                execute.assert_called_once_with('plasma-keyboard', ['plasma-keyboard'], dict(os.environ))
+
+    def test_a_half_updated_install_whose_helpers_do_not_load_still_starts_the_plain_keyboard(self):
+        import subprocess
+        import sys
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            setup = (Path(self.module.__file__).read_text())
+            (root / 'setup.py').write_text(setup)
+            (root / 'layout.py').write_text('this is not python (a file from a cut-off update)\n')
+            fake = root / 'bin'; fake.mkdir()
+            (fake / 'plasma-keyboard').write_text('#!/bin/sh\necho stock-keyboard-started\n'); (fake / 'plasma-keyboard').chmod(0o755)
+            env = {**os.environ, 'PATH': f'{fake}:{os.environ["PATH"]}'}
+            done = subprocess.run([sys.executable, str(root / 'setup.py'), 'launch'], env=env, capture_output=True, text=True)
+            self.assertIn('stock-keyboard-started', done.stdout)
+            self.assertIn('Starting the unmodified stock keyboard instead', done.stderr)
 
     def test_plasma_keyboard_6_9_without_its_packages_or_7_steps_aside_to_the_plain_keyboard(self):
         # WHY: the packages no longer cap plasma-keyboard, so a Plasma 6.9 upgrade installs with this add-on present. This

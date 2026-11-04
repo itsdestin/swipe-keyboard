@@ -20,7 +20,7 @@
   "tatoeba_license_notice_sha256": "32bbf7b725f098dd6c63a822684583dc7784b8a15ff929598ac10d7e13a6dce1",
   "language_files": {
     "release": "language-files-2026-10-23-apostrophes",
-    "baseUrl": "https://github.com/itsdestin/swipe-keyboard/releases/download/language-files-2026-10-23-apostrophes/",
+    "baseUrl": "https://github.com/itsdestin/openswipe/releases/download/language-files-2026-10-23-apostrophes/",
     "odcTerms": {
       "path": "ODC-By-1.0.txt",
       "sha256": "b1c4de4bf91c95eec945ea7cbe0575fd52e7ee8fa430acb01d323d8214b1c482",
@@ -114,12 +114,12 @@
     }
   },
   "word_list_source": {
-    "url": "https://github.com/itsdestin/swipe-keyboard/releases/download/language-files-2026-10-23-apostrophes/SHA256SUMS",
+    "url": "https://github.com/itsdestin/openswipe/releases/download/language-files-2026-10-23-apostrophes/SHA256SUMS",
     "sha256": "5cbb2e0aa46ab18bf05c3261ce42fd725f2f61e5fc0db852a918eb93fd2d0318"
   },
   "trained_models": {
     "release": "models-2026-10-23",
-    "baseUrl": "https://github.com/itsdestin/swipe-keyboard/releases/download/models-2026-10-23/",
+    "baseUrl": "https://github.com/itsdestin/openswipe/releases/download/models-2026-10-23/",
     "copyright": "SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>",
     "notice": {
       "path": "MODELS-NOTICE.md",

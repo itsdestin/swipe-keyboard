@@ -36,6 +36,7 @@ function swipekbSession(w, L, opts) {
   var SERVED = { qwerty: 1, spanish: 1, french: 1, german: 1 };
   var LAYOUT_CLASS = /^Layout_([a-z0-9_]+)$/;   // M6/M7 VM finding: Steam gives its key grid (role=grid) the class "Layout_<name>"
   var lastLayout = null;           // the layout name seen at the last look; a change makes the memory uncertain
+  var warmedFor = null;            // the layout the engine was last asked to get ready for, in this keyboard opening
   var setT = w.setTimeout.bind(w), clearT = w.clearTimeout.bind(w);
 
   var state = 'on';
@@ -155,6 +156,20 @@ function swipekbSession(w, L, opts) {
     if (privateOn || !looksLikeSecret(lastRun())) return;
     goPrivate('secret');          // (which also wipes the memory)
   }
+  // WHY (card #502, Bazzite VM): tapping "q" then swiping "this" gave "qthis". Same rule as Desktop Mode
+  // (plugin/swipesession.cpp needsSpaceBefore), applied to what we remember of the box. An empty memory means the start
+  // of the box or "not known" (after Enter, arrows...): no space then, as typing a stray space is worse than a missing one.
+  function spaceBefore(text) {
+    if (!text) return false;
+    var c = text.charAt(text.length - 1);
+    if (/\s/.test(c)) return false;
+    // A straight quote opens a quote (glue the word on) at the start, after a space or an opening bracket; else it closes one.
+    if (c === '"' || c === "'") {
+      if (text.length === 1) return false;
+      return !/[\s(\[{]/.test(text.charAt(text.length - 2));
+    }
+    return '([{\u201c\u2018-/@#'.indexOf(c) < 0;   // glued on after an opening bracket, curly opening quote, - / @ #
+  }
   function contextWords(kind) {
     var toks = buf.split(/\s+/), words = [];
     if (buf.length && !/\s$/.test(buf)) toks.pop();   // the word still being typed is not context
@@ -260,7 +275,7 @@ function swipekbSession(w, L, opts) {
     if (p !== 'plain' && p !== 'unknown') return;
     var list = keyNodes();
     var out = { v: 1, type: 'stroke', id: msg.id, trace: msg.trace, vw: msg.vw, vh: msg.vh, keys: msg.keys,
-      ctx: contextWords(p), mode: p, layout: layoutName(), caps: capsFor(list) };
+      ctx: contextWords(p), mode: p, layout: layoutName(), caps: capsFor(list), lead: spaceBefore(buf) };
     pending[out.id] = { kind: 'stroke', seq: keySeq, caps: out.caps };
     if (send(out)) sentAny = true; else delete pending[out.id];
   }
@@ -384,6 +399,19 @@ function swipekbSession(w, L, opts) {
     canvas = null; ctx2d = null; lastPt = null;
   }
 
+  // The letter keys in the same form a stroke carries them (gesture.js), or none when the gesture layer cannot list them or the
+  // keyboard is not showing letters right now (numbers page): then the engine only loads its words.
+  function warmMessage(layout) {
+    var m = { v: 1, type: 'warm', layout: layout };
+    var all = (L.gestures && typeof L.gestures.keys === 'function') ? L.gestures.keys() : [], ks = [];
+    for (var i = 0; i < all.length; i++) {
+      var k = all[i];
+      if (k.letter) ks.push({ k: k.key, x: Math.round(k.x * 10) / 10, y: Math.round(k.y * 10) / 10, w: Math.round(k.w), h: Math.round(k.h) });
+    }
+    if (ks.length >= 24) m.keys = ks;   // same minimum as the gesture layer's own swipe check (MIN_LETTERS)
+    return m;
+  }
+
   // ---- watching the keyboard come and go --------------------------------------------------------------------
   function tick() {
     guard(function () {
@@ -391,12 +419,18 @@ function swipekbSession(w, L, opts) {
       if (L.gestures && L.gestures.state() !== 'on') { off(); return; }   // the arbiter failed: step aside completely
       var list = keyNodes(), r = kbRect(list);
       if (!r) {
-        if (kbOpen) { kbOpen = false; field = null; reset(true); removeStrip(); trailGone(); }
+        if (kbOpen) { kbOpen = false; field = null; warmedFor = null; reset(true); removeStrip(); trailGone(); }
         return;
       }
       kbOpen = true;
       checkField();
-      if (policy() === 'inert') { removeStrip(); return; }
+      var pol = policy();
+      if (pol === 'inert') { removeStrip(); return; }
+      // WHY (card #502): the engine loads its words on first use, which made the first swipe wait about 3.6 s on a Bazzite VM. Saying
+      // "the keyboard is open, with this layout" as soon as it appears lets that load happen while the user finds the first letter.
+      // Once per opening and layout; never for a password box or a box set to Private (we stay silent there). Sent: the layout's
+      // name and where the letter keys are (the engine builds its word list for those letters too); nothing typed.
+      if (pol !== 'private' && warmedFor !== lastLayout) { warmedFor = lastLayout; send(warmMessage(lastLayout)); }
       ensureStrip(); place(list); render();
     });
   }
@@ -427,6 +461,7 @@ function swipekbSession(w, L, opts) {
     result: result,
     off: off,
     state: function () { return state; },
+    spaceBefore: spaceBefore,   // for tests: the rule alone, on a string the test gives
     // For tests and the VM rig: sizes and flags only, never the text.
     debug: function () { return { bufferLength: buf.length, words: contextWords('plain').length, policy: policy(), shift: shift, candidates: cands ? cands.list.length : 0, stripShown: !!strip, kbOpen: kbOpen, lastMs: lastMs }; }
   };

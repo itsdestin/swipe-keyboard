@@ -94,7 +94,7 @@ class Rig:
         return [l for l in self.log.read_text().splitlines() if l.startswith(prefix)]
 
     def notifications(self):
-        return [l for l in self.calls('notify-send') if '--action' in l or 'Turn it back on' in l or 'Swipe Keyboard:' in l]
+        return [l for l in self.calls('notify-send') if '--action' in l or 'Turn it back on' in l or 'OpenSwipe:' in l]
 
     def steam_snapshot(self):
         return {str(p.relative_to(self.steam)): (p.stat().st_mtime_ns, p.read_bytes()) for p in sorted(self.steam.rglob('*')) if p.is_file()}
@@ -183,7 +183,7 @@ class CheckTests(unittest.TestCase):
         r.run('check', env={'FAKE_OLD_NOTIFY': '1'})
         shown = r.notifications()
         self.assertEqual(len(shown), 1)
-        self.assertIn('run the Swipe Keyboard installer again', shown[0])
+        self.assertIn('run the OpenSwipe installer again', shown[0])
         self.assertIn('restore', shown[0])
 
     def test_no_steam_folder(self):

@@ -1,5 +1,41 @@
 # Changes
 
+## v0.6.0-1
+
+> **Installed before 30 October 2026 (older than version 0.5.1-1)?** Install it once more (README, Install). Older
+> versions can't find updates after the move to the new name. After that it updates itself.
+
+### Swipe Keyboard is now OpenSwipe
+
+- Every name people see, the project and its update website (card #501). The package, the `swipe-keyboard` command,
+  the app ID and the folders keep their names. Old project and download links forward; the old update website is
+  kept serving as a full, hourly-refreshed copy (repository `itsdestin/itsdestin.github.io`), because Steam Decks set up
+  by our installer ignore Flatpak's "moved" note (`packaging/updates/flatpak-redirect.txt` explains why).
+
+### More KDE systems (card #502)
+
+- **Kubuntu 26.10, Debian testing, openSUSE Tumbleweed:** their own packages, built, installed, checked and removed on
+  every full CI run. Daily updates through a signed index, like Arch; apt or zypper first previews the update and it
+  is skipped when it would upgrade, downgrade, remove or change the architecture of any other package. Kubuntu 26.10
+  is required for a release; Debian testing and Tumbleweed are released when their build passes.
+- **Older KDE (Kubuntu 26.04, Debian 13, openSUSE Leap 16):** the installer's Desktop-keyboard mode installs the
+  Flatpak (Plasma 6.3 or newer). The Flatpak follows the desktop's light/dark preference and draws with Qt's software
+  renderer, so it is never blank where KDE runs without a graphics card (Debian 13). Leap 16 not yet tried.
+- **Bazzite:** Desktop and Gaming Mode; no password when the system already keeps Steam's debug port shut.
+
+### Gaming Mode
+
+- The engine gets its words ready when Steam's keyboard opens, including the word list for the keyboard's letters,
+  and keeps them 60 minutes (was 10).
+- A word swiped right after tapped letters gets a space first (same rule as Desktop Mode).
+
+### Never left without a keyboard
+
+- A removal safety check for the regular packages and the Flatpak: removed without `swipe-keyboard disable` first,
+  the on-screen keyboard choice goes back to KDE's own (or Maliit where KDE has none), and leftover jobs stop.
+- The native launcher falls back to KDE's keyboard even when its own program file is damaged.
+- Moving up from the Flatpak keeps learned words, and `disable` never goes back to a removed Flatpak.
+
 ## v0.5.1-1
 
 ### Swipes pick the right word more often, also for the first word of a message
@@ -81,7 +117,7 @@
 ### Ready for the new name
 
 - The project will be renamed **OpenSwipe**. GitHub does not forward a project's update website after a rename, so this version's Arch and Fedora updaters check the future OpenSwipe address first and fall back to today's. Same key, same checks: an index that fails its signature is refused, never swapped for the other site. Nothing changes for you now.
-- Steam Decks: the update site now tells each Deck the future OpenSwipe address, and the Deck switches by itself on its next daily check (`packaging/updates/flatpak-redirect.txt`). Existing Decks get 0.5.1 once the rename happens, about two weeks later; until then they stay on 0.5.0, which keeps working. New installs from this download have 0.5.1 at once.
+- Steam Decks: the update site now tells each Deck the future OpenSwipe address, and the Deck switches by itself on its next daily check (`packaging/updates/flatpak-redirect.txt`). *(Correction, 0.6.0-1: Decks set up by our installer ignore this note; they are served by a copy of the update site at the old address instead.)* Existing Decks get 0.5.1 once the rename happens, about two weeks later; until then they stay on 0.5.0, which keeps working. New installs from this download have 0.5.1 at once.
 
 ## v0.5.0-1
 

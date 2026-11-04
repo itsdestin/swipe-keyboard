@@ -1,7 +1,7 @@
 version = 1
 SPDX-PackageName = "swipe-keyboard"
 SPDX-PackageSupplier = "Destin Moss <https://youcoded.ai>"
-SPDX-PackageDownloadLocation = "https://github.com/itsdestin/swipe-keyboard"
+SPDX-PackageDownloadLocation = "https://github.com/itsdestin/openswipe"
 
 # Licensing (owner decision 2026-10-23, "MIT where possible"): source files carry their own SPDX header. MIT for the
 # engine, tools, scripts, benchmarks, launcher/CLI, Gaming Mode daemon, the shared language/session rules in plugin/
@@ -101,6 +101,13 @@ SPDX-License-Identifier = "GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accept
 # readers or tests expect them as shipped; the update key is a public key (data, not a work).
 [[annotations]]
 path = ["packaging/updates/swipe-keyboard-update.service", "packaging/updates/swipe-keyboard-update.timer", "packaging/updates/swipe-keyboard.repo"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 Destin Moss <https://youcoded.ai>"
+SPDX-License-Identifier = "MIT"
+
+[[annotations]]
+# WHY here and not in the files: debian/control and source/format have fixed formats with no room for a licence header.
+path = ["packaging/debian/control", "packaging/debian/source/format"]
 precedence = "aggregate"
 SPDX-FileCopyrightText = "2026 Destin Moss <https://youcoded.ai>"
 SPDX-License-Identifier = "MIT"

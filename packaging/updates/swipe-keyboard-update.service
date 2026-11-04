@@ -1,5 +1,5 @@
 [Unit]
-Description=Swipe Keyboard: install a newer keyboard if one is published
+Description=OpenSwipe: install a newer keyboard if one is published
 Wants=network-online.target
 After=network-online.target
 # WHY a file and not "systemctl disable": a timer enabled by the package cannot be disabled, only masked; this file

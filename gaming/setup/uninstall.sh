@@ -4,7 +4,7 @@
 #
 # SPDX-License-Identifier: MIT
 
-# Swipe Keyboard, Steam Deck Gaming Mode: uninstaller. Removes only what install.sh recorded as created.
+# OpenSwipe, Steam Deck Gaming Mode: uninstaller. Removes only what install.sh recorded as created.
 #
 #   bash uninstall.sh              show what will be removed, ask, then do it
 #   bash uninstall.sh --dry-run    show only
@@ -26,10 +26,17 @@ SYSTEM_UNIT_DIR="${SWIPEKB_SYSTEM_UNIT_DIR:-/etc/systemd/system}"
 DROPIN_DIR="$SYSTEM_UNIT_DIR/$SOCKET_UNIT.d"
 DROPIN="$DROPIN_DIR/swipekb-loopback-only.conf"
 UNITS=(swipekb-engine.service swipekb-helper.service swipekb-switch-watch.service swipekb-switch-watch.timer
-       swipekb-update.service swipekb-update.timer)
+       swipekb-update.service swipekb-update.timer swipekb-keyboard-check.path swipekb-keyboard-check.service)
 MAIN_ID=org.itsdestin.SwipeKeyboard
 MARKER_NAME=.cef-enable-remote-debugging
 HELPER_ID=org.itsdestin.SwipeKeyboard.GamingHelper
+# Where KDE's own on-screen keyboard is listed (test hook; on a real system never set).
+APPLICATIONS_DIR="${SWIPEKB_APPLICATIONS_DIR:-/usr/share/applications}"
+# WHY a list (review, card #502): Debian 13 has no KDE keyboard but may have Maliit; "none" only when neither is there.
+FALLBACK=""
+for candidate in "$APPLICATIONS_DIR/org.kde.plasma.keyboard.desktop" "$APPLICATIONS_DIR/com.github.maliit.keyboard.desktop"; do
+    [ -f "$candidate" ] && { FALLBACK="$candidate"; break; }
+done
 
 DRY_RUN=0; ASSUME_YES=0; REMOVE_APPS=0
 for arg in "$@"; do
@@ -46,6 +53,11 @@ done
 record_list() {
     [ -f "$RECORD" ] || return 0
     sed -n "/^  \"$1\": \[/,/^  \]/p" "$RECORD" | grep '^    "' | sed 's/^    "//; s/",\{0,1\}$//' || true
+}
+
+record_value() {
+    [ -f "$RECORD" ] || return 0
+    sed -n "s/^  \"$1\": \"\(.*\)\",\{0,1\}$/\1/p" "$RECORD" | head -n 1
 }
 
 CREATED_MARKERS=(); CREATED_SYSTEM_FILES=(); INSTALLED_APPS=()
@@ -72,9 +84,34 @@ marker_is_switch_file() {
     return 1
 }
 
-echo "Swipe Keyboard for Gaming Mode: removal. This will:"
-echo "  - stop and turn off the background services (the engine, the helper and the once-a-minute switch check), and delete their files from $UNIT_DIR (only files this installer wrote)"
-if [ -f "$RECORD" ]; then
+# WHY (card #502, edge case 1): KDE remembers which on-screen keyboard to start in kwinrc. If that is still our app
+# after the app is gone, the next login starts no on-screen keyboard at all, which on a handheld means no typing.
+# Read the file directly: no KDE tool is needed to look, and a missing file simply means "not ours".
+keyboard_choice() {
+    [ -f "$CONFIG_HOME/kwinrc" ] || return 0
+    # WHY the optional [$e] (Debian 13 VM, card #502): System Settings saves the choice as InputMethod[$e]=$HOME/..., a marker
+    # telling KDE to expand $HOME; reading only "InputMethod=" missed it, so the choice looked like someone else's.
+    sed -n '/^\[Wayland\]/,/^\[/{s/^InputMethod\(\[\$e\]\)\{0,1\}=//p}' "$CONFIG_HOME/kwinrc" | head -n 1
+}
+# WHY always, not only with --remove-apps (review, card #502): this uninstall also removes the safety check that would
+# hand the choice back later. Someone who keeps the app now and removes it in Discover tomorrow would then be left with
+# no keyboard. Uninstalling means "stop using OpenSwipe", so the system's own keyboard takes over now.
+RESET_CHOICE=0
+case "$(keyboard_choice)" in "$MAIN_ID.desktop"|*/"$MAIN_ID.desktop") RESET_CHOICE=1 ;; esac
+
+# WHY (card #502): on an ordinary desktop (Kubuntu, Debian...) Gaming Mode was never possible, so the removal text says nothing
+# about Steam there. Steam is mentioned when this install ever had Gaming Mode, or there is no record to tell.
+STEAM_TOO=1
+[ -f "$RECORD" ] && [ "$(record_value gaming)" = no ] && [ "${#CREATED_MARKERS[@]}" = 0 ] && [ "${#CREATED_SYSTEM_FILES[@]}" = 0 ] && STEAM_TOO=0
+if [ "$STEAM_TOO" = 1 ]; then
+    echo "OpenSwipe for Gaming Mode: removal. This will:"
+    echo "  - stop and turn off the background services (the engine, the helper and the once-a-minute switch check), and delete their files from $UNIT_DIR (only files this installer wrote)"
+else
+    echo "OpenSwipe: removal. This will:"
+    echo "  - stop and turn off its background jobs (daily update check, removal safety check), and delete their files from $UNIT_DIR (only files this installer wrote)"
+fi
+if [ "$STEAM_TOO" = 0 ]; then :
+elif [ -f "$RECORD" ]; then
     for marker in "${CREATED_MARKERS[@]+"${CREATED_MARKERS[@]}"}"; do
         if ! marker_is_switch_file "$marker"; then
             echo "  - leave $marker alone: it is not Steam's developer-switch file in Steam's folder"
@@ -95,11 +132,22 @@ echo "  - delete $RECORD_DIR (the install record) and $STATE_DIR (status the hel
 if [ "$REMOVE_APPS" = 1 ]; then
     for id in "${INSTALLED_APPS[@]+"${INSTALLED_APPS[@]}"}"; do echo "  - remove the app $id (it was added by this installer)"; done
 else
-    echo "  - leave the two apps installed; to remove them yourself:"
-    echo "      flatpak uninstall --user $HELPER_ID"
+    if [ "$STEAM_TOO" = 1 ]; then
+        echo "  - leave the two apps installed; to remove them yourself:"
+        echo "      flatpak uninstall --user $HELPER_ID"
+    else
+        echo "  - leave the app installed; to remove it yourself:"
+    fi
     echo "      flatpak uninstall --user $MAIN_ID"
 fi
-echo "Steam keeps nothing of ours on disk: the keyboard layer lives only in Steam's memory and is gone after Steam's next restart."
+if [ "$RESET_CHOICE" = 1 ]; then
+    if [ -n "$FALLBACK" ]; then
+        echo "  - switch the on-screen keyboard (System Settings > Keyboard > Virtual Keyboard) back to your system's own, so you always have one"
+    else
+        echo "  - clear the on-screen keyboard choice (System Settings > Keyboard > Virtual Keyboard): it names the app being removed"
+    fi
+fi
+[ "$STEAM_TOO" = 0 ] || echo "Steam keeps nothing of ours on disk: the keyboard layer lives only in Steam's memory and is gone after Steam's next restart."
 
 if [ "$DRY_RUN" = 1 ]; then echo; echo "Dry run: nothing was changed."; exit 0; fi
 if [ "$ASSUME_YES" = 0 ]; then
@@ -151,9 +199,23 @@ done
 if [ "$REMOVE_APPS" = 1 ]; then
     for id in "${INSTALLED_APPS[@]+"${INSTALLED_APPS[@]}"}"; do flatpak uninstall --user -y "$id" || true; done
 fi
+# WHY after the removal: KWin then never tries to start an app that is half removed. --notify tells KWin at once.
+if [ "$RESET_CHOICE" = 1 ]; then
+    if [ -n "$FALLBACK" ]; then
+        kwriteconfig6 --file kwinrc --group Wayland --key InputMethod --notify "$FALLBACK" || true
+        echo "The on-screen keyboard is now your system's own (change it in System Settings > Keyboard > Virtual Keyboard)."
+    else
+        kwriteconfig6 --file kwinrc --group Wayland --key InputMethod --notify "" || true
+        echo "No on-screen keyboard is chosen now. Pick one in System Settings > Keyboard > Virtual Keyboard."
+    fi
+fi
 rm -rf "${STATE_DIR:?}" "${RECORD_DIR:?}"
 
 if [ "$HAD_RECORD" = 0 ]; then
     echo "Note: no install record was found, so Steam's developer-switch file (if any) was not touched."
 fi
-echo "Removed. The Steam developer switch change takes effect at Steam's next restart; until then Steam may still have its debug port open."
+if [ "$STEAM_TOO" = 1 ]; then
+    echo "Removed. The Steam developer switch change takes effect at Steam's next restart; until then Steam may still have its debug port open."
+else
+    echo "Removed."
+fi

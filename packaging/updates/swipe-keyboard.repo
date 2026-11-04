@@ -1,8 +1,8 @@
-# Swipe Keyboard updates. Installed by the swipe-keyboard package; removed with it.
+# OpenSwipe updates. Installed by the swipe-keyboard package; removed with it.
 # WHY repo_gpgcheck and not gpgcheck: the packages are the exact released files (their hashes are published with the
 # release), and the signed repository index carries each package's hash, so a changed package is still refused.
 [swipe-keyboard]
-name=Swipe Keyboard updates
+name=OpenSwipe updates
 # WHY two addresses, the new one first (card #501, the rename to OpenSwipe): GitHub does not forward a project's web
 # address after a rename, so dnf tries the new site and falls back to the old one until the rename happens.
 baseurl=https://itsdestin.github.io/openswipe/fedora/$basearch/ https://itsdestin.github.io/swipe-keyboard/fedora/$basearch/

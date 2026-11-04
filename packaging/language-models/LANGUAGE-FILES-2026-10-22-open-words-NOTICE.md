@@ -1,8 +1,8 @@
-# Swipe Keyboard language files, 2026-10-22 (open word lists)
+# OpenSwipe language files, 2026-10-22 (open word lists)
 
 Next-word and completion files for English, Spanish, French and German (3-word n-gram models, XS size), the word
 lists they use, and the swipe dictionaries for Spanish, French and German. Built by `scripts/lm/count-words.py`,
-`scripts/dict/corpus_dictionary.py` and `scripts/lm/build-fineweb2-model.py` (github.com/itsdestin/swipe-keyboard):
+`scripts/dict/corpus_dictionary.py` and `scripts/lm/build-fineweb2-model.py` (github.com/itsdestin/openswipe):
 FineWeb text capped at 300 million words per language plus Tatoeba (n-gram: weighted 30x; word counts: once). No
 neural network, no FUTO data or code, and no wordfreq data.
 
@@ -30,4 +30,4 @@ neural network, no FUTO data or code, and no wordfreq data.
 Changes made: text was split into sentences, reduced to letter words (words glued to digits or addresses were
 skipped), sentences sharing an 8-word run with our test sets removed, then counted; words seen on fewer than 3 pages,
 likely misspellings (one typo from a far commoner word), page debris and words far more typical of another of the
-four languages were dropped. https://github.com/itsdestin/swipe-keyboard
+four languages were dropped. https://github.com/itsdestin/openswipe

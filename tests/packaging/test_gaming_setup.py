@@ -61,6 +61,9 @@ SYSTEMCTL = '''#!/bin/sh
 if [ -n "$FAKE_ROOT" ]; then printf 'root-systemctl %s\\n' "$*" >> "$FAKE_LOG"; else printf 'systemctl %s\\n' "$*" >> "$FAKE_LOG"; fi
 case "$1" in
   cat) [ -z "$FAKE_NO_SOCKET" ]; exit $? ;;
+  # WHY FAKE_SOCKET_OFF: Bazzite ships the same socket as SteamOS but switched off (seen in the Bazzite VM, card #502).
+  is-enabled) if [ -n "$FAKE_SOCKET_OFF" ]; then echo disabled; exit 1; fi; echo enabled ;;
+  is-active) [ -z "$FAKE_SOCKET_OFF" ]; exit $? ;;
   # WHY stop/start and a failing restart: real SteamOS runs a helper service (steam-web-debug-portforward.service)
   # that systemd keeps for 5 minutes after the last connection. While it runs, `restart` of the socket FAILS
   # ("Socket service ... already active, refusing") and the old wide-open listener stays in use (seen in the M8 VM run).
@@ -73,6 +76,20 @@ case "$1" in
 esac
 exit 0
 '''
+# WHY a logging stand-in: the uninstaller hands the keyboard choice back to KDE through kwriteconfig6 (card #502).
+KWRITECONFIG = '''#!/bin/sh
+printf 'kwriteconfig6 %s\\n' "$*" >> "$FAKE_LOG"
+'''
+# WHY: on ordinary desktops the installer checks the KDE Plasma version (card #502, edge case 2)
+PLASMASHELL = '''#!/bin/sh
+# WHY "crash": without a screen the real one aborts (seen over SSH in the Debian 13 VM)
+[ "$FAKE_PLASMA" = crash ] && exit 134
+echo "plasmashell ${FAKE_PLASMA:-6.6.3}"
+'''
+DPKG_QUERY = '''#!/bin/sh
+[ -n "$FAKE_DPKG_PLASMA" ] || exit 1
+printf '%s' "$FAKE_DPKG_PLASMA"
+'''
 SUDO = '''#!/bin/sh
 printf 'sudo %s\\n' "$*" >> "$FAKE_LOG"
 [ "$FAKE_SUDO" = deny ] && { echo 'sudo: a password is required' >&2; exit 1; }
@@ -82,15 +99,19 @@ FAKE_ROOT=1 exec "$@"
 
 
 UPDATE_UNITS = ['swipekb-update.service', 'swipekb-update.timer']
+# WHY (card #502): the removal safety check is on for every install, like the update timer; it is not Gaming Mode either.
+CHECK_UNITS = ['swipekb-keyboard-check.path', 'swipekb-keyboard-check.service']
+SOCKET_QUERIES = {'systemctl cat steam-web-debug-portforward.socket', 'systemctl is-enabled steam-web-debug-portforward.socket',
+                  'systemctl is-active -q steam-web-debug-portforward.socket'}
 
 
 def gaming_units(f):
     """The Gaming Mode unit files present (the automatic-update timer is not Gaming Mode: it is on for the Desktop keyboard too)."""
-    return sorted(p.name for p in f.units.iterdir() if p.name not in UPDATE_UNITS) if f.units.exists() else []
+    return sorted(p.name for p in f.units.iterdir() if p.name not in UPDATE_UNITS + CHECK_UNITS) if f.units.exists() else []
 
 
 class Fixture:
-    def __init__(self, test, version='0.3.1-1', steam=True, symlink=False):
+    def __init__(self, test, version='0.3.1-1', steam=True, symlink=False, system='steamos'):
         self.tmp = tempfile.TemporaryDirectory()
         test.addCleanup(self.tmp.cleanup)
         base = Path(self.tmp.name)
@@ -102,7 +123,8 @@ class Fixture:
         self.apps.write_text('')
         shims, tools = base / 'shims', base / 'tools'
         shims.mkdir(), tools.mkdir()
-        for name, body in (('flatpak', FLATPAK), ('systemctl', SYSTEMCTL), ('sudo', SUDO)):
+        for name, body in (('flatpak', FLATPAK), ('systemctl', SYSTEMCTL), ('sudo', SUDO), ('kwriteconfig6', KWRITECONFIG),
+                           ('plasmashell', PLASMASHELL)):
             (shims / name).write_text(body)
             (shims / name).chmod(0o755)
         for name in TOOLS:
@@ -122,6 +144,19 @@ class Fixture:
             if symlink:
                 (self.home / '.steam').mkdir()
                 (self.home / '.steam/steam').symlink_to(self.steam)
+        # WHY a stand-in /etc/os-release: the installer's wording names the system it runs on (SteamOS or e.g. Bazzite)
+        self.os_release = base / 'os-release'
+        self.os_release.write_text({'steamos': 'NAME="SteamOS"\nID=steamos\n',
+                                    'bazzite': 'NAME="Bazzite"\nPRETTY_NAME="Bazzite"\nID=bazzite\nID_LIKE="fedora"\n',
+                                    'kubuntu': 'NAME="Ubuntu"\nPRETTY_NAME="Ubuntu 26.04 LTS"\nID=ubuntu\nID_LIKE=debian\n',
+                                    'leap': 'NAME="openSUSE Leap"\nID="opensuse-leap"\nID_LIKE="suse opensuse"\n'}[system])
+        # WHY stand-ins for the login-session folder and the regular package's folder: this very laptop has the regular
+        # package installed, and a real machine's sessions must never decide what a test sees.
+        self.sessions = base / 'wayland-sessions'
+        self.sessions.mkdir()
+        self.native = base / 'usr-share-swipe-keyboard'
+        self.appdir = base / 'usr-share-applications'     # stands in for /usr/share/applications
+        self.appdir.mkdir()
         self.bundle = base / 'download'
         self.make_bundle(version)
 
@@ -134,6 +169,7 @@ class Fixture:
         shutil.copy2(SETUP / 'uninstall.sh', self.bundle)
         shutil.copy2(SETUP / 'switch-watch.sh', self.bundle)
         shutil.copy2(SETUP / 'auto-update.sh', self.bundle)
+        shutil.copy2(SETUP / 'keyboard-check.sh', self.bundle)
         shutil.copy2(ROOT / 'packaging/updates/update-key.gpg', self.bundle)
         shutil.copytree(SETUP / 'units', self.bundle / 'units')
         (self.bundle / 'VERSION').write_text(version + '\n')
@@ -152,14 +188,20 @@ class Fixture:
         return self.sysdir / 'steam-web-debug-portforward.socket.d/swipekb-loopback-only.conf'
 
     def run(self, script, *args, stdin='y\n', fail=None, shims=True, extra=None):
-        env = {'SWIPEKB_SYSTEM_UNIT_DIR': str(self.sysdir), 'SWIPEKB_PROC_NET': str(self.proc), **(extra or {}), 'HOME': str(self.home), 'PATH': (str(self.shims) + ':' if shims else '') + str(self.tools),
+        env = {'SWIPEKB_SYSTEM_UNIT_DIR': str(self.sysdir), 'SWIPEKB_PROC_NET': str(self.proc),
+               'SWIPEKB_OS_RELEASE': str(self.os_release), 'SWIPEKB_APPLICATIONS_DIR': str(self.appdir),
+               'SWIPEKB_SESSIONS_DIR': str(self.sessions), 'SWIPEKB_NATIVE_DIR': str(self.native), 'SWIPEKB_FLATPAK_SYSTEM_DIR': str(self.home.parent / 'var-lib-flatpak'), **(extra or {}), 'HOME': str(self.home), 'PATH': (str(self.shims) + ':' if shims else '') + str(self.tools),
                'LANG': 'C', 'FAKE_LOG': str(self.log), 'FAKE_APPS': str(self.apps), 'FAKE_FAIL': fail or ''}
         env.update(extra or {})
         return subprocess.run(['bash', str(self.bundle / script), *args], input=stdin, env=env,
                               capture_output=True, text=True, timeout=60)
 
     def calls(self):
-        return self.log.read_text().splitlines()
+        """Every command run, except the read-only questions about SteamOS's socket (does it exist, is it on).
+
+        WHY left out: they change nothing and are asked before the plan is shown (also in a dry run), so "nothing was
+        run" checks would otherwise fail on them. What the installer does with the answers is tested on its own."""
+        return [c for c in self.log.read_text().splitlines() if c not in SOCKET_QUERIES]
 
     def snapshot(self):
         """Every file and symlink under HOME with its content, so 'nothing changed' is checkable."""
@@ -225,7 +267,7 @@ class InstallTests(unittest.TestCase):
         self.assertEqual(record['version'], '0.3.1-1')
         self.assertEqual(record['created_markers'], [str(f.steam / MARKER)])
         self.assertEqual(record['existing_markers'], [])
-        self.assertEqual(sorted(record['created_units']), sorted(['swipekb-engine.service', 'swipekb-helper.service', 'swipekb-switch-watch.service', 'swipekb-switch-watch.timer'] + UPDATE_UNITS))
+        self.assertEqual(sorted(record['created_units']), sorted(['swipekb-engine.service', 'swipekb-helper.service', 'swipekb-switch-watch.service', 'swipekb-switch-watch.timer'] + UPDATE_UNITS + CHECK_UNITS))
         self.assertEqual(record['auto_update'], 'yes')
         self.assertEqual(record['installed_flatpaks'], [MAIN_ID, HELPER_ID])
         calls = f.calls()
@@ -290,7 +332,7 @@ class InstallTests(unittest.TestCase):
         f.run('install.sh', '--gaming', '--block-outside')
         f.run('uninstall.sh', '--yes', '--remove-apps')
         for call in f.calls():
-            if call.startswith(('sudo ', 'root-systemctl ')) or call == 'systemctl cat steam-web-debug-portforward.socket':
+            if call.startswith(('sudo ', 'root-systemctl ')):
                 continue   # the few administrator steps are pinned by the outside-door tests below
             self.assertIn('--user', call, call)
         for script in ('install.sh', 'uninstall.sh'):
@@ -301,7 +343,12 @@ class InstallTests(unittest.TestCase):
             # WHY a whitelist: administrator rights are used for exactly these actions on our one drop-in file, nothing else.
             for line in text.splitlines():
                 if 'sudo' in line:
-                    self.assertRegex(line.strip(), r'^(if ! |\{ )?(command -v sudo|sudo -v|sudo (mkdir -p|rm -f|rmdir|systemctl (daemon-reload|stop|start)|tee)\b)|sudo -v;|&& sudo|\| sudo tee|\{ sudo mkdir', f'{script}: {line}')
+                    # WHY the one extra shape (card #502): advice TEXT telling a Kubuntu/Debian/openSUSE/Fedora user how to
+                    # install Flatpak themselves; the check below proves the installer never runs it.
+                    self.assertRegex(line.strip(), r'^(if ! |\{ )?(command -v sudo|sudo -v|sudo (mkdir -p|rm -f|rmdir|systemctl (daemon-reload|stop|start)|tee)\b)|sudo -v;|&& sudo|\| sudo tee|\{ sudo mkdir'
+                                     r'|^\*.*\) how="sudo (apt|zypper|dnf) install flatpak" ;;$', f'{script}: {line}')
+            uses = [l.strip() for l in text.splitlines() if '$how' in l]
+            self.assertTrue(all(u.startswith('die "') for u in uses), uses)
 
     def test_existing_marker_is_left_alone_and_recorded_as_not_ours(self):
         f = Fixture(self)
@@ -448,9 +495,12 @@ class ChoiceTests(unittest.TestCase):
                 self.assertEqual(gaming_units(f), [])
                 self.assertEqual(sys_files(f), [])
                 self.assertEqual([c for c in f.calls() if c.startswith(('sudo', 'root-'))], [])
-                # WHY only these: automatic updates are on for the Desktop keyboard too, and need nothing else.
+                # WHY only these: automatic updates and the removal safety check (card #502) are on for the Desktop keyboard
+                # too, and need nothing else.
                 self.assertEqual([c for c in f.calls() if c.startswith('systemctl')],
-                                 ['systemctl --user daemon-reload', 'systemctl --user enable --now swipekb-update.timer'])
+                                 ['systemctl --user daemon-reload', 'systemctl --user enable --now swipekb-update.timer',
+                                  'systemctl --user daemon-reload', 'systemctl --user enable --now swipekb-keyboard-check.path',
+                                  'systemctl --user enable swipekb-keyboard-check.service'])
                 installs = [c for c in f.calls() if c.startswith('flatpak install')]
                 self.assertEqual(len(installs), 1)
                 self.assertIn('swipe-keyboard-0.3.1-1', installs[0])
@@ -469,7 +519,7 @@ class ChoiceTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual((f.dropin).read_text(), '\n'.join([
             '# swipekb-gaming-managed',
-            '# Written by the Swipe Keyboard installer. Makes SteamOS answer Steam debug requests from this Deck only,',
+            '# Written by the OpenSwipe installer. Makes SteamOS answer Steam debug requests from this Deck only,',
             '# not from other devices on the network. Remove with: bash uninstall.sh (or delete this file, then',
             '# run: systemctl daemon-reload && systemctl stop steam-web-debug-portforward.socket steam-web-debug-portforward.service',
             '# && systemctl start steam-web-debug-portforward.socket).',
@@ -581,6 +631,41 @@ class ChoiceTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(sys_files(f), [])
         self.assertTrue((f.steam / MARKER).is_file())
+
+    def test_a_system_that_keeps_the_socket_switched_off_needs_no_password_and_no_system_change(self):
+        # WHY (Bazzite VM, card #502): Bazzite ships SteamOS's forwarding socket but disabled, so port 8081 is closed
+        # already. Writing the block would ask for a password and START a socket nobody had running; the helper's own
+        # check (exposure.py) turns Gaming Mode swipe off if anything opens the port later.
+        f = Fixture(self, system='bazzite')
+        (f.proc / 'tcp').write_text('header\n')
+        result = f.run('install.sh', '--gaming', '--block-outside', extra={'FAKE_SOCKET_OFF': '1', 'FAKE_SUDO': 'deny'})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(sys_files(f), [])
+        self.assertEqual([c for c in f.calls() if c.startswith(('sudo', 'root-'))], [])
+        self.assertTrue((f.steam / MARKER).is_file())
+        self.assertEqual(f.record()['outside_access'], 'blocked')
+        self.assertIn('already closed', result.stdout)
+
+    def test_a_switched_off_socket_with_the_port_open_anyway_does_not_turn_gaming_on(self):
+        # Something else listening on 8081 for every device: the final look must still catch it.
+        f = Fixture(self, system='bazzite')
+        result = f.run('install.sh', '--gaming', '--block-outside', stdin='y\n\n', extra={'FAKE_SOCKET_OFF': '1', 'FAKE_SUDO': 'deny'})
+        self.assertIn('NOT closed', result.stdout + result.stderr)
+        self.assertFalse((f.steam / MARKER).exists())
+        self.assertEqual(sys_files(f), [])
+
+    def test_wording_names_the_system_it_runs_on(self):
+        deck = Fixture(self).run('install.sh', '--dry-run', stdin='').stdout
+        self.assertIn('OpenSwipe for Steam Deck', deck)
+        self.assertIn("your Deck's administrator password", deck)
+        f = Fixture(self, system='bazzite')
+        (f.proc / 'tcp').write_text('header\n')
+        out = f.run('install.sh', '--dry-run', stdin='', extra={'FAKE_SOCKET_OFF': '1'}).stdout
+        self.assertIn('OpenSwipe for Bazzite', out)
+        self.assertNotIn('Deck', out)
+        self.assertNotIn('SteamOS', out)
+        self.assertNotIn('passwd', out)   # nothing asks for a password here, so no hint about setting one
+        self.assertIn('already closed', out)
 
     def test_interactive_answers_map_to_the_right_choices(self):
         # WHY Enter = yes with other devices blocked (Destin, card #201, 2026-10-24)
@@ -699,6 +784,268 @@ class ChoiceTests(unittest.TestCase):
         self.assertNotIn('write one small file', out)
 
 
+class DesktopDistroTests(unittest.TestCase):
+    """Card #502, Flatpak on older long-term desktops (Kubuntu 26.04, Debian 13, openSUSE Leap 16): Desktop keyboard only."""
+
+    def test_the_plan_says_nothing_about_steam_or_gaming_mode(self):
+        f = Fixture(self, steam=False, system='kubuntu')
+        out = f.run('install.sh', '--dry-run', stdin='').stdout
+        for phrase in ('developer switch', '8081', 'Subscriber Agreement', 'Gaming Mode', 'Deck', 'administrator password'):
+            self.assertNotIn(phrase, out)
+        self.assertIn('OpenSwipe for Ubuntu', out)
+        self.assertIn('System Settings', out)
+        self.assertIn(MAIN_ID, out)
+
+    def test_install_adds_only_the_keyboard_app_and_says_where_to_choose_it(self):
+        f = Fixture(self, steam=True, system='kubuntu')   # even with Steam installed: no Gaming Mode on a plain desktop
+        result = f.run('install.sh', '--yes')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(f.apps.read_text().split(), [MAIN_ID])
+        self.assertEqual(gaming_units(f), [])
+        self.assertFalse((f.steam / MARKER).exists())
+        self.assertEqual(f.record()['gaming'], 'no')
+        self.assertIn('Virtual Keyboard', result.stdout)
+        self.assertIn('log out and back in', result.stdout, 'no Flatpak folder in this login yet')
+        ok = f.run('install.sh', '--yes', extra={'XDG_DATA_DIRS': f'{f.home}/.local/share/flatpak/exports/share:/usr/share'})
+        self.assertNotIn('log out and back in', ok.stdout)
+
+    def test_gaming_mode_is_refused_on_a_desktop_and_nothing_changes(self):
+        f = Fixture(self, system='kubuntu')
+        before = f.snapshot()
+        result = f.run('install.sh', '--gaming', '--yes')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('Gaming Mode swipe is for SteamOS and Bazzite', result.stderr)
+        self.assertEqual(f.snapshot(), before)
+        self.assertEqual(f.calls(), [])
+
+    def test_without_flatpak_it_gives_the_one_time_setup_for_that_family(self):
+        for system, how in (('kubuntu', 'sudo apt install flatpak'), ('leap', 'sudo zypper install flatpak')):
+            with self.subTest(system=system):
+                f = Fixture(self, system=system)
+                before = f.snapshot()
+                result = f.run('install.sh', '--yes', shims=False)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(how, result.stderr)
+                self.assertIn('log out and back in', result.stderr)
+                self.assertEqual(f.snapshot(), before)
+
+    def test_kde_too_old_or_missing_is_refused_plainly(self):
+        for version, ok in (('5.27.11', False), ('6.2.5', False), ('6.3.0', True), ('6.10.1', True)):
+            with self.subTest(version=version):
+                f = Fixture(self, system='kubuntu')
+                result = f.run('install.sh', '--yes', extra={'FAKE_PLASMA': version})
+                self.assertEqual(result.returncode == 0, ok, result.stderr)
+                if not ok:
+                    self.assertIn(f'this computer has {version}', result.stderr)
+                    self.assertEqual(f.calls(), [])
+        # without a screen plasmashell fails; the package list gives the same version (Debian epoch and revision dropped)
+        for dpkg, ok in (('4:6.3.6-2', True), ('4:5.27.11-0ubuntu4', False), ('', False)):
+            with self.subTest(dpkg=dpkg):
+                f = Fixture(self, system='kubuntu')
+                (f.shims / 'dpkg-query').write_text(DPKG_QUERY); (f.shims / 'dpkg-query').chmod(0o755)
+                result = f.run('install.sh', '--yes', extra={'FAKE_PLASMA': 'crash', 'FAKE_DPKG_PLASMA': dpkg})
+                self.assertEqual(result.returncode == 0, ok, result.stderr)
+                if dpkg == '':
+                    self.assertIn('an unknown version', result.stderr)
+        f = Fixture(self, system='kubuntu')
+        (f.shims / 'plasmashell').unlink()
+        result = f.run('install.sh', '--yes')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('KDE Plasma was not found', result.stderr)
+
+    def test_the_regular_package_already_installed_is_refused_with_disable_first(self):
+        for system in ('kubuntu', 'steamos'):
+            with self.subTest(system=system):
+                f = Fixture(self, system=system)
+                (f.native / 'integration').mkdir(parents=True)
+                (f.native / 'integration/setup.py').write_text('')
+                result = f.run('install.sh', '--yes')
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('regular OpenSwipe package is already installed', result.stderr)
+                self.assertIn('swipe-keyboard disable', result.stderr, 'switch off before removing, or no keyboard')
+                self.assertEqual(f.calls(), [])
+
+    def test_a_leftover_folder_from_a_removed_package_does_not_block(self):
+        # WHY (review): package managers leave a folder with stray cache files behind; that is not an installed package
+        f = Fixture(self, system='kubuntu')
+        (f.native / 'integration/__pycache__').mkdir(parents=True)
+        self.assertEqual(f.run('install.sh', '--yes').returncode, 0)
+
+    def test_the_first_download_size_is_said_only_when_the_kde_runtime_is_missing(self):
+        f = Fixture(self, system='kubuntu')
+        self.assertIn('about 700 MB, once', f.run('install.sh', '--dry-run', stdin='').stdout)
+        (f.home.parent / 'var-lib-flatpak/runtime/org.kde.Platform/x86_64/6.10').mkdir(parents=True)
+        out = f.run('install.sh', '--dry-run', stdin='').stdout
+        self.assertNotIn('700 MB', out)
+        self.assertIn('already on this computer', out)
+
+    def test_a_download_without_the_gaming_helper_is_fine_on_a_desktop(self):
+        f = Fixture(self, system='kubuntu')
+        for p in f.bundle.glob('swipe-keyboard-gaming-helper-*'):
+            p.unlink()
+        f.write_sums()
+        self.assertEqual(f.run('install.sh', '--yes').returncode, 0)
+
+    def test_a_system_with_a_steam_gaming_session_counts_as_a_gaming_one(self):
+        f = Fixture(self, system='kubuntu')
+        (f.sessions / 'gamescope-session-steam.desktop').write_text('[Desktop Entry]\n')
+        out = f.run('install.sh', '--dry-run', stdin='').stdout
+        self.assertIn('developer switch', out)
+
+    def test_uninstall_removes_it_again(self):
+        f = Fixture(self, system='kubuntu')
+        before = f.snapshot()
+        f.run('install.sh', '--yes')
+        result = f.run('uninstall.sh', '--yes', '--remove-apps')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(f.apps.read_text().split(), [])
+        self.assertEqual(f.snapshot(), before)
+        self.assertNotIn('Steam', result.stdout, 'a desktop that never had Gaming Mode reads nothing about Steam')
+
+    def test_keeping_the_app_names_only_the_keyboard_app(self):
+        f = Fixture(self, system='kubuntu')
+        f.run('install.sh', '--yes')
+        out = f.run('uninstall.sh', '--dry-run').stdout
+        self.assertIn(f'flatpak uninstall --user {MAIN_ID}', out)
+        self.assertNotIn(HELPER_ID, out)
+
+
+class RemovalCheckTests(unittest.TestCase):
+    """Card #502, edge case 1: removed some other way (Discover, flatpak uninstall) while chosen -> KDE's keyboard comes back."""
+
+    def setup(self, choice, installed=False, kde=True):
+        f = Fixture(self, system='kubuntu')
+        (f.home / '.config').mkdir(parents=True, exist_ok=True)
+        (f.home / '.config/kwinrc').write_text(f'[Wayland]\nInputMethod={choice}\n')
+        if kde:
+            (f.appdir / 'org.kde.plasma.keyboard.desktop').write_text('[Desktop Entry]\n')
+        if installed:
+            f.apps.write_text(MAIN_ID + '\n')
+        return f
+
+    def kwrites(self, f):
+        return [c for c in f.calls() if c.startswith('kwriteconfig6')]
+
+    def test_ours_chosen_and_gone_hands_the_choice_to_kdes_keyboard_and_stops_our_jobs(self):
+        f = self.setup(f'{Path.home()}/.local/share/flatpak/exports/share/applications/{MAIN_ID}.desktop')
+        result = f.run('keyboard-check.sh')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.kwrites(f), [f'kwriteconfig6 --file kwinrc --group Wayland --key InputMethod --notify {f.appdir}/org.kde.plasma.keyboard.desktop'])
+        for unit in ('swipekb-update.timer', 'swipekb-keyboard-check.path', 'swipekb-engine.service', 'swipekb-helper.service'):
+            self.assertIn(f'systemctl --user disable --now {unit}', f.calls())
+
+    def test_the_form_system_settings_really_writes_is_recognised(self):
+        # WHY exactly this line: copied from kwinrc in the Debian 13 VM after choosing OpenSwipe in System Settings
+        f = Fixture(self, system='kubuntu')
+        (f.home / '.config').mkdir(parents=True)
+        (f.home / '.config/kwinrc').write_text('[Wayland]\nInputMethod[$e]=$HOME/.local/share/flatpak/exports/share/applications/org.itsdestin.SwipeKeyboard.desktop\n')
+        (f.appdir / 'org.kde.plasma.keyboard.desktop').write_text('[Desktop Entry]\n')
+        f.run('keyboard-check.sh')
+        self.assertEqual(len(self.kwrites(f)), 1, 'the safety check sees it')
+        f2 = Fixture(self, system='kubuntu')
+        f2.run('install.sh', '--yes')
+        (f2.home / '.config/kwinrc').write_text((f.home / '.config/kwinrc').read_text())
+        f2.run('uninstall.sh', '--yes', '--remove-apps')
+        self.assertTrue([c for c in f2.calls() if c.startswith('kwriteconfig6')], 'and so does the uninstaller')
+
+    def test_without_kdes_keyboard_the_choice_is_cleared(self):
+        f = self.setup(f'{MAIN_ID}.desktop', kde=False)
+        f.run('keyboard-check.sh')
+        self.assertEqual(self.kwrites(f), ['kwriteconfig6 --file kwinrc --group Wayland --key InputMethod --notify '])
+
+    def test_nothing_changes_while_the_app_is_installed(self):
+        for chosen in (f'{MAIN_ID}.desktop', '/usr/share/applications/org.kde.plasma.keyboard.desktop'):
+            f = self.setup(chosen, installed=True)
+            before = f.snapshot()
+            f.run('keyboard-check.sh')
+            self.assertEqual([c for c in f.calls() if not c.startswith('flatpak info')], [])
+            self.assertEqual(f.snapshot(), before)
+
+    def test_app_gone_but_another_keyboard_chosen_only_stops_our_jobs(self):
+        # WHY (review): the Gaming Mode engine would otherwise restart every two minutes for an app that is gone
+        for chosen in ('/usr/share/applications/org.kde.plasma.keyboard.desktop',
+                       '/usr/share/applications/not-org.itsdestin.SwipeKeyboard.desktop.bak'):
+            f = self.setup(chosen)
+            f.run('keyboard-check.sh')
+            self.assertEqual(self.kwrites(f), [])
+            self.assertIn('systemctl --user disable --now swipekb-engine.service', f.calls())
+
+    def test_no_kwinrc_means_no_keyboard_change(self):
+        f = Fixture(self, system='kubuntu')
+        f.run('keyboard-check.sh')
+        self.assertEqual([c for c in f.calls() if c.startswith('kwriteconfig6')], [])
+
+    def test_the_installer_sets_it_up_and_says_so(self):
+        f = Fixture(self, system='kubuntu')
+        self.assertIn('clear that choice', f.run('install.sh', '--dry-run', stdin='').stdout, 'Debian 13 has no KDE keyboard')
+        (f.appdir / 'org.kde.plasma.keyboard.desktop').write_text('[Desktop Entry]\n')
+        out = f.run('install.sh', '--dry-run', stdin='').stdout
+        self.assertIn("hand the choice back to your system's", out)
+        f.run('install.sh', '--yes')
+        script = f.home / '.local/share/swipe-keyboard-gaming/keyboard-check.sh'
+        self.assertTrue(os.access(script, os.X_OK))
+        self.assertIn(f'ExecStart={script}', (f.units / 'swipekb-keyboard-check.service').read_text())
+        self.assertIn('PathChanged=%h/.local/share/flatpak/exports/share/applications', (f.units / 'swipekb-keyboard-check.path').read_text())
+
+
+class KeyboardChoiceTests(unittest.TestCase):
+    """Card #502, edge case 1: removing the app must never leave the person with no on-screen keyboard after the next login."""
+    OURS = '/home/x/.local/share/flatpak/exports/share/applications/org.itsdestin.SwipeKeyboard.desktop'
+
+    def setup(self, chosen, kde_keyboard=True):
+        f = Fixture(self)
+        f.run('install.sh', '--desktop-only', '--yes')
+        (f.home / '.config').mkdir(exist_ok=True)
+        (f.home / '.config/kwinrc').write_text(f'[Wayland]\nInputMethod={chosen}\n')
+        if kde_keyboard:
+            (f.appdir / 'org.kde.plasma.keyboard.desktop').write_text('[Desktop Entry]\n')
+        f.log.write_text('')
+        return f
+
+    def keyboard_calls(self, f):
+        return [c for c in f.calls() if c.startswith('kwriteconfig6')]
+
+    def test_removing_the_chosen_keyboard_hands_the_choice_back_to_kdes_own(self):
+        f = self.setup(self.OURS)
+        result = f.run('uninstall.sh', '--yes', '--remove-apps')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.keyboard_calls(f), [
+            f'kwriteconfig6 --file kwinrc --group Wayland --key InputMethod --notify {f.appdir}/org.kde.plasma.keyboard.desktop'])
+        self.assertIn("your system's own", result.stdout)
+
+    def test_without_kdes_keyboard_the_choice_becomes_none_and_says_so(self):
+        f = self.setup(self.OURS, kde_keyboard=False)
+        result = f.run('uninstall.sh', '--yes', '--remove-apps')
+        self.assertEqual(self.keyboard_calls(f), ['kwriteconfig6 --file kwinrc --group Wayland --key InputMethod --notify '])
+        self.assertIn('System Settings', result.stdout)
+
+    def test_another_chosen_keyboard_is_left_alone(self):
+        f = self.setup('/usr/share/applications/org.fcitx.Fcitx5.desktop')
+        f.run('uninstall.sh', '--yes', '--remove-apps')
+        self.assertEqual(self.keyboard_calls(f), [])
+
+    def test_keeping_the_app_still_hands_the_choice_back(self):
+        # WHY (review, card #502): this uninstall removes the safety check too; keeping the choice would leave no keyboard
+        # the day the app is removed in Discover.
+        f = self.setup(self.OURS)
+        f.run('uninstall.sh', '--yes')
+        self.assertEqual(self.keyboard_calls(f), [
+            f'kwriteconfig6 --file kwinrc --group Wayland --key InputMethod --notify {f.appdir}/org.kde.plasma.keyboard.desktop'])
+
+    def test_maliit_is_the_fallback_where_kde_has_no_keyboard(self):
+        f = self.setup(self.OURS, kde_keyboard=False)
+        (f.appdir / 'com.github.maliit.keyboard.desktop').write_text('[Desktop Entry]\n')
+        f.run('uninstall.sh', '--yes', '--remove-apps')
+        self.assertEqual(self.keyboard_calls(f), [
+            f'kwriteconfig6 --file kwinrc --group Wayland --key InputMethod --notify {f.appdir}/com.github.maliit.keyboard.desktop'])
+
+    def test_the_plan_mentions_it(self):
+        f = self.setup(self.OURS)
+        out = f.run('uninstall.sh', '--dry-run', '--remove-apps').stdout
+        self.assertIn('Virtual Keyboard', out)
+        self.assertEqual(self.keyboard_calls(f), [])
+
+
 class UninstallBlockTests(unittest.TestCase):
     def test_uninstall_removes_the_block_it_made_and_restores_everything(self):
         f = Fixture(self)
@@ -775,7 +1122,7 @@ class UninstallTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(f.snapshot(), before)
         calls = f.calls()
-        self.assertIn('systemctl --user disable --now swipekb-engine.service swipekb-helper.service swipekb-switch-watch.service swipekb-switch-watch.timer swipekb-update.service swipekb-update.timer', calls)
+        self.assertIn('systemctl --user disable --now swipekb-engine.service swipekb-helper.service swipekb-switch-watch.service swipekb-switch-watch.timer swipekb-update.service swipekb-update.timer swipekb-keyboard-check.path swipekb-keyboard-check.service', calls)
         self.assertIn('systemctl --user daemon-reload', calls)
         self.assertEqual([c for c in calls if c.startswith('flatpak uninstall')], [])
         self.assertIn('flatpak uninstall --user', result.stdout)  # printed as a hint, not run
@@ -945,7 +1292,7 @@ class AutoUpdateTests(unittest.TestCase):
         self.assertEqual(f.run('install.sh', '--gaming', '--leave-open', '--yes').returncode, 0)
         calls = f.calls()
         for origin in ('orgitsdestinswipekeyboard-origin', 'orgitsdestinswipekeyboardgaminghelper-origin'):
-            self.assertIn(f'flatpak remote-modify --user --url=https://itsdestin.github.io/swipe-keyboard/repo/ --gpg-verify '
+            self.assertIn(f'flatpak remote-modify --user --url=https://itsdestin.github.io/openswipe/repo/ --gpg-verify '
                           f'--gpg-import={f.bundle}/update-key.gpg {origin}', calls)
         self.assertIn('systemctl --user enable --now swipekb-update.timer', calls)
         service = (f.units / 'swipekb-update.service').read_text()
@@ -958,7 +1305,7 @@ class AutoUpdateTests(unittest.TestCase):
         f = Fixture(self)
         self.assertEqual(f.run('install.sh', '--gaming', '--leave-open', '--yes', extra={'FAKE_LOST_ORIGIN': '1'}).returncode, 0)
         self.assertIn(f'flatpak remote-add --user --no-enumerate --gpg-import={f.bundle}/update-key.gpg '
-                      'orgitsdestinswipekeyboardgaminghelper-origin https://itsdestin.github.io/swipe-keyboard/repo/', f.calls())
+                      'orgitsdestinswipekeyboardgaminghelper-origin https://itsdestin.github.io/openswipe/repo/', f.calls())
         # The main app's origin still exists, so it is modified, never re-added (re-adding fails: "already exists").
         self.assertFalse([c for c in f.calls() if c.startswith('flatpak remote-add') and 'orgitsdestinswipekeyboard-origin' in c])
 

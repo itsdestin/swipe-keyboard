@@ -1,6 +1,6 @@
-Swipe Keyboard licences
+OpenSwipe licences
 
-Swipe Keyboard follows the REUSE specification (https://reuse.software): every file names its copyright holders and
+OpenSwipe follows the REUSE specification (https://reuse.software): every file names its copyright holders and
 licence, either in an SPDX header or in REUSE.toml, and the full licence texts are in LICENSES/.
 
 - MIT: the engine (engine/: swipe recognition, dictionary, completion, prediction, learning), tools/, scripts/,

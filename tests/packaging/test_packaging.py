@@ -4,11 +4,16 @@
 
 """Packaging contract tests; stage fixtures exercise the real CMake installer."""
 import pathlib
+import shutil
 import subprocess
 import tempfile
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
+# WHY read from the contract: versions typed into these tests broke them at every release (0.6.0-1).
+_CONTRACT = __import__('json').loads((ROOT/'packaging/release-targets.json').read_text())
+UPSTREAM = _CONTRACT['version']
+PACKAGE = f"{_CONTRACT['version']}-{_CONTRACT['release']}"
 
 class Packaging(unittest.TestCase):
     def test_multilingual_context_payload_license_and_package_copy_are_pinned(self):
@@ -105,7 +110,7 @@ class Packaging(unittest.TestCase):
                 self.assertFalse((folder/name).exists(),name)
         lock=json.loads((ROOT/'packaging/assets.lock.json').read_text())
         self.assertEqual(set(lock['multilingual_context_models']),{'en','es','fr','de'})
-        self.assertTrue(lock['language_files']['baseUrl'].startswith('https://github.com/itsdestin/swipe-keyboard/releases/download/'))
+        self.assertTrue(lock['language_files']['baseUrl'].startswith('https://github.com/itsdestin/openswipe/releases/download/'))
 
     def test_package_descriptions_and_license_metadata_match_multilingual_payloads(self):
         texts=[(ROOT/'packaging/arch/PKGBUILD').read_text(),
@@ -120,6 +125,9 @@ class Packaging(unittest.TestCase):
         self.assertIn('custom:TATOEBA-CC-BY-2.0-FR.txt',texts[0])
         self.assertTrue((ROOT/'packaging/language-models/TATOEBA-CC-BY-2.0-FR.txt').is_file())
 
+    # WHY skip without git: a distro build environment need not have it (openSUSE's rpmbuild on a minimal system, card
+    # #502); CI's package jobs install git, so the check still runs on every release build.
+    @unittest.skipUnless(shutil.which('git'), 'needs git')
     def test_source_archive_holds_tracked_files_only(self):
         import shutil
         import tarfile
@@ -144,9 +152,9 @@ class Packaging(unittest.TestCase):
             output = pathlib.Path(tmp)/'dist'
             result = subprocess.run(['bash', str(fixture/'scripts/package-source.sh'), str(output)], text=True, capture_output=True)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            with tarfile.open(output/'swipe-keyboard-0.5.1.tar.gz') as archive:
+            with tarfile.open(output/f'swipe-keyboard-{UPSTREAM}.tar.gz') as archive:
                 names = {name.replace('/./', '/') for name in archive.getnames()}
-            prefix = 'swipe-keyboard-0.5.1/'
+            prefix = f'swipe-keyboard-{UPSTREAM}/'
             self.assertNotIn(prefix + 'personal-secret.txt', names)
             self.assertIn(prefix + tracked, names)
             for name in generated:
@@ -225,7 +233,7 @@ include("{ROOT}/cmake/Install.cmake")
                 self.assertTrue((stage/f'share/swipe-keyboard/language-packs/{language}.json').is_file())
             self.assertFalse((stage/'share/swipe-keyboard/eval').exists())
             self.assertFalse((stage/'share/swipe-keyboard/models').exists())
-            self.assertEqual((stage/'share/swipe-keyboard/runtime.json').read_text(), '{"qt": "6.10", "package": "0.5.1-1"}\n')
+            self.assertEqual((stage/'share/swipe-keyboard/runtime.json').read_text(), '{"qt": "6.10", "package": "%s"}\n' % PACKAGE)
             self.assertTrue((stage/'bin/swipe-keyboard').stat().st_mode & 0o111)
             self.assertTrue((stage/'share/swipe-keyboard/qml/SwipeKeyboard/libswipekb_engine.so').stat().st_mode & 0o111,
                             'Native libraries must retain executable mode for RPM debug-info discovery')
@@ -336,9 +344,10 @@ include("{ROOT}/cmake/Install.cmake")
 
     def test_ci_checks_installed_wrapper_as_ordinary_user(self):
         workflow = (ROOT/'.github/workflows/packages.yml').read_text()
-        # Arch baseline/current plus Fedora x86_64 and mandatory Fedora ARM64.
-        self.assertEqual(workflow.count('XDG_SESSION_TYPE=wayland XDG_CURRENT_DESKTOP=KDE swipe-keyboard check'), 4)
-        self.assertEqual(workflow.count('test ! -e /usr/bin/swipe-keyboard'), 4)
+        # Arch baseline/current plus Fedora x86_64 and mandatory Fedora ARM64, and (card #502) the one
+        # Kubuntu/Debian testing/Tumbleweed matrix job.
+        self.assertEqual(workflow.count('XDG_SESSION_TYPE=wayland XDG_CURRENT_DESKTOP=KDE swipe-keyboard check'), 5)
+        self.assertEqual(workflow.count('test ! -e /usr/bin/swipe-keyboard'), 5)
 
     def test_fedora_ci_retains_test_executable_until_package_probe(self):
         workflow = (ROOT/'.github/workflows/packages.yml').read_text()

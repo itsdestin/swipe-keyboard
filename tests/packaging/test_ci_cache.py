@@ -5,6 +5,7 @@
 """Dependency-cache rules: who may read/write, what the key covers, what a restore must prove."""
 import importlib.util
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -17,7 +18,7 @@ memspec = importlib.util.spec_from_file_location('ci_memwatch', ROOT/'scripts/ci
 memwatch = importlib.util.module_from_spec(memspec)
 memspec.loader.exec_module(memwatch)
 
-REPO = 'itsdestin/swipe-keyboard'
+REPO = 'itsdestin/openswipe'
 
 
 def env(event, ref, repo=REPO, fork=''):
@@ -104,6 +105,9 @@ class KeyTests(unittest.TestCase):
                 self.assertIn(needed, joined)
 
 
+# WHY skip without zstd: the state archive is zstd-compressed, and a distro build environment need not have it (card
+# #502: fresh Kubuntu, Debian and Tumbleweed images). Every CI job that runs these tests installs it.
+@unittest.skipUnless(shutil.which('zstd'), 'needs zstd')
 class FlatpakStateTests(unittest.TestCase):
     def make_state(self, directory):
         state = Path(directory)/'.flatpak-builder'

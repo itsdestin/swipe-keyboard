@@ -4,7 +4,7 @@
 
 """The go-between for typing (plan Sections 3, 7.4 and 8): page -> helper -> engine -> Steam's own text call -> page.
 
-The page layer reports a finished swipe (or a tap on a suggestion, or "keyboard closed") through the `__swipekb` binding.
+The page layer reports a finished swipe (or a tap on a suggestion, "keyboard opened" so the engine can load early, or "keyboard closed") through the `__swipekb` binding.
 This file checks every message like an untrusted stranger's, asks the engine for words, types the best one through
 Steam's own `ControllerKeyboardSendText`, and tells the page what happened so it can fill its strip.
 
@@ -47,6 +47,27 @@ def _int(v, lo, hi):
     return isinstance(v, int) and not isinstance(v, bool) and lo <= v <= hi
 
 
+def _keys(keys):
+    """The page's letter keys (centre and size), checked; None when anything is off."""
+    if not (isinstance(keys, list) and 1 <= len(keys) <= MAX_KEYS):
+        return None
+    ks, seen = [], set()
+    for k in keys:
+        if not (isinstance(k, dict) and isinstance(k.get('k'), str) and len(k['k']) == 1 and k['k'].isalpha()
+                and all(_num(k.get(f), -MAX_COORD, MAX_COORD) for f in 'xy') and all(_num(k.get(f), 0, MAX_COORD) and k[f] > 0 for f in 'wh')):
+            return None
+        if k['k'].lower() in seen:
+            return None
+        seen.add(k['k'].lower())
+        ks.append({'k': k['k'], 'x': k['x'], 'y': k['y'], 'w': k['w'], 'h': k['h']})
+    return ks
+
+
+def _engine_keys(ks):
+    # the layer sends the centre of each key; the engine wants the top-left corner and the size
+    return [{'c': k['k'].lower(), 'x': k['x'] - k['w'] / 2, 'y': k['y'] - k['h'] / 2, 'w': k['w'], 'h': k['h']} for k in ks]
+
+
 def validate(raw):
     """-> a clean message dict, or None. The page is not trusted: shape, sizes and ranges are all checked."""
     if not isinstance(raw, str) or len(raw) > MAX_MESSAGE:
@@ -60,6 +81,20 @@ def validate(raw):
     t = m.get('type')
     if t == 'closed':
         return {'type': 'closed'}
+    if t == 'warm':
+        # WHY (card #502): "the keyboard just opened, with this layout", so the engine loads its words before the first swipe.
+        # Only the layout's name travels: no text, no keys, no touches.
+        # The key positions may come along, so the engine can also build its word list for this keyboard's letters.
+        layout = m.get('layout', 'qwerty')
+        if not (isinstance(layout, str) and _LAYOUT.fullmatch(layout)):
+            return None
+        out = {'type': 'warm', 'layout': layout}
+        if 'keys' in m:
+            ks = _keys(m['keys'])
+            if ks is None:
+                return None
+            out['keys'] = ks
+        return out
     if t == 'pick':
         if not (_int(m.get('id'), 0, 2**31) and _int(m.get('req'), 0, 2**53) and isinstance(m.get('cand'), str)
                 and _ID.fullmatch(m['cand']) and _int(m.get('erase'), 1, MAX_ERASE)):
@@ -67,9 +102,9 @@ def validate(raw):
         return {'type': 'pick', 'id': m['id'], 'req': m['req'], 'cand': m['cand'], 'erase': m['erase']}
     if t != 'stroke':
         return None
-    tr, keys, ctx = m.get('trace'), m.get('keys'), m.get('ctx', [])
-    if not (_int(m.get('id'), 0, 2**31) and isinstance(tr, list) and 2 <= len(tr) <= MAX_POINTS and isinstance(keys, list)
-            and 1 <= len(keys) <= MAX_KEYS and isinstance(ctx, list) and len(ctx) <= MAX_CTX):
+    tr, ks, ctx = m.get('trace'), _keys(m.get('keys')), m.get('ctx', [])
+    if not (_int(m.get('id'), 0, 2**31) and isinstance(tr, list) and 2 <= len(tr) <= MAX_POINTS and ks is not None
+            and isinstance(ctx, list) and len(ctx) <= MAX_CTX):
         return None
     pts = []
     for p in tr:
@@ -77,15 +112,6 @@ def validate(raw):
                 and _num(p[2], 0, MAX_TIME_MS)):
             return None
         pts.append([p[0], p[1], p[2]])
-    ks, seen = [], set()
-    for k in keys:
-        if not (isinstance(k, dict) and isinstance(k.get('k'), str) and len(k['k']) == 1 and k['k'].isalpha()
-                and all(_num(k.get(f), -MAX_COORD, MAX_COORD) for f in 'xy') and all(_num(k.get(f), 0, MAX_COORD) and k[f] > 0 for f in 'wh')):
-            return None
-        if k['k'].lower() in seen:
-            return None
-        seen.add(k['k'].lower())
-        ks.append({'k': k['k'], 'x': k['x'], 'y': k['y'], 'w': k['w'], 'h': k['h']})
     words = []
     for w in ctx:
         if not (isinstance(w, str) and 0 < len(w) <= 60 and _CTXWORD.fullmatch(w)):
@@ -94,7 +120,13 @@ def validate(raw):
     mode, layout, caps = m.get('mode'), m.get('layout', 'qwerty'), m.get('caps', 'none')
     if mode not in ('plain', 'unknown') or caps not in ('none', 'first', 'all') or not (isinstance(layout, str) and _LAYOUT.fullmatch(layout)):
         return None
-    return {'type': 'stroke', 'id': m['id'], 'trace': pts, 'keys': ks, 'ctx': words, 'mode': mode, 'layout': layout, 'caps': caps}
+    # WHY (card #502): the page says whether the word needs a space in front (it was swiped right after tapped letters).
+    # Only a real true/false is accepted; a missing field means no space, as before.
+    lead = m.get('lead', False)
+    if not isinstance(lead, bool):
+        return None
+    return {'type': 'stroke', 'id': m['id'], 'trace': pts, 'keys': ks, 'ctx': words, 'mode': mode, 'layout': layout, 'caps': caps,
+            'lead': lead}
 
 
 def apply_caps(text, caps):
@@ -119,7 +151,7 @@ class _Page:
     def __init__(self):
         self.conn = None
         self.layout_sig = None
-        self.last = None            # {'req', 'len', 'caps', 'cands'} for the word typed last (no text, only its length)
+        self.last = None            # {'req', 'len', 'caps', 'lead', 'cands'} for the word typed last (no text, only its length)
         self.used = time.monotonic()    # last time this page asked the engine for anything
 
 
@@ -136,7 +168,7 @@ class Bridge:
         self.deliver = deliver
         self.q = queue.Queue(maxsize=8)
         self.pages = {}
-        self.stats = {'strokes': 0, 'picks': 0, 'typed': 0, 'rejected': 0, 'dropped': 0, 'engine_down': 0}
+        self.stats = {'strokes': 0, 'picks': 0, 'typed': 0, 'rejected': 0, 'dropped': 0, 'engine_down': 0, 'warmed': 0}
         self.rate = {}
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
@@ -195,11 +227,14 @@ class Bridge:
                     self.stats['dropped'] += 1
                 elif m['type'] == 'stroke':
                     self._stroke(pid, m, t)
+                elif m['type'] == 'warm':
+                    self._warm(m['layout'], m.get('keys'))
                 else:
                     self._pick(pid, m, t)
             except Exception:
                 # WHY catch all: nothing in here may kill the worker; the page just gets "no".
-                self._answer(pid, m, error='internal')
+                if m['type'] != 'warm':      # the page waits for no answer to a warm-up
+                    self._answer(pid, m, error='internal')
         for pid in list(self.pages):
             self._hang_up(pid, forget_page=True)
 
@@ -234,6 +269,25 @@ class Bridge:
         js = ('(function(){var L=window.__swipekbLayer;if(L&&L.session)L.session.result(%s);})()' % json.dumps(body))
         self.deliver(pid, js)
 
+    def _warm(self, layout, keys=None):
+        # WHY a separate short connection in "unknown" mode: it leaves the page's own connection (its layout, its candidates,
+        # its mode) exactly as it was, and "unknown" is the stricter mode should anything ever be asked on it. The engine's
+        # loaded words are shared by every connection, so the swipe that follows benefits anyway.
+        # WHY every failure is silent: a warm-up that fails changes nothing for the user; the first swipe just loads as before.
+        conn = None
+        try:
+            conn = EngineConn(self.cfg.engine_socket, self.cfg.engine_token, 'unknown')
+            if keys:
+                conn.call('warm', steam_layout=layout, keys=_engine_keys(keys))
+            else:
+                conn.call('warm', steam_layout=layout)
+            self.stats['warmed'] += 1
+        except (EngineError, EngineGone):
+            pass
+        finally:
+            if conn:
+                conn.close()
+
     def _stroke(self, pid, m, t0):
         st = self._page(pid)
         st.used = time.monotonic()
@@ -244,9 +298,7 @@ class Bridge:
             t_engine = time.monotonic()
             sig = (m['layout'], tuple(sorted((k['k'], round(k['x']), round(k['y']), round(k['w']), round(k['h'])) for k in m['keys'])))
             if st.layout_sig != sig:
-                # the layer sends the centre of each key; the engine wants the top-left corner and the size
-                conn.call('layout', steam_layout=m['layout'], keys=[
-                    {'c': k['k'].lower(), 'x': k['x'] - k['w'] / 2, 'y': k['y'] - k['h'] / 2, 'w': k['w'], 'h': k['h']} for k in m['keys']])
+                conn.call('layout', steam_layout=m['layout'], keys=_engine_keys(m['keys']))
                 st.layout_sig = sig
             r = conn.call('swipe', points=m['trace'], context=m['ctx'], top_k=3)
             raw = [c for c in r.get('candidates', []) if isinstance(c, dict)]
@@ -260,7 +312,7 @@ class Bridge:
             word = conn.call('commit', req=r['req'], cand=cands[0]['id'])['text']
             if not safe_text(word):
                 return self._answer(pid, m, committed=False, error='bad_text')
-            typed = apply_caps(word, m['caps']) + ' '
+            typed = (' ' if m['lead'] else '') + apply_caps(word, m['caps']) + ' '
             t_send = time.monotonic()
             self.send_text(typed)
             t_done = time.monotonic()
@@ -274,7 +326,7 @@ class Bridge:
             self.stats['engine_down'] += 1
             return self._answer(pid, m, committed=False, error='engine')
         shown = [{'id': c['id'], 'word': apply_caps(c['word'], m['caps'])} for c in cands]
-        st.last = {'req': r['req'], 'len': len(typed), 'caps': m['caps'], 'cands': shown}
+        st.last = {'req': r['req'], 'len': len(typed), 'caps': m['caps'], 'lead': m['lead'], 'cands': shown}
         self.stats['typed'] += 1
         # WHY timings in the answer: the page keeps them for diagnosis (numbers only, never text): how long the request waited, the
         # engine took, and Steam's text call took.
@@ -295,7 +347,8 @@ class Bridge:
             word = st.conn.call('commit', req=m['req'], cand=m['cand'])['text']
             if not safe_text(word):
                 return self._answer(pid, m, committed=False, error='bad_text')
-            typed = apply_caps(word, last['caps']) + ' '
+            # WHY keep the space in front: the erase count covers it, so the swapped word must put it back
+            typed = (' ' if last['lead'] else '') + apply_caps(word, last['caps']) + ' '
             t_send = time.monotonic()
             self.send_text('\b' * m['erase'] + typed)
             t_done = time.monotonic()

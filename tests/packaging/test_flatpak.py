@@ -215,11 +215,58 @@ class FlatpakContractTests(unittest.TestCase):
                 execute.assert_called_once()
                 child = execute.call_args.args[2]
                 self.assertEqual(child.get('QML_NO_TOUCH_COMPRESSION'), '1')
+                # WHY: without it the keyboard was blank where KDE itself draws without a graphics card (Debian 13 VM)
+                self.assertEqual(child.get('QT_QUICK_BACKEND'), 'software')
                 self.assertEqual(child.get('QT_WAYLAND_FRAME_CALLBACK_TIMEOUT'), '5000')
                 self.assertNotIn('QT_WAYLAND_RECONNECT', child)
                 self.assertEqual(child['WAYLAND_SOCKET'], str(left.fileno()))
                 self.assertEqual(dict(launcher.os.environ), before)
                 os.fstat(left.fileno())  # Validation must not consume KWin's socket.
+
+    def _launcher(self):
+        import sys
+        import types
+        spec = importlib.util.spec_from_file_location('flatpak_runtime_launch_dark', BUNDLE / 'launch.py')
+        launcher = importlib.util.module_from_spec(spec)
+        with mock.patch.dict(sys.modules, {'layout': types.SimpleNamespace(build_overlay=mock.Mock())}), \
+             mock.patch.object(sys, 'path', sys.path.copy()):
+            spec.loader.exec_module(launcher)
+        return launcher
+
+    def test_follows_the_desktops_dark_preference_with_a_private_stock_scheme(self):
+        # WHY (card #502): the app may not read the person's KDE settings, so it asks only "prefer dark?" and writes a stock
+        # Breeze Dark scheme into its own private folder; light (or no answer) removes it again.
+        launcher = self._launcher()
+        with tempfile.TemporaryDirectory() as config, tempfile.TemporaryDirectory() as schemes:
+            Path(schemes, 'BreezeDark.colors').write_text('[Colors:Window]\nBackgroundNormal=32,35,38\n')
+            with mock.patch.object(launcher, 'SCHEMES', Path(schemes)):
+                launcher.follow_dark_mode(config, True)
+                text = Path(config, 'kdeglobals').read_text()
+                self.assertTrue(text.startswith(launcher.OUR_COLORS))
+                self.assertIn('BackgroundNormal=32,35,38', text)
+                launcher.follow_dark_mode(config, None)
+                self.assertFalse(Path(config, 'kdeglobals').exists(), 'no preference: back to the stock light look')
+                Path(config, 'kdeglobals').write_text('[General]\nmine=1\n')
+                launcher.follow_dark_mode(config, True)
+                self.assertEqual(Path(config, 'kdeglobals').read_text(), '[General]\nmine=1\n', 'a file we did not write stays')
+
+    def test_the_dark_question_reads_both_portal_answers_and_fails_quietly(self):
+        import subprocess
+        launcher = self._launcher()
+        def answer(text, code=0):
+            return mock.Mock(return_value=subprocess.CompletedProcess([], code, stdout=text, stderr=''))
+        for out, want in (('(<uint32 1>,)\n', True), ('(<uint32 2>,)\n', False), ('(<uint32 0>,)\n', None)):
+            with mock.patch.object(launcher.subprocess, 'run', answer(out)):
+                self.assertEqual(launcher.prefers_dark(), want, out)
+        # an older portal without ReadOne: the second call (Read) answers, wrapped twice
+        calls = mock.Mock(side_effect=[subprocess.CompletedProcess([], 1, stdout='', stderr='no ReadOne'),
+                                       subprocess.CompletedProcess([], 0, stdout='(<<uint32 1>>,)\n', stderr='')])
+        with mock.patch.object(launcher.subprocess, 'run', calls):
+            self.assertTrue(launcher.prefers_dark())
+        with mock.patch.object(launcher.subprocess, 'run', mock.Mock(side_effect=OSError)):
+            self.assertIsNone(launcher.prefers_dark())
+        with mock.patch.object(launcher.subprocess, 'run', mock.Mock(side_effect=subprocess.TimeoutExpired('gdbus', 2))):
+            self.assertIsNone(launcher.prefers_dark())
 
     def test_launcher_is_sandbox_only_and_preserves_fd(self):
         launcher = (BUNDLE / 'launcher.sh').read_text()
@@ -243,7 +290,7 @@ class FlatpakContractTests(unittest.TestCase):
         self.assertIn('X-KDE-Wayland-VirtualKeyboard=true', desktop)
         self.assertIn('NoDisplay=true', desktop)
         self.assertIn('Exec=swipe-keyboard-flatpak', desktop)
-        self.assertIn('\nName=Swipe Keyboard\n', desktop)
+        self.assertIn('\nName=OpenSwipe\n', desktop)
         self.assertIn('Comment=English, Spanish, French and German swipe typing, completions and next-word suggestions;', desktop)
         self.assertNotIn('English-only', desktop)
         self.assertNotIn('Desktop build candidate', desktop)

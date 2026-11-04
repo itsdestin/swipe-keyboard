@@ -500,6 +500,42 @@ void Server::handle(Session &s, const QByteArray &body)
             logEvent("layout", long(s.layout->size()));
             return;
         }
+        if (op == QLatin1String("warm")) {
+            // WHY (card #502): the first swipe after the engine starts, or after it unloaded, waited ~3.6 s on a Bazzite VM
+            // while it checked and loaded the language's files. The layer now says "the keyboard just opened", so that wait
+            // happens while the user is still finding the first letter. Same language checks as "layout" (served layout,
+            // enabled language, genuine pack), but it changes nothing about this connection: no layout, no refusal, no
+            // candidates; it only loads the swipe models. No text is involved at all.
+            const auto steam = parseSteamLayout(req);
+            if (!steam.value) { fail(s, steam.error, false); return; }
+            const auto choice = mapSteamLayout(*steam.value);
+            if (!choice) { refuse(s, kErrUnsupported); return; }
+            const QString system = opt_.systemLocale.empty() ? systemLocaleName() : QString::fromStdString(opt_.systemLocale);
+            const QString locale = pickLocale(effectiveLocales(readEnabledLocales(QString::fromStdString(settingsFile())), system), choice->language);
+            if (locale.isEmpty()) { refuse(s, kErrLanguageOff); return; }
+            if (!engine_.profileAvailable(locale, choice->physicalLayout, opt_.idleUnloadMs)) { refuse(s, kErrLanguageUnavailable); return; }
+            auto *rec = engine_.recognizer(locale, choice->physicalLayout);
+            if (!rec) { fail(s, kErrModelUnavailable, false); return; }
+            // WHY a throw-away guess when the keys came along: the first swipe on a keyboard also builds the word list for its
+            // set of letters (LanguageEngine::recognize, "a short pause"; 0.9 s on the Bazzite VM even after loading). That build
+            // depends only on WHICH letters there are, so doing it now with the same keys leaves the real swipe nothing to build.
+            // Its answer is thrown away and nothing is issued: later guesses are exactly what they would have been.
+            if (req.contains("keys")) {
+                auto l = parseLayout(req);
+                if (!l.value) { fail(s, l.error, false); return; }
+                if (geometryCoversLanguage(*l.value, choice->language) && l.value->size() >= 2) {
+                    const auto &a = (*l.value)[0], &b = (*l.value)[1];
+                    const std::vector<swipekb::TracePoint> primer{{a.x + a.w / 2, a.y + a.h / 2, 0.f}, {b.x + b.w / 2, b.y + b.h / 2, 100.f}};
+                    rec->recognize(primer, *l.value, {}, 1);
+                }
+            }
+            // WHY touch after loading: recognizer() notes the time the load STARTED; a load slower than the idle window would
+            // otherwise count as idle the moment it finished and be unloaded again (as a swipe does, mark it used now).
+            engine_.touch(locale, choice->physicalLayout);
+            reply(s, out);
+            logEvent("warm");
+            return;
+        }
         if (op == QLatin1String("swipe")) {
             if (s.refusedWith) { refuse(s, s.refusedWith); return; }
             if (!s.layout) { fail(s, kErrNoLayout, false); return; }

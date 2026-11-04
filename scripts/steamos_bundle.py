@@ -19,9 +19,9 @@ import tarfile
 
 ROOT = Path(__file__).resolve().parents[1]
 SETUP = ROOT / 'gaming/setup'
-SCRIPTS = ('install.sh', 'uninstall.sh', 'switch-watch.sh', 'auto-update.sh')
+SCRIPTS = ('install.sh', 'uninstall.sh', 'switch-watch.sh', 'auto-update.sh', 'keyboard-check.sh')
 UNITS = ('swipekb-engine.service', 'swipekb-helper.service', 'swipekb-switch-watch.service', 'swipekb-switch-watch.timer',
-         'swipekb-update.service', 'swipekb-update.timer')
+         'swipekb-update.service', 'swipekb-update.timer', 'swipekb-keyboard-check.service', 'swipekb-keyboard-check.path')
 # WHY the public update key is in the download: install.sh gives it to Flatpak so updates not signed with it are refused.
 UPDATE_KEY = ROOT / 'packaging/updates/update-key.gpg'
 
@@ -55,6 +55,7 @@ def assemble(main_bundle, helper_bundle, version, out_dir, setup_dir=SETUP):
         'uninstall.sh': ((setup_dir / 'uninstall.sh').read_bytes(), 0o755),
         'switch-watch.sh': ((setup_dir / 'switch-watch.sh').read_bytes(), 0o755),
         'auto-update.sh': ((setup_dir / 'auto-update.sh').read_bytes(), 0o755),
+        'keyboard-check.sh': ((setup_dir / 'keyboard-check.sh').read_bytes(), 0o755),
         'update-key.gpg': (UPDATE_KEY.read_bytes(), 0o644),
         'VERSION': ((version + '\n').encode(), 0o644),
         main_name: (Path(main_bundle).read_bytes(), 0o644),

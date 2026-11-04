@@ -128,7 +128,7 @@ void SwipeHook::attach(QObject *layout)
     const QStringList missing = missingInternals(layout);
     if (!keyboard || !missing.isEmpty()) {
         // WHY loud but harmless: a KDE change shows up in the log and our tests, while typing keeps working stock.
-        qCWarning(lcHook69) << "Swipe Keyboard stays inactive; Plasma Keyboard internals changed:" << missing;
+        qCWarning(lcHook69) << "OpenSwipe stays inactive; Plasma Keyboard internals changed:" << missing;
         return;
     }
     const QString packageId = keyboard->property("packageId").toString();
@@ -292,7 +292,7 @@ void KeyboardAttachment::decorate()
     }
     QQmlEngine *engine = qmlEngine(m_keyboard);
     if (!engine || !column || column->metaObject()->indexOfProperty("panelHeightFactor") < 0) {
-        qCWarning(lcHook69) << "Swipe Keyboard: no KeyboardLayout column in this layout; leaving it stock";
+        qCWarning(lcHook69) << "OpenSwipe: no KeyboardLayout column in this layout; leaving it stock";
         return;
     }
     QQmlComponent stripComponent(engine);
@@ -307,7 +307,7 @@ void KeyboardAttachment::decorate()
     layerProps.insert(QStringLiteral("popup"), QVariant::fromValue(findUp(m_keyboard, "alternativeKeysPopupItem")));
     auto *layer = qobject_cast<QQuickItem *>(layerComponent.createWithInitialProperties(layerProps));
     if (!strip || !layer) {
-        qCWarning(lcHook69) << "Swipe Keyboard: could not create its row/layer:" << stripComponent.errorString() << layerComponent.errorString();
+        qCWarning(lcHook69) << "OpenSwipe: could not create its row/layer:" << stripComponent.errorString() << layerComponent.errorString();
         delete strip;
         delete layer;
         return;

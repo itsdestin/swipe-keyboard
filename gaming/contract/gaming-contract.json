@@ -1,6 +1,6 @@
 {
   "contract_version": 1,
-  "about": "Single source of truth for what Swipe Keyboard's Gaming Mode needs from Steam. The daily canary (tools/steam-canary) checks Valve's published files against 'checks'; the on-device check (built later) reads 'device' from this same file. Edit with care: changing a check changes what turns the canary red.",
+  "about": "Single source of truth for what OpenSwipe's Gaming Mode needs from Steam. The daily canary (tools/steam-canary) checks Valve's published files against 'checks'; the on-device check (built later) reads 'device' from this same file. Edit with care: changing a check changes what turns the canary red.",
 
   "source": {
     "base_url": "https://client-update.steamstatic.com/",

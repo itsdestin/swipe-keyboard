@@ -63,8 +63,8 @@ package)
     DEPENDS=$(pacman -Qi swipe-keyboard | sed -n 's/^Depends On *: //p')
     {
         echo "pkgname=swipe-keyboard"; echo "pkgver=$VERSION"; echo "pkgrel=$REL"
-        echo "pkgdesc='Swipe Keyboard test build (open engine + trained models)'"; echo "arch=('x86_64')"
-        echo "url='https://github.com/itsdestin/swipe-keyboard'"
+        echo "pkgdesc='OpenSwipe test build (open engine + trained models)'"; echo "arch=('x86_64')"
+        echo "url='https://github.com/itsdestin/openswipe'"
         # WHY the same licence list as packaging/arch/PKGBUILD (MIT where possible, KDE's GPL choice for the keyboard
         # add-on layers, each data file its own).
         echo "license=('MIT' 'GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL' 'Apache-2.0' 'ODC-By-1.0' 'CC-BY-4.0' 'CC0-1.0' 'custom:TATOEBA-CC-BY-2.0-FR.txt')"

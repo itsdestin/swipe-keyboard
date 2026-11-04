@@ -30,20 +30,20 @@ class WorkflowTests(unittest.TestCase):
                 continue
             installer = target['files'][0].format(version=contract['version'], release=contract['release'])
             with self.subTest(target=name):
-                self.assertIn(f'https://github.com/itsdestin/swipe-keyboard/releases/download/{tag}/{installer}', guide)
+                self.assertIn(f'https://github.com/itsdestin/openswipe/releases/download/{tag}/{installer}', guide)
         self.assertTrue((ROOT/'docs/releases'/f'{tag}.md').is_file())
         # WHY (card #200): every download link must name this release; one left on an older version sends people
         # to old files. `python3 scripts/release.py readme` moves them all after a version change.
         self.assertEqual(set(re.findall(r'/releases/download/(v[^/]+)/', guide)), {tag})
 
     def test_real_producers_and_always_completion_gate(self):
-        self.assertEqual(set(self.jobs), {'prepare', 'arch', 'arch-current', 'fedora', 'fedora-arm64', 'flatpak', 'steamos-helper', 'steamos', 'keyboard-ci', 'gaming-tests', 'publish', 'update-site-check', 'update-site'})
+        self.assertEqual(set(self.jobs), {'prepare', 'arch', 'arch-current', 'fedora', 'fedora-arm64', 'flatpak', 'steamos-helper', 'steamos', 'keyboard-ci', 'gaming-tests', 'publish', 'update-site-check', 'update-site', 'distro-packages'})
         gate = self.jobs['keyboard-ci']
         # WHY changed: the required check keeps the exact name "Keyboard CI" only for full runs; the
         # fast path reports under a different name and so can never satisfy the merge requirement.
         self.assertIn("name: ${{ needs.prepare.outputs.mode == 'fast' && 'Keyboard CI (fast path, not mergeable)' || 'Keyboard CI' }}", gate)
         self.assertIn('if: ${{ always() }}', gate)
-        self.assertIn('needs: [prepare, arch, arch-current, update-site-check, fedora, fedora-arm64, flatpak, steamos, gaming-tests]', gate)
+        self.assertIn('needs: [prepare, arch, arch-current, update-site-check, fedora, fedora-arm64, flatpak, steamos, gaming-tests, distro-packages]', gate)
         self.assertIn('${{ toJSON(needs) }}', gate)
         self.assertIn('scripts/release.py gate', gate)
         for name, build in [('arch', 'makepkg --noconfirm'), ('fedora', 'rpmbuild -ba'), ('fedora-arm64', 'rpmbuild -bb'), ('flatpak', 'packaging/flatpak/build.py'), ('steamos', 'scripts/steamos_bundle.py assemble')]:
@@ -104,7 +104,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('needs: [keyboard-ci, gaming-tests]', self.jobs['publish'])
         self.assertIn('environment: keyboard-release', self.jobs['publish'])
         self.assertIn("github.event_name == 'push'", self.jobs['publish'])
-        self.assertIn("github.repository == 'itsdestin/swipe-keyboard'", self.jobs['publish'])
+        self.assertIn("github.repository == 'itsdestin/openswipe'", self.jobs['publish'])
         # WHY (v0.5.1-1, 2026-10-30): a tag reusing main's packages skips the builders; with only the implicit
         # success() GitHub then skipped publish too. Both publishing jobs must name the results they wait for.
         self.assertIn("!cancelled() && needs.keyboard-ci.result == 'success' && needs.gaming-tests.result == 'success'", self.jobs['publish'])
@@ -419,15 +419,28 @@ exit "$result"
         self.assertNotRegex(gaming, r'(?m)^    if:')
         self.assertIn('test_switch_watch.py', gaming)
         gate = self.jobs['keyboard-ci']
-        self.assertIn('flatpak, steamos, gaming-tests]', gate.split('steps:')[0])
+        self.assertIn('flatpak, steamos, gaming-tests, distro-packages]', gate.split('steps:')[0])
         # The current-Arch retest and the update-site rehearsal gate merges through "Keyboard CI", not as producers.
         self.assertIn('SITE_CHECK_RESULT: ${{ needs.update-site-check.result }}', gate)
         self.assertIn('CURRENT_ARCH_RESULT: ${{ needs.arch-current.result }}', gate)
         self.assertIn('GAMING_RESULT: ${{ needs.gaming-tests.result }}', gate)
         self.assertIn('if [[ "$GAMING_RESULT" != success ]]', gate)
+        # WHY distro-packages is not removed (card #502): it produces release files now, so the gate counts it.
         self.assertIn('''del(."gaming-tests", ."arch-current", ."update-site-check")''', gate)
+        self.assertIn('DISTRO_RESULT: ${{ needs.distro-packages.result }}', gate)
         self.assertIn('--statuses "$statuses"', gate)
         self.assertIn('needs: [keyboard-ci, gaming-tests]', self.jobs['publish'])
+
+    def test_distro_rows_record_evidence_and_only_the_fast_moving_ones_are_optional(self):
+        distro = self.jobs['distro-packages']
+        self.assertIn('release.py record --target "$TARGET"', distro)
+        self.assertIn('name: ${{ matrix.target }}-files', distro)
+        self.assertIn('name: ${{ matrix.target }}-evidence', distro)
+        self.assertIn('continue-on-error: ${{ !matrix.required }}', distro)
+        import json
+        contract = json.loads((ROOT / 'packaging/release-targets.json').read_text())['targets']
+        self.assertEqual({t for t, v in contract.items() if v.get('optional')}, {'debian-testing', 'tumbleweed'})
+        self.assertRegex(distro, r'target: kubuntu-26\.10\n.*\n.*\n\s*required: true')
 
     def test_flatpak_runner_supports_inherited_wayland_permission(self):
         # WHY Ubuntu 26.04: its signed distribution tools support the unchanged
@@ -471,10 +484,10 @@ class DeckRedirectTests(unittest.TestCase):
         spec.loader.exec_module(module)
         return module
 
-    def test_it_points_decks_at_the_openswipe_site(self):
-        # WHY exactly this address: once a Deck follows the note it never asks the old site again, so a typo would
-        # strand every Deck. It must be the renamed project's own site (on from 0.5.1-1; emptied after the rename).
-        self.assertEqual(self.load().flatpak_redirect(), 'https://itsdestin.github.io/openswipe/repo/')
+    def test_the_note_is_off_after_the_rename(self):
+        # WHY (card #501): the update site lives at the OpenSwipe address now; a note pointing a Deck at the site it is
+        # already reading would only add a step that can go wrong.
+        self.assertEqual(self.load().flatpak_redirect(), '')
 
     def test_only_one_https_address_is_accepted(self):
         import tempfile

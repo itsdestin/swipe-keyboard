@@ -12,6 +12,9 @@
 //   hello      {token, mode?: "unknown"|"plain"}           -> {session}
 //   layout     {keys:[{c:"q",x,y,w,h}, ...], steam_layout?:"qwerty"}
 //                                                           -> {keys:N, language, locale, layout}   (M7, see LANGUAGES)
+//   warm       {steam_layout?:"qwerty", keys?:[...as layout]} -> {}        (load that language's swipe models now, and with keys also
+//                                                                          build its word list for them; same refusal codes as layout,
+//                                                                          but the connection's state is unchanged)
 //   swipe      {points:[[x,y,t_ms], ...], context?:[word], top_k?:1..10}
 //                                                           -> {req, candidates:[{id,word,score,alt?}, ...]}
 //   next_words {words?:[word], partial?:"te", top_k?}       -> {req, candidates:[{id,word,score}]}

@@ -4,7 +4,7 @@
 # WHY the two lines above: install.sh and uninstall.sh only overwrite or delete a unit file that carries them,
 # so a file of yours with the same name is never touched.
 [Unit]
-Description=Swipe Keyboard Gaming Mode helper (attaches to Steam's keyboard on this device)
+Description=OpenSwipe Gaming Mode helper (attaches to Steam's keyboard on this device)
 # WHY Wants and not Requires: if the engine is down the helper just does nothing and Steam's own keyboard keeps working.
 Wants=swipekb-engine.service
 After=swipekb-engine.service

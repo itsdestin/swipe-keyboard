@@ -68,6 +68,36 @@ class ReleaseTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.validate()
 
+    def test_a_fast_moving_distro_package_may_be_missing_but_kubuntu_may_not(self):
+        # WHY (card #502, Destin 2026-11-02): Debian testing and Tumbleweed must not block a release for everyone else
+        for optional in ('debian-testing', 'tumbleweed'):
+            with self.subTest(target=optional):
+                evidence = self.evidence
+                self.evidence = [e for e in evidence if e['target'] != optional]
+                for name in self.contract['targets'][optional]['files']:
+                    (self.directory/release.filename(name, self.contract)).unlink()
+                result = self.validate()
+                self.assertFalse(any(optional.replace('-', '') in f['name'] for f in result['files']))
+                self.setUp()
+        self.evidence = [e for e in self.evidence if e['target'] != 'kubuntu-26.10']
+        with self.assertRaises(ValueError):
+            self.validate()
+
+    def test_distro_package_headers_are_checked(self):
+        from unittest import mock
+        deb = release.filename(self.contract['targets']['kubuntu-26.10']['files'][0], self.contract)
+        good = f'Package: swipe-keyboard\nVersion: {release.version(self.contract)}.kubuntu26.10\nArchitecture: amd64'
+        with mock.patch.object(release, 'output', return_value=good):
+            entry = release.inspect('kubuntu-26.10', self.directory, None, self.sha, self.contract)
+        self.assertEqual(entry['files'][0]['name'], deb)
+        with mock.patch.object(release, 'output', return_value=good.replace('amd64', 'arm64')), self.assertRaises(ValueError):
+            release.inspect('kubuntu-26.10', self.directory, None, self.sha, self.contract)
+        rpm_ok = f'swipe-keyboard {release.version(self.contract)}.tumbleweed x86_64'
+        with mock.patch.object(release, 'output', return_value=rpm_ok):
+            release.inspect('tumbleweed', self.directory, None, self.sha, self.contract)
+        with mock.patch.object(release, 'output', return_value=rpm_ok.replace('tumbleweed', 'fc44')), self.assertRaises(ValueError):
+            release.inspect('tumbleweed', self.directory, None, self.sha, self.contract)
+
     def test_wrong_version_sha_arch_and_missing_metadata(self):
         for key, value in [('version', '0.2.0-1'), ('source_sha', 'b'*40), ('arch', 'aarch64'), ('version', None)]:
             with self.subTest(key=key, value=value):
@@ -484,7 +514,7 @@ if __name__ == '__main__':
 
 class ReadmeTests(unittest.TestCase):
     """`release.py readme` moves every download link, file name and command to the release (card #200)."""
-    URL = 'https://github.com/itsdestin/swipe-keyboard/releases/download/'
+    URL = 'https://github.com/itsdestin/openswipe/releases/download/'
     CONTRACT = {'version': '0.5.0', 'release': 1, 'targets': {}}
 
     def test_every_mention_of_the_old_version_moves_together(self):
@@ -496,6 +526,17 @@ class ReadmeTests(unittest.TestCase):
         self.assertNotIn('0.4.1-1', new)
         self.assertEqual(new.count('0.5.0-1'), 6)
         self.assertIn('0.4.0 or older', new)   # prose about other versions is left alone
+
+    def test_the_reinstall_notice_keeps_its_cut_off_version(self):
+        # WHY: the README's reinstall notice names the last version that cannot find updates after the rename; moving
+        # it with each release would tell every user to reinstall.
+        text = (f'[get]({self.URL}v0.4.1-1/a.flatpak)\n'
+                '> **Installed before 30 October 2026 (older than version 0.4.1-1)?** Install it once more.\n'
+                '<!-- WHY: versions before 0.4.1-1 cannot find updates -->\n')
+        new, _ = release.update_readme(text, self.CONTRACT)
+        self.assertIn(f'{self.URL}v0.5.0-1/a.flatpak', new)
+        self.assertIn('older than version 0.4.1-1', new)
+        self.assertIn('versions before 0.4.1-1', new)
 
     def test_links_naming_two_versions_are_refused(self):
         text = f'{self.URL}v0.4.1-1/a {self.URL}v0.4.0-1/b'

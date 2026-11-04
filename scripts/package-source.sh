@@ -29,7 +29,7 @@ tar -C "$ROOT" --exclude-vcs --exclude='./dist' --exclude='./assets' \
 mkdir -p "$DEST/packaging"
 {
     printf 'Local unpublished snapshot\n'
-    printf 'Repository: https://github.com/itsdestin/swipe-keyboard\n'
+    printf 'Repository: https://github.com/itsdestin/openswipe\n'
     git -C "$ROOT" rev-parse HEAD
     git -C "$ROOT" diff --stat HEAD
     printf '\nChanges from recorded parent revision:\n'

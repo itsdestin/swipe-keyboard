@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Destin Moss <https://youcoded.ai>
 // SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
 
-// SwipeHook — how Swipe Keyboard gets inside Plasma 6.9's keyboard without patching it.
+// SwipeHook — how OpenSwipe gets inside Plasma 6.9's keyboard without patching it.
 //
 // Our launcher puts generated copies of KDE's English/Spanish/French/German keyboard packages first in the data
 // path (integration/plasma69.py). Each copy's letter layout is a four-line wrapper around KDE's own file:

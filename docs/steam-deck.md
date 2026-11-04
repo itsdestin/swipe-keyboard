@@ -2,7 +2,7 @@
 
 Short install steps are in the [README](../README.md#steam-deck). This page holds the fine print for Gaming Mode and the Flatpak-only install. Files, status messages and every command: [Gaming Mode in install-details](install-details.md#gaming-mode-on-steam-deck-preview-first-released-in-v041-1).
 
-Gaming Mode is new and has been tested on a virtual Steam Deck, not yet on a real one. Please [report problems](https://github.com/itsdestin/swipe-keyboard/issues), especially jumbled text.
+Gaming Mode is new and has been tested on a virtual Steam Deck, not yet on a real one. Please [report problems](https://github.com/itsdestin/openswipe/issues), especially jumbled text.
 
 ## The risk, in full
 
@@ -35,10 +35,10 @@ Run `bash install.sh` again to add or remove Gaming Mode. `--block-outside` or `
 
 ## Desktop Mode only, without the installer (no automatic updates)
 
-[Download the Flatpak](https://github.com/itsdestin/swipe-keyboard/releases/download/v0.5.1-1/swipe-keyboard-0.5.1-1-x86_64.flatpak), then in Konsole:
+[Download the Flatpak](https://github.com/itsdestin/openswipe/releases/download/v0.6.0-1/swipe-keyboard-0.6.0-1-x86_64.flatpak), then in Konsole:
 
 ```sh
-flatpak install --user ~/Downloads/swipe-keyboard-0.5.1-1-x86_64.flatpak
+flatpak install --user ~/Downloads/swipe-keyboard-0.6.0-1-x86_64.flatpak
 ```
 
-Then select Swipe Keyboard in **System Settings → Virtual Keyboard**. To update, install a newer file. Remove with `flatpak uninstall --user org.itsdestin.SwipeKeyboard`. Before choosing it, you can read what changes with `flatpak run --user --command=swipe-keyboard-setup org.itsdestin.SwipeKeyboard` (read-only; the installer's route does not require it).
+Then select OpenSwipe in **System Settings → Virtual Keyboard**. To update, install a newer file. Remove with `flatpak uninstall --user org.itsdestin.SwipeKeyboard`. Before choosing it, you can read what changes with `flatpak run --user --command=swipe-keyboard-setup org.itsdestin.SwipeKeyboard` (read-only; the installer's route does not require it).

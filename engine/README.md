@@ -1,6 +1,6 @@
 # Swipe engine
 
-The library behind the Swipe Keyboard: swipe recognition, word completion, spelling alternatives, next-word suggestions and learning. It is plain C++20, MIT-licensed, and has no keyboard or Plasma dependency. The only external requirement is **Qt 6 Core (6.8 or newer)**, used for Unicode handling (Qt Core is LGPL-3.0 and is linked dynamically). Everything runs on the device; the library never touches the network.
+The library behind the OpenSwipe: swipe recognition, word completion, spelling alternatives, next-word suggestions and learning. It is plain C++20, MIT-licensed, and has no keyboard or Plasma dependency. The only external requirement is **Qt 6 Core (6.8 or newer)**, used for Unicode handling (Qt Core is LGPL-3.0 and is linked dynamically). Everything runs on the device; the library never touches the network.
 
 Languages: English, Spanish, French, German. Any key layout works, because you hand it the key rectangles.
 

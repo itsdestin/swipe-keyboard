@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: MIT
 
 [Desktop Entry]
-Name=Swipe Keyboard
+Name=OpenSwipe
 Comment=English swipe typing for Plasma Keyboard
 Exec=swipe-keyboard launch
 Type=Application

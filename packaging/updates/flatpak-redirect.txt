@@ -8,5 +8,9 @@
 # Deck: from now on, check this address instead. Each Deck switches on its next daily check, quietly; until the new
 # address exists it simply finds nothing to update (tested with Flatpak 1.18.4 and signed updates, 2026-10-24).
 # A Deck follows the note BEFORE it downloads an update published with it, so until the rename existing Decks stay
-# on the version they have. On from 0.5.1-1 (Destin, 2026-10-24: include it now). Empty it again after the rename.
-https://itsdestin.github.io/openswipe/repo/
+# on the version they have. On from 0.5.1-1 (Destin, 2026-10-24: include it now). Emptied after the rename (2026-11-02):
+# the project is OpenSwipe now and the update site already lives at the new address, so there is nothing to point to.
+# CORRECTION (second review, 2026-11-03): the note never moved a Deck set up by our installer. install.sh sets the
+# address explicitly (`flatpak remote-modify --url`), Flatpak then records url-is-set=true and ignores moved notes by
+# design; the 2026-10-24 test used a remote without that flag. Old Decks are served instead by a full, hourly-refreshed
+# copy of the update site at the old address (public repo itsdestin/itsdestin.github.io). Do not rely on this file.

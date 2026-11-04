@@ -225,7 +225,7 @@ Item {
                 + '   Qt.callLater(function() { if (kb) kb.symbolMode = false })\n'
                 + '  }\n } }', kb, "swipe-symbol-return")
         } catch (e) {
-            console.warn("Swipe Keyboard: symbol page will not return to letters automatically:", e)
+            console.warn("OpenSwipe: symbol page will not return to letters automatically:", e)
         }
     }
     // WHY: give the guess bar back its stock left alignment when this layer goes away (the "?123" page, or

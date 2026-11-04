@@ -384,11 +384,22 @@ jobs:
     # WHY: optional in the fast path; the Keyboard CI gate requires these to be skipped there and successful otherwise.
     if: ${{ needs.prepare.outputs.mode == 'full' && needs.prepare.outputs.reuse_run == '' }}
     runs-on: ubuntu-24.04
-    container: fedora:44
+    container:
+      image: fedora:44
+      # WHY (2026-11-04): a boxed job cannot delete the runner's preinstalled tools the way the other jobs do, and the
+      # asset step needs 21 GiB free; on the PR run for 0.6.0-1 Fedora and Tumbleweed got less and stopped. Handing
+      # those folders into the box lets its first step empty them (same folders as the other jobs; never our files).
+      volumes:
+        - /usr/share/dotnet:/host-free/dotnet
+        - /usr/local/lib/android:/host-free/android
+        - /opt/ghc:/host-free/ghc
+        - /opt/hostedtoolcache/CodeQL:/host-free/codeql
     env:
       VERSION: ${{ needs.prepare.outputs.version }}
       PACKAGE_VERSION: ${{ needs.prepare.outputs.package_version }}
     steps:
+      - name: Free hosted-runner space (the runner's preinstalled tools, handed into this box)
+        run: rm -rf /host-free/*/* && df -h .
       - name: Install RPM tooling
         # WHY nodejs: see the Arch job; it is installed in the build image only, not required by the package.
         run: dnf -y install git rpm-build rpmdevtools dnf-plugins-core cpio findutils nodejs
@@ -924,6 +935,117 @@ jobs:
           python3 -I -m unittest discover -s tests/packaging -p test_flatpak_gaming.py -v
           python3 -I -m unittest discover -s tests/packaging -p test_release_steamos.py -v
           python3 -I -m unittest discover -s tests/packaging -p test_switch_watch.py -v
+  distro-packages:
+    # WHY (card #502): Kubuntu, Debian testing and openSUSE Tumbleweed packages are built, installed into a clean copy of
+    # their own distro, checked and removed on every full run, and are release files (release-targets.json).
+    needs: prepare
+    if: ${{ needs.prepare.outputs.mode == 'full' && needs.prepare.outputs.reuse_run == '' }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: kubuntu-26.10
+            image: ubuntu:26.10
+            kind: deb
+            required: true
+          - target: debian-testing
+            image: debian:testing
+            kind: deb
+            required: false
+          - target: tumbleweed
+            image: opensuse/tumbleweed
+            kind: rpm
+            required: false
+    # WHY (review, card #502; Destin approved 2026-11-02): Debian testing and Tumbleweed change every day; a temporary
+    # hiccup there (a Qt transition, a package briefly missing) must not block an urgent fix for every other platform.
+    # Those rows still run and still show red when they fail; only the fixed release (Kubuntu 26.10) is required.
+    continue-on-error: ${{ !matrix.required }}
+    container:
+      image: ${{ matrix.image }}
+      # WHY (2026-11-04): a boxed job cannot delete the runner's preinstalled tools the way the other jobs do, and the
+      # asset step needs 21 GiB free; on the PR run for 0.6.0-1 Fedora and Tumbleweed got less and stopped. Handing
+      # those folders into the box lets its first step empty them (same folders as the other jobs; never our files).
+      volumes:
+        - /usr/share/dotnet:/host-free/dotnet
+        - /usr/local/lib/android:/host-free/android
+        - /opt/ghc:/host-free/ghc
+        - /opt/hostedtoolcache/CodeQL:/host-free/codeql
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      TARGET: ${{ matrix.target }}
+    steps:
+      - name: Free hosted-runner space (the runner's preinstalled tools, handed into this box)
+        run: rm -rf /host-free/*/* && df -h .
+      - name: Install build tooling
+        run: |
+          if [ "${{ matrix.kind }}" = deb ]; then
+            apt-get update -q
+            DEBIAN_FRONTEND=noninteractive apt-get install -y -q git python3 dpkg-dev devscripts equivs ca-certificates nodejs zstd
+          else
+            # WHY --force-resolution: the minimal image's busybox tools conflict with rpm-build's full ones.
+            zypper --non-interactive install --force-resolution git python3 rpm-build nodejs tar gzip zstd
+          fi
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: prepared
+          path: prepared
+      - name: Verify prepared input identity and hashes before executing source
+        run: python3 scripts/release.py verify-inputs --directory prepared --sha "$GITHUB_SHA"
+      - name: Build as an unprivileged builder
+        run: |
+          useradd -m builder
+          mkdir -p dist /home/builder/src
+          tar -xzf "prepared/swipe-keyboard-$VERSION.tar.gz" -C /home/builder/src
+          chown -R builder:builder /home/builder/src
+          src="/home/builder/src/swipe-keyboard-$VERSION"
+          if [ "${{ matrix.kind }}" = deb ]; then
+            # WHY build-deps as root first: build.sh --install-deps would need sudo inside the builder account.
+            (cd "$src" && rm -rf debian && cp -a packaging/debian debian && apt-get build-dep -y -q ./ && rm -rf debian)
+            su builder -c "cd '$src' && packaging/debian/build.sh '$TARGET'"
+            cp /home/builder/src/swipe-keyboard_*_amd64.deb dist/
+          else
+            mkdir -p /home/builder/rpmbuild/SOURCES /home/builder/rpmbuild/SPECS
+            cp "prepared/swipe-keyboard-$VERSION.tar.gz" /home/builder/rpmbuild/SOURCES/
+            cp "$src/packaging/opensuse/swipe-keyboard.spec" /home/builder/rpmbuild/SPECS/
+            zypper --non-interactive install --force-resolution $(rpmspec -q --buildrequires /home/builder/rpmbuild/SPECS/swipe-keyboard.spec)
+            chown -R builder:builder /home/builder/rpmbuild
+            su builder -c "rpmbuild -bb /home/builder/rpmbuild/SPECS/swipe-keyboard.spec"
+            cp /home/builder/rpmbuild/RPMS/x86_64/swipe-keyboard-$VERSION-*.x86_64.rpm dist/
+          fi
+          ls -l dist
+      - name: Install, check as an ordinary user, remove (container only)
+        run: |
+          if [ "${{ matrix.kind }}" = deb ]; then
+            DEBIAN_FRONTEND=noninteractive apt-get install -y -q ./dist/swipe-keyboard_*_amd64.deb
+          else
+            zypper --non-interactive install --allow-unsigned-rpm ./dist/swipe-keyboard-*.rpm
+          fi
+          test "$(cat /usr/share/swipe-keyboard/integration/update-target)" = "$TARGET"
+          su builder -c 'XDG_SESSION_TYPE=wayland XDG_CURRENT_DESKTOP=KDE swipe-keyboard check'
+          if [ "${{ matrix.kind }}" = deb ]; then apt-get remove -y -q swipe-keyboard; else zypper --non-interactive remove swipe-keyboard; fi
+          test ! -e /usr/bin/swipe-keyboard
+          test ! -e /usr/share/swipe-keyboard
+      # WHY (card #502): these packages are release files now. The same proof every other platform gives: the package's
+      # own name/version/architecture header and the exact bytes, recorded here and checked again by the release gate.
+      - name: Record release evidence
+        run: python3 scripts/release.py record --target "$TARGET" --directory dist --sha "$GITHUB_SHA" --evidence evidence
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}-files
+          path: dist/swipe-keyboard*
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}-evidence
+          path: evidence/
+          if-no-files-found: error
+          retention-days: 7
   keyboard-ci:
     # WHY the name changes with the mode: branch protection requires the exact check "Keyboard CI".
     # A fast-path run reports under a different name, so it can never satisfy that requirement; only
@@ -932,7 +1054,7 @@ jobs:
     if: ${{ always() }}
     # WHY gaming-tests is waited on here but kept out of the producer set: it builds no release file, yet a green
     # "Keyboard CI" must mean the Gaming Mode tests passed too, in every mode (it runs on drafts as well).
-    needs: [prepare, arch, arch-current, update-site-check, fedora, fedora-arm64, flatpak, steamos, gaming-tests]
+    needs: [prepare, arch, arch-current, update-site-check, fedora, fedora-arm64, flatpak, steamos, gaming-tests, distro-packages]
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -950,11 +1072,12 @@ jobs:
           if [[ "$GAMING_RESULT" != success ]]; then echo "gaming-tests finished as: $GAMING_RESULT"; exit 1; fi
       # WHY a step per check: a skipped check counts only when its own condition (copied from the job) says it should
       # not have run. A skipped-because-something-failed check therefore still fails "Keyboard CI".
-      - name: Current-Arch retest and update-site rehearsal must pass
+      - name: Current-Arch retest, update-site rehearsal and distro packages must pass
         if: ${{ always() }}
         env:
           CURRENT_ARCH_RESULT: ${{ needs.arch-current.result }}
           SITE_CHECK_RESULT: ${{ needs.update-site-check.result }}
+          DISTRO_RESULT: ${{ needs.distro-packages.result }}
           REUSE_RUN: ${{ needs.prepare.outputs.reuse_run }}
           PREPARED_MODE: ${{ needs.prepare.outputs.mode }}
         run: |
@@ -963,6 +1086,9 @@ jobs:
           want_site=skipped; if [[ "$PREPARED_MODE" == full && "$GITHUB_REF" != refs/tags/* ]]; then want_site=success; fi
           if [[ "$CURRENT_ARCH_RESULT" != "$want_arch" ]]; then echo "arch-current finished as: $CURRENT_ARCH_RESULT (wanted $want_arch)"; fail=1; fi
           if [[ "$SITE_CHECK_RESULT" != "$want_site" ]]; then echo "update-site-check finished as: $SITE_CHECK_RESULT (wanted $want_site)"; fail=1; fi
+          # WHY (card #502): the Kubuntu, Debian testing and Tumbleweed packages run where the other packages build.
+          want_distro=skipped; if [[ -z "$REUSE_RUN" && "$PREPARED_MODE" == full ]]; then want_distro=success; fi
+          if [[ "$DISTRO_RESULT" != "$want_distro" ]]; then echo "distro-packages finished as: $DISTRO_RESULT (wanted $want_distro)"; fail=1; fi
           exit $fail
       # Downloads come from this run, or, for a tag reusing main (card #200), only from the main run that
       # prepare chose for this exact commit, in this repository.
@@ -1010,7 +1136,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           # WHY removed: the producer check wants exactly the producer jobs; gaming-tests has its own step above.
-          # WHY also removed: arch-current and update-site-check are checks, not producers; they are judged in their own step below.
+          # WHY also removed: arch-current and update-site-check are checks, not producers; they are judged in their own
+          # step above. distro-packages is a producer since the OpenSwipe release (card #502).
           statuses=$(jq -c 'del(."gaming-tests", ."arch-current", ."update-site-check")' <<< "$PRODUCER_STATUSES")
           if [[ -n "$REUSE_RUN" ]]; then
             # WHY: this run's producers were skipped on purpose; the results that count are those of the main run
@@ -1036,7 +1163,7 @@ jobs:
     # WHY the explicit results: without them GitHub skips this job when any job further back was skipped, and a tag
     # that reuses main's packages skips the builders on purpose (v0.5.1-1 passed Keyboard CI and never published).
     # Keyboard CI is the gate that checks those reused files; its success is what counts here.
-    if: ${{ !cancelled() && needs.keyboard-ci.result == 'success' && needs.gaming-tests.result == 'success' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && github.repository == 'itsdestin/swipe-keyboard' }}
+    if: ${{ !cancelled() && needs.keyboard-ci.result == 'success' && needs.gaming-tests.result == 'success' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && github.repository == 'itsdestin/openswipe' }}
     needs: [keyboard-ci, gaming-tests]
     runs-on: ubuntu-24.04
     # Final package hashes are available before owner-approved compositor acceptance/publication.
@@ -1113,7 +1240,7 @@ jobs:
           path: release
       - name: Build and check the site with a throwaway key
         run: |
-          gpg --batch --passphrase '' --quick-generate-key 'Swipe Keyboard CI rehearsal (throwaway)' ed25519 sign 1d
+          gpg --batch --passphrase '' --quick-generate-key 'OpenSwipe CI rehearsal (throwaway)' ed25519 sign 1d
           key=$(gpg --batch --with-colons --list-keys | awk -F: '/^fpr/{print $10; exit}')
           gpg --batch --export "$key" > rehearsal.gpg
           gpg --batch --armor --export "$key" > rehearsal.asc
@@ -1122,7 +1249,7 @@ jobs:
   update-site:
     # WHY a separate job: only this one may write to GitHub Pages, and it never sees the signing key.
     # WHY needs.publish.result: same reason as publish (skipped builders further back must not skip the update site).
-    if: ${{ !cancelled() && needs.publish.result == 'success' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && github.repository == 'itsdestin/swipe-keyboard' && vars.FLATPAK_REPO_PUBLISH == 'true' }}
+    if: ${{ !cancelled() && needs.publish.result == 'success' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && github.repository == 'itsdestin/openswipe' && vars.FLATPAK_REPO_PUBLISH == 'true' }}
     needs: [publish]
     runs-on: ubuntu-26.04
     permissions:

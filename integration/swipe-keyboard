@@ -10,4 +10,10 @@ if [ "${1:-}" = updates ]; then
     shift
     exec python3 -I /usr/share/swipe-keyboard/integration/update.py "$@"
 fi
+# WHY (second review): KDE starts the keyboard with "launch". If the setup program itself cannot even be read (an update
+# cut off mid-write), there must still be a keyboard: KDE's plain one. setup.py handles every other failure itself.
+if [ "${1:-}" = launch ] && ! python3 -c 'import ast, sys; ast.parse(open(sys.argv[1]).read())' \
+        /usr/share/swipe-keyboard/integration/setup.py 2>/dev/null; then
+    exec plasma-keyboard
+fi
 exec python3 /usr/share/swipe-keyboard/integration/setup.py "$@"

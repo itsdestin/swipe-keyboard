@@ -27,7 +27,7 @@ _STUB_JS = Path(__file__).with_name('layer_stub.js')
 
 
 SWITCH_OFF_REASON = ("Steam's developer switch was turned off. Swipe in Gaming Mode is off; Steam's normal keyboard is in use. "
-                     "To turn it back on, run the Swipe Keyboard installer again (or choose Turn it back on in the notification).")
+                     "To turn it back on, run the OpenSwipe installer again (or choose Turn it back on in the notification).")
 
 
 class PageSession:
@@ -224,7 +224,7 @@ class Helper:
             self._disconnect()
         self._publish('blocked-outside-access',
                       'Steam\'s debug port is open to other devices on the network (port %s). Gaming Mode swipe is off. '
-                      'Run the Swipe Keyboard installer again to close it.' % ', '.join(str(p) for p in doors))
+                      'Run the OpenSwipe installer again to close it.' % ', '.join(str(p) for p in doors))
 
     def _steam_pages(self, title, popup_ok=False):
         """Ids of the pages with this title that Steam itself serves.
@@ -717,7 +717,7 @@ class Helper:
             # WHY this wording (review fix 3): the tries can run out for reasons that are not a Steam change (a slow load, a
             # refused script), and the person needs to know how to start again.
             self._publish('paused-steam-changed', 'Paused after %d failed tries on this Steam version. Last problem: %s. '
-                          'Stock keyboard in use. Run the Swipe Keyboard installer again, or restart the device, to try again.'
+                          'Stock keyboard in use. Run the OpenSwipe installer again, or restart the device, to try again.'
                           % (self.ledger.failures, self.ledger.detail or 'a needed part is missing'))
         elif self.pages:
             # The layer's own view of the keyboard (M9): a keyboard that no longer matches switches the layer off in the page;

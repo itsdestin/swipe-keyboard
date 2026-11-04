@@ -8,6 +8,7 @@ import base64
 import hashlib
 import importlib.util
 import io
+import shutil
 import tempfile
 import unittest
 from unittest import mock
@@ -56,9 +57,13 @@ class AssetFetch(unittest.TestCase):
             (root/'packaging/NOTICE').write_text('Project attribution\n')
             (root/'packaging/assets.lock.json').write_text(json.dumps({
                 'assets': [asset(encoded, 'licenses/AOSP-NOTICE.b64')]}))
+            # WHY a fixed free-space answer: this test is about the notice, and /tmp is a small memory-backed folder on some
+            # systems (Kubuntu 26.10: 3.9 GB), where the real 21 GiB check failed the test (card #502, 2026-10-30).
+            free = shutil.disk_usage(tmp)._replace(free=64 * 1024**3)
             with mock.patch.object(module, 'ROOT', root), \
                  mock.patch.object(module, 'prepare_language_packs'), mock.patch.object(module, 'fetch_language_files'), \
                  mock.patch('sys.argv', ['fetch-assets.py', '--assets', str(root/'assets')]), \
+                 mock.patch.object(module.shutil, 'disk_usage', return_value=free), \
                  mock.patch.object(module.urllib.request, 'urlopen', return_value=io.BytesIO(encoded)):
                 module.main()
             self.assertFalse((root/'assets/licenses/AOSP-NOTICE.b64').exists())
@@ -73,6 +78,7 @@ class AssetFetch(unittest.TestCase):
             with mock.patch.object(module, 'ROOT', copied), \
                  mock.patch.object(module, 'prepare_language_packs'), mock.patch.object(module, 'fetch_language_files'), \
                  mock.patch('sys.argv', ['fetch-assets.py', '--assets', str(copied/'assets')]), \
+                 mock.patch.object(module.shutil, 'disk_usage', return_value=free), \
                  mock.patch.object(module.urllib.request, 'urlopen', side_effect=AssertionError('network forbidden')) as network:
                 module.main()
             network.assert_not_called()
@@ -114,7 +120,7 @@ class AssetFetch(unittest.TestCase):
         self.assertEqual(set(assets), {'language-files/en.nwp.bin', 'language-files/es.nwp.bin', 'language-files/fr.nwp.bin',
                                        'language-files/de.nwp.bin', 'language-files/swipe-model.bin', 'language-files/MODELS-NOTICE.md',
                                        'language-files/FUTO-SWIPE-DATA-LICENSE.txt'})
-        base = 'https://github.com/itsdestin/swipe-keyboard/releases/download/models-2026-10-23/'
+        base = 'https://github.com/itsdestin/openswipe/releases/download/models-2026-10-23/'
         for name, asset in assets.items():
             self.assertRegex(asset['sha256'], r'^[a-f0-9]{64}$')
             self.assertTrue(asset['url'].startswith(base), name)

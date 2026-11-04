@@ -14,7 +14,11 @@ import subprocess
 import tarfile
 
 ROOT = Path(__file__).resolve().parents[1]
-PRODUCERS = ('prepare', 'arch', 'fedora', 'fedora-arm64', 'flatpak', 'steamos')
+PRODUCERS = ('prepare', 'arch', 'fedora', 'fedora-arm64', 'flatpak', 'steamos', 'distro-packages')
+# WHY (card #502): the Kubuntu/Debian/openSUSE packages are built by one job, one row per target. Debian testing and
+# Tumbleweed change daily, so their rows may fail without blocking a release (Destin, 2026-11-02); a release then simply
+# leaves that target out (its users stay on the previous version and get the next one). Kubuntu 26.10 is required.
+DISTRO_TARGETS = ('kubuntu-26.10', 'debian-testing', 'tumbleweed')
 # WHY: drafts and plain branch dispatch run one native system (Arch: dual old/new-library
 # verification and the whole native test suite). Anything that can merge or ship runs all.
 FAST_PRODUCERS = ('prepare', 'arch')
@@ -122,6 +126,8 @@ def validate(directory, evidence, statuses, sha, contract, mode='full', check_by
         raise ValueError('Every required producer must succeed (including prepare)')
     wanted = set(contract['targets']) if mode == 'full' else set(FAST_TARGETS)
     targets = [e.get('target') for e in evidence]
+    # WHY: an optional target (see DISTRO_TARGETS) may be absent; when present it is checked like every other.
+    wanted -= {t for t in wanted if contract['targets'][t].get('optional') and t not in targets}
     if len(targets) != len(set(targets)) or set(targets) != wanted:
         raise ValueError('Missing, duplicate or unexpected target evidence')
     records = []
@@ -193,6 +199,8 @@ def check_versions(contract):
         ('packaging/arch/PKGBUILD', r'^pkgrel=(.+)$', str(contract['release'])),
         ('packaging/fedora/swipe-keyboard.spec', r'^Version: (.+)$', contract['version']),
         ('packaging/fedora/swipe-keyboard.spec', r'^Release: (\d+)', str(contract['release'])),
+        ('packaging/opensuse/swipe-keyboard.spec', r'^Version: (.+)$', contract['version']),
+        ('packaging/opensuse/swipe-keyboard.spec', r'^Release: (\d+)', str(contract['release'])),
     ]:
         match = re.search(pattern, (ROOT/path).read_text(), re.M)
         if not match or match[1] != expected:
@@ -200,7 +208,7 @@ def check_versions(contract):
 
 
 README = ROOT/'README.md'
-DOWNLOAD = re.compile(r'https://github\.com/itsdestin/swipe-keyboard/releases/download/v([0-9][0-9.]*-[0-9][0-9.]*)/')
+DOWNLOAD = re.compile(r'https://github\.com/itsdestin/openswipe/releases/download/v([0-9][0-9.]*-[0-9][0-9.]*)/')
 
 
 def readme_versions(text):
@@ -219,7 +227,12 @@ def update_readme(text, contract):
     if len(old) != 1:
         raise ValueError('README download links name ' + (', '.join(sorted(old)) or 'no version') + '; fix by hand')
     (previous,) = old
-    return text.replace(previous, version(contract)), previous
+    # WHY lines are kept (0.6.0-1, 2026-11-03): the reinstall notice names a fixed cut-off ("older than version 0.5.1-1")
+    # that must not follow each release; the plain replacement moved it to the new version, telling everyone to reinstall.
+    keep = ('older than version', 'versions before')
+    lines = text.splitlines(keepends=True)
+    moved = [line if any(k in line for k in keep) else line.replace(previous, version(contract)) for line in lines]
+    return ''.join(moved), previous
 
 
 def steamos_bundle():
@@ -271,6 +284,20 @@ def inspect(target, directory, stage, sha, contract):
     elif target == 'steamos':
         # WHY check the real archive, not just its hash: it is what Deck users run install.sh from.
         embedded = steamos_bundle().verify(directory/names[0], version(contract))
+    elif target in DISTRO_TARGETS:
+        # WHY check the package's own header: the file name alone could be renamed; the package manager reads these.
+        path = directory/names[0]
+        if names[0].endswith('.deb'):
+            fields = dict(line.split(': ', 1) for line in
+                          output(['dpkg-deb', '-f', str(path), 'Package', 'Version', 'Architecture']).splitlines())
+            wanted_fields = {'Package': 'swipe-keyboard', 'Architecture': 'amd64',
+                             'Version': version(contract) + '.' + target.replace('-', '')}
+            if fields != wanted_fields:
+                raise ValueError(f'{target} package metadata mismatch')
+        else:
+            actual = output(['rpm', '-qp', '--qf', '%{NAME} %{VERSION}-%{RELEASE} %{ARCH}', str(path)])
+            if actual != f'swipe-keyboard {version(contract)}.{target} x86_64':
+                raise ValueError(f'{target} package metadata mismatch')
     elif target == 'source':
         with tarfile.open(directory/names[0]) as archive:
             member = archive.extractfile(f"swipe-keyboard-{contract['version']}/packaging/source-identity.json")

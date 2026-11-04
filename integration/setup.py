@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 import platform
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -20,9 +21,17 @@ import tempfile
 import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from layout import build_overlay
-import learning
-import plasma69
+try:
+    from layout import build_overlay
+    import learning
+    import plasma69
+except Exception as _import_error:   # noqa: BLE001
+    # WHY (review, card #502): KDE starts the keyboard through "launch". If an update was cut off half way, these files
+    # can be a mix of old and new versions and fail to load; then there must still be a keyboard: KDE's plain one.
+    if sys.argv[1:2] == ['launch']:
+        print(f'OpenSwipe: {_import_error}\nStarting the unmodified stock keyboard instead.', file=sys.stderr)
+        os.execvp('plasma-keyboard', ['plasma-keyboard'])
+    raise
 
 REQUIRED_ASSETS = (
     'integration/swipekb-preflight', 'integration/swipekb-config',
@@ -46,6 +55,71 @@ UNSET = '__SWIPEKB_UNSET__'
 
 class SetupError(RuntimeError):
     pass
+
+
+# The removal safety check for the regular package (review, card #502). WHY it lives in the person's own folders: removing
+# the package (pacman -R, apt remove, Discover) deletes everything under /usr, and package scripts run as root and cannot
+# change each person's keyboard choice. If the package disappears while it is the chosen keyboard, KDE would start
+# nothing at the next login. This check, woken when the system's app list changes and at login, then hands the choice
+# to KDE's own keyboard (or Maliit), and removes itself. It changes nothing while the package is installed.
+REMOVAL_CHECK_STAMP = '# swipe-keyboard-removal-check'
+REMOVAL_CHECK_SCRIPT = REMOVAL_CHECK_STAMP + r'''
+# Written by "swipe-keyboard enable" (or at keyboard start); removed by "swipe-keyboard disable" or by itself.
+set -u
+APPS="${SWIPEKB_APPLICATIONS_DIR:-/usr/share/applications}"   # test hook; never set on a real system
+OURS=/usr/share/applications/swipe-keyboard.desktop
+# WHY written in when the check is set up (second review): systemd's environment may lack the session's XDG folders, and
+# reading the wrong kwinrc would make the check think the choice is not ours and remove itself for nothing.
+CONFIG_HOME=@CONFIG_HOME@
+DATA_DIR=@DATA_DIR@
+UNITS_DIR=@UNITS_DIR@
+still_installed() { [ -f "$APPS/swipe-keyboard.desktop" ] || [ -f "$APPS/openswipe.desktop" ]; }
+still_installed && exit 0
+# WHY a second look (second review): an upgrade or a system-image refresh can hide the file for a moment.
+sleep "${SWIPEKB_RECHECK_SECONDS:-5}"
+still_installed && exit 0
+choice="$(sed -n '/^\[Wayland\]/,/^\[/{s/^InputMethod\(\[\$e\]\)\{0,1\}=//p}' "$CONFIG_HOME/kwinrc" 2>/dev/null | head -n 1)"
+if [ "$choice" = "$OURS" ] && command -v kwriteconfig6 >/dev/null 2>&1; then
+    target=""
+    for candidate in "$APPS/org.kde.plasma.keyboard.desktop" "$APPS/com.github.maliit.keyboard.desktop"; do
+        [ -f "$candidate" ] && { target="$candidate"; break; }
+    done
+    kwriteconfig6 --file "$CONFIG_HOME/kwinrc" --group Wayland --key InputMethod --notify "$target"
+    # WHY: a later reinstall then starts fresh with "swipe-keyboard enable" instead of refusing an outdated record.
+    [ -f "$DATA_DIR/setup-state.json" ] && mv -f "$DATA_DIR/setup-state.json" "$DATA_DIR/setup-state.json.removed"
+fi
+systemctl --user disable --now swipe-keyboard-removal-check.path >/dev/null 2>&1
+rm -f "$UNITS_DIR/swipe-keyboard-removal-check.path" "$UNITS_DIR/swipe-keyboard-removal-check.service" \
+      "$UNITS_DIR/default.target.wants/swipe-keyboard-removal-check.path" \
+      "$UNITS_DIR/default.target.wants/swipe-keyboard-removal-check.service" "$0"
+exit 0
+'''
+def removal_check_units(script):
+    """The two unit files, naming the script where it really is (a custom XDG_DATA_HOME moves it)."""
+    return {
+    'swipe-keyboard-removal-check.service': REMOVAL_CHECK_STAMP + f'''
+[Unit]
+Description=OpenSwipe: if its package was removed while chosen, hand the on-screen keyboard back to KDE's own
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh "{script}"
+
+[Install]
+WantedBy=default.target
+''',
+    'swipe-keyboard-removal-check.path': REMOVAL_CHECK_STAMP + '''
+[Unit]
+Description=OpenSwipe: notice when the system's list of apps changes (to catch the package being removed)
+
+[Path]
+PathChanged=/usr/share/applications
+Unit=swipe-keyboard-removal-check.service
+
+[Install]
+WantedBy=default.target
+''',
+    }
 
 
 def atomic_json(path, value):
@@ -137,18 +211,18 @@ class Controller:
 
         WHY both the version AND the files must agree: the version says which engine the plasma-keyboard binary runs,
         the files say what it will load. A disagreement (half-finished upgrade, distro patch) or an unknown version
-        starts KDE's plain keyboard: typing always works, swiping waits for a matching Swipe Keyboard.
+        starts KDE's plain keyboard: typing always works, swiping waits for a matching OpenSwipe.
         """
         text, found = self.plasma_keyboard_version()
         new_core = plasma69.is_new_core(self.system_data_dirs())
         legacy = (self.stock / 'en_US').is_dir()
         if found and found >= (7, 0, 0):
             # WHY: a new major version means a new Qt major; our Qt 6 modules could not load there.
-            raise SetupError(f'Plasma Keyboard {text.split()[-1]} is newer than this Swipe Keyboard supports (6.7 to 6.x); '
+            raise SetupError(f'Plasma Keyboard {text.split()[-1]} is newer than this OpenSwipe supports (6.7 to 6.x); '
                              'it steps aside and the plain KDE keyboard is used.')
         if found and found >= NEW_CORE_VERSION:
             if not new_core:
-                raise SetupError('Plasma Keyboard ' + text + ' has no keyboard packages Swipe Keyboard can extend; '
+                raise SetupError('Plasma Keyboard ' + text + ' has no keyboard packages OpenSwipe can extend; '
                                  'the plain KDE keyboard is used.')
             return 'plasma69', text
         if found and found >= (6, 7, 0):
@@ -166,9 +240,10 @@ class Controller:
         except (OSError, ValueError, KeyError, TypeError) as error:
             raise SetupError('Package compatibility metadata is missing or damaged. Reinstall the package.') from error
         qt = None
-        # WHY explicit Arch path: qt6-base installs this tool under /usr/lib/qt6/bin,
-        # which is not on a fresh desktop user's PATH. Fedora also supplies /usr/bin aliases.
-        for binary in ('qtpaths6', 'qtpaths-qt6', '/usr/lib/qt6/bin/qtpaths6'):
+        # WHY our own probe first: it is installed with the package and reports the Qt it really loads; qtpaths6 is a
+        # developer tool on openSUSE (card #502). The qtpaths names stay as a fallback. WHY explicit Arch path: qt6-base
+        # installs qtpaths6 under /usr/lib/qt6/bin, which is not on a fresh desktop user's PATH.
+        for binary in (str(self.root / 'integration/swipekb-preflight'), 'qtpaths6', 'qtpaths-qt6', '/usr/lib/qt6/bin/qtpaths6'):
             try:
                 qt = self.command([binary, '--qt-version'])
                 break
@@ -219,7 +294,7 @@ class Controller:
                 'Session': 'KDE Plasma Wayland',
                 'Front end': 'Plasma 6.9 keyboard core (no Qt Virtual Keyboard, no FUTO)',
                 'Keyboard packages': f'Compatible ({len(generated)} languages)',
-                'Selected input method': 'Swipe Keyboard' if selected else 'Other / stock',
+                'Selected input method': 'OpenSwipe' if selected else 'Other / stock',
                 'Setup record': 'Present' if self.state_file.exists() else 'Absent'}
 
     def check_legacy(self, version):
@@ -255,7 +330,7 @@ class Controller:
                 'Front end': 'Plasma 6.7/6.8 (Qt Virtual Keyboard)',
                 'Language overlays': 'Compatible',
                 'Profile capability queries (not active runtime)': self.profile_checks(),
-                'Selected input method': 'Swipe Keyboard' if selected else 'Other / stock',
+                'Selected input method': 'OpenSwipe' if selected else 'Other / stock',
                 'Setup record': 'Present' if self.state_file.exists() else 'Absent'}
 
     def config_state(self, writable=False, keys=None):
@@ -427,6 +502,28 @@ class Controller:
         if self.config_state()['InputMethod']['raw'] == self.wanted['InputMethod']:
             self.write_setting('InputMethod', state['previous']['InputMethod'])
 
+    def adopt_flatpak_learning(self):
+        """Moving up from the Flatpak (older KDE desktops) to this package: bring the learned words along.
+
+        WHY (card #502, edge case 7): someone who starts on Kubuntu 26.04 with the Flatpak and later upgrades to a release
+        served by this package should not lose what the keyboard learned. Flatpak keeps an app's files in its own folder
+        (~/.var/app/<id>/data) even after the app is removed, so they are still there to copy. Copied, not moved: the
+        Flatpak keeps working if they go back. Only into an empty store, so nothing learned here is ever overwritten.
+        Returns how many language files were copied (0 = nothing to do)."""
+        old = Path(self.env['HOME']) / '.var/app/org.itsdestin.SwipeKeyboard/data/swipe-keyboard'
+        files = learning.stored_files(old)
+        if not files or learning.stored_files(self.data):
+            return 0
+        store = self.data / learning.STORE
+        store.mkdir(mode=0o700, parents=True, exist_ok=True)
+        for source in files:
+            target = store / source.name
+            shutil.copyfile(source, target)
+            target.chmod(0o600)
+        if (old / learning.FLAG).exists():
+            (self.data / learning.FLAG).touch()   # learning stays on if it was on
+        return len(files)
+
     def enable(self, always_available=False):
         self.check()
         with self.locked():
@@ -442,8 +539,13 @@ class Controller:
                 self.rebuild_layout()
                 return
             previous = {key: config[key]['raw'] for key in self.wanted}
+            # WHY (card #502): coming from the Flatpak, "the keyboard to go back to" would be the Flatpak, which is usually being
+            # removed; disable would then leave no keyboard. Go back to KDE's own keyboard instead (or none, where there is none).
+            if str(previous.get('InputMethod') or '').endswith('/org.itsdestin.SwipeKeyboard.desktop'):
+                kde = [Path(d) / 'applications/org.kde.plasma.keyboard.desktop' for d in self.system_data_dirs()]
+                previous['InputMethod'] = next((str(k) for k in kde if k.is_file()), '')
             if config['InputMethod']['effective'] == self.wanted['InputMethod']:
-                raise SetupError('Swipe Keyboard is selected without a setup record. Select your old keyboard before enabling.')
+                raise SetupError('OpenSwipe is selected without a setup record. Select your old keyboard before enabling.')
             live_mode = self.read_live_mode()
             self.rebuild_layout()
             # WHY snapshot before writes: interrupted activation can be recovered with disable.
@@ -463,8 +565,48 @@ class Controller:
                 self.state_file.unlink()
                 raise
 
+    def removal_check_paths(self):
+        config_home = Path(self.env.get('XDG_CONFIG_HOME') or Path(self.env['HOME']) / '.config')
+        units = config_home / 'systemd/user'
+        return self.data / 'removal-check.sh', units, units / 'default.target.wants'
+
+    def install_removal_check(self):
+        """Write the removal safety check (see REMOVAL_CHECK_SCRIPT). Idempotent; never touches files that are not ours.
+
+        WHY links instead of "systemctl enable": this also runs at every keyboard start, which must stay fast and must
+        not depend on the user's service manager answering. systemd picks the units up at the next login."""
+        script, units, wants = self.removal_check_paths()
+        for name in removal_check_units(script):
+            existing = units / name
+            if existing.exists() and not existing.read_text(errors='replace').startswith(REMOVAL_CHECK_STAMP):
+                return False   # a file of the same name that is not ours: leave everything alone
+        script.parent.mkdir(parents=True, exist_ok=True)
+        text = (REMOVAL_CHECK_SCRIPT.replace('@CONFIG_HOME@', shlex.quote(str(units.parent.parent)))
+                .replace('@DATA_DIR@', shlex.quote(str(self.data))).replace('@UNITS_DIR@', shlex.quote(str(units))))
+        if not script.exists() or script.read_text(errors='replace') != text:
+            script.write_text(text)
+        wants.mkdir(parents=True, exist_ok=True)
+        for name, text in removal_check_units(script).items():
+            if not (units / name).exists() or (units / name).read_text(errors='replace') != text:
+                (units / name).write_text(text)
+            link = wants / name
+            if not link.is_symlink():
+                link.unlink(missing_ok=True)
+                link.symlink_to(units / name)
+        return True
+
+    def remove_removal_check(self):
+        script, units, wants = self.removal_check_paths()
+        for name in removal_check_units(script):
+            if (units / name).exists() and (units / name).read_text(errors='replace').startswith(REMOVAL_CHECK_STAMP):
+                (wants / name).unlink(missing_ok=True)
+                (units / name).unlink()
+        if script.exists() and script.read_text(errors='replace').startswith(REMOVAL_CHECK_STAMP):
+            script.unlink()
+
     def disable(self):
         # WHY no compatibility check: removal must work after an upstream update or package removal.
+        self.remove_removal_check()   # WHY first: once disabled, the package may be removed freely
         if not self.state_file.exists():
             return
         with self.locked():
@@ -487,6 +629,13 @@ class Controller:
             raise SetupError(str(error)) from error
 
     def launch_environment(self):
+        # WHY here too: existing installs get the removal safety check through a normal update, without running enable
+        # again. Only while this keyboard is set up (a record exists); best effort, never in the way of starting.
+        if self.state_file.exists():
+            try:
+                self.install_removal_check()
+            except OSError:
+                pass
         self.check()
         with self.locked(wait=True):
             generated = self.rebuild_layout()
@@ -524,7 +673,7 @@ def confirm_activation(controller, assume_yes=False, always_available=False):
     # WHY: package installation and desktop activation are different consent boundaries.
     # Read current values before asking; declining must not create an overlay/journal or write settings.
     state = controller.config_state()
-    print('Swipe Keyboard will change these per-user KDE settings:')
+    print('OpenSwipe will change these per-user KDE settings:')
     print(f"  InputMethod: {state['InputMethod']['effective']!r} -> {controller.wanted['InputMethod']!r}")
     if always_available:
         print(f"  VirtualKeyboardMode: {state['VirtualKeyboardMode']['effective']!r} -> '1' (explicit always-available choice)")
@@ -545,7 +694,7 @@ def confirm_activation(controller, assume_yes=False, always_available=False):
         print('No settings changed. Use an interactive terminal or pass --yes for explicit automation consent.')
         return False
     try:
-        answer = input('Enable Swipe Keyboard with these changes? [y/N] ').strip().lower()
+        answer = input('Enable OpenSwipe with these changes? [y/N] ').strip().lower()
     except (EOFError, KeyboardInterrupt):
         answer = ''
     if answer not in ('y', 'yes'):
@@ -569,34 +718,45 @@ def main():
         parser.error('use: swipe-keyboard learning on|off|forget|status')
     if os.geteuid() == 0:
         parser.error('Run as your normal desktop user, not root or sudo.')
+    if args.action == 'launch':
+        # WHY before anything else and inside one guard (review, card #502): KDE starts the keyboard with this; whatever
+        # goes wrong while preparing ours, KDE's plain keyboard must start, so the person can always type.
+        try:
+            env = Controller(Path(__file__).resolve().parent.parent).launch_environment()
+        except Exception as error:   # noqa: BLE001
+            print(f'OpenSwipe: {error}\nStarting the unmodified stock keyboard instead.', file=sys.stderr)
+            env = dict(os.environ)
+        os.execvpe('plasma-keyboard', ['plasma-keyboard'], env)
     controller = Controller(Path(__file__).resolve().parent.parent)
     try:
         if args.action == 'learning':
             # WHY the controller's data folder: it is the folder `launch` hands the keyboard as SWIPEKB_DATA.
             return learning.run(args.learning_action, controller.data)
-        if args.action == 'launch':
-            try:
-                env = controller.launch_environment()
-            except (SetupError, OSError) as error:
-                print(f'Swipe Keyboard: {error}\nStarting the unmodified stock keyboard instead.', file=sys.stderr)
-                env = dict(os.environ)
-            os.execvpe('plasma-keyboard', ['plasma-keyboard'], env)
         if args.action == 'enable':
             controller.check()  # Refuse incompatible systems before offering activation.
             if not confirm_activation(controller, assume_yes=args.yes, always_available=args.always_available):
                 return 0
             report = controller.enable(always_available=args.always_available)
+            try:
+                controller.install_removal_check()
+            except OSError as error:
+                # WHY (second review): enable already succeeded; this extra safety net must not turn that into a failure
+                print(f'Note: the removal safety check could not be set up ({error}). Run "swipe-keyboard disable" '
+                      'before removing the package.', file=sys.stderr)
+            copied = controller.adopt_flatpak_learning()
+            if copied:
+                print(f'Brought along what the Flatpak version learned from your typing ({copied} language file(s)).')
         else:
             report = getattr(controller, args.action)()
         if args.action == 'check':
             for label, value in report.items():
                 print(f'{label}: {value}')
         print({'check': 'Compatibility checks passed. Touch activation and typing still need a real KDE session test.',
-               'enable': 'Swipe Keyboard enabled. Choose English (US/UK), Spanish, French or German in the keyboard language menu.',
-               'disable': 'Swipe Keyboard disabled; settings still owned by setup were restored.'}[args.action])
+               'enable': 'OpenSwipe enabled. Choose English (US/UK), Spanish, French or German in the keyboard language menu.',
+               'disable': 'OpenSwipe disabled; settings still owned by setup were restored.'}[args.action])
     except (SetupError, OSError) as error:
-        print('Swipe Keyboard: ' + str(error), file=sys.stderr)
-        print('Help: https://github.com/itsdestin/swipe-keyboard#troubleshooting\n'
+        print('OpenSwipe: ' + str(error), file=sys.stderr)
+        print('Help: https://github.com/itsdestin/openswipe#troubleshooting\n'
               'Share the error and versions, not typing recordings or private logs. '
               'Do not force dependencies or overwrite custom layouts.', file=sys.stderr)
         return 1

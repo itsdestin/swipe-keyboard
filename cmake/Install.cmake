@@ -36,6 +36,9 @@ install(PROGRAMS "${SWIPEKB_SOURCE}/integration/swipe-keyboard" DESTINATION "${_
 # WHY an option: the Deck Flatpak is updated by Flatpak itself and must not carry system units (its build sets OFF).
 option(SWIPEKB_NATIVE_UPDATES "Install the native updater, its daily timer and the update key" ON)
 option(SWIPEKB_DNF_REPO "Install the dnf update repository file (Fedora)" OFF)
+# WHY a target (Kubuntu/Debian/openSUSE, card #502): each such package is built against one distro release's own Qt and
+# KDE, and the updater must only ever fetch that release's builds (deb/<target>/ or opensuse/<target>/ on the site).
+set(SWIPEKB_UPDATE_TARGET "" CACHE STRING "distro release this package is built for, for example kubuntu-26.10")
 if(SWIPEKB_NATIVE_UPDATES)
     install(PROGRAMS "${SWIPEKB_SOURCE}/integration/update.py" DESTINATION "${_runtime}/integration")
     install(FILES "${SWIPEKB_SOURCE}/packaging/updates/update-key.asc" "${SWIPEKB_SOURCE}/packaging/updates/update-key.gpg"
@@ -44,6 +47,13 @@ if(SWIPEKB_NATIVE_UPDATES)
         "${SWIPEKB_SOURCE}/packaging/updates/swipe-keyboard-update.timer" DESTINATION "lib/systemd/system")
     if(SWIPEKB_DNF_REPO)
         install(FILES "${SWIPEKB_SOURCE}/packaging/updates/swipe-keyboard.repo" DESTINATION "/etc/yum.repos.d")
+    endif()
+    if(SWIPEKB_UPDATE_TARGET)
+        if(NOT SWIPEKB_UPDATE_TARGET MATCHES "^[a-z]+(-[a-z0-9.]+)?$")
+            message(FATAL_ERROR "SWIPEKB_UPDATE_TARGET looks wrong: ${SWIPEKB_UPDATE_TARGET} (for example kubuntu-26.10)")
+        endif()
+        file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/update-target" "${SWIPEKB_UPDATE_TARGET}\n")
+        install(FILES "${CMAKE_CURRENT_BINARY_DIR}/update-target" DESTINATION "${_runtime}/integration")
     endif()
 endif()
 install(PROGRAMS "${SWIPEKB_SOURCE}/integration/swipe-keyboard" DESTINATION "${CMAKE_INSTALL_BINDIR}")
