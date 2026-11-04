@@ -5,7 +5,7 @@
 # SPDX-License-Identifier: MIT
 
 """Automatic updates for the native Arch, Fedora, Kubuntu/Debian and openSUSE packages
-(plan: docs/active/plans/2026-10-23-auto-updates.md; Kubuntu/Debian/openSUSE: docs/active/specs/2026-10-30-more-kde-distros.md).
+(plan: docs/active/plans/2026-10-23-auto-updates.md; Kubuntu/Debian/openSUSE: docs/archive/specs/2026-10-30-more-kde-distros.md).
 
 Run once a day as root by swipe-keyboard-update.timer. It only ever updates this one package:
 - Fedora: dnf, from the signed repository the package itself installed (/etc/yum.repos.d/swipe-keyboard.repo).
