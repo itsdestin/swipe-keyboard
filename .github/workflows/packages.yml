@@ -384,11 +384,22 @@ jobs:
     # WHY: optional in the fast path; the Keyboard CI gate requires these to be skipped there and successful otherwise.
     if: ${{ needs.prepare.outputs.mode == 'full' && needs.prepare.outputs.reuse_run == '' }}
     runs-on: ubuntu-24.04
-    container: fedora:44
+    container:
+      image: fedora:44
+      # WHY (2026-11-04): a boxed job cannot delete the runner's preinstalled tools the way the other jobs do, and the
+      # asset step needs 21 GiB free; on the PR run for 0.6.0-1 Fedora and Tumbleweed got less and stopped. Handing
+      # those folders into the box lets its first step empty them (same folders as the other jobs; never our files).
+      volumes:
+        - /usr/share/dotnet:/host-free/dotnet
+        - /usr/local/lib/android:/host-free/android
+        - /opt/ghc:/host-free/ghc
+        - /opt/hostedtoolcache/CodeQL:/host-free/codeql
     env:
       VERSION: ${{ needs.prepare.outputs.version }}
       PACKAGE_VERSION: ${{ needs.prepare.outputs.package_version }}
     steps:
+      - name: Free hosted-runner space (the runner's preinstalled tools, handed into this box)
+        run: rm -rf /host-free/*/* && df -h .
       - name: Install RPM tooling
         # WHY nodejs: see the Arch job; it is installed in the build image only, not required by the package.
         run: dnf -y install git rpm-build rpmdevtools dnf-plugins-core cpio findutils nodejs
@@ -950,11 +961,22 @@ jobs:
     # hiccup there (a Qt transition, a package briefly missing) must not block an urgent fix for every other platform.
     # Those rows still run and still show red when they fail; only the fixed release (Kubuntu 26.10) is required.
     continue-on-error: ${{ !matrix.required }}
-    container: ${{ matrix.image }}
+    container:
+      image: ${{ matrix.image }}
+      # WHY (2026-11-04): a boxed job cannot delete the runner's preinstalled tools the way the other jobs do, and the
+      # asset step needs 21 GiB free; on the PR run for 0.6.0-1 Fedora and Tumbleweed got less and stopped. Handing
+      # those folders into the box lets its first step empty them (same folders as the other jobs; never our files).
+      volumes:
+        - /usr/share/dotnet:/host-free/dotnet
+        - /usr/local/lib/android:/host-free/android
+        - /opt/ghc:/host-free/ghc
+        - /opt/hostedtoolcache/CodeQL:/host-free/codeql
     env:
       VERSION: ${{ needs.prepare.outputs.version }}
       TARGET: ${{ matrix.target }}
     steps:
+      - name: Free hosted-runner space (the runner's preinstalled tools, handed into this box)
+        run: rm -rf /host-free/*/* && df -h .
       - name: Install build tooling
         run: |
           if [ "${{ matrix.kind }}" = deb ]; then
