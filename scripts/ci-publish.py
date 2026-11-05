@@ -85,8 +85,24 @@ def broken_readme_links(text, tag, open_url=urllib.request.urlopen):
     return broken
 
 
-def check_links(open_url=urllib.request.urlopen):
+def release_published(tag, open_url=urllib.request.urlopen):
+    """Whether the release page for this tag answers (a draft or a not-yet-tagged release does not)."""
+    request = urllib.request.Request(f'https://github.com/itsdestin/openswipe/releases/tag/{tag}', method='HEAD')
+    try:
+        with open_url(request, timeout=30) as answer:
+            return answer.status < 400
+    except OSError:
+        return False
+
+
+def check_links(open_url=urllib.request.urlopen, before_release_ok=False):
     contract = release.load_contract()
+    # WHY (README cleanup, 2026-11-04): a documentation-only pull request made before its own release is published (the
+    # README already names the coming version) could never pass, since none of its files exist yet. Publishing checks
+    # every link again right after the release goes out, so here an unpublished release is only reported.
+    if before_release_ok and not release_published('v' + release.version(contract), open_url):
+        print(f"Release v{release.version(contract)} is not published yet; its README links are checked when it is")
+        return
     broken = broken_readme_links(Path('README.md').read_text(), 'v' + release.version(contract), open_url)
     # WHY (second review, card #502): a release may leave out an optional target whose build failed (Debian testing,
     # Tumbleweed). Its README link then answers 404 for this one release. That must be visible, but it must not fail this
@@ -107,6 +123,8 @@ if __name__ == '__main__':
     # `check-links` alone: documentation-only pull requests check the README against the published release.
     if sys.argv[1:] != ['check-links']:
         publish()
-    # WHY after publishing: the release stands either way; a red run here means the README sends people to a
-    # missing file and must be fixed at once.
-    check_links()
+        # WHY after publishing: the release stands either way; a red run here means the README sends people to a
+        # missing file and must be fixed at once.
+        check_links()
+    else:
+        check_links(before_release_ok=True)
