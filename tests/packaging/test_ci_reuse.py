@@ -29,11 +29,25 @@ class Choose(unittest.TestCase):
 
     def test_anything_else_is_never_reused(self):
         for bad in (dict(head_sha='b'*40), dict(head_branch='feature'), dict(event='pull_request'),
-                    dict(event='workflow_dispatch'), dict(path='.github/workflows/other.yml'),
+                    dict(event='schedule'), dict(path='.github/workflows/other.yml'),
+                    dict(event='workflow_dispatch', head_repository={'full_name': 'someone/fork'}),
                     dict(repository={'full_name': 'someone/fork'}), dict(head_repository={'full_name': 'someone/fork'}),
                     dict(head_repository=None)):
             with self.subTest(bad=bad):
                 self.assertEqual(reuse.choose([run(**bad)], SHA, REPO)[0], 'cold')
+
+    def test_a_full_run_started_by_hand_on_a_branch_is_reused(self):
+        # WHY (2026-11-05): tagging the merged branch's last commit reuses the full run made there, instead of waiting
+        # for main to build the same packages again after the merge.
+        branch = run(event='workflow_dispatch', head_branch='feature/x')
+        self.assertEqual(reuse.choose([branch], SHA, REPO), ('reuse', branch))
+
+    def test_a_fast_run_that_built_nothing_is_passed_over_for_an_older_full_one(self):
+        fast = run(id=9, run_number=9, event='workflow_dispatch', head_branch='feature/x')
+        full = run(id=8, run_number=8, event='workflow_dispatch', head_branch='feature/x')
+        usable = lambda r: 'a producer in that run did not succeed' if r['id'] == 9 else ''
+        self.assertEqual(reuse.choose([fast, full], SHA, REPO, usable), ('reuse', full))
+        self.assertEqual(reuse.choose([fast], SHA, REPO, usable)[0], 'cold')
 
     def test_failed_run_means_cold_build(self):
         self.assertEqual(reuse.choose([run(conclusion='failure')], SHA, REPO)[0], 'cold')

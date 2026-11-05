@@ -145,6 +145,11 @@ from uploaded claims. `verified-release` is the exact set to inspect/download.
    against the evidence. If no such run exists the tag builds everything cold, as before. What reuse gives
    up: main's builds may restore dependency and compiler caches (below), which a cold tag build never did.
    About 8 minutes instead of 36. Push `main` first; the tag can follow at once.
+   **Fastest (2026-11-05):** a full run started by hand on the work branch also counts
+   (`gh workflow run "Keyboard packages" --ref <branch> -f full=true`). After the merge, tag the branch's last
+   commit (reachable from main through the merge) instead of the merge commit: the tag then reuses that branch run
+   at once, instead of waiting ~30 minutes for main to build the same packages again. A fast (not full) branch run
+   builds nothing and is passed over.
    After `Keyboard CI` passes, the `publish` job waits for approval of the protected **keyboard-release**
    environment. Configure its required owner reviewer and disallow administrator
    bypass before using tag publication; a bare environment name alone is not protection.
