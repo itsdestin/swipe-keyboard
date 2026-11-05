@@ -4,7 +4,13 @@
 #
 # SPDX-License-Identifier: MIT
 
-"""Release tags reuse the packages main already built and tested for the exact same commit (card #200).
+"""Release tags reuse the packages already built and tested for the exact same commit (card #200).
+
+Change 2026-11-05 (Destin: "fix this stupid broken release process"): besides main's push run, a full run started by
+hand on a work branch of this repository counts too (`gh workflow run ... -f full=true`). Every merge makes a new commit,
+so waiting for main's own run after the merge added a second ~30-minute build of packages already built and checked.
+Tagging the merged branch's last commit (reachable from main through the merge; the gate checks that) reuses its run.
+Same commit still means same files, recipes and pinned assets; a fork's run never counts.
 
 Owner decision, 2026-10-24: a tag no longer rebuilds every platform cold (~36 min). It publishes the files of the
 successful push run on main for the same commit, after the gate hashes every byte against that run's own recorded
@@ -43,25 +49,35 @@ def api(path, tries=4, pause=15):
 
 
 def candidates(runs, sha, repo):
-    """Main-branch push runs of this very workflow for this very commit, in this repository (never a fork)."""
+    """Runs of this very workflow for this very commit, in this repository (never a fork): main's push runs, and runs
+    started by hand on a branch here (WHY: see the top; a pull request's own runs test a temporary merge commit with
+    another SHA, so they can never match)."""
     return [r for r in runs
-            if r.get('head_sha') == sha and r.get('head_branch') == 'main' and r.get('event') == 'push'
+            if r.get('head_sha') == sha
+            and ((r.get('event') == 'push' and r.get('head_branch') == 'main') or r.get('event') == 'workflow_dispatch')
             and r.get('path') == WORKFLOW and (r.get('repository') or {}).get('full_name') == repo
             and (r.get('head_repository') or {}).get('full_name') == repo]
 
 
-def choose(runs, sha, repo):
-    """('reuse', run) | ('wait', run) | ('cold', reason). Newest matching run first."""
+def choose(runs, sha, repo, usable=lambda run: ''):
+    """('reuse', run) | ('wait', run) | ('cold', reason). Newest matching run first.
+
+    WHY `usable` per run: a branch run started without full=true succeeds while building nothing; it must be passed
+    over for an older full one, not end the search."""
     matching = sorted(candidates(runs, sha, repo), key=lambda r: r.get('run_number', 0), reverse=True)
     if not matching:
-        return 'cold', 'no main push run for this commit'
+        return 'cold', 'no full run for this commit'
+    reasons = []
     for run in matching:
         if run.get('status') == 'completed' and run.get('conclusion') == 'success':
-            return 'reuse', run
+            reason = usable(run)
+            if not reason:
+                return 'reuse', run
+            reasons.append(f"run {run.get('id')}: {reason}")
     pending = [r for r in matching if r.get('status') != 'completed']
     if pending:
         return 'wait', pending[0]
-    return 'cold', 'the main run for this commit did not succeed'
+    return 'cold', '; '.join(reasons) or 'no run for this commit succeeded'
 
 
 def producer_statuses(jobs):
@@ -90,10 +106,10 @@ def usable(run_id, repo):
     """The run's producers all succeeded and none of the files it made has expired."""
     statuses = producer_statuses(api(f'repos/{repo}/actions/runs/{run_id}/jobs?per_page=100')['jobs'])
     if any(s['result'] != 'success' for s in statuses.values()):
-        return 'a producer in the main run did not succeed'
+        return 'a producer in that run did not succeed (a fast run builds nothing)'
     artifacts = {a['name']: a for a in api(f'repos/{repo}/actions/runs/{run_id}/artifacts?per_page=100')['artifacts']}
     missing = sorted(n for n in ARTIFACTS if n not in artifacts or artifacts[n].get('expired'))
-    return 'main run files missing or expired: ' + ', '.join(missing) if missing else ''
+    return 'run files missing or expired: ' + ', '.join(missing) if missing else ''
 
 
 def find(env, wait_minutes=75, poll=30):
@@ -102,14 +118,13 @@ def find(env, wait_minutes=75, poll=30):
         return '', 'not a tag run'
     deadline = time.time() + wait_minutes*60
     while True:
-        runs = api(f'repos/{repo}/actions/workflows/packages.yml/runs?head_sha={sha}&event=push&branch=main&per_page=30')
-        decision, value = choose(runs['workflow_runs'], sha, repo)
+        runs = api(f'repos/{repo}/actions/workflows/packages.yml/runs?head_sha={sha}&per_page=30')
+        decision, value = choose(runs['workflow_runs'], sha, repo, lambda run: usable(run['id'], repo))
         if decision == 'reuse':
-            reason = usable(value['id'], repo)
-            return ('', reason) if reason else (str(value['id']), f"reusing main run {value['id']}")
+            return str(value['id']), f"reusing run {value['id']} ({value.get('event')} on {value.get('head_branch')})"
         if decision == 'cold' or time.time() > deadline:
-            return '', value if decision == 'cold' else 'the main run for this commit did not finish in time'
-        print(f"waiting for main run {value['id']} ({value.get('status')})", file=sys.stderr)
+            return '', value if decision == 'cold' else 'the run for this commit did not finish in time'
+        print(f"waiting for run {value['id']} ({value.get('status')})", file=sys.stderr)
         time.sleep(poll)
 
 
