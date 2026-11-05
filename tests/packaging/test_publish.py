@@ -150,3 +150,13 @@ class ReadmeLinkTests(unittest.TestCase):
                     publish.check_links(open_url)              # required missing: fails
             finally:
                 os.chdir(cwd)
+
+    def test_a_docs_change_before_its_release_is_published_passes(self):
+        # WHY: a README edit made before the release it names is published must not fail on links that cannot exist yet;
+        # once the release page answers, missing files fail again.
+        def unpublished(request, timeout):
+            raise OSError('404 Not Found')
+        publish.check_links(unpublished, before_release_ok=True)
+        with self.assertRaises(SystemExit):
+            publish.check_links(unpublished)
+
